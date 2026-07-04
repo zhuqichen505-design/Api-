@@ -1623,9 +1623,9 @@ fun ChatInputBar(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp),
             color = MaterialTheme.colorScheme.surface.copy(alpha = 0.70f),
-            borderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.48f),
+            borderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
             tonalElevation = 0.dp,
-            shadowElevation = 10.dp
+            shadowElevation = 7.dp
         ) {
             Column(
                 modifier = Modifier

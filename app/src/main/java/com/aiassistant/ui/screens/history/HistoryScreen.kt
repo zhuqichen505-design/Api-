@@ -277,8 +277,8 @@ fun HistoryConversationCard(
         modifier = Modifier.fillMaxWidth(),
         shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
-        borderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.52f),
-        shadowElevation = 5.dp
+        borderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+        shadowElevation = 4.dp
     ) {
         Row(
             modifier = Modifier
@@ -682,8 +682,8 @@ fun SearchResultCard(
         modifier = Modifier.fillMaxWidth(),
         shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
-        borderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.52f),
-        shadowElevation = 5.dp
+        borderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+        shadowElevation = 4.dp
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
             // 对话标题

@@ -258,8 +258,8 @@ private fun SummaryCard(
         shape = RoundedCornerShape(18.dp),
         color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f),
         contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        borderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
-        shadowElevation = 8.dp
+        borderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+        shadowElevation = 6.dp
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -308,8 +308,8 @@ private fun ChartCard(title: String, content: @Composable () -> Unit) {
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(22.dp),
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
-        borderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.52f),
-        shadowElevation = 6.dp
+        borderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+        shadowElevation = 4.dp
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -503,8 +503,8 @@ private fun ModelRowCard(row: ModelRow) {
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(14.dp),
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
-        borderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.52f),
-        shadowElevation = 4.dp
+        borderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+        shadowElevation = 3.dp
     ) {
         Row(
             modifier = Modifier.padding(14.dp),

@@ -55,11 +55,11 @@ private val CurrentFeatureHighlights = listOf(
     "思考模式、联网搜索与临时对话设置",
     "文件/图片上传与 OCR 辅助",
     "环境变量管理、数据备份与恢复",
-    "自定义用户头像与模型头像"
+    "自定义用户头像、模型头像与界面背景"
 )
 
 private const val CurrentVersionUserUpdates =
-    "上下文用量查看、主动压缩上下文、对话导航显隐优化、使用统计图标调整"
+    "默认背景恢复纯色、支持首页和对话页自定义图片背景、半透明层次弱化灰色边框"
 
 @Composable
 fun SettingsScreen(
@@ -199,8 +199,8 @@ fun SettingsMenuItem(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
-        borderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.52f),
-        shadowElevation = 5.dp
+        borderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+        shadowElevation = 4.dp
     ) {
         Row(
             modifier = Modifier

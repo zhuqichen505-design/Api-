@@ -54,9 +54,9 @@ fun GlassSurface(
     shape: Shape = RoundedCornerShape(18.dp),
     color: Color = MaterialTheme.colorScheme.surface.copy(alpha = 0.68f),
     contentColor: Color = MaterialTheme.colorScheme.onSurface,
-    borderColor: Color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.58f),
+    borderColor: Color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
     tonalElevation: Dp = 0.dp,
-    shadowElevation: Dp = 6.dp,
+    shadowElevation: Dp = 4.dp,
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {

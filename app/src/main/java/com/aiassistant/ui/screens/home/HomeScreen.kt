@@ -650,8 +650,8 @@ private fun HomeSearchRow(
                 .height(46.dp),
             shape = RoundedCornerShape(22.dp),
             color = MaterialTheme.colorScheme.surface.copy(alpha = 0.68f),
-            borderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.62f),
-            shadowElevation = 3.dp
+            borderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+            shadowElevation = 2.dp
         ) {
             Row(
                 modifier = Modifier
