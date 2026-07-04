@@ -1,5 +1,39 @@
 # Echo 更新日志
 
+## v1.7.9 (2026-07-04) - Kotlin/Compose 升级与液态玻璃控件
+
+### 用户侧可见更新
+
+- 首页搜索栏、创建对话按钮、对话页顶部工具栏和输入框升级为液态玻璃效果。
+- 玻璃控件现在包含真实背景模糊、渐变高光、边缘亮线和轻微阴影，不再只是灰色边框。
+- 应用构建链升级到 Kotlin 2.x 与新版 Compose BOM，为后续 Compose UI 能力升级打基础。
+
+### 技术实现细则
+
+- Kotlin Gradle 插件由 `1.9.20` 升级到 `2.2.21`。
+- Android Gradle Plugin 由 `8.2.0` 升级到 `8.10.1`，Gradle Wrapper 由 `8.5` 升级到 `8.11.1`，以匹配 Kotlin 2.2 对 R8/D8 的最低版本要求。
+- Kotlin 编译策略固定为 `in-process`，避免 Windows 受限用户目录下 Kotlin daemon 无权限后再回退。
+- 新增 `org.jetbrains.kotlin.plugin.compose`，迁移到 Kotlin 2.x 推荐的 Compose Compiler Gradle 插件路径。
+- KSP 插件同步升级到 `2.2.21-2.0.4`，避免 Room 注解处理停留在旧 Kotlin 1.9 编译链。
+- Room 从 `2.6.1` 升级到 `2.8.4`，并启用 `room.generateKotlin=true`，修复旧 Room KSP 处理器在 Kotlin 2.x 下的签名解析崩溃。
+- Compose BOM 从 `2023.10.01` 升级到 `2024.06.00`，测试依赖同步使用同一 BOM；该版本仍匹配当前已安装的 Android 34 SDK。
+- 移除 `composeOptions.kotlinCompilerExtensionVersion = "1.5.5"`，避免 Kotlin 2.x 下继续维护旧式 Compose 编译器扩展版本。
+- 继续使用现有 Haze 背景采样与模糊基础，避免引入要求更高 compileSdk/AGP 的新版传递依赖。
+- `EchoHaze` 增加统一液态玻璃叠层：模糊采样、半透明 tint、非均匀高光、径向亮斑、底部轻阴影和渐变边缘亮线。
+- 液态玻璃仅应用在稳定悬浮控件上，未重新加到滚动消息气泡，避免列表复用导致模糊层漂移。
+- 首页创建对话按钮接入 Haze 背景采样，保持与搜索栏、对话顶部栏、输入框一致的玻璃材质。
+
+### 版本与构建
+
+- `versionCode`: 67
+- `versionName`: 1.7.9
+- 说明：`versionCode` 暂不递增，用于保持同签名测试包可回退安装。
+- Room 数据库版本：17
+- ABI：arm64-v8a
+- 构建命令：`.\gradlew.bat --no-daemon assembleRelease`
+
+---
+
 ## v1.7.8 (2026-07-04) - 标题居中、上下文识别与思考信息修复
 
 ### 用户侧可见更新

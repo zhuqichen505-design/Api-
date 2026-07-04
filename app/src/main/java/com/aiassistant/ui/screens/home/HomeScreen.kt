@@ -139,6 +139,7 @@ fun HomeScreen(
         floatingActionButton = {
             if (conversations.isNotEmpty() && !isSelectionMode) {
                 NewConversationFab(
+                    hazeState = hazeState,
                     onClick = {
                         viewModel.createDefaultConversation { conversationId ->
                             onNavigateToChat(conversationId)
@@ -500,25 +501,32 @@ fun HomeDashboardHeader(
 
 @Composable
 private fun NewConversationFab(
+    hazeState: dev.chrisbanes.haze.HazeState,
     onClick: () -> Unit,
     onLongClick: () -> Unit
 ) {
     val buttonShape = RoundedCornerShape(22.dp)
+    val primary = MaterialTheme.colorScheme.primary
 
     Surface(
         modifier = Modifier
             .height(56.dp)
-            .clip(buttonShape)
+            .echoHazePanel(
+                hazeState = hazeState,
+                shape = buttonShape,
+                tint = primary.copy(alpha = 0.22f),
+                blurRadius = 34.dp
+            )
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick,
                 onLongClickLabel = "配置新对话"
             ),
         shape = buttonShape,
-        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.92f),
-        contentColor = MaterialTheme.colorScheme.onPrimary,
-        shadowElevation = 8.dp,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.18f))
+        color = primary.copy(alpha = 0.16f),
+        contentColor = primary,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 22.dp),
