@@ -134,6 +134,7 @@ fun HomeScreen(
         floatingActionButton = {
             if (conversations.isNotEmpty() && !isSelectionMode) {
                 NewConversationFab(
+                    hazeState = hazeState,
                     onClick = {
                         viewModel.createDefaultConversation { conversationId ->
                             onNavigateToChat(conversationId)
@@ -149,10 +150,8 @@ fun HomeScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
                 .background(Color.White)
-                .echoHazeSource(hazeState)
         ) {
             HomeDashboardHeader(
-                hazeState = hazeState,
                 onNavigateToSettings = onNavigateToSettings,
                 onNavigateToStats = onNavigateToStats
             )
@@ -216,7 +215,9 @@ fun HomeScreen(
             } else {
                 Box(modifier = Modifier.fillMaxSize()) {
                     LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .echoHazeSource(hazeState),
                         state = conversationListState,
                         contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -449,17 +450,13 @@ private fun anchorTitle(value: String): String {
 
 @Composable
 fun HomeDashboardHeader(
-    hazeState: dev.chrisbanes.haze.HazeState,
     onNavigateToSettings: () -> Unit,
     onNavigateToStats: () -> Unit
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .echoHazePanel(
-                hazeState = hazeState,
-                shape = RoundedCornerShape(bottomStart = 22.dp, bottomEnd = 22.dp)
-            )
+            .background(Color.White)
             .padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 10.dp)
     ) {
         Row(
@@ -488,21 +485,31 @@ fun HomeDashboardHeader(
 
 @Composable
 private fun NewConversationFab(
+    hazeState: dev.chrisbanes.haze.HazeState,
     onClick: () -> Unit,
     onLongClick: () -> Unit
 ) {
+    val buttonShape = RoundedCornerShape(22.dp)
+
     Surface(
         modifier = Modifier
             .height(56.dp)
+            .echoHazePanel(
+                hazeState = hazeState,
+                shape = buttonShape,
+                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.22f),
+                blurRadius = 32.dp
+            )
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick,
                 onLongClickLabel = "配置新对话"
             ),
-        shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.primary,
+        shape = buttonShape,
+        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.82f),
         contentColor = MaterialTheme.colorScheme.onPrimary,
-        shadowElevation = 6.dp
+        shadowElevation = 8.dp,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.18f))
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 22.dp),

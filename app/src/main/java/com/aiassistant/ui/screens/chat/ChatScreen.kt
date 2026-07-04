@@ -193,50 +193,70 @@ fun ChatScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    ChatHeaderTitle(
-                        title = uiState.conversationTitle.ifBlank { "新对话" },
-                        currentOption = currentModelOption,
-                        fallbackModel = currentModel ?: uiState.modelName,
-                        availableOptions = availableModelOptions,
-                        useTempSettings = useTempSettings,
-                        isGenerating = isGenerating,
-                        onModelSelected = { viewModel.switchModel(it) }
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = { viewModel.leaveConversation(onNavigateBack) }) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "返回")
-                    }
-                },
-                actions = {
-                    ContextUsageButton(
-                        usage = contextUsage.usage,
-                        canCompress = contextUsage.usage?.canCompress == true,
-                        onClick = {
-                            viewModel.refreshContextUsage()
-                            showContextUsageDialog = true
-                        }
-                    )
-                    IconButton(onClick = { showSettingsDialog = true }) {
-                        Icon(
-                            Icons.Default.Tune,
-                            contentDescription = "对话设置",
-                            tint = if (useTempSettings) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+            val toolbarShape = RoundedCornerShape(999.dp)
+
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(horizontal = 12.dp)
+                    .padding(top = 6.dp, bottom = 6.dp)
+                    .echoHazePanel(
+                        hazeState = hazeState,
+                        shape = toolbarShape,
+                        blurRadius = 32.dp
+                    ),
+                shape = toolbarShape,
+                color = Color.Transparent,
+                tonalElevation = 0.dp,
+                shadowElevation = 0.dp
+            ) {
+                TopAppBar(
+                    title = {
+                        ChatHeaderTitle(
+                            title = uiState.conversationTitle.ifBlank { "新对话" },
+                            currentOption = currentModelOption,
+                            fallbackModel = currentModel ?: uiState.modelName,
+                            availableOptions = availableModelOptions,
+                            useTempSettings = useTempSettings,
+                            isGenerating = isGenerating,
+                            onModelSelected = { viewModel.switchModel(it) }
                         )
-                    }
-                    IconButton(onClick = { showSystemPromptDialog = true }) {
-                        Icon(Icons.Default.Psychology, contentDescription = "系统提示词")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                    scrolledContainerColor = Color.Transparent,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface
-                ),
-                modifier = Modifier.echoHazePanel(hazeState)
-            )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = { viewModel.leaveConversation(onNavigateBack) }) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = "返回")
+                        }
+                    },
+                    actions = {
+                        ContextUsageButton(
+                            usage = contextUsage.usage,
+                            canCompress = contextUsage.usage?.canCompress == true,
+                            onClick = {
+                                viewModel.refreshContextUsage()
+                                showContextUsageDialog = true
+                            }
+                        )
+                        IconButton(onClick = { showSettingsDialog = true }) {
+                            Icon(
+                                Icons.Default.Tune,
+                                contentDescription = "对话设置",
+                                tint = if (useTempSettings) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        IconButton(onClick = { showSystemPromptDialog = true }) {
+                            Icon(Icons.Default.Psychology, contentDescription = "系统提示词")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.Transparent,
+                        scrolledContainerColor = Color.Transparent,
+                        titleContentColor = MaterialTheme.colorScheme.onSurface
+                    ),
+                    modifier = Modifier.height(56.dp),
+                    windowInsets = WindowInsets(0.dp)
+                )
+            }
         },
         bottomBar = {
             ChatInputBar(
@@ -1618,21 +1638,24 @@ fun ChatInputBar(
     onModelSelected: (ChatModelOption) -> Unit
 ) {
     var showToolMenu by remember { mutableStateOf(false) }
+    val inputShape = RoundedCornerShape(30.dp)
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .imePadding()
             .navigationBarsPadding()
+            .padding(horizontal = 12.dp, vertical = 8.dp)
     ) {
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
                 .echoHazePanel(
                     hazeState = hazeState,
-                    shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp)
+                    shape = inputShape,
+                    blurRadius = 32.dp
                 ),
-            shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp),
+            shape = inputShape,
             color = Color.Transparent,
             tonalElevation = 0.dp,
             shadowElevation = 0.dp
