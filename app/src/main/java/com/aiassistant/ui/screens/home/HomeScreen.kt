@@ -57,6 +57,7 @@ import com.aiassistant.ui.components.SideAnchorNavigator
 import com.aiassistant.ui.components.TransientLazyListScrollbar
 import com.aiassistant.ui.components.rememberLazyListControlsVisible
 import com.aiassistant.utils.AvatarManager
+import com.aiassistant.utils.BackgroundManager
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -74,6 +75,7 @@ fun HomeScreen(
     onNavigateToFolders: () -> Unit
 ) {
     val viewModel: HomeViewModel = viewModel()
+    val context = LocalContext.current
     val conversations by viewModel.conversations.collectAsState()
     val apiConfigs by viewModel.apiConfigs.collectAsState()
     val selectedConfig by viewModel.selectedConfig.collectAsState()
@@ -87,6 +89,9 @@ fun HomeScreen(
     var selectedConversationIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
     var showBatchMoveDialog by remember { mutableStateOf(false) }
     var showBatchDeleteDialog by remember { mutableStateOf(false) }
+    val homeBackground = remember(context) {
+        BackgroundManager.getHomeBackgroundBitmap(context)
+    }
     val filteredConversations = remember(conversations, searchQuery) {
         val query = searchQuery.trim()
         if (query.isBlank()) {
@@ -146,7 +151,7 @@ fun HomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues),
-            textureAlpha = 0.12f
+            backgroundBitmap = homeBackground
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 HomeDashboardHeader(

@@ -120,8 +120,7 @@ fun HistoryScreen(
         EchoGlassBackground(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues),
-            textureAlpha = 0.15f
+                .padding(paddingValues)
         ) {
             Column(
                 modifier = Modifier

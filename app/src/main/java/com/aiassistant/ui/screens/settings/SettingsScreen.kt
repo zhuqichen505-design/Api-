@@ -35,6 +35,7 @@ import com.aiassistant.domain.model.PromptTemplate
 import com.aiassistant.ui.components.EchoGlassBackground
 import com.aiassistant.ui.components.GlassSurface
 import com.aiassistant.utils.AvatarManager
+import com.aiassistant.utils.BackgroundManager
 import com.aiassistant.utils.BackupManager
 import com.aiassistant.utils.HiddenConversationLock
 import com.aiassistant.utils.TavilySearchSettings
@@ -111,8 +112,7 @@ fun SettingsMenu(
     onSectionSelected: (String) -> Unit
 ) {
     EchoGlassBackground(
-        modifier = modifier.fillMaxSize(),
-        textureAlpha = 0.15f
+        modifier = modifier.fillMaxSize()
     ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -611,6 +611,7 @@ fun GlobalPromptTab(modifier: Modifier = Modifier) {
 
 @Composable
 fun PersonalizationTab(modifier: Modifier = Modifier) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val manager = AiAssistantApp.instance.personalizationManager
     var settings by remember { mutableStateOf(manager.getSettings()) }
     var instruction by remember(settings) {
@@ -626,6 +627,31 @@ fun PersonalizationTab(modifier: Modifier = Modifier) {
         )
     }
     var savedMessage by remember { mutableStateOf<String?>(null) }
+    var hasHomeBackground by remember {
+        mutableStateOf(BackgroundManager.hasHomeBackground(context))
+    }
+    var hasChatBackground by remember {
+        mutableStateOf(BackgroundManager.hasChatBackground(context))
+    }
+    var backgroundMessage by remember { mutableStateOf<String?>(null) }
+    val homeBackgroundPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let {
+            val saved = BackgroundManager.saveHomeBackgroundFromUri(context, it)
+            hasHomeBackground = BackgroundManager.hasHomeBackground(context)
+            backgroundMessage = if (saved) "首页背景已更新" else "首页背景保存失败"
+        }
+    }
+    val chatBackgroundPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let {
+            val saved = BackgroundManager.saveChatBackgroundFromUri(context, it)
+            hasChatBackground = BackgroundManager.hasChatBackground(context)
+            backgroundMessage = if (saved) "对话页背景已更新" else "对话页背景保存失败"
+        }
+    }
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
@@ -696,6 +722,26 @@ fun PersonalizationTab(modifier: Modifier = Modifier) {
         }
 
         item {
+            BackgroundSettingsCard(
+                hasHomeBackground = hasHomeBackground,
+                hasChatBackground = hasChatBackground,
+                message = backgroundMessage,
+                onPickHomeBackground = { homeBackgroundPicker.launch("image/*") },
+                onPickChatBackground = { chatBackgroundPicker.launch("image/*") },
+                onClearHomeBackground = {
+                    BackgroundManager.deleteHomeBackground(context)
+                    hasHomeBackground = false
+                    backgroundMessage = "首页背景已恢复为纯色"
+                },
+                onClearChatBackground = {
+                    BackgroundManager.deleteChatBackground(context)
+                    hasChatBackground = false
+                    backgroundMessage = "对话页背景已恢复为纯色"
+                }
+            )
+        }
+
+        item {
             Button(
                 onClick = {
                     val saved = manager.saveSettings(
@@ -740,6 +786,97 @@ private fun PersonalizationTextField(
             maxLines = 8,
             shape = RoundedCornerShape(16.dp)
         )
+    }
+}
+
+@Composable
+private fun BackgroundSettingsCard(
+    hasHomeBackground: Boolean,
+    hasChatBackground: Boolean,
+    message: String?,
+    onPickHomeBackground: () -> Unit,
+    onPickChatBackground: () -> Unit,
+    onClearHomeBackground: () -> Unit,
+    onClearChatBackground: () -> Unit
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.Image,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("界面背景", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "默认使用纯色背景，也可以分别给首页和对话页上传图片背景。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            BackgroundSettingRow(
+                title = "首页背景",
+                hasBackground = hasHomeBackground,
+                onPickBackground = onPickHomeBackground,
+                onClearBackground = onClearHomeBackground
+            )
+            BackgroundSettingRow(
+                title = "对话页背景",
+                hasBackground = hasChatBackground,
+                onPickBackground = onPickChatBackground,
+                onClearBackground = onClearChatBackground
+            )
+
+            if (message != null) {
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun BackgroundSettingRow(
+    title: String,
+    hasBackground: Boolean,
+    onPickBackground: () -> Unit,
+    onClearBackground: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleSmall)
+            Text(
+                if (hasBackground) "已使用自定义图片" else "当前为默认纯色",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        OutlinedButton(
+            onClick = onPickBackground,
+            shape = RoundedCornerShape(999.dp)
+        ) {
+            Text(if (hasBackground) "更换" else "上传")
+        }
+        TextButton(
+            onClick = onClearBackground,
+            enabled = hasBackground
+        ) {
+            Text("恢复默认")
+        }
     }
 }
 

@@ -52,6 +52,7 @@ import com.aiassistant.ui.components.SideAnchorNavigator
 import com.aiassistant.ui.components.TransientLazyListScrollbar
 import com.aiassistant.ui.components.rememberLazyListControlsVisible
 import com.aiassistant.utils.AvatarManager
+import com.aiassistant.utils.BackgroundManager
 import com.aiassistant.utils.FileUtils
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -105,6 +106,9 @@ fun ChatScreen(
     }
     val chatNavItems = remember(displayMessages) {
         buildChatAnchorItems(displayMessages)
+    }
+    val chatBackground = remember(context) {
+        BackgroundManager.getChatBackgroundBitmap(context)
     }
 
     BackHandler {
@@ -295,7 +299,7 @@ fun ChatScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues),
-            textureAlpha = 0.16f
+            backgroundBitmap = chatBackground
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 // 错误提示

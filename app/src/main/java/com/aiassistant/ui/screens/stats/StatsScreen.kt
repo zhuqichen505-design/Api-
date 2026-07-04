@@ -119,8 +119,7 @@ fun StatsScreen(
         EchoGlassBackground(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding),
-            textureAlpha = 0.15f
+                .padding(padding)
         ) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
