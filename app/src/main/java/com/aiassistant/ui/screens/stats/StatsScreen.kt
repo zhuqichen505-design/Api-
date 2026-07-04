@@ -172,7 +172,7 @@ fun StatsScreen(
 @Composable
 private fun StatsHeaderIcon() {
     Surface(
-        modifier = Modifier.size(38.dp),
+        modifier = Modifier.size(36.dp),
         shape = CircleShape,
         color = Color(0xFFE7EDF5),
         contentColor = Color(0xFF1F2937)
@@ -183,19 +183,19 @@ private fun StatsHeaderIcon() {
         ) {
             Box(
                 modifier = Modifier
-                    .size(24.dp)
+                    .size(21.dp)
                     .clip(RoundedCornerShape(5.dp))
                     .background(Color(0xFF1F2937)),
                 contentAlignment = Alignment.Center
             ) {
                 Row(
                     modifier = Modifier
-                        .width(15.dp)
-                        .height(15.dp),
+                        .width(13.dp)
+                        .height(13.dp),
                     horizontalArrangement = Arrangement.spacedBy(3.dp),
                     verticalAlignment = Alignment.Bottom
                 ) {
-                    listOf(5.dp, 10.dp, 14.dp).forEach { barHeight ->
+                    listOf(4.dp, 8.dp, 12.dp).forEach { barHeight ->
                         Box(
                             modifier = Modifier
                                 .width(3.dp)

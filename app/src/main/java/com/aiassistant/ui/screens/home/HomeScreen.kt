@@ -598,19 +598,19 @@ private fun StatsIconButton(
         ) {
             Box(
                 modifier = Modifier
-                    .size(27.dp)
+                    .size(23.dp)
                     .clip(RoundedCornerShape(5.dp))
                     .background(Color(0xFF1F2937)),
                 contentAlignment = Alignment.Center
             ) {
                 Row(
                     modifier = Modifier
-                        .width(17.dp)
-                        .height(17.dp),
+                        .width(15.dp)
+                        .height(15.dp),
                     horizontalArrangement = Arrangement.spacedBy(3.dp),
                     verticalAlignment = Alignment.Bottom
                 ) {
-                    listOf(6.dp, 11.dp, 16.dp).forEach { barHeight ->
+                    listOf(5.dp, 9.dp, 13.dp).forEach { barHeight ->
                         Box(
                             modifier = Modifier
                                 .width(3.dp)

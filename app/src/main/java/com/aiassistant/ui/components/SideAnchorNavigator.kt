@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -54,6 +55,7 @@ data class SideAnchorItem(
 fun SideAnchorNavigator(
     items: List<SideAnchorItem>,
     listState: LazyListState,
+    visible: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     if (items.size < 2) return
@@ -67,38 +69,55 @@ fun SideAnchorNavigator(
         }
     }
 
-    Box(
-        modifier = modifier,
-        contentAlignment = Alignment.CenterEnd
+    AnimatedVisibility(
+        visible = visible || expanded,
+        enter = fadeIn(),
+        exit = fadeOut(),
+        modifier = modifier
     ) {
-        AnimatedVisibility(
-            visible = !expanded,
-            enter = fadeIn(),
-            exit = fadeOut()
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.CenterEnd
         ) {
-            CollapsedAnchorRail(
-                items = items,
-                currentIndex = currentIndex,
-                onClick = { expanded = true }
-            )
-        }
+            if (expanded) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clickable { expanded = false }
+                )
+            }
 
-        AnimatedVisibility(
-            visible = expanded,
-            enter = fadeIn() + scaleIn(initialScale = 0.96f),
-            exit = fadeOut() + scaleOut(targetScale = 0.96f)
-        ) {
-            ExpandedAnchorPanel(
-                items = items,
-                currentIndex = currentIndex,
-                onDismiss = { expanded = false },
-                onSelected = { item ->
-                    expanded = false
-                    scope.launch {
-                        listState.animateScrollToItem(item.itemIndex)
+            AnimatedVisibility(
+                visible = !expanded,
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier.align(Alignment.CenterEnd)
+            ) {
+                CollapsedAnchorRail(
+                    items = items,
+                    currentIndex = currentIndex,
+                    onClick = { expanded = true }
+                )
+            }
+
+            AnimatedVisibility(
+                visible = expanded,
+                enter = fadeIn() + scaleIn(initialScale = 0.96f),
+                exit = fadeOut() + scaleOut(targetScale = 0.96f),
+                modifier = Modifier.align(Alignment.CenterEnd)
+            ) {
+                ExpandedAnchorPanel(
+                    items = items,
+                    currentIndex = currentIndex,
+                    onDismiss = { expanded = false },
+                    onSelected = { item ->
+                        expanded = false
+                        scope.launch {
+                            listState.animateScrollToItem(item.itemIndex)
+                        }
                     }
-                }
-            )
+                )
+            }
         }
     }
 }

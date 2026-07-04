@@ -58,6 +58,9 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
     private val _promptTemplates = MutableStateFlow<List<PromptTemplate>>(emptyList())
     val promptTemplates: StateFlow<List<PromptTemplate>> = _promptTemplates.asStateFlow()
 
+    private val _contextUsage = MutableStateFlow(ContextUsageUiState())
+    val contextUsage: StateFlow<ContextUsageUiState> = _contextUsage.asStateFlow()
+
     private var conversation: Conversation? = null
     private var apiConfig: ApiConfig? = null
     private var generationJob: Job? = null
@@ -109,6 +112,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
 
             repository.getMessages(conversationId).collect { messageList ->
                 _messages.value = messageList
+                refreshContextUsage()
             }
         }
     }
@@ -217,6 +221,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                         )
                     }
                 }
+                refreshContextUsage()
                 return@launch
             }
             conversation?.let { conv ->
@@ -241,6 +246,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                     }
                 }
             }
+            refreshContextUsage()
         }
     }
 
@@ -250,6 +256,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
         _useTempSettings.value = true
         // 保存到对话
         saveConversationSettings(settings)
+        refreshContextUsage()
     }
 
     // 启用/禁用临时设置
@@ -258,6 +265,65 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
         if (!enabled) {
             // 清除对话级别配置
             saveConversationSettings(null)
+        }
+        refreshContextUsage()
+    }
+
+    fun refreshContextUsage() {
+        viewModelScope.launch {
+            val modelName = _currentModel.value ?: conversation?.modelName ?: _uiState.value.modelName
+            val maxTokens = (_useTempSettings.value)
+                .takeIf { it }
+                ?.let { _tempSettings.value.maxTokens }
+                ?: conversation?.maxTokens
+                ?: apiConfig?.maxTokens
+            val usage = repository.getConversationContextUsage(
+                conversationId = conversationId,
+                modelNameOverride = modelName,
+                maxOutputTokens = maxTokens
+            )
+            _contextUsage.update {
+                it.copy(
+                    usage = usage,
+                    isCompressing = false,
+                    statusMessage = null
+                )
+            }
+        }
+    }
+
+    fun compressContextNow() {
+        if (_contextUsage.value.isCompressing) return
+        viewModelScope.launch {
+            val shouldCompress = _contextUsage.value.usage?.canCompress == true
+            _contextUsage.update { it.copy(isCompressing = true, statusMessage = "正在压缩上下文...") }
+            val modelName = _currentModel.value ?: conversation?.modelName ?: _uiState.value.modelName
+            val maxTokens = (_useTempSettings.value)
+                .takeIf { it }
+                ?.let { _tempSettings.value.maxTokens }
+                ?: conversation?.maxTokens
+                ?: apiConfig?.maxTokens
+            repository.compressConversationContext(
+                conversationId = conversationId,
+                modelNameOverride = modelName,
+                maxOutputTokens = maxTokens
+            ).fold(
+                onSuccess = { usage ->
+                    conversation = repository.getConversationById(conversationId) ?: conversation
+                    _contextUsage.value = ContextUsageUiState(
+                        usage = usage,
+                        statusMessage = if (shouldCompress) "已完成本轮压缩" else "当前上下文已是最新压缩状态"
+                    )
+                },
+                onFailure = { error ->
+                    _contextUsage.update {
+                        it.copy(
+                            isCompressing = false,
+                            statusMessage = error.message ?: "压缩失败"
+                        )
+                    }
+                }
+            )
         }
     }
 
@@ -423,7 +489,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                         onThinkingToken = { token ->
                             _currentThinking.update { it + token }
                         },
-                        onComplete = { fullContent, thinkingContent, usage ->
+                        onComplete = { _, _, _ ->
                             isMessageSaved = true
                             _isGenerating.value = false
                             _currentResponse.value = ""
@@ -689,6 +755,12 @@ data class ChatUiState(
     val systemPrompt: String? = null,
     val enableThinking: Boolean = false,
     val isLoading: Boolean = false
+)
+
+data class ContextUsageUiState(
+    val usage: ConversationContextUsage? = null,
+    val isCompressing: Boolean = false,
+    val statusMessage: String? = null
 )
 
 // 临时聊天设置（仅当前对话有效）

@@ -17,10 +17,11 @@ import com.aiassistant.domain.model.*
         ApiUsageStat::class,
         EnvironmentVariable::class,
         PromptTemplate::class,
+        MemoryItem::class,
         ConversationBranch::class,
         SelectedModel::class
     ],
-    version = 16,
+    version = 17,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -31,6 +32,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun usageStatDao(): UsageStatDao
     abstract fun environmentVariableDao(): EnvironmentVariableDao
     abstract fun promptTemplateDao(): PromptTemplateDao
+    abstract fun memoryDao(): MemoryDao
     abstract fun conversationBranchDao(): ConversationBranchDao
     abstract fun selectedModelDao(): SelectedModelDao
 
@@ -236,9 +238,9 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        private val LEGACY_REPAIR_MIGRATIONS: Array<Migration> = (1..15)
+        private val LEGACY_REPAIR_MIGRATIONS: Array<Migration> = (1..16)
             .map { startVersion ->
-                object : Migration(startVersion, 16) {
+                object : Migration(startVersion, 17) {
                     override fun migrate(database: SupportSQLiteDatabase) {
                         repairSchema(database)
                     }
@@ -303,6 +305,9 @@ abstract class AppDatabase : RoomDatabase() {
                     ColumnSpec("apiConfigId", "INTEGER NOT NULL", "0"),
                     ColumnSpec("modelName", "TEXT NOT NULL", "''"),
                     ColumnSpec("systemPrompt", "TEXT", "NULL", nullable = true),
+                    ColumnSpec("rollingSummary", "TEXT", "NULL", nullable = true),
+                    ColumnSpec("summaryUpdatedMessageId", "INTEGER", "NULL", nullable = true),
+                    ColumnSpec("summaryUpdatedAt", "INTEGER", "NULL", nullable = true),
                     ColumnSpec("totalTokens", "INTEGER NOT NULL", "0"),
                     ColumnSpec("messageCount", "INTEGER NOT NULL", "0"),
                     ColumnSpec("isPinned", "INTEGER NOT NULL", "0"),
@@ -383,6 +388,27 @@ abstract class AppDatabase : RoomDatabase() {
                     ColumnSpec("useCount", "INTEGER NOT NULL", "0"),
                     ColumnSpec("createdAt", "INTEGER NOT NULL", "0"),
                     ColumnSpec("updatedAt", "INTEGER NOT NULL", "0")
+                )
+            )
+            repairTable(
+                database,
+                tableName = "memory_items",
+                columns = listOf(
+                    ColumnSpec("id", "INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL", "0"),
+                    ColumnSpec("scope", "TEXT NOT NULL", "'user'"),
+                    ColumnSpec("conversationId", "INTEGER", "NULL", nullable = true),
+                    ColumnSpec("content", "TEXT NOT NULL", "''"),
+                    ColumnSpec("keywords", "TEXT", "NULL", nullable = true),
+                    ColumnSpec("sourceMessageId", "INTEGER", "NULL", nullable = true),
+                    ColumnSpec("confidence", "REAL NOT NULL", "0.6"),
+                    ColumnSpec("isEnabled", "INTEGER NOT NULL", "1"),
+                    ColumnSpec("createdAt", "INTEGER NOT NULL", "0"),
+                    ColumnSpec("updatedAt", "INTEGER NOT NULL", "0")
+                ),
+                indices = listOf(
+                    "CREATE INDEX IF NOT EXISTS `index_memory_items_scope_conversationId` ON `memory_items` (`scope`, `conversationId`)",
+                    "CREATE INDEX IF NOT EXISTS `index_memory_items_sourceMessageId` ON `memory_items` (`sourceMessageId`)",
+                    "CREATE INDEX IF NOT EXISTS `index_memory_items_updatedAt` ON `memory_items` (`updatedAt`)"
                 )
             )
             repairTable(

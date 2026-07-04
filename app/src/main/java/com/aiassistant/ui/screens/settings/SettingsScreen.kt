@@ -43,6 +43,21 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
+private val CurrentFeatureHighlights = listOf(
+    "多模型 API 与流式对话",
+    "Token 预算上下文、滚动摘要与长期记忆",
+    "上下文使用情况查看与主动压缩",
+    "对话导航随滚动出现",
+    "对话历史、文件夹与置顶管理",
+    "思考模式、联网搜索与临时对话设置",
+    "文件/图片上传与 OCR 辅助",
+    "环境变量管理、数据备份与恢复",
+    "自定义用户头像与模型头像"
+)
+
+private const val CurrentVersionUserUpdates =
+    "上下文用量查看、主动压缩上下文、对话导航显隐优化、使用统计图标调整"
+
 @Composable
 fun SettingsScreen(
     onNavigateBack: () -> Unit,
@@ -1361,11 +1376,6 @@ fun AboutTab(modifier: Modifier = Modifier) {
                         text = "Echo",
                         style = MaterialTheme.typography.headlineMedium
                     )
-                    Text(
-                        text = "版本 ${BuildConfig.VERSION_NAME}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
                 }
             }
         }
@@ -1379,15 +1389,15 @@ fun AboutTab(modifier: Modifier = Modifier) {
                         style = MaterialTheme.typography.titleMedium
                     )
                     Spacer(modifier = Modifier.height(8.dp))
-                    FeatureItem("支持多种AI API（Anthropic、OpenAI、DeepSeek等）")
-                    FeatureItem("流式响应，实时显示")
-                    FeatureItem("对话历史记录")
-                    FeatureItem("文件夹分类管理")
-                    FeatureItem("思考模式支持")
-                    FeatureItem("文件/图片上传")
-                    FeatureItem("环境变量管理")
-                    FeatureItem("数据备份与恢复")
-                    FeatureItem("自定义用户头像")
+                    CurrentFeatureHighlights.forEach { feature ->
+                        FeatureItem(feature)
+                    }
+                    Divider(modifier = Modifier.padding(vertical = 12.dp))
+                    Text(
+                        text = "Echo 版本 ${BuildConfig.VERSION_NAME} · 本次更新：$CurrentVersionUserUpdates",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         }

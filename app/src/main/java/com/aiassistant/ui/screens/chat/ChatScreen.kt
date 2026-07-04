@@ -41,6 +41,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import com.aiassistant.R
 import com.aiassistant.domain.model.Attachment
 import com.aiassistant.domain.model.ChatModelOption
+import com.aiassistant.domain.model.ConversationContextUsage
 import com.aiassistant.domain.model.Message
 import com.aiassistant.domain.model.PromptTemplate
 import com.aiassistant.ui.components.MarkdownText
@@ -76,6 +77,7 @@ fun ChatScreen(
     val currentModelOption by viewModel.currentModelOption.collectAsState()
     val tempSettings by viewModel.tempSettings.collectAsState()
     val useTempSettings by viewModel.useTempSettings.collectAsState()
+    val contextUsage by viewModel.contextUsage.collectAsState()
 
     val listState = rememberLazyListState()
     val showScrollControls by rememberLazyListControlsVisible(listState)
@@ -85,6 +87,7 @@ fun ChatScreen(
     var inputText by remember { mutableStateOf("") }
     var showSystemPromptDialog by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
+    var showContextUsageDialog by remember { mutableStateOf(false) }
     var selectedAttachments by remember { mutableStateOf<List<Attachment>>(emptyList()) }
     var isProcessingAttachments by remember { mutableStateOf(false) }
     var attachmentStatus by remember { mutableStateOf<String?>(null) }
@@ -204,6 +207,14 @@ fun ChatScreen(
                     }
                 },
                 actions = {
+                    ContextUsageButton(
+                        usage = contextUsage.usage,
+                        canCompress = contextUsage.usage?.canCompress == true,
+                        onClick = {
+                            viewModel.refreshContextUsage()
+                            showContextUsageDialog = true
+                        }
+                    )
                     IconButton(onClick = { showSettingsDialog = true }) {
                         Icon(
                             Icons.Default.Tune,
@@ -488,8 +499,9 @@ fun ChatScreen(
             SideAnchorNavigator(
                 items = chatNavItems,
                 listState = listState,
+                visible = showScrollControls,
                 modifier = Modifier
-                    .align(Alignment.CenterEnd)
+                    .matchParentSize()
                     .padding(end = 12.dp)
             )
 
@@ -550,6 +562,15 @@ fun ChatScreen(
             onModelAvatarChanged = { modelAvatarRevision++ }
         )
     }
+
+    if (showContextUsageDialog) {
+        ContextUsageDialog(
+            state = contextUsage,
+            onDismiss = { showContextUsageDialog = false },
+            onRefresh = { viewModel.refreshContextUsage() },
+            onCompress = { viewModel.compressContextNow() }
+        )
+    }
 }
 
 private fun buildChatAnchorItems(displayMessages: List<DisplayMessageItem>): List<SideAnchorItem> {
@@ -605,6 +626,315 @@ private fun ChatScrollJumpButtons(
             }
         }
     }
+}
+
+@Composable
+private fun ContextUsageButton(
+    usage: ConversationContextUsage?,
+    canCompress: Boolean,
+    onClick: () -> Unit
+) {
+    val usagePercent = usage?.usagePercent ?: 0f
+    val accent = contextUsageColor(usagePercent)
+    val percentText = usage?.let { "${(usagePercent * 100).toInt().coerceIn(0, 999)}%" } ?: "--%"
+
+    Surface(
+        modifier = Modifier
+            .height(36.dp)
+            .padding(end = 4.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(18.dp),
+        color = accent.copy(alpha = 0.12f),
+        contentColor = accent
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            Icon(
+                Icons.Default.Memory,
+                contentDescription = null,
+                modifier = Modifier.size(17.dp)
+            )
+            Text(
+                text = percentText,
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 1
+            )
+            if (canCompress) {
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .background(MaterialTheme.colorScheme.error, CircleShape)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ContextUsageDialog(
+    state: ContextUsageUiState,
+    onDismiss: () -> Unit,
+    onRefresh: () -> Unit,
+    onCompress: () -> Unit
+) {
+    val usage = state.usage
+    val canCompress = usage?.canCompress == true && !state.isCompressing
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        modifier = Modifier
+            .fillMaxWidth()
+            .widthIn(max = 560.dp),
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Icon(
+                    Icons.Default.Memory,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("上下文使用情况", style = MaterialTheme.typography.titleLarge)
+                    Text(
+                        text = "当前对话的预算估算",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        },
+        text = {
+            if (usage == null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(120.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 500.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    item {
+                        ContextUsageOverview(usage = usage)
+                    }
+                    item {
+                        ContextUsageDetails(usage = usage)
+                    }
+                    item {
+                        ContextUsageStatus(
+                            usage = usage,
+                            statusMessage = state.statusMessage
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onCompress,
+                enabled = canCompress
+            ) {
+                if (state.isCompressing) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+                } else {
+                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                }
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(if (state.isCompressing) "压缩中" else "主动压缩")
+            }
+        },
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(
+                    onClick = onRefresh,
+                    enabled = !state.isCompressing
+                ) {
+                    Text("刷新")
+                }
+                TextButton(onClick = onDismiss) {
+                    Text("关闭")
+                }
+            }
+        }
+    )
+}
+
+@Composable
+private fun ContextUsageOverview(usage: ConversationContextUsage) {
+    val progress = usage.usagePercent.coerceIn(0f, 1f)
+    val accent = contextUsageColor(progress)
+    val percentText = "${(progress * 100).toInt().coerceIn(0, 100)}%"
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.Bottom
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "输入预算",
+                    style = MaterialTheme.typography.titleSmall
+                )
+                Text(
+                    text = "${formatTokenCount(usage.estimatedInputTokens)} / ${formatTokenCount(usage.promptBudgetTokens)} tokens",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Text(
+                text = percentText,
+                style = MaterialTheme.typography.titleMedium,
+                color = accent
+            )
+        }
+        LinearProgressIndicator(
+            progress = progress,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(8.dp)
+                .clip(RoundedCornerShape(999.dp)),
+            color = accent,
+            trackColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun ContextUsageDetails(usage: ConversationContextUsage) {
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f)
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            ContextUsageRow(
+                label = "近期原文",
+                value = "${usage.recentMessageCount} 条 · ${formatTokenCount(usage.recentTokens)} tokens"
+            )
+            ContextUsageRow(
+                label = "较早消息",
+                value = "${usage.olderMessageCount} 条"
+            )
+            ContextUsageRow(
+                label = "滚动摘要",
+                value = if (usage.hasRollingSummary) {
+                    "${formatTokenCount(usage.summaryTokens)} tokens"
+                } else {
+                    "尚未生成"
+                }
+            )
+            ContextUsageRow(
+                label = "长期记忆",
+                value = "${usage.memoryItemCount} 条 · ${formatTokenCount(usage.memoryTokens)} tokens"
+            )
+            ContextUsageRow(
+                label = "已压缩至",
+                value = usage.compressedThroughMessageId?.let { "#$it" } ?: "尚未压缩"
+            )
+            ContextUsageRow(
+                label = "摘要时间",
+                value = usage.summaryUpdatedAt?.let(::formatContextTimestamp) ?: "暂无"
+            )
+        }
+    }
+}
+
+@Composable
+private fun ContextUsageStatus(
+    usage: ConversationContextUsage,
+    statusMessage: String?
+) {
+    val message = statusMessage ?: if (usage.canCompress) {
+        "有较早消息尚未进入滚动摘要，可主动压缩。"
+    } else {
+        "当前上下文摘要已覆盖可压缩范围。"
+    }
+    val icon = if (usage.canCompress) Icons.Default.Warning else Icons.Default.CheckCircle
+    val color = if (usage.canCompress) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary
+
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = color.copy(alpha = 0.10f),
+        contentColor = color
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        }
+    }
+}
+
+@Composable
+private fun ContextUsageRow(
+    label: String,
+    value: String
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+    }
+}
+
+@Composable
+private fun contextUsageColor(usagePercent: Float): Color {
+    return when {
+        usagePercent >= 0.85f -> MaterialTheme.colorScheme.error
+        usagePercent >= 0.65f -> MaterialTheme.colorScheme.tertiary
+        else -> MaterialTheme.colorScheme.primary
+    }
+}
+
+private fun formatTokenCount(value: Int): String {
+    return if (value >= 1000) {
+        String.format(Locale.getDefault(), "%.1fk", value / 1000f)
+    } else {
+        value.toString()
+    }
+}
+
+private fun formatContextTimestamp(timestamp: Long): String {
+    return SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(timestamp))
 }
 
 @Composable

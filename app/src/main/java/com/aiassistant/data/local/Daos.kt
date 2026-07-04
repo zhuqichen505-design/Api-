@@ -133,6 +133,21 @@ interface ConversationDao {
 
     @Query("UPDATE conversations SET tags = :tags, updatedAt = :timestamp WHERE id = :id")
     suspend fun updateTags(id: Long, tags: String?, timestamp: Long = System.currentTimeMillis())
+
+    @Query("""
+        UPDATE conversations
+        SET rollingSummary = :summary,
+            summaryUpdatedMessageId = :messageId,
+            summaryUpdatedAt = :timestamp,
+            updatedAt = :timestamp
+        WHERE id = :conversationId
+    """)
+    suspend fun updateRollingSummary(
+        conversationId: Long,
+        summary: String?,
+        messageId: Long?,
+        timestamp: Long = System.currentTimeMillis()
+    )
 }
 
 // ============ 消息 DAO ============
@@ -326,4 +341,38 @@ interface PromptTemplateDao {
 
     @Query("SELECT DISTINCT category FROM prompt_templates ORDER BY category ASC")
     suspend fun getAllCategories(): List<String>
+}
+
+@Dao
+interface MemoryDao {
+    @Query("""
+        SELECT * FROM memory_items
+        WHERE isEnabled = 1
+          AND (
+              scope IN ('user', 'global')
+              OR conversationId = :conversationId
+              OR (scope = 'conversation' AND conversationId = :conversationId)
+          )
+        ORDER BY updatedAt DESC
+        LIMIT :limit
+    """)
+    suspend fun getCandidateMemories(conversationId: Long, limit: Int = 80): List<MemoryItem>
+
+    @Query("SELECT * FROM memory_items WHERE sourceMessageId = :sourceMessageId LIMIT 1")
+    suspend fun getBySourceMessage(sourceMessageId: Long): MemoryItem?
+
+    @Query("SELECT * FROM memory_items WHERE scope = :scope AND content = :content LIMIT 1")
+    suspend fun getByScopeAndContent(scope: String, content: String): MemoryItem?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertMemory(memory: MemoryItem): Long
+
+    @Update
+    suspend fun updateMemory(memory: MemoryItem)
+
+    @Query("UPDATE memory_items SET isEnabled = 0, updatedAt = :timestamp WHERE id = :id")
+    suspend fun disableMemory(id: Long, timestamp: Long = System.currentTimeMillis())
+
+    @Query("DELETE FROM memory_items WHERE conversationId = :conversationId AND scope = 'conversation'")
+    suspend fun deleteConversationMemories(conversationId: Long)
 }

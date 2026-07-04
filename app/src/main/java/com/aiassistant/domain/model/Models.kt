@@ -65,6 +65,9 @@ data class Conversation(
     val apiConfigId: Long,
     val modelName: String,
     val systemPrompt: String? = null,
+    val rollingSummary: String? = null,
+    val summaryUpdatedMessageId: Long? = null,
+    val summaryUpdatedAt: Long? = null,
     val totalTokens: Int = 0,
     val messageCount: Int = 0,
     val isPinned: Boolean = false,
@@ -176,6 +179,29 @@ data class PromptTemplate(
     val updatedAt: Long = System.currentTimeMillis()
 )
 
+// 跨对话可复用的用户偏好或项目背景；私密对话不会写入这里。
+@Entity(
+    tableName = "memory_items",
+    indices = [
+        Index(value = ["scope", "conversationId"]),
+        Index(value = ["sourceMessageId"]),
+        Index(value = ["updatedAt"])
+    ]
+)
+data class MemoryItem(
+    @PrimaryKey(autoGenerate = true)
+    val id: Long = 0,
+    val scope: String = "user",
+    val conversationId: Long? = null,
+    val content: String,
+    val keywords: String? = null,
+    val sourceMessageId: Long? = null,
+    val confidence: Float = 0.6f,
+    val isEnabled: Boolean = true,
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
 // 会话分支
 @Entity(
     tableName = "conversation_branches",
@@ -224,6 +250,22 @@ data class ChatRequestOptions(
     val enableThinking: Boolean? = null,
     val thinkingEffort: String? = null,
     val enableWebSearch: Boolean? = null
+)
+
+data class ConversationContextUsage(
+    val promptBudgetTokens: Int = 0,
+    val estimatedInputTokens: Int = 0,
+    val usagePercent: Float = 0f,
+    val recentMessageCount: Int = 0,
+    val olderMessageCount: Int = 0,
+    val recentTokens: Int = 0,
+    val summaryTokens: Int = 0,
+    val memoryTokens: Int = 0,
+    val memoryItemCount: Int = 0,
+    val hasRollingSummary: Boolean = false,
+    val summaryUpdatedAt: Long? = null,
+    val compressedThroughMessageId: Long? = null,
+    val canCompress: Boolean = false
 )
 
 // ============ API 请求/响应格式 ============
