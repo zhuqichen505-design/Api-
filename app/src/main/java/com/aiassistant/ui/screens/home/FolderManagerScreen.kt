@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -16,9 +17,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.aiassistant.AiAssistantApp
 import com.aiassistant.domain.model.Folder
+import com.aiassistant.ui.components.EchoGlassPagePanelShape
+import com.aiassistant.ui.components.EchoWallpaperBackground
+import com.aiassistant.ui.components.echoHazePanel
+import com.aiassistant.ui.components.echoShapeClick
+import com.aiassistant.ui.components.rememberEchoHazeState
+import com.aiassistant.utils.BackgroundImageManager
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -29,100 +37,117 @@ fun FolderManagerScreen(
 ) {
     val repository = AiAssistantApp.instance.repository
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val folderBackgroundBitmap = remember(context) {
+        BackgroundImageManager.getHomeBackgroundBitmap(context)
+    }
+    val hazeState = rememberEchoHazeState()
     val folders by repository.getAllFolders().collectAsState(initial = emptyList())
 
     var showAddDialog by remember { mutableStateOf(false) }
     var editingFolder by remember { mutableStateOf<Folder?>(null) }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("文件夹管理") },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "返回")
-                    }
-                }
-            )
-        },
-        floatingActionButton = {
-            FloatingActionButton(onClick = { showAddDialog = true }) {
-                Icon(Icons.Default.CreateNewFolder, contentDescription = "新建文件夹")
-            }
-        }
-    ) { paddingValues ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            // "全部"选项
-            item {
-                FolderItem(
-                    folder = null,
-                    onClick = { onFolderSelected(null) },
-                    onEdit = {},
-                    onDelete = {}
+    EchoWallpaperBackground(
+        backgroundBitmap = folderBackgroundBitmap,
+        hazeState = hazeState
+    ) {
+        Scaffold(
+            containerColor = Color.Transparent,
+            topBar = {
+                TopAppBar(
+                    title = { Text("文件夹管理") },
+                    navigationIcon = {
+                        IconButton(onClick = onNavigateBack) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = "返回")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.Transparent,
+                        scrolledContainerColor = Color.Transparent
+                    )
                 )
-            }
-
-            // "未分类"选项
-            item {
-                Card(
+            },
+            floatingActionButton = {
+                val fabShape = RoundedCornerShape(22.dp)
+                Surface(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onFolderSelected(-1) }
+                        .height(56.dp)
+                        .echoHazePanel(
+                            hazeState = hazeState,
+                            shape = fabShape,
+                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.22f),
+                            blurRadius = 28.dp
+                        )
+                        .echoShapeClick(fabShape) { showAddDialog = true },
+                    shape = fabShape,
+                    color = Color.Transparent,
+                    contentColor = MaterialTheme.colorScheme.primary,
+                    tonalElevation = 0.dp,
+                    shadowElevation = 0.dp
                 ) {
                     Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        modifier = Modifier.padding(horizontal = 18.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.surfaceVariant),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                Icons.Default.FolderOff,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
+                        Icon(Icons.Default.CreateNewFolder, contentDescription = null)
+                        Text("新建文件夹", style = MaterialTheme.typography.titleMedium)
+                    }
+                }
+            }
+        ) { paddingValues ->
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // "全部"选项
+                item {
+                    FolderItem(
+                        hazeState = hazeState,
+                        folder = null,
+                        onClick = { onFolderSelected(null) },
+                        onEdit = {},
+                        onDelete = {}
+                    )
+                }
+
+                // "未分类"选项
+                item {
+                    FolderShortcutItem(
+                        hazeState = hazeState,
+                        title = "未分类",
+                        icon = Icons.Default.FolderOff,
+                        onClick = { onFolderSelected(-1) }
+                    )
+                }
+
+                if (folders.isNotEmpty()) {
+                    item {
                         Text(
-                            text = "未分类",
-                            style = MaterialTheme.typography.titleMedium
+                            text = "文件夹",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 8.dp)
                         )
                     }
                 }
-            }
 
-            if (folders.isNotEmpty()) {
-                item {
-                    Text(
-                        text = "文件夹",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(vertical = 8.dp)
+                items(folders) { folder ->
+                    FolderItem(
+                        hazeState = hazeState,
+                        folder = folder,
+                        onClick = { onFolderSelected(folder.id) },
+                        onEdit = { editingFolder = folder },
+                        onDelete = {
+                            scope.launch {
+                                repository.deleteFolder(folder.id)
+                            }
+                        }
                     )
                 }
-            }
-
-            items(folders) { folder ->
-                FolderItem(
-                    folder = folder,
-                    onClick = { onFolderSelected(folder.id) },
-                    onEdit = { editingFolder = folder },
-                    onDelete = {
-                        scope.launch {
-                            repository.deleteFolder(folder.id)
-                        }
-                    }
-                )
             }
         }
     }
@@ -158,6 +183,7 @@ fun FolderManagerScreen(
 
 @Composable
 fun FolderItem(
+    hazeState: dev.chrisbanes.haze.HazeState,
     folder: Folder?,
     onClick: () -> Unit,
     onEdit: () -> Unit,
@@ -188,9 +214,20 @@ fun FolderItem(
         "bookmark" to Icons.Default.Bookmark
     )
 
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        onClick = onClick
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .echoHazePanel(
+                hazeState = hazeState,
+                shape = EchoGlassPagePanelShape,
+                tint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f),
+                blurRadius = 18.dp
+            )
+            .echoShapeClick(EchoGlassPagePanelShape, onClick = onClick),
+        shape = EchoGlassPagePanelShape,
+        color = Color.Transparent,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
@@ -288,6 +325,54 @@ fun FolderItem(
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun FolderShortcutItem(
+    hazeState: dev.chrisbanes.haze.HazeState,
+    title: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .echoHazePanel(
+                hazeState = hazeState,
+                shape = EchoGlassPagePanelShape,
+                tint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f),
+                blurRadius = 18.dp
+            )
+            .echoShapeClick(EchoGlassPagePanelShape, onClick = onClick),
+        shape = EchoGlassPagePanelShape,
+        color = Color.Transparent,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.62f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium
+            )
+        }
     }
 }
 

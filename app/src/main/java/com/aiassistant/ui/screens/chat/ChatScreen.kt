@@ -51,6 +51,7 @@ import com.aiassistant.ui.components.MarkdownText
 import com.aiassistant.ui.components.SideAnchorItem
 import com.aiassistant.ui.components.SideAnchorNavigator
 import com.aiassistant.ui.components.TransientLazyListScrollbar
+import com.aiassistant.ui.components.EchoGlassDialog
 import com.aiassistant.ui.components.echoShapeClick
 import com.aiassistant.ui.components.echoHazePanel
 import com.aiassistant.ui.components.echoHazeSource
@@ -106,6 +107,7 @@ fun ChatScreen(
     var preserveScrollForBranchGeneration by remember { mutableStateOf(false) }
     var streamingBranchGroupId by remember { mutableStateOf<String?>(null) }
     var autoFollowOutput by remember { mutableStateOf(true) }
+    var lastStreamScrollAt by remember { mutableLongStateOf(0L) }
     val variantSelections = remember { mutableStateMapOf<String, Int>() }
     val variantSelectionSnapshot = variantSelections.toMap()
     val displayMessages = remember(messages, variantSelectionSnapshot) {
@@ -177,12 +179,12 @@ fun ChatScreen(
             )
         }.collect { snapshot ->
             if (snapshot.isScrolling && snapshot.totalItems > 0) {
-                autoFollowOutput = snapshot.lastVisibleIndex >= snapshot.totalItems - 3
+                autoFollowOutput = snapshot.isAtBottom
             }
         }
     }
 
-    // 自动滚动到底部
+    // 仅在用户停留底部时跟随流式输出；用户上滑阅读时不抢夺滚动位置。
     LaunchedEffect(messages.size, currentResponse.length, currentThinking.length, isGenerating) {
         if (preserveScrollForBranchGeneration) {
             return@LaunchedEffect
@@ -190,10 +192,30 @@ fun ChatScreen(
         if (!autoFollowOutput) {
             return@LaunchedEffect
         }
+        if (listState.isScrollInProgress) {
+            return@LaunchedEffect
+        }
         if (messages.isNotEmpty() || currentResponse.isNotEmpty() || currentThinking.isNotEmpty()) {
-            kotlinx.coroutines.delay(16)
+            val layoutInfo = listState.layoutInfo
+            val lastVisibleIndex = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            if (layoutInfo.totalItemsCount > 0 && lastVisibleIndex < layoutInfo.totalItemsCount - 2) {
+                autoFollowOutput = false
+                return@LaunchedEffect
+            }
+            val now = System.currentTimeMillis()
+            if (currentResponse.isNotEmpty() || currentThinking.isNotEmpty()) {
+                val elapsed = now - lastStreamScrollAt
+                if (elapsed < 90L) {
+                    kotlinx.coroutines.delay(90L - elapsed)
+                }
+            } else {
+                kotlinx.coroutines.delay(16)
+            }
             val bottomIndex = (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)
-            listState.scrollToItem(bottomIndex)
+            if (bottomIndex > 0) {
+                listState.animateScrollToItem(bottomIndex)
+                lastStreamScrollAt = System.currentTimeMillis()
+            }
         }
     }
 
@@ -232,7 +254,6 @@ fun ChatScreen(
                     }
                     ChatHeaderTitle(
                         title = uiState.conversationTitle.ifBlank { "新对话" },
-                        isGenerating = isGenerating,
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight()
@@ -479,43 +500,6 @@ fun ChatScreen(
                         }
                     }
 
-                    // 生成中的加载指示器
-                    if (streamingBranchGroupId == null && isGenerating && currentResponse.isEmpty() && currentThinking.isEmpty()) {
-                        item {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.Start,
-                                verticalAlignment = Alignment.Top
-                            ) {
-                                ChatAvatar(
-                                    isUser = false,
-                                    avatarRevision = modelAvatarRevision,
-                                    apiConfigId = currentModelOption?.apiConfigId
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Surface(
-                                    color = MaterialTheme.colorScheme.surface,
-                                    shape = RoundedCornerShape(16.dp, 16.dp, 16.dp, 4.dp)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(20.dp),
-                                            strokeWidth = 2.dp
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(
-                                            text = "正在努力思考...",
-                                            style = MaterialTheme.typography.bodyMedium
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-
                     item(key = "chat_bottom_anchor") {
                         Spacer(modifier = Modifier.height(1.dp))
                     }
@@ -567,6 +551,7 @@ fun ChatScreen(
     // 设置对话框
     if (showSettingsDialog) {
         ChatSettingsDialog(
+            hazeState = hazeState,
             tempSettings = tempSettings,
             currentPrompt = uiState.systemPrompt,
             currentOption = currentModelOption,
@@ -588,6 +573,7 @@ fun ChatScreen(
 
     if (showContextUsageDialog) {
         ContextUsageDialog(
+            hazeState = hazeState,
             state = contextUsage,
             onDismiss = { showContextUsageDialog = false },
             onRefresh = { viewModel.refreshContextUsage() },
@@ -719,6 +705,7 @@ private fun ContextUsageRing(
 
 @Composable
 private fun ContextUsageDialog(
+    hazeState: dev.chrisbanes.haze.HazeState,
     state: ContextUsageUiState,
     onDismiss: () -> Unit,
     onRefresh: () -> Unit,
@@ -726,7 +713,8 @@ private fun ContextUsageDialog(
 ) {
     val usage = state.usage
 
-    AlertDialog(
+    EchoGlassDialog(
+        hazeState = hazeState,
         onDismissRequest = onDismiss,
         modifier = Modifier
             .fillMaxWidth()
@@ -752,7 +740,7 @@ private fun ContextUsageDialog(
                 }
             }
         },
-        text = {
+        content = {
             if (usage == null) {
                 Box(
                     modifier = Modifier
@@ -784,26 +772,12 @@ private fun ContextUsageDialog(
                 }
             }
         },
-        confirmButton = {
-            Button(
-                onClick = onCompress,
-                enabled = !state.isCompressing
+        buttons = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                if (state.isCompressing) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(16.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.onPrimary
-                    )
-                } else {
-                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                }
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(if (state.isCompressing) "压缩中" else "主动压缩")
-            }
-        },
-        dismissButton = {
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 TextButton(
                     onClick = onRefresh,
                     enabled = !state.isCompressing
@@ -812,6 +786,22 @@ private fun ContextUsageDialog(
                 }
                 TextButton(onClick = onDismiss) {
                     Text("关闭")
+                }
+                Button(
+                    onClick = onCompress,
+                    enabled = !state.isCompressing
+                ) {
+                    if (state.isCompressing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                    } else {
+                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                    }
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(if (state.isCompressing) "压缩中" else "主动压缩")
                 }
             }
         }
@@ -988,7 +978,6 @@ private fun formatContextTimestamp(timestamp: Long): String {
 @Composable
 private fun ChatHeaderTitle(
     title: String,
-    isGenerating: Boolean,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -998,51 +987,12 @@ private fun ChatHeaderTitle(
         Text(
             text = title,
             style = MaterialTheme.typography.titleMedium.copy(
-                fontSize = 16.sp,
-                lineHeight = 20.sp
+                fontSize = 14.5.sp,
+                lineHeight = 18.sp
             ),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
-        if (isGenerating) {
-            Spacer(modifier = Modifier.height(2.dp))
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                HeaderStatusChip(
-                    icon = Icons.Default.Bolt,
-                    text = "生成中"
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun HeaderStatusChip(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    checked: Boolean = false,
-    text: String
-) {
-    Surface(
-        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-        contentColor = MaterialTheme.colorScheme.primary,
-        shape = RoundedCornerShape(999.dp)
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(12.dp))
-            if (checked) {
-                Spacer(modifier = Modifier.width(3.dp))
-                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(12.dp))
-            } else {
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(text = text, style = MaterialTheme.typography.labelSmall, maxLines = 1)
-            }
-        }
     }
 }
 
@@ -1056,7 +1006,10 @@ private data class ScrollFollowSnapshot(
     val isScrolling: Boolean,
     val lastVisibleIndex: Int,
     val totalItems: Int
-)
+) {
+    val isAtBottom: Boolean
+        get() = totalItems <= 0 || lastVisibleIndex >= totalItems - 2
+}
 
 private data class VariantInfo(
     val groupId: String,
@@ -1639,7 +1592,7 @@ fun TypingIndicator(
 
     Text(
         text = "●".repeat(dotCount) + "○".repeat(3 - dotCount),
-        color = textColor.copy(alpha = 0.6f),
+        color = Color(0xFF93C5FD),
         style = MaterialTheme.typography.bodyLarge,
         letterSpacing = 2.sp
     )
@@ -2823,6 +2776,7 @@ private fun ChatSettingsSystemPromptSection(
 
 @Composable
 fun ChatSettingsDialog(
+    hazeState: dev.chrisbanes.haze.HazeState,
     tempSettings: TempChatSettings,
     currentPrompt: String?,
     currentOption: ChatModelOption?,
@@ -2845,6 +2799,7 @@ fun ChatSettingsDialog(
     var showTemplates by remember { mutableStateOf(false) }
     var showSaveDialog by remember { mutableStateOf(false) }
     var avatarRevision by remember { mutableIntStateOf(0) }
+    val dialogListState = rememberLazyListState()
     val modelOptions = remember(currentOption, fallbackModel, availableOptions) {
         val fallback = currentOption ?: ChatModelOption(
             apiConfigId = 0,
@@ -2885,7 +2840,8 @@ fun ChatSettingsDialog(
         }
     }
 
-    AlertDialog(
+    EchoGlassDialog(
+        hazeState = hazeState,
         onDismissRequest = onDismiss,
         modifier = Modifier
             .fillMaxWidth()
@@ -2905,11 +2861,12 @@ fun ChatSettingsDialog(
                 }
             }
         },
-        text = {
+        content = {
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(max = 500.dp),
+                state = dialogListState,
                 contentPadding = PaddingValues(end = 2.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
@@ -3156,26 +3113,30 @@ fun ChatSettingsDialog(
                 }
             }
         },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    val settings = TempChatSettings(
-                        temperature = temperature.coerceIn(0f, tuningProfile.temperatureMax),
-                        maxTokens = maxTokens.toIntOrNull() ?: 4096,
-                        topP = topP,
-                        enableThinking = enableThinking,
-                        thinkingEffort = thinkingEffort,
-                        enableWebSearch = enableWebSearch
-                    )
-                    onSave(settings, promptText.ifBlank { null })
-                }
+        buttons = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("保存")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("取消")
+                TextButton(onClick = onDismiss) {
+                    Text("取消")
+                }
+                Button(
+                    onClick = {
+                        val settings = TempChatSettings(
+                            temperature = temperature.coerceIn(0f, tuningProfile.temperatureMax),
+                            maxTokens = maxTokens.toIntOrNull() ?: 4096,
+                            topP = topP,
+                            enableThinking = enableThinking,
+                            thinkingEffort = thinkingEffort,
+                            enableWebSearch = enableWebSearch
+                        )
+                        onSave(settings, promptText.ifBlank { null })
+                    }
+                ) {
+                    Text("保存")
+                }
             }
         }
     )

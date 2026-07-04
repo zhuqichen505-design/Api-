@@ -1,5 +1,41 @@
 # Echo 更新日志
 
+## v1.7.13 (2026-07-04) - 弹窗玻璃统一、统计优化与流式滚动修复
+
+### 用户侧可见更新
+
+- 对话设置弹窗、上下文弹窗、备份恢复/删除确认弹窗统一为更圆润的玻璃风格。
+- 历史记录页、文件夹管理页、使用统计页统一使用首页壁纸和玻璃卡片体系。
+- 使用统计图表可读性提升，Token 消耗图新增“其他”分类，避免未知分项被误显示为输出。
+- 设置系统提示词时，点击输入框不再自动把对话设置列表滚回顶部。
+- 对话页顶部对话名称字号进一步减小。
+- 流式输出只有当前页面停留在底部时才自动跟随；用户上滑阅读时不会被新 token 强制拉回底部。
+- 独立“生成中”标志已删除，流式输出三点颜色改为淡蓝色。
+
+### 技术实现细则
+
+- 新增 `EchoWallpaperBackground`、`EchoGlassDialog`、`EchoGlassDialogShape`、`EchoGlassPagePanelShape`，统一页面壁纸、玻璃弹窗和页面卡片圆角。
+- `ChatSettingsDialog` 与 `ContextUsageDialog` 从默认 `AlertDialog` 迁移到统一玻璃 `Dialog + Surface` 容器。
+- `BackupItemCard` 新增恢复与删除确认弹窗，并复用 `EchoGlassDialog`，备份说明卡和备份项接入 `echoHazePanel`。
+- `HistoryScreen`、`FolderManagerScreen`、`StatsScreen` 接入首页壁纸和 Haze 背景采样，顶栏改为透明，主要列表项改为玻璃 `Surface`。
+- `ChatSettingsDialog` 为设置列表增加稳定 `LazyListState`，避免系统提示词输入框聚焦/编辑时因重组回到顶部。
+- `ChatScreen` 的流式自动滚动改为底部跟随策略：手动滑动时立即停止自动跟随，当前位置离底部时不触发滚动，流式更新使用节流后的 `animateScrollToItem`。
+- 删除顶部 `ChatHeaderTitle` 中的“生成中”状态胶囊，标题字号调整为 `14.5sp / 18sp`。
+- 删除空响应阶段独立加载气泡，保留消息内流式三点，并将三点颜色改为 `#93C5FD`。
+- `StatsScreen` 读取统计数据时对负数 token 清零、缓存 token 限制在输入 token 范围内、总 token 取记录总数与已知分项之和的较大值。
+- 对无法归入输入/输出/思考的 token 增加 `otherTokens`，Token 柱状图单独绘制“其他”分段，并使用更清晰的整数刻度上限。
+
+### 版本与构建
+
+- `versionCode`: 67
+- `versionName`: 1.7.13
+- 说明：`versionCode` 暂不递增，用于保持同签名测试包可回退安装。
+- Room 数据库版本：17
+- ABI：arm64-v8a
+- 构建命令：`.\gradlew.bat --no-daemon assembleRelease`
+
+---
+
 ## v1.7.12 (2026-07-04) - 首页与设置 UI 统一、主题选择
 
 ### 用户侧可见更新

@@ -32,6 +32,7 @@ import com.aiassistant.domain.model.ApiConfig
 import com.aiassistant.domain.model.Conversation
 import com.aiassistant.domain.model.EnvironmentVariable
 import com.aiassistant.domain.model.PromptTemplate
+import com.aiassistant.ui.components.EchoGlassDialog
 import com.aiassistant.ui.components.echoHazePanel
 import com.aiassistant.ui.components.echoShapeClick
 import com.aiassistant.ui.components.rememberEchoHazeState
@@ -62,13 +63,13 @@ private val CurrentFeatureHighlights = listOf(
 )
 
 private val CurrentVersionUserUpdates = listOf(
-    "首页顶部不再固定白底，会跟随首页背景图片一起显示",
-    "首页设置、使用统计、历史记录、对话和选中文件夹入口统一为液态玻璃效果",
-    "首页玻璃入口中的图标保持原样式，统一改为协调蓝色",
-    "设置界面使用和首页一致的背景图片",
-    "设置一级菜单改为液态玻璃卡片",
-    "设置二级菜单圆角统一",
-    "新增应用主题选择：浅色、深色和跟随系统"
+    "对话设置、上下文和备份确认弹窗统一为圆润玻璃风格",
+    "历史记录、文件夹管理和使用统计页面统一使用首页壁纸与玻璃卡片",
+    "使用统计优化 token 分项、未知 token 展示和图表刻度可读性",
+    "设置系统提示词时点击输入框不再导致设置列表回到顶部",
+    "对话页标题字号进一步减小",
+    "流式输出仅在当前停留底部时自动跟随，手动上滑阅读不会被强制拉回底部",
+    "移除独立生成中标志，流式输出三点改为淡蓝色"
 )
 
 private val SettingsPanelShape = RoundedCornerShape(28.dp)
@@ -141,7 +142,10 @@ fun SettingsScreen(
                     modifier = Modifier.padding(paddingValues),
                     onNavigateToChat = onNavigateToChat
                 )
-                "backup" -> BackupTab(modifier = Modifier.padding(paddingValues))
+                "backup" -> BackupTab(
+                    hazeState = hazeState,
+                    modifier = Modifier.padding(paddingValues)
+                )
                 "about" -> AboutTab(modifier = Modifier.padding(paddingValues))
             }
         }
@@ -1315,7 +1319,10 @@ fun EnvironmentVariablesTab(modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun BackupTab(modifier: Modifier = Modifier) {
+fun BackupTab(
+    hazeState: dev.chrisbanes.haze.HazeState,
+    modifier: Modifier = Modifier
+) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
     var backups by remember { mutableStateOf(BackupManager.getBackupList(context)) }
@@ -1354,7 +1361,20 @@ fun BackupTab(modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
-            Card(modifier = Modifier.fillMaxWidth(), shape = SettingsPanelShape) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .echoHazePanel(
+                        hazeState = hazeState,
+                        shape = SettingsPanelShape,
+                        tint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f),
+                        blurRadius = 18.dp
+                    ),
+                shape = SettingsPanelShape,
+                color = Color.Transparent,
+                tonalElevation = 0.dp,
+                shadowElevation = 0.dp
+            ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
                         text = "数据备份与恢复",
@@ -1435,11 +1455,12 @@ fun BackupTab(modifier: Modifier = Modifier) {
         showMessage?.let { message ->
             item {
                 Card(
+                    shape = SettingsPanelShape,
                     colors = CardDefaults.cardColors(
                         containerColor = if (message.contains("成功") || message.contains("已导出") || message.contains("已保存"))
-                            MaterialTheme.colorScheme.primaryContainer
+                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.82f)
                         else
-                            MaterialTheme.colorScheme.errorContainer
+                            MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.82f)
                     )
                 ) {
                     Text(
@@ -1460,6 +1481,7 @@ fun BackupTab(modifier: Modifier = Modifier) {
 
             items(backups) { backup ->
                 BackupItemCard(
+                    hazeState = hazeState,
                     backup = backup,
                     onRestore = {
                         scope.launch {
@@ -1484,15 +1506,30 @@ fun BackupTab(modifier: Modifier = Modifier) {
 
 @Composable
 fun BackupItemCard(
+    hazeState: dev.chrisbanes.haze.HazeState,
     backup: BackupManager.BackupItem,
     onRestore: () -> Unit,
     onDelete: () -> Unit,
     onShare: () -> Unit
 ) {
+    var showRestoreDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
 
-    Card(modifier = Modifier.fillMaxWidth(), shape = SettingsPanelShape) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .echoHazePanel(
+                hazeState = hazeState,
+                shape = SettingsPanelShape,
+                tint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f),
+                blurRadius = 18.dp
+            ),
+        shape = SettingsPanelShape,
+        color = Color.Transparent,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp
+    ) {
         Row(
             modifier = Modifier.padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -1517,10 +1554,90 @@ fun BackupItemCard(
             IconButton(onClick = onShare) {
                 Icon(Icons.Default.Share, contentDescription = "分享")
             }
-            IconButton(onClick = onRestore) {
+            IconButton(onClick = { showRestoreDialog = true }) {
                 Icon(Icons.Default.Restore, contentDescription = "恢复")
             }
+            IconButton(onClick = { showDeleteDialog = true }) {
+                Icon(
+                    Icons.Default.Delete,
+                    contentDescription = "删除",
+                    tint = MaterialTheme.colorScheme.error
+                )
+            }
         }
+    }
+
+    if (showRestoreDialog) {
+        EchoGlassDialog(
+            hazeState = hazeState,
+            onDismissRequest = { showRestoreDialog = false },
+            title = {
+                Text("恢复备份", style = MaterialTheme.typography.titleLarge)
+            },
+            content = {
+                Text(
+                    text = "确定要从 ${backup.fileName} 恢复数据吗？恢复后建议重启应用。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            },
+            buttons = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = { showRestoreDialog = false }) {
+                        Text("取消")
+                    }
+                    Button(
+                        onClick = {
+                            onRestore()
+                            showRestoreDialog = false
+                        }
+                    ) {
+                        Text("恢复")
+                    }
+                }
+            }
+        )
+    }
+
+    if (showDeleteDialog) {
+        EchoGlassDialog(
+            hazeState = hazeState,
+            onDismissRequest = { showDeleteDialog = false },
+            title = {
+                Text("删除备份", style = MaterialTheme.typography.titleLarge)
+            },
+            content = {
+                Text(
+                    text = "确定要删除 ${backup.fileName} 吗？此操作不可撤销。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            },
+            buttons = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = { showDeleteDialog = false }) {
+                        Text("取消")
+                    }
+                    TextButton(
+                        onClick = {
+                            onDelete()
+                            showDeleteDialog = false
+                        },
+                        colors = ButtonDefaults.textButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error
+                        )
+                    ) {
+                        Text("删除")
+                    }
+                }
+            }
+        )
     }
 }
 

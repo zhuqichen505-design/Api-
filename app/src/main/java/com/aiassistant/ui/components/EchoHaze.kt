@@ -1,11 +1,22 @@
 package com.aiassistant.ui.components
 
+import android.graphics.Bitmap
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -19,13 +30,20 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import dev.chrisbanes.haze.HazeDefaults
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.haze
 import dev.chrisbanes.haze.hazeChild
+
+val EchoGlassDialogShape = RoundedCornerShape(30.dp)
+val EchoGlassPagePanelShape = RoundedCornerShape(28.dp)
 
 @Composable
 fun rememberEchoHazeState(): HazeState = remember { HazeState() }
@@ -167,3 +185,70 @@ fun Modifier.echoLiquidGlassOverlay(
         ),
         shape
     )
+
+@Composable
+fun EchoWallpaperBackground(
+    backgroundBitmap: Bitmap?,
+    hazeState: HazeState,
+    modifier: Modifier = Modifier,
+    content: @Composable BoxScope.() -> Unit
+) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .echoHazeSource(hazeState)
+    ) {
+        backgroundBitmap?.let { bitmap ->
+            Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        }
+        content()
+    }
+}
+
+@Composable
+fun EchoGlassDialog(
+    hazeState: HazeState,
+    onDismissRequest: () -> Unit,
+    modifier: Modifier = Modifier,
+    shape: Shape = EchoGlassDialogShape,
+    title: @Composable ColumnScope.() -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
+    buttons: @Composable ColumnScope.() -> Unit
+) {
+    Dialog(
+        onDismissRequest = onDismissRequest,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = modifier
+                .fillMaxWidth()
+                .widthIn(max = 560.dp)
+                .padding(horizontal = 18.dp)
+                .echoHazePanel(
+                    hazeState = hazeState,
+                    shape = shape,
+                    tint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f),
+                    blurRadius = 28.dp
+                ),
+            shape = shape,
+            color = Color.Transparent,
+            tonalElevation = 0.dp,
+            shadowElevation = 0.dp
+        ) {
+            Column(
+                modifier = Modifier.padding(22.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                title()
+                content()
+                buttons()
+            }
+        }
+    }
+}

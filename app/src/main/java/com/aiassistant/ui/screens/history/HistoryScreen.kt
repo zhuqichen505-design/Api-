@@ -8,12 +8,14 @@ import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -22,6 +24,12 @@ import com.aiassistant.AiAssistantApp
 import com.aiassistant.BuildConfig
 import com.aiassistant.domain.model.Conversation
 import com.aiassistant.domain.model.Message
+import com.aiassistant.ui.components.EchoGlassPagePanelShape
+import com.aiassistant.ui.components.EchoWallpaperBackground
+import com.aiassistant.ui.components.echoHazePanel
+import com.aiassistant.ui.components.echoShapeClick
+import com.aiassistant.ui.components.rememberEchoHazeState
+import com.aiassistant.utils.BackgroundImageManager
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.io.File
@@ -37,6 +45,10 @@ fun HistoryScreen(
     val repository = AiAssistantApp.instance.repository
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val historyBackgroundBitmap = remember(context) {
+        BackgroundImageManager.getHomeBackgroundBitmap(context)
+    }
+    val hazeState = rememberEchoHazeState()
 
     val conversations by repository.getAllConversations().collectAsState(initial = emptyList())
     var searchQuery by remember { mutableStateOf("") }
@@ -95,49 +107,75 @@ fun HistoryScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("历史记录") },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "返回")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { importConversationLauncher.launch(arrayOf("application/json", "text/*", "*/*")) }) {
-                        Icon(Icons.Default.FileUpload, contentDescription = "导入")
-                    }
-                    IconButton(onClick = { showExportDialog = true }) {
-                        Icon(Icons.Default.FileDownload, contentDescription = "导出")
-                    }
-                }
-            )
-        }
-    ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-        ) {
+    EchoWallpaperBackground(
+        backgroundBitmap = historyBackgroundBitmap,
+        hazeState = hazeState
+    ) {
+        Scaffold(
+            containerColor = Color.Transparent,
+            topBar = {
+                TopAppBar(
+                    title = { Text("历史记录") },
+                    navigationIcon = {
+                        IconButton(onClick = onNavigateBack) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = "返回")
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = { importConversationLauncher.launch(arrayOf("application/json", "text/*", "*/*")) }) {
+                            Icon(Icons.Default.FileUpload, contentDescription = "导入")
+                        }
+                        IconButton(onClick = { showExportDialog = true }) {
+                            Icon(Icons.Default.FileDownload, contentDescription = "导出")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.Transparent,
+                        scrolledContainerColor = Color.Transparent
+                    )
+                )
+            }
+        ) { paddingValues ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+            ) {
             // 搜索栏
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
+            Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                placeholder = { Text("搜索对话...") },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { searchQuery = "" }) {
-                            Icon(Icons.Default.Clear, contentDescription = "清除")
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .echoHazePanel(
+                        hazeState = hazeState,
+                        shape = EchoGlassPagePanelShape,
+                        tint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f),
+                        blurRadius = 18.dp
+                    ),
+                shape = EchoGlassPagePanelShape,
+                color = Color.Transparent,
+                tonalElevation = 0.dp,
+                shadowElevation = 0.dp
+            ) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    placeholder = { Text("搜索对话...") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(Icons.Default.Clear, contentDescription = "清除")
+                            }
                         }
-                    }
-                },
-                singleLine = true
-            )
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(22.dp)
+                )
+            }
 
             // 搜索选项
             Row(
@@ -186,6 +224,7 @@ fun HistoryScreen(
                             key = { "${it.conversation.id}_${it.message?.id}" }
                         ) { result ->
                             SearchResultCard(
+                                hazeState = hazeState,
                                 result = result,
                                 searchQuery = searchQuery,
                                 onClick = { onNavigateToChat(result.conversation.id) }
@@ -204,12 +243,13 @@ fun HistoryScreen(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(
-                        items = filteredConversations,
-                        key = { it.id }
-                    ) { conversation ->
-                        HistoryConversationCard(
-                            conversation = conversation,
+                        items(
+                            items = filteredConversations,
+                            key = { it.id }
+                        ) { conversation ->
+                            HistoryConversationCard(
+                                hazeState = hazeState,
+                                conversation = conversation,
                             onClick = { onNavigateToChat(conversation.id) },
                             onExport = { selectedConversation = conversation },
                             onDelete = {
@@ -221,6 +261,7 @@ fun HistoryScreen(
                     }
                 }
             }
+        }
         }
     }
 
@@ -256,6 +297,7 @@ fun HistoryScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HistoryConversationCard(
+    hazeState: dev.chrisbanes.haze.HazeState,
     conversation: Conversation,
     onClick: () -> Unit,
     onExport: () -> Unit,
@@ -265,9 +307,20 @@ fun HistoryConversationCard(
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
 
-    Card(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth()
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .echoHazePanel(
+                hazeState = hazeState,
+                shape = EchoGlassPagePanelShape,
+                tint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f),
+                blurRadius = 18.dp
+            )
+            .echoShapeClick(EchoGlassPagePanelShape, onClick = onClick),
+        shape = EchoGlassPagePanelShape,
+        color = Color.Transparent,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp
     ) {
         Row(
             modifier = Modifier
@@ -660,15 +713,27 @@ data class SearchResult(
 
 @Composable
 fun SearchResultCard(
+    hazeState: dev.chrisbanes.haze.HazeState,
     result: SearchResult,
     searchQuery: String,
     onClick: () -> Unit
 ) {
     val dateFormat = remember { SimpleDateFormat("MM/dd HH:mm", Locale.getDefault()) }
 
-    Card(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth()
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .echoHazePanel(
+                hazeState = hazeState,
+                shape = EchoGlassPagePanelShape,
+                tint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f),
+                blurRadius = 18.dp
+            )
+            .echoShapeClick(EchoGlassPagePanelShape, onClick = onClick),
+        shape = EchoGlassPagePanelShape,
+        color = Color.Transparent,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
             // 对话标题

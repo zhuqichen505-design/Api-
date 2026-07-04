@@ -4,7 +4,6 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,18 +15,22 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -49,17 +52,30 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.aiassistant.ui.components.EchoGlassPagePanelShape
+import com.aiassistant.ui.components.EchoWallpaperBackground
+import com.aiassistant.ui.components.echoHazePanel
+import com.aiassistant.ui.components.echoShapeClick
+import com.aiassistant.ui.components.rememberEchoHazeState
+import com.aiassistant.utils.BackgroundImageManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.math.pow
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StatsScreen(
     onNavigateBack: () -> Unit
 ) {
-    val context = LocalContext.current.applicationContext
+    val localContext = LocalContext.current
+    val context = localContext.applicationContext
+    val statsBackgroundBitmap = remember(localContext) {
+        BackgroundImageManager.getHomeBackgroundBitmap(localContext)
+    }
+    val hazeState = rememberEchoHazeState()
     var selectedPeriod by remember { mutableStateOf(StatsPeriod.Day) }
     var refreshKey by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var stats by remember { mutableStateOf<List<UsageRow>>(emptyList()) }
@@ -79,92 +95,100 @@ fun StatsScreen(
     }
     val modelRows = remember(stats) { stats.toModelRows() }
 
-    Scaffold(
-        topBar = {
-            Row(
+    EchoWallpaperBackground(
+        backgroundBitmap = statsBackgroundBitmap,
+        hazeState = hazeState
+    ) {
+        Scaffold(
+            containerColor = Color.Transparent,
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            StatsHeaderIcon()
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "使用统计",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onNavigateBack) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = "返回")
+                        }
+                    },
+                    actions = {
+                        TextButton(onClick = { refreshKey = System.currentTimeMillis() }) {
+                            Text("刷新")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.Transparent,
+                        scrolledContainerColor = Color.Transparent
+                    )
+                )
+            }
+        ) { padding ->
+            LazyColumn(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surface)
-                    .statusBarsPadding()
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .fillMaxSize()
+                    .padding(padding),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                TextButton(onClick = onNavigateBack) {
-                    Text("返回")
+                item {
+                    PeriodTabs(
+                        hazeState = hazeState,
+                        selected = selectedPeriod,
+                        onSelected = {
+                            selectedPeriod = it
+                            refreshKey = System.currentTimeMillis()
+                        }
+                    )
                 }
-                Row(
-                    modifier = Modifier.weight(1f),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    StatsHeaderIcon()
-                    Spacer(modifier = Modifier.width(10.dp))
+
+                item {
+                    SummaryCard(
+                        hazeState = hazeState,
+                        summary = summary,
+                        period = selectedPeriod,
+                        statusText = statusText
+                    )
+                }
+
+                item {
+                    ChartCard(hazeState = hazeState, title = "Token 消耗") {
+                        TokenBars(
+                            buckets = buckets,
+                            maxToken = niceAxisMax(buckets.maxOfOrNull { it.totalTokens } ?: 0)
+                        )
+                    }
+                }
+
+                item {
+                    ChartCard(hazeState = hazeState, title = "命中率趋势") {
+                        RateLines(buckets = buckets)
+                    }
+                }
+
+                item {
                     Text(
-                        text = "使用统计",
-                        style = MaterialTheme.typography.titleLarge,
+                        text = "模型明细",
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold
                     )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "（不准，仅供参考）",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
                 }
-                TextButton(onClick = { refreshKey = System.currentTimeMillis() }) {
-                    Text("刷新")
-                }
-            }
-        }
-    ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background)
-                .padding(padding),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            item {
-                PeriodTabs(
-                    selected = selectedPeriod,
-                    onSelected = {
-                        selectedPeriod = it
-                        refreshKey = System.currentTimeMillis()
+
+                if (modelRows.isEmpty()) {
+                    item {
+                        EmptyCard(hazeState = hazeState, text = "暂无统计记录。之后的新请求会在这里显示。")
                     }
-                )
-            }
-
-            item {
-                SummaryCard(summary = summary, period = selectedPeriod, statusText = statusText)
-            }
-
-            item {
-                ChartCard(title = "Token 消耗") {
-                    TokenBars(buckets = buckets, maxToken = buckets.maxOfOrNull { it.totalTokens }?.coerceAtLeast(1) ?: 1)
-                }
-            }
-
-            item {
-                ChartCard(title = "命中率趋势") {
-                    RateLines(buckets = buckets)
-                }
-            }
-
-            item {
-                Text(
-                    text = "模型明细",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-
-            if (modelRows.isEmpty()) {
-                item {
-                    EmptyCard("暂无统计记录。之后的新请求会在这里显示。")
-                }
-            } else {
-                items(modelRows.size) { index ->
-                    ModelRowCard(row = modelRows[index])
+                } else {
+                    items(modelRows.size) { index ->
+                        ModelRowCard(hazeState = hazeState, row = modelRows[index])
+                    }
                 }
             }
         }
@@ -213,23 +237,30 @@ private fun StatsHeaderIcon() {
 
 @Composable
 private fun PeriodTabs(
+    hazeState: dev.chrisbanes.haze.HazeState,
     selected: StatsPeriod,
     onSelected: (StatsPeriod) -> Unit
 ) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         StatsPeriod.entries.forEach { period ->
+            val shape = RoundedCornerShape(999.dp)
             Surface(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(999.dp))
-                    .clickable { onSelected(period) },
-                shape = RoundedCornerShape(999.dp),
+                    .echoHazePanel(
+                        hazeState = hazeState,
+                        shape = shape,
+                        tint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (period == selected) 0.42f else 0.28f),
+                        blurRadius = 16.dp
+                    )
+                    .echoShapeClick(shape) { onSelected(period) },
+                shape = shape,
                 color = if (period == selected) {
-                    MaterialTheme.colorScheme.primary
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
                 } else {
-                    MaterialTheme.colorScheme.surfaceVariant
+                    Color.Transparent
                 },
                 contentColor = if (period == selected) {
-                    MaterialTheme.colorScheme.onPrimary
+                    MaterialTheme.colorScheme.primary
                 } else {
                     MaterialTheme.colorScheme.onSurfaceVariant
                 }
@@ -246,16 +277,24 @@ private fun PeriodTabs(
 
 @Composable
 private fun SummaryCard(
+    hazeState: dev.chrisbanes.haze.HazeState,
     summary: UsageSummary,
     period: StatsPeriod,
     statusText: String
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer
-        )
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .echoHazePanel(
+                hazeState = hazeState,
+                shape = EchoGlassPagePanelShape,
+                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.20f),
+                blurRadius = 20.dp
+            ),
+        shape = EchoGlassPagePanelShape,
+        color = Color.Transparent,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -265,12 +304,12 @@ private fun SummaryCard(
                 text = "${period.label} · ${formatNumber(summary.totalTokens)} Token",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onPrimaryContainer
+                color = MaterialTheme.colorScheme.onSurface
             )
             Text(
                 text = statusText,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f)
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 MetricPill("请求", summary.requestCount.toString(), Modifier.weight(1f))
@@ -299,11 +338,24 @@ private fun MetricPill(label: String, value: String, modifier: Modifier = Modifi
 }
 
 @Composable
-private fun ChartCard(title: String, content: @Composable () -> Unit) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+private fun ChartCard(
+    hazeState: dev.chrisbanes.haze.HazeState,
+    title: String,
+    content: @Composable () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .echoHazePanel(
+                hazeState = hazeState,
+                shape = EchoGlassPagePanelShape,
+                tint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f),
+                blurRadius = 18.dp
+            ),
+        shape = EchoGlassPagePanelShape,
+        color = Color.Transparent,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -314,7 +366,8 @@ private fun ChartCard(title: String, content: @Composable () -> Unit) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 LegendDot("输入", MaterialTheme.colorScheme.primary)
                 LegendDot("输出", MaterialTheme.colorScheme.secondary)
-                LegendDot("思考/命中", MaterialTheme.colorScheme.tertiary)
+                LegendDot("思考", MaterialTheme.colorScheme.tertiary)
+                LegendDot("其他", MaterialTheme.colorScheme.outline)
             }
         }
     }
@@ -344,6 +397,7 @@ private fun TokenBars(buckets: List<Bucket>, maxToken: Int) {
     val input = MaterialTheme.colorScheme.primary
     val output = MaterialTheme.colorScheme.secondary
     val thinking = MaterialTheme.colorScheme.tertiary
+    val unclassified = MaterialTheme.colorScheme.outline
     val grid = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.32f)
     val plot = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.20f)
 
@@ -387,9 +441,10 @@ private fun TokenBars(buckets: List<Bucket>, maxToken: Int) {
                         )
                         bottom -= height
                     }
-                    segment(bucket.inputTokens, input)
-                    segment(bucket.outputTokens, output)
+                    segment(bucket.otherTokens, unclassified)
                     segment(bucket.thinkingTokens, thinking)
+                    segment(bucket.outputTokens, output)
+                    segment(bucket.inputTokens, input)
                 }
             }
         }
@@ -492,11 +547,23 @@ private fun XAxisLabels(buckets: List<Bucket>) {
 }
 
 @Composable
-private fun ModelRowCard(row: ModelRow) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+private fun ModelRowCard(
+    hazeState: dev.chrisbanes.haze.HazeState,
+    row: ModelRow
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .echoHazePanel(
+                hazeState = hazeState,
+                shape = RoundedCornerShape(22.dp),
+                tint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f),
+                blurRadius = 16.dp
+            ),
+        shape = RoundedCornerShape(22.dp),
+        color = Color.Transparent,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp
     ) {
         Row(
             modifier = Modifier.padding(14.dp),
@@ -515,13 +582,20 @@ private fun ModelRowCard(row: ModelRow) {
 }
 
 @Composable
-private fun EmptyCard(text: String) {
+private fun EmptyCard(
+    hazeState: dev.chrisbanes.haze.HazeState,
+    text: String
+) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(96.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)),
+            .echoHazePanel(
+                hazeState = hazeState,
+                shape = EchoGlassPagePanelShape,
+                tint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f),
+                blurRadius = 16.dp
+            ),
         contentAlignment = Alignment.Center
     ) {
         Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -583,26 +657,23 @@ private fun queryUsageRows(db: SQLiteDatabase, startTime: Long, endTime: Long): 
         arrayOf(startTime.toString(), endTime.toString())
     ).use { cursor ->
         while (cursor.moveToNext()) {
-            val inputTokens = cursor.getInt(2)
-            val outputTokens = cursor.getInt(3)
-            val thinkingTokens = cursor.getInt(4)
-            val totalTokens = cursor.getInt(5)
-            val normalizedOutputTokens = if (
-                totalTokens > 0 && inputTokens + outputTokens + thinkingTokens == 0
-            ) {
-                totalTokens
-            } else {
-                outputTokens
-            }
+            val inputTokens = cursor.getInt(2).coerceAtLeast(0)
+            val outputTokens = cursor.getInt(3).coerceAtLeast(0)
+            val thinkingTokens = cursor.getInt(4).coerceAtLeast(0)
+            val recordedTotalTokens = cursor.getInt(5).coerceAtLeast(0)
+            val knownTokens = inputTokens + outputTokens + thinkingTokens
+            val totalTokens = maxOf(recordedTotalTokens, knownTokens)
+            val otherTokens = (totalTokens - knownTokens).coerceAtLeast(0)
             rows += UsageRow(
                 provider = cursor.getString(0) ?: "unknown",
                 modelName = cursor.getString(1) ?: "unknown",
                 inputTokens = inputTokens,
-                outputTokens = normalizedOutputTokens,
+                outputTokens = outputTokens,
                 thinkingTokens = thinkingTokens,
-                totalTokens = totalTokens.takeIf { it > 0 } ?: (inputTokens + normalizedOutputTokens + thinkingTokens),
-                cachedTokens = cursor.getInt(6),
-                responseTime = cursor.getLong(7),
+                otherTokens = otherTokens,
+                totalTokens = totalTokens,
+                cachedTokens = cursor.getInt(6).coerceIn(0, inputTokens),
+                responseTime = cursor.getLong(7).coerceAtLeast(0L),
                 success = cursor.getInt(8) == 1,
                 timestamp = cursor.getLong(9)
             )
@@ -652,11 +723,25 @@ private fun buildBuckets(rows: List<UsageRow>, period: StatsPeriod, endTime: Lon
             inputTokens = input,
             outputTokens = bucketRows.sumOf { it.outputTokens },
             thinkingTokens = bucketRows.sumOf { it.thinkingTokens },
+            otherTokens = bucketRows.sumOf { it.otherTokens },
             totalTokens = bucketRows.sumOf { it.totalTokens },
             cacheHitRate = if (input > 0) cached.toFloat() / input else 0f,
             successRate = if (bucketRows.isNotEmpty()) bucketRows.count { it.success }.toFloat() / bucketRows.size else 0f
         )
     }
+}
+
+private fun niceAxisMax(value: Int): Int {
+    if (value <= 0) return 1
+    val magnitude = 10.0.pow((value.toString().length - 1).toDouble()).toInt()
+    val normalized = value.toFloat() / magnitude
+    val nice = when {
+        normalized <= 1f -> 1
+        normalized <= 2f -> 2
+        normalized <= 5f -> 5
+        else -> 10
+    }
+    return nice * magnitude
 }
 
 private fun formatNumber(value: Int): String {
@@ -701,6 +786,7 @@ private data class UsageRow(
     val inputTokens: Int,
     val outputTokens: Int,
     val thinkingTokens: Int,
+    val otherTokens: Int,
     val totalTokens: Int,
     val cachedTokens: Int,
     val responseTime: Long,
@@ -720,6 +806,7 @@ private data class Bucket(
     val inputTokens: Int,
     val outputTokens: Int,
     val thinkingTokens: Int,
+    val otherTokens: Int,
     val totalTokens: Int,
     val cacheHitRate: Float,
     val successRate: Float
