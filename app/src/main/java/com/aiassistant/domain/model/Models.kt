@@ -251,7 +251,8 @@ data class ChatRequestOptions(
     val thinkingEffort: String? = null,
     val enableWebSearch: Boolean? = null,
     val overrideSystemPrompt: Boolean = false,
-    val systemPromptOverride: String? = null
+    val systemPromptOverride: String? = null,
+    val contextWindowOverrideTokens: Int? = null
 )
 
 data class ConversationContextUsage(

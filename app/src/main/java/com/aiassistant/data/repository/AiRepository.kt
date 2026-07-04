@@ -9,6 +9,9 @@ import com.aiassistant.utils.FileUtils
 import com.aiassistant.utils.PersonalizationManager
 import com.aiassistant.utils.TavilySearchManager
 import com.google.gson.Gson
+import com.google.gson.JsonElement
+import com.google.gson.JsonObject
+import com.google.gson.JsonParser
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -67,6 +70,8 @@ class AiRepository(
         const val MEMORY_TERM_OVERLAP_WEIGHT = 0.32f
         const val MEMORY_RECENCY_WEIGHT = 0.12f
         const val MEMORY_RECENCY_WINDOW_MS = 14f * 24f * 60f * 60f * 1000f
+        const val DEFAULT_UNKNOWN_CONTEXT_WINDOW_TOKENS = 1_000_000
+        const val CONTEXT_OVERFLOW_RETRY_WINDOW_TOKENS = 32_000
     }
 
     fun cancelActiveRequest(conversationId: Long) {
@@ -77,6 +82,41 @@ class AiRepository(
         if (error is CancellationException) return true
         if (error.message.equals("Canceled", ignoreCase = true)) return true
         return error.cause?.let(::isRequestCancellation) == true
+    }
+
+    private fun isContextLimitError(error: Throwable): Boolean {
+        val messages = mutableListOf<String>()
+        var current: Throwable? = error
+        while (current != null) {
+            current.message?.let(messages::add)
+            current = current.cause
+        }
+        val message = messages.joinToString(" ").lowercase()
+        if (message.isBlank()) return false
+        val hasTokenOrContext = listOf("token", "context", "上下文", "长度", "prompt", "input").any { it in message }
+        val hasOverflow = listOf(
+            "exceed",
+            "exceeded",
+            "too long",
+            "too many",
+            "maximum",
+            "max",
+            "length",
+            "context_length_exceeded",
+            "reduce",
+            "超出",
+            "超过",
+            "过长"
+        ).any { it in message }
+        return hasTokenOrContext && hasOverflow
+    }
+
+    private fun extractContextWindowFromError(message: String): Int? {
+        return Regex("""(?<!\d)([1-9]\d{3,6})(?!\d)\s*(?:tokens?|token|上下文|长度)?""")
+            .findAll(message.lowercase())
+            .mapNotNull { it.groupValues[1].toIntOrNull() }
+            .filter { it in 4_000..2_000_000 }
+            .minOrNull()
     }
 
     // ============ 文件夹相关 ============
@@ -309,6 +349,9 @@ class AiRepository(
                 throw Exception("获取模型列表失败 (${response.code}): $detail")
             }
 
+            val dynamicModels = parseModelNamesAndCacheContextWindows(bodyText)
+            if (dynamicModels.isNotEmpty()) return dynamicModels
+
             val body = gson.fromJson(bodyText, ModelsResponse::class.java)
             return body?.data
                 ?.onEach { cacheModelContextWindow(it) }
@@ -317,6 +360,85 @@ class AiRepository(
                 ?.sorted()
                 .orEmpty()
         }
+    }
+
+    private fun parseModelNamesAndCacheContextWindows(bodyText: String): List<String> {
+        return runCatching {
+            val root = JsonParser.parseString(bodyText).asJsonObject
+            val modelElements = when {
+                root.get("data")?.isJsonArray == true -> root.getAsJsonArray("data")
+                root.get("models")?.isJsonArray == true -> root.getAsJsonArray("models")
+                root.get("model")?.isJsonArray == true -> root.getAsJsonArray("model")
+                else -> return@runCatching emptyList()
+            }
+
+            modelElements.mapNotNull { element ->
+                val modelObject = element.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
+                val modelName = firstString(modelObject, "id", "name", "model", "model_name")
+                    ?.let(::sanitizeModelName)
+                    ?: return@mapNotNull null
+                val aliases = listOfNotNull(
+                    modelName,
+                    firstString(modelObject, "id")?.let(::sanitizeModelName),
+                    firstString(modelObject, "name")?.let(::sanitizeModelName)
+                ).distinct()
+                extractContextWindowFromModelJson(modelObject)?.let { limit ->
+                    aliases.forEach { alias ->
+                        modelContextWindowCache[alias.lowercase()] = limit
+                    }
+                }
+                modelName
+            }.distinct().sorted()
+        }.getOrElse {
+            Log.w(tag, "动态解析模型列表失败", it)
+            emptyList()
+        }
+    }
+
+    private fun firstString(obj: JsonObject, vararg names: String): String? {
+        return names.firstNotNullOfOrNull { name ->
+            obj.get(name)?.takeIf { it.isJsonPrimitive }?.asJsonPrimitive?.takeIf { it.isString }?.asString
+        }
+    }
+
+    private fun extractContextWindowFromModelJson(obj: JsonObject): Int? {
+        val directKeys = listOf(
+            "context_length",
+            "context_window",
+            "max_context_length",
+            "max_context_window",
+            "max_model_len",
+            "max_model_length",
+            "max_sequence_length",
+            "max_position_embeddings",
+            "max_input_tokens",
+            "input_token_limit",
+            "n_ctx",
+            "contextLength",
+            "contextWindow",
+            "maxContextLength",
+            "maxContextWindow",
+            "maxModelLen",
+            "maxInputTokens"
+        )
+        directKeys.firstNotNullOfOrNull { key ->
+            parseContextWindowValue(obj.get(key))
+        }?.let { return it }
+
+        val nestedKeys = listOf("metadata", "limits", "capabilities", "model_info", "config", "parameters")
+        return nestedKeys.firstNotNullOfOrNull { key ->
+            obj.get(key)?.takeIf { it.isJsonObject }?.asJsonObject?.let(::extractContextWindowFromModelJson)
+        }
+    }
+
+    private fun parseContextWindowValue(value: JsonElement?): Int? {
+        if (value == null || value.isJsonNull) return null
+        val parsed = when {
+            value.isJsonPrimitive && value.asJsonPrimitive.isNumber -> value.asLong.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+            value.isJsonPrimitive && value.asJsonPrimitive.isString -> parseContextWindowFromText(value.asString)
+            else -> null
+        }
+        return parsed?.takeIf { it >= 4_000 }?.coerceIn(4_000, 2_000_000)
     }
 
     private fun cacheModelContextWindow(modelInfo: ModelInfo) {
@@ -647,16 +769,36 @@ class AiRepository(
         onError: (String) -> Unit
     ) {
         try {
-            // 获取历史消息构建上下文
-            val historyMessages = getMessagesList(conversationId)
-
-            // 根据API类型调用不同的方法
-            when (config.apiType) {
-                "anthropic" -> sendAnthropicMessage(config, conversationId, historyMessages, userMessage, attachments, options, assistantVariantGroupId, assistantVariantIndex, onToken, onThinkingToken, onComplete)
-                else -> sendOpenAIMessage(config, conversationId, historyMessages, userMessage, attachments, options, assistantVariantGroupId, assistantVariantIndex, onToken, onThinkingToken, onComplete)
-            }
+            dispatchChatMessageWithConfig(
+                config = config,
+                conversationId = conversationId,
+                userMessage = userMessage,
+                attachments = attachments,
+                options = options,
+                assistantVariantGroupId = assistantVariantGroupId,
+                assistantVariantIndex = assistantVariantIndex,
+                onToken = onToken,
+                onThinkingToken = onThinkingToken,
+                onComplete = onComplete
+            )
         } catch (e: Exception) {
             if (isRequestCancellation(e)) throw CancellationException("请求已取消", e)
+            if (isContextLimitError(e) && retryWithCompressedContext(
+                    config = config,
+                    conversationId = conversationId,
+                    userMessage = userMessage,
+                    attachments = attachments,
+                    options = options,
+                    assistantVariantGroupId = assistantVariantGroupId,
+                    assistantVariantIndex = assistantVariantIndex,
+                    onToken = onToken,
+                    onThinkingToken = onThinkingToken,
+                    onComplete = onComplete,
+                    originalError = e
+                )
+            ) {
+                return
+            }
             Log.e(tag, "发送消息失败", e)
             onError(e.message ?: "未知错误")
 
@@ -674,6 +816,73 @@ class AiRepository(
                 Log.e(tag, "记录失败统计异常", statEx)
             }
         }
+    }
+
+    private suspend fun dispatchChatMessageWithConfig(
+        config: ApiConfig,
+        conversationId: Long,
+        userMessage: String,
+        attachments: List<Attachment>,
+        options: ChatRequestOptions?,
+        assistantVariantGroupId: String?,
+        assistantVariantIndex: Int,
+        onToken: (String) -> Unit,
+        onThinkingToken: (String) -> Unit,
+        onComplete: (String, String?, Any?) -> Unit
+    ) {
+        val historyMessages = getMessagesList(conversationId)
+        when (config.apiType) {
+            "anthropic" -> sendAnthropicMessage(config, conversationId, historyMessages, userMessage, attachments, options, assistantVariantGroupId, assistantVariantIndex, onToken, onThinkingToken, onComplete)
+            else -> sendOpenAIMessage(config, conversationId, historyMessages, userMessage, attachments, options, assistantVariantGroupId, assistantVariantIndex, onToken, onThinkingToken, onComplete)
+        }
+    }
+
+    private suspend fun retryWithCompressedContext(
+        config: ApiConfig,
+        conversationId: Long,
+        userMessage: String,
+        attachments: List<Attachment>,
+        options: ChatRequestOptions?,
+        assistantVariantGroupId: String?,
+        assistantVariantIndex: Int,
+        onToken: (String) -> Unit,
+        onThinkingToken: (String) -> Unit,
+        onComplete: (String, String?, Any?) -> Unit,
+        originalError: Exception
+    ): Boolean {
+        val retryWindow = extractContextWindowFromError(originalError.message.orEmpty())
+            ?: CONTEXT_OVERFLOW_RETRY_WINDOW_TOKENS
+        val requestModel = config.modelName
+        modelContextWindowCache[requestModel.lowercase()] = retryWindow
+        runCatching {
+            compressConversationContext(
+                conversationId = conversationId,
+                modelNameOverride = requestModel,
+                maxOutputTokens = options?.maxTokens
+            )
+        }.onFailure {
+            Log.w(tag, "上下文超限后自动压缩失败，仍尝试缩小窗口重试", it)
+        }
+
+        val retryOptions = (options ?: ChatRequestOptions()).copy(
+            contextWindowOverrideTokens = retryWindow
+        )
+        return runCatching {
+            dispatchChatMessageWithConfig(
+                config = config,
+                conversationId = conversationId,
+                userMessage = userMessage,
+                attachments = attachments,
+                options = retryOptions,
+                assistantVariantGroupId = assistantVariantGroupId,
+                assistantVariantIndex = assistantVariantIndex,
+                onToken = onToken,
+                onThinkingToken = onThinkingToken,
+                onComplete = onComplete
+            )
+        }.onFailure {
+            Log.e(tag, "上下文压缩重试仍失败", it)
+        }.isSuccess
     }
 
     // OpenAI格式发送消息
@@ -700,6 +909,7 @@ class AiRepository(
             messages = contextMessages,
             modelName = requestModel,
             maxOutputTokens = effectiveOptions.maxTokens,
+            contextWindowOverrideTokens = effectiveOptions.contextWindowOverrideTokens,
             currentUserMessage = userMessage
         )
         val enrichedUserMessage = enrichUserMessageWithWebSearch(userMessage, effectiveOptions)
@@ -921,6 +1131,7 @@ class AiRepository(
             messages = contextMessages,
             modelName = requestModel,
             maxOutputTokens = effectiveOptions.maxTokens,
+            contextWindowOverrideTokens = effectiveOptions.contextWindowOverrideTokens,
             currentUserMessage = userMessage
         )
         val systemPrompt = buildEffectiveSystemPrompt(
@@ -1127,7 +1338,8 @@ class AiRepository(
             thinkingEffort = normalizeThinkingEffort(overrides?.thinkingEffort ?: config.thinkingEffort, config),
             enableWebSearch = overrides?.enableWebSearch ?: config.enableWebSearch,
             overrideSystemPrompt = overrides?.overrideSystemPrompt == true,
-            systemPromptOverride = overrides?.systemPromptOverride
+            systemPromptOverride = overrides?.systemPromptOverride,
+            contextWindowOverrideTokens = overrides?.contextWindowOverrideTokens
         )
     }
 
@@ -1327,13 +1539,18 @@ class AiRepository(
         messages: List<Message>,
         modelName: String,
         maxOutputTokens: Int?,
+        contextWindowOverrideTokens: Int? = null,
         currentUserMessage: String
     ): ContextBundle {
         val usableMessages = messages.filter { message ->
             (message.role == "user" || message.role == "assistant") && message.content.isNotBlank()
         }
 
-        val promptBudget = estimatePromptBudgetTokens(modelName, maxOutputTokens)
+        val promptBudget = estimatePromptBudgetTokens(
+            modelName = modelName,
+            maxOutputTokens = maxOutputTokens,
+            contextWindowOverrideTokens = contextWindowOverrideTokens
+        )
         val summaryBudget = (promptBudget * SUMMARY_BUDGET_RATIO).toInt().coerceIn(600, 1_800)
         val memoryBudget = (promptBudget * MEMORY_BUDGET_RATIO).toInt().coerceIn(300, 1_200)
         val recentBudget = (
@@ -1374,8 +1591,14 @@ class AiRepository(
         )
     }
 
-    private fun estimatePromptBudgetTokens(modelName: String, maxOutputTokens: Int?): Int {
-        val contextWindow = estimateModelContextWindowTokens(modelName)
+    private fun estimatePromptBudgetTokens(
+        modelName: String,
+        maxOutputTokens: Int?,
+        contextWindowOverrideTokens: Int? = null
+    ): Int {
+        val contextWindow = contextWindowOverrideTokens
+            ?.coerceIn(4_000, 2_000_000)
+            ?: estimateModelContextWindowTokens(modelName)
         val outputReserve = (maxOutputTokens ?: 4_096).coerceIn(512, 32_768)
         return (contextWindow - outputReserve - 1_024)
             .coerceAtLeast(3_000)
@@ -1386,16 +1609,7 @@ class AiRepository(
         val name = modelName.lowercase()
         modelContextWindowCache[name]?.let { return it }
 
-        val explicitLimit = Regex("""(?<!\d)(\d+(?:\.\d+)?)\s*(m|k)(?![a-z])""")
-            .find(name)
-            ?.let { match ->
-                val number = match.groupValues[1].toFloatOrNull() ?: return@let null
-                val multiplier = when (match.groupValues[2]) {
-                    "m" -> 1_000_000
-                    else -> 1_000
-                }
-                (number * multiplier).toInt()
-            }
+        val explicitLimit = parseContextWindowFromText(name)
         if (explicitLimit != null) {
             return explicitLimit.coerceIn(4_000, 2_000_000)
         }
@@ -1410,8 +1624,25 @@ class AiRepository(
             name.contains("deepseek") || name.contains("reasoner") -> 64_000
             name.contains("kimi") -> 128_000
             name.contains("mimo") -> 32_000
-            else -> 32_000
+            else -> DEFAULT_UNKNOWN_CONTEXT_WINDOW_TOKENS
         }
+    }
+
+    private fun parseContextWindowFromText(value: String): Int? {
+        val normalized = value.lowercase()
+        Regex("""(?<!\d)(\d+(?:\.\d+)?)\s*(m|k)\b""")
+            .find(normalized)
+            ?.let { match ->
+                val number = match.groupValues[1].toFloatOrNull() ?: return@let
+                val multiplier = if (match.groupValues[2] == "m") 1_000_000 else 1_000
+                return (number * multiplier).toInt()
+            }
+
+        return Regex("""(?<!\d)([1-9]\d{3,6})(?!\d)""")
+            .findAll(normalized)
+            .mapNotNull { it.groupValues[1].toIntOrNull() }
+            .filter { it in 4_000..2_000_000 }
+            .minOrNull()
     }
 
     private suspend fun ensureRollingSummary(

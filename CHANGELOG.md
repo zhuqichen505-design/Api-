@@ -1,5 +1,40 @@
 # Echo 更新日志
 
+## v1.7.8 (2026-07-04) - 标题居中、上下文识别与思考信息修复
+
+### 用户侧可见更新
+
+- 对话页顶部标题恢复更大的字号，并在胶囊工具栏内垂直居中。
+- 模型最大上下文识别改为动态读取模型列表元数据；识别不到时默认按 1M 上下文处理。
+- 当实际模型上下文小于默认值并触发 API 上下文超限时，应用会自动缩小窗口、重组上下文并重试，尽量避免直接报错。
+- 模型回复底部“思考”数字补充 `tokens` 单位。
+- 模型响应耗时移入蓝色“思考过程”气泡，显示在“思考过程”右侧，不再挤在消息底栏。
+
+### 技术实现细则
+
+- `ChatHeaderTitle` 改为填满工具栏高度并使用 `titleLarge`，生成状态仅在需要时占用第二行。
+- `/models` 原始 JSON 增加动态解析：
+  - 支持 `data`、`models`、`model` 数组。
+  - 支持 `context_length`、`context_window`、`max_context_length`、`max_model_len`、`max_position_embeddings`、`n_ctx` 等常见字段。
+  - 支持数字字段和 `128k`、`1m` 等字符串字段。
+  - 支持从 `metadata`、`limits`、`capabilities`、`model_info`、`config`、`parameters` 等嵌套对象继续提取。
+- 未识别到上下文窗口时，默认模型窗口从保守 32k 调整为 1M。
+- `ChatRequestOptions` 增加 `contextWindowOverrideTokens`，用于上下文超限后的运行时降级重试。
+- 捕获上下文/token 超限类 API 错误后，会缓存较小上下文窗口、主动压缩上下文并重试一次。
+- 蓝色思考气泡标题行右侧显示 `responseTime`，消息底栏对带思考内容的模型回复不再重复显示耗时。
+- 消息底栏思考 token 文案由 `思考: 数字` 改为 `思考: 数字 tokens`。
+
+### 版本与构建
+
+- `versionCode`: 67
+- `versionName`: 1.7.8
+- 说明：`versionCode` 暂不递增，用于保持同签名测试包可回退安装。
+- Room 数据库版本：17
+- ABI：arm64-v8a
+- 构建命令：`.\gradlew.bat assembleRelease`
+
+---
+
 ## v1.7.7 (2026-07-04) - 对话 UI 稳定性与上下文修复
 
 ### 用户侧可见更新

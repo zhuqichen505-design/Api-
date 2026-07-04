@@ -987,21 +987,23 @@ private fun ChatHeaderTitle(
     isGenerating: Boolean
 ) {
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .fillMaxHeight(),
         verticalArrangement = Arrangement.Center
     ) {
         Text(
             text = title,
-            style = MaterialTheme.typography.titleMedium,
+            style = MaterialTheme.typography.titleLarge,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
-        Spacer(modifier = Modifier.height(4.dp))
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            if (isGenerating) {
+        if (isGenerating) {
+            Spacer(modifier = Modifier.height(2.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
                 HeaderStatusChip(
                     icon = Icons.Default.Bolt,
                     text = "生成中"
@@ -1185,11 +1187,24 @@ private fun MessageBubble(
                                 tint = MaterialTheme.colorScheme.primary
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = if (isGenerating) "正在努力思考" else "思考过程",
-                                style = MaterialTheme.typography.labelMedium,
-                                modifier = Modifier.weight(1f)
-                            )
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = if (isGenerating) "正在努力思考" else "思考过程",
+                                    style = MaterialTheme.typography.labelMedium
+                                )
+                                if (message.responseTime > 0) {
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = formatTime(message.responseTime),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.72f),
+                                        maxLines = 1
+                                    )
+                                }
+                            }
                             IconButton(
                                 onClick = onCopyThinking,
                                 modifier = Modifier.size(24.dp)
@@ -1344,6 +1359,8 @@ private fun MessageFooter(
     onDelete: (() -> Unit)?,
     modifier: Modifier = Modifier
 ) {
+    val responseTimeInThinkingBubble = message.role == "assistant" && !message.thinkingContent.isNullOrBlank()
+
     Row(
         modifier = modifier.padding(top = 5.dp),
         verticalAlignment = Alignment.Top
@@ -1360,7 +1377,7 @@ private fun MessageFooter(
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
             )
 
-            if (message.responseTime > 0) {
+            if (message.responseTime > 0 && !responseTimeInThinkingBubble) {
                 MessageMetaText(
                     text = formatTime(message.responseTime),
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.70f)
@@ -1376,7 +1393,7 @@ private fun MessageFooter(
 
             if (message.thinkingTokens > 0) {
                 MessageMetaText(
-                    text = "思考: ${message.thinkingTokens}",
+                    text = "思考: ${message.thinkingTokens} tokens",
                     color = MaterialTheme.colorScheme.primary
                 )
             }
