@@ -56,7 +56,9 @@ import com.aiassistant.ui.components.EchoGlassPagePanelShape
 import com.aiassistant.ui.components.EchoWallpaperBackground
 import com.aiassistant.ui.components.echoHazePanel
 import com.aiassistant.ui.components.echoShapeClick
+import com.aiassistant.ui.components.readableTextColorFor
 import com.aiassistant.ui.components.rememberEchoHazeState
+import com.aiassistant.ui.components.rememberReadableBackdropColor
 import com.aiassistant.utils.BackgroundImageManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -64,6 +66,9 @@ import kotlin.math.pow
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+private const val StatsGlassPanelAlpha = 0.52f
+private const val StatsGlassInnerAlpha = 0.44f
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -76,6 +81,7 @@ fun StatsScreen(
         BackgroundImageManager.getHomeBackgroundBitmap(localContext)
     }
     val hazeState = rememberEchoHazeState()
+    val readableBackdrop = rememberReadableBackdropColor(statsBackgroundBitmap)
     var selectedPeriod by remember { mutableStateOf(StatsPeriod.Day) }
     var refreshKey by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var stats by remember { mutableStateOf<List<UsageRow>>(emptyList()) }
@@ -142,6 +148,7 @@ fun StatsScreen(
                     PeriodTabs(
                         hazeState = hazeState,
                         selected = selectedPeriod,
+                        readableBackdrop = readableBackdrop,
                         onSelected = {
                             selectedPeriod = it
                             refreshKey = System.currentTimeMillis()
@@ -154,12 +161,13 @@ fun StatsScreen(
                         hazeState = hazeState,
                         summary = summary,
                         period = selectedPeriod,
-                        statusText = statusText
+                        statusText = statusText,
+                        readableBackdrop = readableBackdrop
                     )
                 }
 
                 item {
-                    ChartCard(hazeState = hazeState, title = "Token 消耗") {
+                    ChartCard(hazeState = hazeState, title = "Token 消耗", readableBackdrop = readableBackdrop) {
                         TokenBars(
                             buckets = buckets,
                             maxToken = niceAxisMax(buckets.maxOfOrNull { it.totalTokens } ?: 0)
@@ -168,7 +176,7 @@ fun StatsScreen(
                 }
 
                 item {
-                    ChartCard(hazeState = hazeState, title = "命中率趋势") {
+                    ChartCard(hazeState = hazeState, title = "命中率趋势", readableBackdrop = readableBackdrop) {
                         RateLines(buckets = buckets)
                     }
                 }
@@ -183,11 +191,19 @@ fun StatsScreen(
 
                 if (modelRows.isEmpty()) {
                     item {
-                        EmptyCard(hazeState = hazeState, text = "暂无统计记录。之后的新请求会在这里显示。")
+                        EmptyCard(
+                            hazeState = hazeState,
+                            text = "暂无统计记录。之后的新请求会在这里显示。",
+                            readableBackdrop = readableBackdrop
+                        )
                     }
                 } else {
                     items(modelRows.size) { index ->
-                        ModelRowCard(hazeState = hazeState, row = modelRows[index])
+                        ModelRowCard(
+                            hazeState = hazeState,
+                            row = modelRows[index],
+                            readableBackdrop = readableBackdrop
+                        )
                     }
                 }
             }
@@ -239,30 +255,38 @@ private fun StatsHeaderIcon() {
 private fun PeriodTabs(
     hazeState: dev.chrisbanes.haze.HazeState,
     selected: StatsPeriod,
+    readableBackdrop: Color,
     onSelected: (StatsPeriod) -> Unit
 ) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         StatsPeriod.entries.forEach { period ->
             val shape = RoundedCornerShape(999.dp)
+            val tint = MaterialTheme.colorScheme.surface.copy(
+                alpha = if (period == selected) StatsGlassPanelAlpha else StatsGlassInnerAlpha
+            )
+            val content = readableTextColorFor(
+                background = tint,
+                fallbackSurface = readableBackdrop
+            )
             Surface(
                 modifier = Modifier
                     .echoHazePanel(
                         hazeState = hazeState,
                         shape = shape,
-                        tint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (period == selected) 0.42f else 0.28f),
+                        tint = tint,
                         blurRadius = 16.dp
                     )
                     .echoShapeClick(shape) { onSelected(period) },
                 shape = shape,
                 color = if (period == selected) {
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
                 } else {
                     Color.Transparent
                 },
                 contentColor = if (period == selected) {
                     MaterialTheme.colorScheme.primary
                 } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
+                    content
                 }
             ) {
                 Text(
@@ -280,19 +304,26 @@ private fun SummaryCard(
     hazeState: dev.chrisbanes.haze.HazeState,
     summary: UsageSummary,
     period: StatsPeriod,
-    statusText: String
+    statusText: String,
+    readableBackdrop: Color
 ) {
+    val tint = MaterialTheme.colorScheme.surface.copy(alpha = StatsGlassPanelAlpha)
+    val content = readableTextColorFor(
+        background = tint,
+        fallbackSurface = readableBackdrop
+    )
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .echoHazePanel(
                 hazeState = hazeState,
                 shape = EchoGlassPagePanelShape,
-                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.20f),
+                tint = tint,
                 blurRadius = 20.dp
             ),
         shape = EchoGlassPagePanelShape,
         color = Color.Transparent,
+        contentColor = content,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
     ) {
@@ -304,35 +335,36 @@ private fun SummaryCard(
                 text = "${period.label} · ${formatNumber(summary.totalTokens)} Token",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
+                color = content
             )
             Text(
                 text = statusText,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = content.copy(alpha = 0.72f)
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                MetricPill("请求", summary.requestCount.toString(), Modifier.weight(1f))
-                MetricPill("命中率", formatPercent(summary.cacheHitRate), Modifier.weight(1f))
-                MetricPill("成功率", formatPercent(summary.successRate), Modifier.weight(1f))
+                MetricPill("请求", summary.requestCount.toString(), content, Modifier.weight(1f))
+                MetricPill("命中率", formatPercent(summary.cacheHitRate), content, Modifier.weight(1f))
+                MetricPill("成功率", formatPercent(summary.successRate), content, Modifier.weight(1f))
             }
         }
     }
 }
 
 @Composable
-private fun MetricPill(label: String, value: String, modifier: Modifier = Modifier) {
+private fun MetricPill(label: String, value: String, contentColor: Color, modifier: Modifier = Modifier) {
     Surface(
         modifier = modifier,
         shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)
+        color = MaterialTheme.colorScheme.surface.copy(alpha = StatsGlassInnerAlpha),
+        contentColor = contentColor
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = contentColor)
+            Text(label, style = MaterialTheme.typography.labelSmall, color = contentColor.copy(alpha = 0.68f))
         }
     }
 }
@@ -341,19 +373,26 @@ private fun MetricPill(label: String, value: String, modifier: Modifier = Modifi
 private fun ChartCard(
     hazeState: dev.chrisbanes.haze.HazeState,
     title: String,
+    readableBackdrop: Color,
     content: @Composable () -> Unit
 ) {
+    val tint = MaterialTheme.colorScheme.surface.copy(alpha = StatsGlassPanelAlpha)
+    val contentColor = readableTextColorFor(
+        background = tint,
+        fallbackSurface = readableBackdrop
+    )
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .echoHazePanel(
                 hazeState = hazeState,
                 shape = EchoGlassPagePanelShape,
-                tint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f),
+                tint = tint,
                 blurRadius = 18.dp
             ),
         shape = EchoGlassPagePanelShape,
         color = Color.Transparent,
+        contentColor = contentColor,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
     ) {
@@ -361,7 +400,12 @@ private fun ChartCard(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(
+                title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = contentColor
+            )
             content()
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 LegendDot("输入", MaterialTheme.colorScheme.primary)
@@ -399,7 +443,7 @@ private fun TokenBars(buckets: List<Bucket>, maxToken: Int) {
     val thinking = MaterialTheme.colorScheme.tertiary
     val unclassified = MaterialTheme.colorScheme.outline
     val grid = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.32f)
-    val plot = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.20f)
+    val plot = MaterialTheme.colorScheme.surface.copy(alpha = 0.32f)
 
     Column {
         Row {
@@ -457,8 +501,8 @@ private fun RateLines(buckets: List<Bucket>) {
     val cache = MaterialTheme.colorScheme.tertiary
     val success = MaterialTheme.colorScheme.secondary
     val grid = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.32f)
-    val plot = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.20f)
-    val pointHalo = MaterialTheme.colorScheme.surface
+    val plot = MaterialTheme.colorScheme.surface.copy(alpha = 0.32f)
+    val pointHalo = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f)
 
     Column {
         Row {
@@ -549,19 +593,26 @@ private fun XAxisLabels(buckets: List<Bucket>) {
 @Composable
 private fun ModelRowCard(
     hazeState: dev.chrisbanes.haze.HazeState,
-    row: ModelRow
+    row: ModelRow,
+    readableBackdrop: Color
 ) {
+    val tint = MaterialTheme.colorScheme.surface.copy(alpha = StatsGlassPanelAlpha)
+    val content = readableTextColorFor(
+        background = tint,
+        fallbackSurface = readableBackdrop
+    )
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .echoHazePanel(
                 hazeState = hazeState,
                 shape = RoundedCornerShape(22.dp),
-                tint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f),
+                tint = tint,
                 blurRadius = 16.dp
             ),
         shape = RoundedCornerShape(22.dp),
         color = Color.Transparent,
+        contentColor = content,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
     ) {
@@ -570,12 +621,12 @@ private fun ModelRowCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(row.modelName, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                Text(row.provider, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(row.modelName, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = content)
+                Text(row.provider, style = MaterialTheme.typography.bodySmall, color = content.copy(alpha = 0.70f))
             }
             Column(horizontalAlignment = Alignment.End) {
                 Text(formatNumber(row.totalTokens), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
-                Text("${row.requestCount} 次 · 成功率 ${formatPercent(row.successRate)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("${row.requestCount} 次 · 成功率 ${formatPercent(row.successRate)}", style = MaterialTheme.typography.labelSmall, color = content.copy(alpha = 0.70f))
             }
         }
     }
@@ -584,8 +635,14 @@ private fun ModelRowCard(
 @Composable
 private fun EmptyCard(
     hazeState: dev.chrisbanes.haze.HazeState,
-    text: String
+    text: String,
+    readableBackdrop: Color
 ) {
+    val tint = MaterialTheme.colorScheme.surface.copy(alpha = StatsGlassPanelAlpha)
+    val content = readableTextColorFor(
+        background = tint,
+        fallbackSurface = readableBackdrop
+    )
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -593,12 +650,12 @@ private fun EmptyCard(
             .echoHazePanel(
                 hazeState = hazeState,
                 shape = EchoGlassPagePanelShape,
-                tint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f),
+                tint = tint,
                 blurRadius = 16.dp
             ),
         contentAlignment = Alignment.Center
     ) {
-        Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(text, color = content.copy(alpha = 0.70f))
     }
 }
 

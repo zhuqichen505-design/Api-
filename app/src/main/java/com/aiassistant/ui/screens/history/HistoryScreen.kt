@@ -28,13 +28,18 @@ import com.aiassistant.ui.components.EchoGlassPagePanelShape
 import com.aiassistant.ui.components.EchoWallpaperBackground
 import com.aiassistant.ui.components.echoHazePanel
 import com.aiassistant.ui.components.echoShapeClick
+import com.aiassistant.ui.components.readableTextColorFor
 import com.aiassistant.ui.components.rememberEchoHazeState
+import com.aiassistant.ui.components.rememberReadableBackdropColor
 import com.aiassistant.utils.BackgroundImageManager
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
+
+private const val HistoryGlassPanelAlpha = 0.52f
+private const val HistoryGlassInnerAlpha = 0.40f
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -49,6 +54,7 @@ fun HistoryScreen(
         BackgroundImageManager.getHomeBackgroundBitmap(context)
     }
     val hazeState = rememberEchoHazeState()
+    val readableBackdrop = rememberReadableBackdropColor(historyBackgroundBitmap)
 
     val conversations by repository.getAllConversations().collectAsState(initial = emptyList())
     var searchQuery by remember { mutableStateOf("") }
@@ -142,6 +148,11 @@ fun HistoryScreen(
                     .padding(paddingValues)
             ) {
             // 搜索栏
+            val searchTint = MaterialTheme.colorScheme.surface.copy(alpha = HistoryGlassPanelAlpha)
+            val searchTextColor = readableTextColorFor(
+                background = searchTint,
+                fallbackSurface = readableBackdrop
+            )
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -149,11 +160,12 @@ fun HistoryScreen(
                     .echoHazePanel(
                         hazeState = hazeState,
                         shape = EchoGlassPagePanelShape,
-                        tint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f),
+                        tint = searchTint,
                         blurRadius = 18.dp
                     ),
                 shape = EchoGlassPagePanelShape,
                 color = Color.Transparent,
+                contentColor = searchTextColor,
                 tonalElevation = 0.dp,
                 shadowElevation = 0.dp
             ) {
@@ -173,7 +185,23 @@ fun HistoryScreen(
                         }
                     },
                     singleLine = true,
-                    shape = RoundedCornerShape(22.dp)
+                    shape = RoundedCornerShape(22.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = searchTextColor,
+                        unfocusedTextColor = searchTextColor,
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        disabledContainerColor = Color.Transparent,
+                        cursorColor = searchTextColor,
+                        focusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.55f),
+                        unfocusedBorderColor = searchTextColor.copy(alpha = 0.22f),
+                        focusedLeadingIconColor = searchTextColor,
+                        unfocusedLeadingIconColor = searchTextColor,
+                        focusedTrailingIconColor = searchTextColor,
+                        unfocusedTrailingIconColor = searchTextColor,
+                        focusedPlaceholderColor = searchTextColor.copy(alpha = 0.58f),
+                        unfocusedPlaceholderColor = searchTextColor.copy(alpha = 0.58f)
+                    )
                 )
             }
 
@@ -227,6 +255,7 @@ fun HistoryScreen(
                                 hazeState = hazeState,
                                 result = result,
                                 searchQuery = searchQuery,
+                                readableBackdrop = readableBackdrop,
                                 onClick = { onNavigateToChat(result.conversation.id) }
                             )
                         }
@@ -250,6 +279,7 @@ fun HistoryScreen(
                             HistoryConversationCard(
                                 hazeState = hazeState,
                                 conversation = conversation,
+                                readableBackdrop = readableBackdrop,
                             onClick = { onNavigateToChat(conversation.id) },
                             onExport = { selectedConversation = conversation },
                             onDelete = {
@@ -299,6 +329,7 @@ fun HistoryScreen(
 fun HistoryConversationCard(
     hazeState: dev.chrisbanes.haze.HazeState,
     conversation: Conversation,
+    readableBackdrop: Color,
     onClick: () -> Unit,
     onExport: () -> Unit,
     onDelete: () -> Unit
@@ -306,6 +337,11 @@ fun HistoryConversationCard(
     val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
+    val cardTint = MaterialTheme.colorScheme.surface.copy(alpha = HistoryGlassPanelAlpha)
+    val content = readableTextColorFor(
+        background = cardTint,
+        fallbackSurface = readableBackdrop
+    )
 
     Surface(
         modifier = Modifier
@@ -313,12 +349,13 @@ fun HistoryConversationCard(
             .echoHazePanel(
                 hazeState = hazeState,
                 shape = EchoGlassPagePanelShape,
-                tint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f),
+                tint = cardTint,
                 blurRadius = 18.dp
             )
             .echoShapeClick(EchoGlassPagePanelShape, onClick = onClick),
         shape = EchoGlassPagePanelShape,
         color = Color.Transparent,
+        contentColor = content,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
     ) {
@@ -347,6 +384,7 @@ fun HistoryConversationCard(
                 Text(
                     text = conversation.title,
                     style = MaterialTheme.typography.titleSmall,
+                    color = content,
                     maxLines = 1
                 )
                 Spacer(modifier = Modifier.height(4.dp))
@@ -361,13 +399,13 @@ fun HistoryConversationCard(
                     Text(
                         text = "${conversation.messageCount} 条",
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = content.copy(alpha = 0.68f)
                     )
                     if (conversation.totalTokens > 0) {
                         Text(
                             text = "${conversation.totalTokens} tokens",
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = content.copy(alpha = 0.68f)
                         )
                     }
                 }
@@ -375,7 +413,7 @@ fun HistoryConversationCard(
                 Text(
                     text = dateFormat.format(Date(conversation.updatedAt)),
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = content.copy(alpha = 0.68f)
                 )
             }
 
@@ -716,9 +754,15 @@ fun SearchResultCard(
     hazeState: dev.chrisbanes.haze.HazeState,
     result: SearchResult,
     searchQuery: String,
+    readableBackdrop: Color,
     onClick: () -> Unit
 ) {
     val dateFormat = remember { SimpleDateFormat("MM/dd HH:mm", Locale.getDefault()) }
+    val cardTint = MaterialTheme.colorScheme.surface.copy(alpha = HistoryGlassPanelAlpha)
+    val content = readableTextColorFor(
+        background = cardTint,
+        fallbackSurface = readableBackdrop
+    )
 
     Surface(
         modifier = Modifier
@@ -726,12 +770,13 @@ fun SearchResultCard(
             .echoHazePanel(
                 hazeState = hazeState,
                 shape = EchoGlassPagePanelShape,
-                tint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f),
+                tint = cardTint,
                 blurRadius = 18.dp
             )
             .echoShapeClick(EchoGlassPagePanelShape, onClick = onClick),
         shape = EchoGlassPagePanelShape,
         color = Color.Transparent,
+        contentColor = content,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
     ) {
@@ -750,6 +795,7 @@ fun SearchResultCard(
                 Text(
                     text = result.conversation.title,
                     style = MaterialTheme.typography.titleSmall,
+                    color = content,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -759,22 +805,23 @@ fun SearchResultCard(
             if (result.message != null) {
                 Spacer(modifier = Modifier.height(8.dp))
 
-                val content = result.message.content
-                val matchIndex = content.indexOf(searchQuery, ignoreCase = true)
+                val messageContent = result.message.content
+                val matchIndex = messageContent.indexOf(searchQuery, ignoreCase = true)
                 val start = maxOf(0, matchIndex - 50)
-                val end = minOf(content.length, matchIndex + searchQuery.length + 50)
+                val end = minOf(messageContent.length, matchIndex + searchQuery.length + 50)
                 val preview = if (start > 0) "..." else "" +
-                    content.substring(start, end) +
-                    if (end < content.length) "..." else ""
+                    messageContent.substring(start, end) +
+                    if (end < messageContent.length) "..." else ""
 
                 Card(
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = HistoryGlassInnerAlpha)
                     )
                 ) {
                     Text(
                         text = preview,
                         style = MaterialTheme.typography.bodySmall,
+                        color = content,
                         modifier = Modifier.padding(8.dp),
                         maxLines = 3,
                         overflow = TextOverflow.Ellipsis
@@ -795,7 +842,7 @@ fun SearchResultCard(
                     Text(
                         text = dateFormat.format(Date(result.message.createdAt)),
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = content.copy(alpha = 0.68f)
                     )
                 }
             }

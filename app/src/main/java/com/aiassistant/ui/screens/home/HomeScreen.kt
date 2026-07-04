@@ -56,6 +56,7 @@ import com.aiassistant.ui.components.echoShapeClick
 import com.aiassistant.ui.components.echoHazePanel
 import com.aiassistant.ui.components.echoHazeSource
 import com.aiassistant.ui.components.readableTextColorFor
+import com.aiassistant.ui.components.rememberReadableBackdropColor
 import com.aiassistant.ui.components.rememberEchoHazeState
 import com.aiassistant.ui.components.rememberLazyListControlsVisible
 import com.aiassistant.utils.AvatarManager
@@ -88,6 +89,7 @@ fun HomeScreen(
     val folders by viewModel.folders.collectAsState()
     val selectedFolderId by viewModel.selectedFolderId.collectAsState()
     val hazeState = rememberEchoHazeState()
+    val readableBackdrop = rememberReadableBackdropColor(homeBackgroundBitmap)
     val conversationListState = rememberLazyListState()
     val showScrollControls by rememberLazyListControlsVisible(conversationListState)
     var searchQuery by remember { mutableStateOf("") }
@@ -141,6 +143,7 @@ fun HomeScreen(
             if (conversations.isNotEmpty() && !isSelectionMode) {
                 NewConversationFab(
                     hazeState = hazeState,
+                    readableBackdrop = readableBackdrop,
                     onClick = {
                         viewModel.createDefaultConversation { conversationId ->
                             onNavigateToChat(conversationId)
@@ -176,7 +179,8 @@ fun HomeScreen(
                     hazeState = hazeState,
                     searchQuery = searchQuery,
                     onSearchQueryChange = { searchQuery = it },
-                    onNavigateToHistory = onNavigateToHistory
+                    onNavigateToHistory = onNavigateToHistory,
+                    readableBackdrop = readableBackdrop
                 )
 
                 // 文件夹选择栏
@@ -185,7 +189,8 @@ fun HomeScreen(
                     folders = folders,
                     selectedFolderId = selectedFolderId,
                     onFolderSelected = { viewModel.selectFolder(it) },
-                    onManageFolders = onNavigateToFolders
+                    onManageFolders = onNavigateToFolders,
+                    readableBackdrop = readableBackdrop
                 )
 
             AnimatedVisibility(visible = isSelectionMode) {
@@ -503,11 +508,16 @@ fun HomeDashboardHeader(
 @Composable
 private fun NewConversationFab(
     hazeState: dev.chrisbanes.haze.HazeState,
+    readableBackdrop: Color,
     onClick: () -> Unit,
     onLongClick: () -> Unit
 ) {
     val buttonShape = RoundedCornerShape(22.dp)
     val primary = MaterialTheme.colorScheme.primary
+    val content = readableTextColorFor(
+        background = primary.copy(alpha = 0.28f),
+        fallbackSurface = readableBackdrop
+    )
 
     Surface(
         modifier = Modifier
@@ -515,17 +525,17 @@ private fun NewConversationFab(
             .echoHazePanel(
                 hazeState = hazeState,
                 shape = buttonShape,
-                tint = primary.copy(alpha = 0.32f),
+                tint = primary.copy(alpha = 0.28f),
                 blurRadius = 34.dp
             )
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick,
                 onLongClickLabel = "配置新对话"
-            ),
+        ),
         shape = buttonShape,
-        color = primary.copy(alpha = 0.22f),
-        contentColor = primary,
+        color = primary.copy(alpha = 0.18f),
+        contentColor = content,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
     ) {
@@ -622,7 +632,7 @@ private fun StatsIconButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val buttonTint = MaterialTheme.colorScheme.primary.copy(alpha = 0.30f)
+    val buttonTint = MaterialTheme.colorScheme.primary.copy(alpha = 0.26f)
     val glassBlue = MaterialTheme.colorScheme.primary
     Surface(
         modifier = modifier.echoHazePanel(
@@ -679,7 +689,7 @@ private fun GlassHomeIconButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val buttonTint = MaterialTheme.colorScheme.primary.copy(alpha = 0.30f)
+    val buttonTint = MaterialTheme.colorScheme.primary.copy(alpha = 0.26f)
     val glassBlue = MaterialTheme.colorScheme.primary
     Surface(
         modifier = modifier.echoHazePanel(
@@ -714,8 +724,14 @@ private fun HomeSearchRow(
     hazeState: dev.chrisbanes.haze.HazeState,
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
-    onNavigateToHistory: () -> Unit
+    onNavigateToHistory: () -> Unit,
+    readableBackdrop: Color
 ) {
+    val searchTint = MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
+    val searchTextColor = readableTextColorFor(
+        background = searchTint,
+        fallbackSurface = readableBackdrop
+    )
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -728,7 +744,8 @@ private fun HomeSearchRow(
                 .height(46.dp)
                 .echoHazePanel(
                     hazeState = hazeState,
-                    shape = RoundedCornerShape(22.dp)
+                    shape = RoundedCornerShape(22.dp),
+                    tint = searchTint
                 ),
             shape = RoundedCornerShape(22.dp),
             color = Color.Transparent,
@@ -753,7 +770,7 @@ private fun HomeSearchRow(
                     modifier = Modifier.weight(1f),
                     singleLine = true,
                     textStyle = MaterialTheme.typography.bodyMedium.copy(
-                        color = MaterialTheme.colorScheme.onSurface,
+                        color = searchTextColor,
                         fontSize = 15.sp
                     ),
                     decorationBox = { innerTextField ->
@@ -762,7 +779,7 @@ private fun HomeSearchRow(
                                 Text(
                                     text = "搜索对话、模型或提示词",
                                     style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    color = searchTextColor.copy(alpha = 0.62f),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -1086,7 +1103,8 @@ fun FolderSelector(
     folders: List<Folder>,
     selectedFolderId: Long?,
     onFolderSelected: (Long?) -> Unit,
-    onManageFolders: () -> Unit
+    onManageFolders: () -> Unit,
+    readableBackdrop: Color
 ) {
     val folderColors = listOf(
         Color(0xFFE57373),
@@ -1123,6 +1141,7 @@ fun FolderSelector(
                 selected = selectedFolderId == null,
                 onClick = { onFolderSelected(null) },
                 label = "对话",
+                readableBackdrop = readableBackdrop,
                 leadingIcon = {
                     Icon(
                         Icons.Default.ChatBubbleOutline,
@@ -1139,6 +1158,7 @@ fun FolderSelector(
                 selected = selectedFolderId == -2L,
                 onClick = { onFolderSelected(-2L) },
                 label = "置顶",
+                readableBackdrop = readableBackdrop,
                 leadingIcon = {
                     Icon(
                         Icons.Default.PushPin,
@@ -1158,6 +1178,7 @@ fun FolderSelector(
                 selected = selectedFolderId == folder.id,
                 onClick = { onFolderSelected(folder.id) },
                 label = folder.name,
+                readableBackdrop = readableBackdrop,
                 leadingIcon = {
                     Box(
                         modifier = Modifier
@@ -1183,6 +1204,7 @@ fun FolderSelector(
                 selected = false,
                 onClick = onManageFolders,
                 label = "添加",
+                readableBackdrop = readableBackdrop,
                 leadingIcon = {
                     Icon(
                         Icons.Default.CreateNewFolder,
@@ -1201,19 +1223,18 @@ private fun HomeGlassChip(
     selected: Boolean,
     label: String,
     onClick: () -> Unit,
+    readableBackdrop: Color,
     leadingIcon: @Composable (() -> Unit)? = null
 ) {
     val chipShape = RoundedCornerShape(999.dp)
     val tint = if (selected) {
-        MaterialTheme.colorScheme.primary.copy(alpha = 0.36f)
+        MaterialTheme.colorScheme.primary.copy(alpha = 0.32f)
     } else {
-        MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)
+        MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
     }
-    val chipContentColor = readableTextColorFor(
+    val chipTextColor = readableTextColorFor(
         background = tint,
-        darkColor = MaterialTheme.colorScheme.primary,
-        lightColor = Color(0xFFEAF4FF),
-        fallbackSurface = MaterialTheme.colorScheme.surface
+        fallbackSurface = readableBackdrop
     )
     Surface(
         modifier = Modifier
@@ -1227,7 +1248,7 @@ private fun HomeGlassChip(
             .echoShapeClick(chipShape, onClick = onClick),
         shape = chipShape,
         color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else Color.Transparent,
-        contentColor = chipContentColor,
+        contentColor = MaterialTheme.colorScheme.primary,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
     ) {
@@ -1240,6 +1261,7 @@ private fun HomeGlassChip(
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelLarge,
+                color = chipTextColor,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )

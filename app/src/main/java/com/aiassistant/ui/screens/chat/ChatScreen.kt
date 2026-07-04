@@ -29,6 +29,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.takeOrElse
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -56,6 +57,7 @@ import com.aiassistant.ui.components.echoShapeClick
 import com.aiassistant.ui.components.echoHazePanel
 import com.aiassistant.ui.components.echoHazeSource
 import com.aiassistant.ui.components.readableTextColorFor
+import com.aiassistant.ui.components.rememberReadableBackdropColor
 import com.aiassistant.ui.components.rememberEchoHazeState
 import com.aiassistant.ui.components.rememberLazyListControlsVisible
 import com.aiassistant.utils.AvatarManager
@@ -64,6 +66,9 @@ import com.aiassistant.utils.FileUtils
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
+
+private const val ChatGlassTintAlpha = 0.22f
+private val ThinkingContentBlue = Color(0xFF2563EB)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -92,6 +97,7 @@ fun ChatScreen(
     val contextUsage by viewModel.contextUsage.collectAsState()
 
     val hazeState = rememberEchoHazeState()
+    val readableBackdrop = rememberReadableBackdropColor(chatBackgroundBitmap)
     val listState = rememberLazyListState()
     val showScrollControls by rememberLazyListControlsVisible(listState)
     val clipboardManager = LocalClipboardManager.current
@@ -223,6 +229,11 @@ fun ChatScreen(
     Scaffold(
         topBar = {
             val toolbarShape = RoundedCornerShape(999.dp)
+            val chatGlassTint = MaterialTheme.colorScheme.primary.copy(alpha = ChatGlassTintAlpha)
+            val toolbarContentColor = readableTextColorFor(
+                background = chatGlassTint,
+                fallbackSurface = readableBackdrop
+            )
 
             Surface(
                 modifier = Modifier
@@ -233,10 +244,12 @@ fun ChatScreen(
                     .echoHazePanel(
                         hazeState = hazeState,
                         shape = toolbarShape,
+                        tint = chatGlassTint,
                         blurRadius = 32.dp
                     ),
                 shape = toolbarShape,
                 color = Color.Transparent,
+                contentColor = toolbarContentColor,
                 tonalElevation = 0.dp,
                 shadowElevation = 0.dp
             ) {
@@ -274,7 +287,7 @@ fun ChatScreen(
                         Icon(
                             Icons.Default.Tune,
                             contentDescription = "对话设置",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            tint = toolbarContentColor
                         )
                     }
                 }
@@ -325,7 +338,8 @@ fun ChatScreen(
                 enableWebSearch = tempSettings.enableWebSearch,
                 onWebSearchChange = { enabled ->
                     viewModel.updateTempSettings(tempSettings.copy(enableWebSearch = enabled))
-                }
+                },
+                readableBackdrop = readableBackdrop
             )
         }
     ) { paddingValues ->
@@ -407,6 +421,7 @@ fun ChatScreen(
                             MessageBubble(
                                 message = message,
                                 hazeState = hazeState,
+                                readableBackdrop = readableBackdrop,
                                 assistantAvatarRevision = modelAvatarRevision,
                                 assistantApiConfigId = currentModelOption?.apiConfigId,
                                 variantInfo = displayItem.variantInfo,
@@ -463,6 +478,7 @@ fun ChatScreen(
                                         variantGroupId = streamingBranchGroupId
                                     ),
                                     hazeState = hazeState,
+                                    readableBackdrop = readableBackdrop,
                                     isGenerating = true,
                                     assistantAvatarRevision = modelAvatarRevision,
                                     assistantApiConfigId = currentModelOption?.apiConfigId,
@@ -488,6 +504,7 @@ fun ChatScreen(
                                     thinkingContent = currentThinking.ifEmpty { null }
                                 ),
                                 hazeState = hazeState,
+                                readableBackdrop = readableBackdrop,
                                 isGenerating = true,
                                 assistantAvatarRevision = modelAvatarRevision,
                                 assistantApiConfigId = currentModelOption?.apiConfigId,
@@ -1074,6 +1091,7 @@ private fun pairedVariantGroupId(groupId: String): String? {
 private fun MessageBubble(
     message: Message,
     hazeState: dev.chrisbanes.haze.HazeState? = null,
+    readableBackdrop: Color = Color.Unspecified,
     isGenerating: Boolean = false,
     assistantAvatarRevision: Int = 0,
     assistantApiConfigId: Long? = null,
@@ -1086,12 +1104,16 @@ private fun MessageBubble(
     onDelete: (() -> Unit)? = null
 ) {
     val isUser = message.role == "user"
+    val resolvedReadableBackdrop = readableBackdrop.takeOrElse {
+        MaterialTheme.colorScheme.background
+    }
     val userBubbleTint = Color(0xFFD9ECFF)
     val userBubbleAlpha = if (hazeState != null) 0.84f else 0.78f
     val bubbleColor = if (isUser) userBubbleTint.copy(alpha = userBubbleAlpha) else MaterialTheme.colorScheme.surface
+    val textBackground = if (isUser) bubbleColor else resolvedReadableBackdrop
     val textColor = readableTextColorFor(
-        background = bubbleColor,
-        fallbackSurface = MaterialTheme.colorScheme.surface
+        background = textBackground,
+        fallbackSurface = resolvedReadableBackdrop
     )
     val bubbleShape = if (isUser) {
         RoundedCornerShape(18.dp, 6.dp, 18.dp, 18.dp)
@@ -1133,12 +1155,7 @@ private fun MessageBubble(
             }
         ) {
             val thinkingBubbleColor = userBubbleTint.copy(alpha = userBubbleAlpha)
-            val thinkingContentColor = readableTextColorFor(
-                background = thinkingBubbleColor,
-                darkColor = Color(0xFF0F3A6D),
-                lightColor = Color(0xFFEAF4FF),
-                fallbackSurface = MaterialTheme.colorScheme.surface
-            )
+            val thinkingContentColor = ThinkingContentBlue
             if (hasThinking) {
                 val thinkingShape = RoundedCornerShape(18.dp)
                 val headerShape = RoundedCornerShape(14.dp)
@@ -1627,7 +1644,8 @@ fun AttachmentChip(attachment: Attachment) {
 
     Card(
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
+            containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+            contentColor = MaterialTheme.colorScheme.primary
         ),
         shape = RoundedCornerShape(8.dp)
     ) {
@@ -1693,14 +1711,18 @@ fun ChatInputBar(
     onPickImage: () -> Unit,
     onOcrImages: () -> Unit,
     enableWebSearch: Boolean,
-    onWebSearchChange: (Boolean) -> Unit
+    onWebSearchChange: (Boolean) -> Unit,
+    readableBackdrop: Color = Color.Unspecified
 ) {
     var showToolMenu by remember { mutableStateOf(false) }
     val inputShape = RoundedCornerShape(30.dp)
-    val inputTint = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)
+    val resolvedReadableBackdrop = readableBackdrop.takeOrElse {
+        MaterialTheme.colorScheme.background
+    }
+    val inputTint = MaterialTheme.colorScheme.primary.copy(alpha = ChatGlassTintAlpha)
     val inputTextColor = readableTextColorFor(
         background = inputTint,
-        fallbackSurface = MaterialTheme.colorScheme.surface
+        fallbackSurface = resolvedReadableBackdrop
     )
 
     Column(
@@ -1738,7 +1760,8 @@ fun ChatInputBar(
                         items(attachments) { attachment ->
                             AttachmentPreview(
                                 attachment = attachment,
-                                onRemove = { onRemoveAttachment(attachment) }
+                                onRemove = { onRemoveAttachment(attachment) },
+                                readableBackdrop = resolvedReadableBackdrop
                             )
                         }
                     }
@@ -1794,7 +1817,9 @@ fun ChatInputBar(
                             InputPillButton(
                                 text = "智能搜索",
                                 selected = enableWebSearch,
-                                onClick = { onWebSearchChange(!enableWebSearch) }
+                                onClick = { onWebSearchChange(!enableWebSearch) },
+                                containerColor = inputTint.copy(alpha = if (enableWebSearch) 0.38f else 0.30f),
+                                contentColor = inputTextColor
                             )
                         }
 
@@ -1803,9 +1828,19 @@ fun ChatInputBar(
                                 AssistChip(
                                     onClick = {},
                                     label = { Text(status, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                    colors = AssistChipDefaults.assistChipColors(
+                                        containerColor = inputTint.copy(alpha = 0.34f),
+                                        labelColor = inputTextColor,
+                                        leadingIconContentColor = inputTextColor
+                                    ),
+                                    border = null,
                                     leadingIcon = {
                                         if (isProcessingAttachments) {
-                                            CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(14.dp),
+                                                strokeWidth = 2.dp,
+                                                color = inputTextColor
+                                            )
                                         } else {
                                             Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(14.dp))
                                         }
@@ -1816,9 +1851,9 @@ fun ChatInputBar(
                     }
 
                     val softButtonColors = IconButtonDefaults.filledTonalIconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+                        containerColor = inputTint.copy(alpha = 0.34f),
                         contentColor = MaterialTheme.colorScheme.primary,
-                        disabledContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+                        disabledContainerColor = inputTint.copy(alpha = 0.22f),
                         disabledContentColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f)
                     )
 
@@ -1878,7 +1913,7 @@ fun ChatInputBar(
                             enabled = !isProcessingAttachments && (inputText.isNotBlank() || attachments.isNotEmpty()),
                             modifier = Modifier.size(40.dp),
                             colors = IconButtonDefaults.filledIconButtonColors(
-                                disabledContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+                                disabledContainerColor = inputTint.copy(alpha = 0.22f),
                                 disabledContentColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f)
                             )
                         ) {
@@ -1981,24 +2016,31 @@ private fun ModelOptionText(option: ChatModelOption) {
 private fun InputPillButton(
     text: String,
     selected: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    containerColor: Color? = null,
+    contentColor: Color? = null
 ) {
     val pillShape = RoundedCornerShape(999.dp)
+    val resolvedContainerColor = containerColor ?: if (selected) {
+        MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+    } else {
+        MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+    }
+    val resolvedContentColor = contentColor ?: if (selected) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        readableTextColorFor(
+            background = resolvedContainerColor,
+            fallbackSurface = MaterialTheme.colorScheme.background
+        )
+    }
     Surface(
         modifier = Modifier
             .heightIn(min = 34.dp)
             .echoShapeClick(pillShape, onClick = onClick),
         shape = pillShape,
-        color = if (selected) {
-            MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-        } else {
-            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
-        },
-        contentColor = if (selected) {
-            MaterialTheme.colorScheme.primary
-        } else {
-            MaterialTheme.colorScheme.onSurfaceVariant
-        }
+        color = resolvedContainerColor,
+        contentColor = resolvedContentColor
     ) {
         Text(
             text = text,
@@ -2036,14 +2078,23 @@ private fun ChatModelOption.sameModelOption(
 @Composable
 fun AttachmentPreview(
     attachment: Attachment,
-    onRemove: () -> Unit
+    onRemove: () -> Unit,
+    readableBackdrop: Color = Color.Unspecified
 ) {
     val isImage = FileUtils.isImage(attachment.mimeType, attachment.name)
     val hasOcr = !attachment.ocrText.isNullOrBlank() || attachment.processingNote?.contains("OCR") == true
+    val resolvedReadableBackdrop = readableBackdrop.takeOrElse {
+        MaterialTheme.colorScheme.background
+    }
+    val attachmentTint = MaterialTheme.colorScheme.primary.copy(alpha = ChatGlassTintAlpha)
+    val attachmentTextColor = readableTextColorFor(
+        background = attachmentTint,
+        fallbackSurface = resolvedReadableBackdrop
+    )
 
     Card(
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
+            containerColor = attachmentTint.copy(alpha = 0.34f)
         ),
         shape = RoundedCornerShape(8.dp)
     ) {
@@ -2066,6 +2117,7 @@ fun AttachmentPreview(
                 Text(
                     text = attachment.name,
                     style = MaterialTheme.typography.labelSmall,
+                    color = attachmentTextColor,
                     maxLines = 1
                 )
                 Text(
@@ -2074,7 +2126,7 @@ fun AttachmentPreview(
                         attachment.processingNote
                     ).joinToString(" · "),
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = attachmentTextColor.copy(alpha = 0.72f)
                 )
             }
             Spacer(modifier = Modifier.width(8.dp))
@@ -2085,7 +2137,8 @@ fun AttachmentPreview(
                 Icon(
                     Icons.Default.Close,
                     contentDescription = "移除",
-                    modifier = Modifier.size(14.dp)
+                    modifier = Modifier.size(14.dp),
+                    tint = attachmentTextColor
                 )
             }
         }

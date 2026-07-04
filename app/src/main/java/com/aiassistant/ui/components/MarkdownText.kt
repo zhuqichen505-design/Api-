@@ -64,8 +64,8 @@ fun MarkdownText(
                     }
                     // 标题
                     line.startsWith("# ") -> {
-                        Text(
-                            text = line.removePrefix("# "),
+                        InlineMarkdownText(
+                            text = parseInlineMarkdown(line.removePrefix("# ")),
                             style = MaterialTheme.typography.titleLarge,
                             color = color,
                             modifier = Modifier.padding(top = 7.dp, bottom = 4.dp)
@@ -73,8 +73,8 @@ fun MarkdownText(
                         index++
                     }
                     line.startsWith("## ") -> {
-                        Text(
-                            text = line.removePrefix("## "),
+                        InlineMarkdownText(
+                            text = parseInlineMarkdown(line.removePrefix("## ")),
                             style = MaterialTheme.typography.titleMedium,
                             color = color,
                             modifier = Modifier.padding(top = 6.dp, bottom = 3.dp)
@@ -82,8 +82,8 @@ fun MarkdownText(
                         index++
                     }
                     line.startsWith("### ") -> {
-                        Text(
-                            text = line.removePrefix("### "),
+                        InlineMarkdownText(
+                            text = parseInlineMarkdown(line.removePrefix("### ")),
                             style = MaterialTheme.typography.titleSmall,
                             color = color,
                             modifier = Modifier.padding(vertical = 4.dp)
@@ -91,8 +91,8 @@ fun MarkdownText(
                         index++
                     }
                     line.startsWith("#### ") -> {
-                        Text(
-                            text = line.removePrefix("#### "),
+                        InlineMarkdownText(
+                            text = parseInlineMarkdown(line.removePrefix("#### ")),
                             style = MaterialTheme.typography.labelLarge,
                             color = color,
                             modifier = Modifier.padding(top = 3.dp, bottom = 2.dp)
@@ -591,7 +591,7 @@ fun parseInlineMarkdown(text: String): AnnotatedString {
                     if (end != -1) {
                         val boldText = text.substring(i + 2, end)
                         withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
-                            append(boldText)
+                            append(parseInlineMarkdown(boldText))
                         }
                         i = end + 2
                     } else {
