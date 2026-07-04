@@ -1,5 +1,38 @@
 # Echo 更新日志
 
+## v1.7.12 (2026-07-04) - 首页与设置 UI 统一、主题选择
+
+### 用户侧可见更新
+
+- 首页顶部不再固定白色背景，会跟随首页背景图片一起显示。
+- 首页设置、使用统计、历史记录、对话和选中文件夹入口统一为液态玻璃效果。
+- 首页玻璃入口中的图标保持原来的样式，颜色统一改为协调蓝色。
+- 设置界面使用和首页一致的背景图片。
+- 设置界面一级菜单改为液态玻璃卡片。
+- 设置界面二级菜单圆角统一。
+- 新增应用主题选择：浅色、深色和跟随系统。
+
+### 技术实现细则
+
+- `HomeScreen` 的 `Scaffold` 与顶部 `HomeDashboardHeader` 去除硬编码白底，改为透明层叠在首页背景之上。
+- 首页统计、设置、历史与文件夹筛选入口复用 `echoHazePanel`，入口内容颜色统一使用主题 `primary` 蓝色。
+- `SettingsScreen` 增加全屏背景层，读取 `BackgroundImageManager.getHomeBackgroundBitmap()`，与首页共用同一张壁纸。
+- `SettingsMenuItem` 从普通 `Card` 改为液态玻璃 `Surface`，使用统一 `SettingsPanelShape`。
+- 设置二级页常见 `Card` 统一使用 `SettingsPanelShape`，输入框与背景选择行统一使用 `SettingsInnerShape`。
+- 新增 `ThemePreferenceManager` 与 `AppThemeMode`，使用 SharedPreferences 保存主题模式。
+- `MainActivity` 用主题偏好驱动 `AiApiAssistantTheme`，支持浅色、深色和跟随系统即时切换。
+
+### 版本与构建
+
+- `versionCode`: 67
+- `versionName`: 1.7.12
+- 说明：`versionCode` 暂不递增，用于保持同签名测试包可回退安装。
+- Room 数据库版本：17
+- ABI：arm64-v8a
+- 构建命令：`.\gradlew.bat --no-daemon assembleRelease`
+
+---
+
 ## v1.7.11 (2026-07-04) - 玻璃性能、1M 上下文与对话细节修复
 
 ### 用户侧可见更新

@@ -5,10 +5,15 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.view.WindowCompat
 import androidx.navigation.NavType
@@ -23,6 +28,7 @@ import com.aiassistant.ui.screens.home.HomeScreen
 import com.aiassistant.ui.screens.settings.SettingsScreen
 import com.aiassistant.ui.screens.stats.StatsScreen
 import com.aiassistant.ui.theme.AiApiAssistantTheme
+import com.aiassistant.utils.AppThemeMode
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -34,12 +40,28 @@ class MainActivity : ComponentActivity() {
             window.isNavigationBarContrastEnforced = false
         }
         setContent {
-            AiApiAssistantTheme {
+            val themeManager = remember { AiAssistantApp.instance.themePreferenceManager }
+            var themeMode by remember { mutableStateOf(themeManager.getThemeMode()) }
+            val systemDark = isSystemInDarkTheme()
+            val useDarkTheme = when (themeMode) {
+                AppThemeMode.System -> systemDark
+                AppThemeMode.Light -> false
+                AppThemeMode.Dark -> true
+            }
+
+            AiApiAssistantTheme(darkTheme = useDarkTheme) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    AiAssistantNavigation()
+                    AiAssistantNavigation(
+                        themeMode = themeMode,
+                        onThemeModeChange = { mode ->
+                            if (themeManager.saveThemeMode(mode)) {
+                                themeMode = mode
+                            }
+                        }
+                    )
                 }
             }
         }
@@ -47,7 +69,10 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun AiAssistantNavigation() {
+fun AiAssistantNavigation(
+    themeMode: AppThemeMode,
+    onThemeModeChange: (AppThemeMode) -> Unit
+) {
     val navController = rememberNavController()
 
     NavHost(
@@ -99,7 +124,9 @@ fun AiAssistantNavigation() {
                 },
                 onNavigateToChat = { conversationId ->
                     navController.navigate("chat/$conversationId")
-                }
+                },
+                themeMode = themeMode,
+                onThemeModeChange = onThemeModeChange
             )
         }
 

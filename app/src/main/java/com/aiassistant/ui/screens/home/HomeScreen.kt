@@ -135,7 +135,7 @@ fun HomeScreen(
     }
 
     Scaffold(
-        containerColor = Color.White,
+        containerColor = Color.Transparent,
         floatingActionButton = {
             if (conversations.isNotEmpty() && !isSelectionMode) {
                 NewConversationFab(
@@ -154,7 +154,7 @@ fun HomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .background(Color.White)
+                .background(MaterialTheme.colorScheme.background)
         ) {
             homeBackgroundBitmap?.let { bitmap ->
                 Image(
@@ -475,7 +475,6 @@ fun HomeDashboardHeader(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color.White)
             .padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 10.dp)
     ) {
         Row(
@@ -622,6 +621,7 @@ private fun StatsIconButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val glassBlue = MaterialTheme.colorScheme.primary.copy(alpha = 0.92f)
     Surface(
         modifier = modifier.echoHazePanel(
             hazeState = hazeState,
@@ -631,7 +631,7 @@ private fun StatsIconButton(
         ),
         shape = CircleShape,
         color = Color.Transparent,
-        contentColor = Color(0xFF1F2937),
+        contentColor = glassBlue,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
     ) {
@@ -645,7 +645,7 @@ private fun StatsIconButton(
                 modifier = Modifier
                     .size(23.dp)
                     .clip(RoundedCornerShape(5.dp))
-                    .background(Color(0xFF1F2937)),
+                    .background(glassBlue.copy(alpha = 0.16f)),
                 contentAlignment = Alignment.Center
             ) {
                 Row(
@@ -660,7 +660,7 @@ private fun StatsIconButton(
                             modifier = Modifier
                                 .width(3.dp)
                                 .height(barHeight)
-                                .background(Color.White, RoundedCornerShape(1.dp))
+                                .background(glassBlue, RoundedCornerShape(1.dp))
                         )
                     }
                 }
@@ -677,6 +677,7 @@ private fun GlassHomeIconButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val glassBlue = MaterialTheme.colorScheme.primary.copy(alpha = 0.92f)
     Surface(
         modifier = modifier.echoHazePanel(
             hazeState = hazeState,
@@ -686,7 +687,7 @@ private fun GlassHomeIconButton(
         ),
         shape = CircleShape,
         color = Color.Transparent,
-        contentColor = MaterialTheme.colorScheme.onSurface,
+        contentColor = glassBlue,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
     ) {
@@ -696,7 +697,11 @@ private fun GlassHomeIconButton(
                 .echoShapeClick(CircleShape, onClick = onClick),
             contentAlignment = Alignment.Center
         ) {
-            Icon(icon, contentDescription = contentDescription)
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                tint = glassBlue
+            )
         }
     }
 }
@@ -1213,7 +1218,7 @@ private fun HomeGlassChip(
             .echoShapeClick(chipShape, onClick = onClick),
         shape = chipShape,
         color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else Color.Transparent,
-        contentColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+        contentColor = MaterialTheme.colorScheme.primary.copy(alpha = if (selected) 0.94f else 0.82f),
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
     ) {

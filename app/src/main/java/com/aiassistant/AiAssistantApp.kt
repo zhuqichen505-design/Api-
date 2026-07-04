@@ -8,6 +8,7 @@ import com.aiassistant.utils.BackupManager
 import com.aiassistant.utils.CryptoManager
 import com.aiassistant.utils.PersonalizationManager
 import com.aiassistant.utils.TavilySearchManager
+import com.aiassistant.utils.ThemePreferenceManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -30,6 +31,9 @@ class AiAssistantApp : Application() {
     lateinit var tavilySearchManager: TavilySearchManager
         private set
 
+    lateinit var themePreferenceManager: ThemePreferenceManager
+        private set
+
     var isDatabaseInitialized = false
         private set
 
@@ -40,6 +44,7 @@ class AiAssistantApp : Application() {
         cryptoManager = CryptoManager(this)
         personalizationManager = PersonalizationManager(this)
         tavilySearchManager = TavilySearchManager(this, cryptoManager)
+        themePreferenceManager = ThemePreferenceManager(this)
 
         // 先尝试自动备份
         try {

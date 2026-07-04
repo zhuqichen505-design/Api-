@@ -19,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.KeyboardType
@@ -31,12 +32,15 @@ import com.aiassistant.domain.model.ApiConfig
 import com.aiassistant.domain.model.Conversation
 import com.aiassistant.domain.model.EnvironmentVariable
 import com.aiassistant.domain.model.PromptTemplate
+import com.aiassistant.ui.components.echoHazePanel
 import com.aiassistant.ui.components.echoShapeClick
+import com.aiassistant.ui.components.rememberEchoHazeState
 import com.aiassistant.utils.AvatarManager
 import com.aiassistant.utils.BackgroundImageManager
 import com.aiassistant.utils.BackupManager
 import com.aiassistant.utils.HiddenConversationLock
 import com.aiassistant.utils.TavilySearchSettings
+import com.aiassistant.utils.AppThemeMode
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.flow.first
@@ -58,64 +62,98 @@ private val CurrentFeatureHighlights = listOf(
 )
 
 private val CurrentVersionUserUpdates = listOf(
-    "液态玻璃颜色加深，并降低模糊采样压力以改善滚动帧率",
-    "对话页标题进一步缩小，思考过程气泡与模型头像顶部对齐",
-    "思考过程气泡内文字和图标改为黑色，和用户气泡风格一致",
-    "上下文限制识别不再把未知 1M 模型误判为 32k 或 64k",
-    "输入框内不和谐的白色方块已移除",
-    "消息底栏时间与右侧功能图标重新对齐，时间显示到月日",
-    "使用统计页不再从状态栏顶部开始显示",
-    "首页文件夹、历史记录、设置和使用统计入口改为液态玻璃效果"
+    "首页顶部不再固定白底，会跟随首页背景图片一起显示",
+    "首页设置、使用统计、历史记录、对话和选中文件夹入口统一为液态玻璃效果",
+    "首页玻璃入口中的图标保持原样式，统一改为协调蓝色",
+    "设置界面使用和首页一致的背景图片",
+    "设置一级菜单改为液态玻璃卡片",
+    "设置二级菜单圆角统一",
+    "新增应用主题选择：浅色、深色和跟随系统"
 )
+
+private val SettingsPanelShape = RoundedCornerShape(28.dp)
+private val SettingsInnerShape = RoundedCornerShape(22.dp)
 
 @Composable
 fun SettingsScreen(
     onNavigateBack: () -> Unit,
-    onNavigateToChat: (Long) -> Unit
+    onNavigateToChat: (Long) -> Unit,
+    themeMode: AppThemeMode,
+    onThemeModeChange: (AppThemeMode) -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val settingsBackgroundBitmap = remember(context) {
+        BackgroundImageManager.getHomeBackgroundBitmap(context)
+    }
+    val hazeState = rememberEchoHazeState()
     var selectedSection by remember { mutableStateOf<String?>(null) }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("设置") },
-                navigationIcon = {
-                    IconButton(onClick = {
-                        if (selectedSection != null) {
-                            selectedSection = null
-                        } else {
-                            onNavigateBack()
-                        }
-                    }) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "返回")
-                    }
-                }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+    ) {
+        settingsBackgroundBitmap?.let { bitmap ->
+            Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
             )
         }
-    ) { paddingValues ->
-        when (selectedSection) {
-            null -> SettingsMenu(
-                modifier = Modifier.padding(paddingValues),
-                onSectionSelected = { selectedSection = it }
-            )
-            "api_config" -> ApiConfigTab(modifier = Modifier.padding(paddingValues))
-            "web_search" -> WebSearchTab(modifier = Modifier.padding(paddingValues))
-            "personalization" -> PersonalizationTab(modifier = Modifier.padding(paddingValues))
-            "global_prompt" -> GlobalPromptTab(modifier = Modifier.padding(paddingValues))
-            "env_variables" -> EnvironmentVariablesTab(modifier = Modifier.padding(paddingValues))
-            "hidden_conversations" -> HiddenConversationsTab(
-                modifier = Modifier.padding(paddingValues),
-                onNavigateToChat = onNavigateToChat
-            )
-            "backup" -> BackupTab(modifier = Modifier.padding(paddingValues))
-            "about" -> AboutTab(modifier = Modifier.padding(paddingValues))
+        Scaffold(
+            containerColor = Color.Transparent,
+            topBar = {
+                TopAppBar(
+                    title = { Text("设置") },
+                    navigationIcon = {
+                        IconButton(onClick = {
+                            if (selectedSection != null) {
+                                selectedSection = null
+                            } else {
+                                onNavigateBack()
+                            }
+                        }) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = "返回")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.Transparent,
+                        scrolledContainerColor = Color.Transparent
+                    )
+                )
+            }
+        ) { paddingValues ->
+            when (selectedSection) {
+                null -> SettingsMenu(
+                    hazeState = hazeState,
+                    modifier = Modifier.padding(paddingValues),
+                    themeMode = themeMode,
+                    onThemeModeChange = onThemeModeChange,
+                    onSectionSelected = { selectedSection = it }
+                )
+                "api_config" -> ApiConfigTab(modifier = Modifier.padding(paddingValues))
+                "web_search" -> WebSearchTab(modifier = Modifier.padding(paddingValues))
+                "personalization" -> PersonalizationTab(modifier = Modifier.padding(paddingValues))
+                "global_prompt" -> GlobalPromptTab(modifier = Modifier.padding(paddingValues))
+                "env_variables" -> EnvironmentVariablesTab(modifier = Modifier.padding(paddingValues))
+                "hidden_conversations" -> HiddenConversationsTab(
+                    modifier = Modifier.padding(paddingValues),
+                    onNavigateToChat = onNavigateToChat
+                )
+                "backup" -> BackupTab(modifier = Modifier.padding(paddingValues))
+                "about" -> AboutTab(modifier = Modifier.padding(paddingValues))
+            }
         }
     }
 }
 
 @Composable
 fun SettingsMenu(
+    hazeState: dev.chrisbanes.haze.HazeState,
     modifier: Modifier = Modifier,
+    themeMode: AppThemeMode,
+    onThemeModeChange: (AppThemeMode) -> Unit,
     onSectionSelected: (String) -> Unit
 ) {
     LazyColumn(
@@ -124,7 +162,15 @@ fun SettingsMenu(
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         item {
+            ThemeModeCard(
+                hazeState = hazeState,
+                selected = themeMode,
+                onSelected = onThemeModeChange
+            )
+        }
+        item {
             SettingsMenuItem(
+                hazeState = hazeState,
                 icon = Icons.Default.Key,
                 title = "API配置",
                 subtitle = "管理AI模型API密钥和配置",
@@ -133,6 +179,7 @@ fun SettingsMenu(
         }
         item {
             SettingsMenuItem(
+                hazeState = hazeState,
                 icon = Icons.Default.Search,
                 title = "联网搜索",
                 subtitle = "配置 Tavily，让对话中的智能搜索真正联网",
@@ -141,6 +188,7 @@ fun SettingsMenu(
         }
         item {
             SettingsMenuItem(
+                hazeState = hazeState,
                 icon = Icons.Default.AutoAwesome,
                 title = "个性化",
                 subtitle = "设置所有对话都会参考的自定义偏好",
@@ -149,6 +197,7 @@ fun SettingsMenu(
         }
         item {
             SettingsMenuItem(
+                hazeState = hazeState,
                 icon = Icons.Default.Psychology,
                 title = "全局提示词",
                 subtitle = "设置适用于所有对话的系统提示词",
@@ -157,6 +206,7 @@ fun SettingsMenu(
         }
         item {
             SettingsMenuItem(
+                hazeState = hazeState,
                 icon = Icons.Default.Code,
                 title = "环境变量",
                 subtitle = "管理可在对话中引用的变量",
@@ -165,6 +215,7 @@ fun SettingsMenu(
         }
         item {
             SettingsMenuItem(
+                hazeState = hazeState,
                 icon = Icons.Default.VisibilityOff,
                 title = "其他对话",
                 subtitle = "输入 6 位数字密码查看隐藏对话",
@@ -173,6 +224,7 @@ fun SettingsMenu(
         }
         item {
             SettingsMenuItem(
+                hazeState = hazeState,
                 icon = Icons.Default.Backup,
                 title = "数据备份",
                 subtitle = "备份和恢复应用数据",
@@ -181,6 +233,7 @@ fun SettingsMenu(
         }
         item {
             SettingsMenuItem(
+                hazeState = hazeState,
                 icon = Icons.Default.Info,
                 title = "关于",
                 subtitle = "版本信息和功能介绍",
@@ -191,16 +244,87 @@ fun SettingsMenu(
 }
 
 @Composable
+private fun ThemeModeCard(
+    hazeState: dev.chrisbanes.haze.HazeState,
+    selected: AppThemeMode,
+    onSelected: (AppThemeMode) -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .echoHazePanel(
+                hazeState = hazeState,
+                shape = SettingsPanelShape,
+                tint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f),
+                blurRadius = 18.dp
+            ),
+        shape = SettingsPanelShape,
+        color = Color.Transparent,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.Palette,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(28.dp)
+                )
+                Spacer(modifier = Modifier.width(14.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("应用主题", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "选择浅色、深色或跟随系统",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                AppThemeMode.entries.forEachIndexed { index, mode ->
+                    SegmentedButton(
+                        selected = selected == mode,
+                        onClick = { onSelected(mode) },
+                        shape = SegmentedButtonDefaults.itemShape(
+                            index = index,
+                            count = AppThemeMode.entries.size
+                        )
+                    ) {
+                        Text(mode.label)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun SettingsMenuItem(
+    hazeState: dev.chrisbanes.haze.HazeState,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
     subtitle: String,
     onClick: () -> Unit
 ) {
-    Card(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(28.dp)
+    val itemShape = SettingsPanelShape
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .echoHazePanel(
+                hazeState = hazeState,
+                shape = itemShape,
+                tint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f),
+                blurRadius = 18.dp
+            )
+            .echoShapeClick(itemShape, onClick = onClick),
+        shape = itemShape,
+        color = Color.Transparent,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp
     ) {
         Row(
             modifier = Modifier
@@ -337,7 +461,7 @@ fun ApiConfigCard(
 ) {
     var showDeleteDialog by remember { mutableStateOf(false) }
 
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(modifier = Modifier.fillMaxWidth(), shape = SettingsPanelShape) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -436,7 +560,7 @@ fun WebSearchTab(modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
-            Card(modifier = Modifier.fillMaxWidth()) {
+            Card(modifier = Modifier.fillMaxWidth(), shape = SettingsPanelShape) {
                 Column(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -479,7 +603,7 @@ fun WebSearchTab(modifier: Modifier = Modifier) {
         }
 
         item {
-            Card(modifier = Modifier.fillMaxWidth()) {
+            Card(modifier = Modifier.fillMaxWidth(), shape = SettingsPanelShape) {
                 Column(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -659,7 +783,7 @@ fun PersonalizationTab(modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
-            Card(modifier = Modifier.fillMaxWidth()) {
+            Card(modifier = Modifier.fillMaxWidth(), shape = SettingsPanelShape) {
                 Column(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -699,14 +823,14 @@ fun PersonalizationTab(modifier: Modifier = Modifier) {
                         },
                         minLines = 8,
                         maxLines = 18,
-                        shape = RoundedCornerShape(16.dp)
+                        shape = SettingsInnerShape
                     )
                 }
             }
         }
 
         item {
-            Card(modifier = Modifier.fillMaxWidth()) {
+            Card(modifier = Modifier.fillMaxWidth(), shape = SettingsPanelShape) {
                 Column(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -805,7 +929,7 @@ private fun BackgroundPickerRow(
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(26.dp),
+        shape = SettingsInnerShape,
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
     ) {
         Row(
@@ -856,7 +980,7 @@ private fun PersonalizationTextField(
             placeholder = { Text(placeholder) },
             minLines = 3,
             maxLines = 8,
-            shape = RoundedCornerShape(16.dp)
+            shape = SettingsInnerShape
         )
     }
 }
@@ -883,7 +1007,7 @@ fun HiddenConversationsTab(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
-            Card(modifier = Modifier.fillMaxWidth()) {
+            Card(modifier = Modifier.fillMaxWidth(), shape = SettingsPanelShape) {
                 Column(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -958,7 +1082,7 @@ fun HiddenConversationsTab(
 
             if (hiddenConversations.isEmpty()) {
                 item {
-                    Card(modifier = Modifier.fillMaxWidth()) {
+                    Card(modifier = Modifier.fillMaxWidth(), shape = SettingsPanelShape) {
                         Text(
                             text = "当前没有隐藏对话。",
                             modifier = Modifier.padding(16.dp),
@@ -992,7 +1116,7 @@ private fun PinSetupCard(
     onConfirmPinChange: (String) -> Unit,
     onSave: () -> Unit
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(modifier = Modifier.fillMaxWidth(), shape = SettingsPanelShape) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -1021,7 +1145,7 @@ private fun PinVerifyCard(
     onPinChange: (String) -> Unit,
     onVerify: () -> Unit
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(modifier = Modifier.fillMaxWidth(), shape = SettingsPanelShape) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -1078,7 +1202,7 @@ private fun HiddenConversationCard(
 ) {
     val dateFormat = remember { SimpleDateFormat("MM/dd HH:mm", Locale.getDefault()) }
 
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(modifier = Modifier.fillMaxWidth(), shape = SettingsPanelShape) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -1143,7 +1267,7 @@ fun EnvironmentVariablesTab(modifier: Modifier = Modifier) {
         }
 
         items(variables) { variable ->
-            Card(modifier = Modifier.fillMaxWidth()) {
+            Card(modifier = Modifier.fillMaxWidth(), shape = SettingsPanelShape) {
                 Row(
                     modifier = Modifier.padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -1230,7 +1354,7 @@ fun BackupTab(modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
-            Card(modifier = Modifier.fillMaxWidth()) {
+            Card(modifier = Modifier.fillMaxWidth(), shape = SettingsPanelShape) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
                         text = "数据备份与恢复",
@@ -1368,7 +1492,7 @@ fun BackupItemCard(
     var showDeleteDialog by remember { mutableStateOf(false) }
     val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
 
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(modifier = Modifier.fillMaxWidth(), shape = SettingsPanelShape) {
         Row(
             modifier = Modifier.padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -1422,7 +1546,7 @@ fun AboutTab(modifier: Modifier = Modifier) {
     ) {
         // 用户头像设置
         item {
-            Card(modifier = Modifier.fillMaxWidth()) {
+            Card(modifier = Modifier.fillMaxWidth(), shape = SettingsPanelShape) {
                 Column(
                     modifier = Modifier
                         .padding(16.dp)
@@ -1486,7 +1610,7 @@ fun AboutTab(modifier: Modifier = Modifier) {
 
         // 应用信息
         item {
-            Card(modifier = Modifier.fillMaxWidth()) {
+            Card(modifier = Modifier.fillMaxWidth(), shape = SettingsPanelShape) {
                 Column(
                     modifier = Modifier
                         .padding(16.dp)
@@ -1518,7 +1642,7 @@ fun AboutTab(modifier: Modifier = Modifier) {
 
         // 本次更新
         item {
-            Card(modifier = Modifier.fillMaxWidth()) {
+            Card(modifier = Modifier.fillMaxWidth(), shape = SettingsPanelShape) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
                         text = "本次更新",
@@ -1534,7 +1658,7 @@ fun AboutTab(modifier: Modifier = Modifier) {
 
         // 功能特性
         item {
-            Card(modifier = Modifier.fillMaxWidth()) {
+            Card(modifier = Modifier.fillMaxWidth(), shape = SettingsPanelShape) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
                         text = "功能特性",
