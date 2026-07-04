@@ -37,9 +37,9 @@ fun Modifier.echoHazeSource(
     state = hazeState,
     style = HazeDefaults.style(
         backgroundColor = MaterialTheme.colorScheme.surface,
-        tint = MaterialTheme.colorScheme.surface.copy(alpha = 0.26f),
-        blurRadius = 32.dp,
-        noiseFactor = 0.04f
+        tint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.22f),
+        blurRadius = 22.dp,
+        noiseFactor = 0.018f
     )
 )
 
@@ -47,11 +47,11 @@ fun Modifier.echoHazeSource(
 fun Modifier.echoHazePanel(
     hazeState: HazeState,
     shape: Shape = RoundedCornerShape(26.dp),
-    tint: Color = MaterialTheme.colorScheme.surface.copy(alpha = 0.18f),
-    blurRadius: Dp = 32.dp
+    tint: Color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f),
+    blurRadius: Dp = 22.dp
 ): Modifier {
     val colorScheme = MaterialTheme.colorScheme
-    val liquidTint = tint.copy(alpha = tint.alpha.coerceAtLeast(0.10f))
+    val liquidTint = tint.copy(alpha = tint.alpha.coerceIn(0.22f, 0.55f))
     return this
         .shadow(
             elevation = 8.dp,
@@ -65,7 +65,7 @@ fun Modifier.echoHazePanel(
             style = HazeStyle(
                 tint = liquidTint,
                 blurRadius = blurRadius,
-                noiseFactor = 0.032f
+                noiseFactor = 0.018f
             )
         )
         .echoLiquidGlassOverlay(
@@ -81,8 +81,8 @@ fun EchoLiquidGlassPanel(
     hazeState: HazeState,
     modifier: Modifier = Modifier,
     shape: Shape = RoundedCornerShape(26.dp),
-    tint: Color = MaterialTheme.colorScheme.surface.copy(alpha = 0.16f),
-    blurRadius: Dp = 32.dp,
+    tint: Color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f),
+    blurRadius: Dp = 22.dp,
     content: @Composable BoxScope.() -> Unit
 ) {
     Box(
@@ -106,18 +106,18 @@ fun Modifier.echoLiquidGlassOverlay(
     .drawWithCache {
         val topRefraction = Brush.linearGradient(
             colorStops = arrayOf(
-                0.00f to Color.White.copy(alpha = 0.12f),
-                0.30f to Color.White.copy(alpha = 0.045f),
-                0.62f to surface.copy(alpha = 0.015f),
-                1.00f to accent.copy(alpha = 0.038f)
+                0.00f to Color.White.copy(alpha = 0.08f),
+                0.30f to surface.copy(alpha = 0.05f),
+                0.62f to accent.copy(alpha = 0.045f),
+                1.00f to accent.copy(alpha = 0.075f)
             ),
             start = Offset(0f, 0f),
             end = Offset(size.width, size.height)
         )
         val sideGlow = Brush.radialGradient(
             colorStops = arrayOf(
-                0.00f to Color.White.copy(alpha = 0.09f),
-                0.42f to accent.copy(alpha = 0.038f),
+                0.00f to Color.White.copy(alpha = 0.06f),
+                0.42f to accent.copy(alpha = 0.055f),
                 1.00f to Color.Transparent
             ),
             center = Offset(size.width * 0.18f, size.height * 0.08f),
@@ -127,7 +127,7 @@ fun Modifier.echoLiquidGlassOverlay(
             colorStops = arrayOf(
                 0.00f to Color.Transparent,
                 0.70f to Color.Transparent,
-                1.00f to accent.copy(alpha = 0.035f)
+                1.00f to accent.copy(alpha = 0.065f)
             ),
             start = Offset(0f, 0f),
             end = Offset(0f, size.height)
@@ -139,14 +139,14 @@ fun Modifier.echoLiquidGlassOverlay(
             drawRect(sideGlow, blendMode = BlendMode.Screen)
             drawRect(lowerShade, blendMode = BlendMode.Multiply)
             drawRoundRect(
-                color = Color.White.copy(alpha = 0.09f),
+                color = Color.White.copy(alpha = 0.07f),
                 topLeft = Offset(size.width * 0.08f, 1.1.dp.toPx()),
                 size = Size(size.width * 0.56f, 1.25.dp.toPx()),
                 cornerRadius = CornerRadius(999.dp.toPx(), 999.dp.toPx()),
                 blendMode = BlendMode.Screen
             )
             drawRoundRect(
-                color = outline.copy(alpha = 0.09f),
+                color = outline.copy(alpha = 0.14f),
                 topLeft = Offset(size.width * 0.12f, size.height - 1.2.dp.toPx()),
                 size = Size(size.width * 0.76f, 1.dp.toPx()),
                 cornerRadius = CornerRadius(999.dp.toPx(), 999.dp.toPx())
@@ -158,10 +158,10 @@ fun Modifier.echoLiquidGlassOverlay(
             1.dp,
             Brush.linearGradient(
                 colorStops = arrayOf(
-                    0.00f to Color.White.copy(alpha = 0.34f),
-                    0.34f to Color.White.copy(alpha = 0.08f),
-                    0.70f to outline.copy(alpha = 0.12f),
-                    1.00f to accent.copy(alpha = 0.10f)
+                    0.00f to Color.White.copy(alpha = 0.26f),
+                    0.34f to Color.White.copy(alpha = 0.07f),
+                    0.70f to outline.copy(alpha = 0.18f),
+                    1.00f to accent.copy(alpha = 0.18f)
                 )
             )
         ),

@@ -42,6 +42,7 @@ class AiRepository(
     private val tag = "AiRepository"
     private val activeStreamingCalls = ConcurrentHashMap<Long, Call>()
     private val modelContextWindowCache = ConcurrentHashMap<String, Int>()
+    private val runtimeContextWindowLimitCache = ConcurrentHashMap<String, Int>()
 
     private companion object {
         const val SUMMARY_BUDGET_RATIO = 0.14f
@@ -853,7 +854,7 @@ class AiRepository(
         val retryWindow = extractContextWindowFromError(originalError.message.orEmpty())
             ?: CONTEXT_OVERFLOW_RETRY_WINDOW_TOKENS
         val requestModel = config.modelName
-        modelContextWindowCache[requestModel.lowercase()] = retryWindow
+        runtimeContextWindowLimitCache[requestModel.lowercase()] = retryWindow
         runCatching {
             compressConversationContext(
                 conversationId = conversationId,
@@ -1607,23 +1608,27 @@ class AiRepository(
 
     private fun estimateModelContextWindowTokens(modelName: String): Int {
         val name = modelName.lowercase()
-        modelContextWindowCache[name]?.let { return it }
+        runtimeContextWindowLimitCache[name]?.let { return it }
 
         val explicitLimit = parseContextWindowFromText(name)
         if (explicitLimit != null) {
             return explicitLimit.coerceIn(4_000, 2_000_000)
         }
+
+        modelContextWindowCache[name]
+            ?: modelContextWindowCache.entries.firstOrNull { (cachedName, _) ->
+                cachedName == name ||
+                    name.endsWith("/$cachedName") ||
+                    cachedName.endsWith("/$name")
+            }?.value
+            ?.coerceIn(4_000, 2_000_000)
+            ?.takeIf { it >= 128_000 }
+            ?.let { return it }
+
         return when {
             name.contains("gemini") -> 1_000_000
-            name.contains("claude") -> 200_000
             name.contains("gpt-4.1") -> 1_000_000
-            name.contains("gpt-4o") || name.contains("gpt-5") -> 128_000
             name.contains("qwen-long") || name.contains("qwen-max-long") -> 1_000_000
-            name.contains("qwen") && (name.contains("max") || name.contains("long")) -> 128_000
-            name.contains("qwen") || name.contains("glm") -> 64_000
-            name.contains("deepseek") || name.contains("reasoner") -> 64_000
-            name.contains("kimi") -> 128_000
-            name.contains("mimo") -> 32_000
             else -> DEFAULT_UNKNOWN_CONTEXT_WINDOW_TOKENS
         }
     }
@@ -1631,18 +1636,21 @@ class AiRepository(
     private fun parseContextWindowFromText(value: String): Int? {
         val normalized = value.lowercase()
         Regex("""(?<!\d)(\d+(?:\.\d+)?)\s*(m|k)\b""")
-            .find(normalized)
-            ?.let { match ->
-                val number = match.groupValues[1].toFloatOrNull() ?: return@let
+            .findAll(normalized)
+            .mapNotNull { match ->
+                val number = match.groupValues[1].toFloatOrNull() ?: return@mapNotNull null
                 val multiplier = if (match.groupValues[2] == "m") 1_000_000 else 1_000
-                return (number * multiplier).toInt()
+                (number * multiplier).toInt()
             }
+            .filter { it in 4_000..2_000_000 }
+            .maxOrNull()
+            ?.let { return it }
 
         return Regex("""(?<!\d)([1-9]\d{3,6})(?!\d)""")
             .findAll(normalized)
             .mapNotNull { it.groupValues[1].toIntOrNull() }
             .filter { it in 4_000..2_000_000 }
-            .minOrNull()
+            .maxOrNull()
     }
 
     private suspend fun ensureRollingSummary(

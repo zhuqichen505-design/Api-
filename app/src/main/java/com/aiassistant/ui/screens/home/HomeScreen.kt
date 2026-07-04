@@ -165,25 +165,27 @@ fun HomeScreen(
                 )
             }
             Column(modifier = Modifier.fillMaxSize()) {
-            HomeDashboardHeader(
-                onNavigateToSettings = onNavigateToSettings,
-                onNavigateToStats = onNavigateToStats
-            )
+                HomeDashboardHeader(
+                    hazeState = hazeState,
+                    onNavigateToSettings = onNavigateToSettings,
+                    onNavigateToStats = onNavigateToStats
+                )
 
-            HomeSearchRow(
-                hazeState = hazeState,
-                searchQuery = searchQuery,
-                onSearchQueryChange = { searchQuery = it },
-                onNavigateToHistory = onNavigateToHistory
-            )
+                HomeSearchRow(
+                    hazeState = hazeState,
+                    searchQuery = searchQuery,
+                    onSearchQueryChange = { searchQuery = it },
+                    onNavigateToHistory = onNavigateToHistory
+                )
 
-            // 文件夹选择栏
-            FolderSelector(
-                folders = folders,
-                selectedFolderId = selectedFolderId,
-                onFolderSelected = { viewModel.selectFolder(it) },
-                onManageFolders = onNavigateToFolders
-            )
+                // 文件夹选择栏
+                FolderSelector(
+                    hazeState = hazeState,
+                    folders = folders,
+                    selectedFolderId = selectedFolderId,
+                    onFolderSelected = { viewModel.selectFolder(it) },
+                    onManageFolders = onNavigateToFolders
+                )
 
             AnimatedVisibility(visible = isSelectionMode) {
                 BatchSelectionBar(
@@ -466,6 +468,7 @@ private fun anchorTitle(value: String): String {
 
 @Composable
 fun HomeDashboardHeader(
+    hazeState: dev.chrisbanes.haze.HazeState,
     onNavigateToSettings: () -> Unit,
     onNavigateToStats: () -> Unit
 ) {
@@ -481,20 +484,18 @@ fun HomeDashboardHeader(
         ) {
             EchoWordmark(modifier = Modifier.weight(1f))
             StatsIconButton(
+                hazeState = hazeState,
                 onClick = onNavigateToStats,
                 modifier = Modifier.size(42.dp)
             )
             Spacer(modifier = Modifier.width(8.dp))
-            FilledTonalIconButton(
+            GlassHomeIconButton(
+                hazeState = hazeState,
+                icon = Icons.Default.Settings,
+                contentDescription = "设置",
                 onClick = onNavigateToSettings,
-                modifier = Modifier.size(42.dp),
-                colors = IconButtonDefaults.filledTonalIconButtonColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    contentColor = MaterialTheme.colorScheme.onSurface
-                )
-            ) {
-                Icon(Icons.Default.Settings, contentDescription = "设置")
-            }
+                modifier = Modifier.size(42.dp)
+            )
         }
     }
 }
@@ -617,18 +618,27 @@ private fun EchoWordmark(modifier: Modifier = Modifier) {
 
 @Composable
 private fun StatsIconButton(
+    hazeState: dev.chrisbanes.haze.HazeState,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Surface(
-        onClick = onClick,
-        modifier = modifier,
+        modifier = modifier.echoHazePanel(
+            hazeState = hazeState,
+            shape = CircleShape,
+            tint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f),
+            blurRadius = 18.dp
+        ),
         shape = CircleShape,
-        color = Color(0xFFE7EDF5),
-        contentColor = Color(0xFF1F2937)
+        color = Color.Transparent,
+        contentColor = Color(0xFF1F2937),
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp
     ) {
         Box(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .echoShapeClick(CircleShape, onClick = onClick),
             contentAlignment = Alignment.Center
         ) {
             Box(
@@ -655,6 +665,38 @@ private fun StatsIconButton(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun GlassHomeIconButton(
+    hazeState: dev.chrisbanes.haze.HazeState,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.echoHazePanel(
+            hazeState = hazeState,
+            shape = CircleShape,
+            tint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f),
+            blurRadius = 18.dp
+        ),
+        shape = CircleShape,
+        color = Color.Transparent,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .echoShapeClick(CircleShape, onClick = onClick),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, contentDescription = contentDescription)
         }
     }
 }
@@ -738,20 +780,13 @@ private fun HomeSearchRow(
 
         Spacer(modifier = Modifier.width(8.dp))
 
-        FilledTonalIconButton(
+        GlassHomeIconButton(
+            hazeState = hazeState,
+            icon = Icons.Default.History,
+            contentDescription = "历史记录",
             onClick = onNavigateToHistory,
-            modifier = Modifier.size(40.dp),
-            colors = IconButtonDefaults.filledTonalIconButtonColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                contentColor = MaterialTheme.colorScheme.onSurface
-            )
-        ) {
-            Icon(
-                Icons.Default.History,
-                contentDescription = "历史记录",
-                modifier = Modifier.size(20.dp)
-            )
-        }
+            modifier = Modifier.size(40.dp)
+        )
     }
 }
 
@@ -1039,6 +1074,7 @@ private fun MiniStatsIcon() {
 
 @Composable
 fun FolderSelector(
+    hazeState: dev.chrisbanes.haze.HazeState,
     folders: List<Folder>,
     selectedFolderId: Long?,
     onFolderSelected: (Long?) -> Unit,
@@ -1074,13 +1110,11 @@ fun FolderSelector(
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         item {
-            FilterChip(
+            HomeGlassChip(
+                hazeState = hazeState,
                 selected = selectedFolderId == null,
                 onClick = { onFolderSelected(null) },
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = HomeSelectedChipColor
-                ),
-                label = { Text("对话") },
+                label = "对话",
                 leadingIcon = {
                     Icon(
                         Icons.Default.ChatBubbleOutline,
@@ -1092,13 +1126,11 @@ fun FolderSelector(
         }
 
         item {
-            FilterChip(
+            HomeGlassChip(
+                hazeState = hazeState,
                 selected = selectedFolderId == -2L,
                 onClick = { onFolderSelected(-2L) },
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = HomeSelectedChipColor
-                ),
-                label = { Text("置顶") },
+                label = "置顶",
                 leadingIcon = {
                     Icon(
                         Icons.Default.PushPin,
@@ -1113,13 +1145,11 @@ fun FolderSelector(
             val color = folderColors.getOrElse(folder.color - 1) { MaterialTheme.colorScheme.primary }
             val icon = folderIcons[folder.icon] ?: Icons.Default.Folder
 
-            FilterChip(
+            HomeGlassChip(
+                hazeState = hazeState,
                 selected = selectedFolderId == folder.id,
                 onClick = { onFolderSelected(folder.id) },
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = HomeSelectedChipColor
-                ),
-                label = { Text(folder.name) },
+                label = folder.name,
                 leadingIcon = {
                     Box(
                         modifier = Modifier
@@ -1140,9 +1170,11 @@ fun FolderSelector(
         }
 
         item {
-            AssistChip(
+            HomeGlassChip(
+                hazeState = hazeState,
+                selected = false,
                 onClick = onManageFolders,
-                label = { Text("添加") },
+                label = "添加",
                 leadingIcon = {
                     Icon(
                         Icons.Default.CreateNewFolder,
@@ -1150,6 +1182,52 @@ fun FolderSelector(
                         modifier = Modifier.size(18.dp)
                     )
                 }
+            )
+        }
+    }
+}
+
+@Composable
+private fun HomeGlassChip(
+    hazeState: dev.chrisbanes.haze.HazeState,
+    selected: Boolean,
+    label: String,
+    onClick: () -> Unit,
+    leadingIcon: @Composable (() -> Unit)? = null
+) {
+    val chipShape = RoundedCornerShape(999.dp)
+    val tint = if (selected) {
+        MaterialTheme.colorScheme.primary.copy(alpha = 0.26f)
+    } else {
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f)
+    }
+    Surface(
+        modifier = Modifier
+            .height(38.dp)
+            .echoHazePanel(
+                hazeState = hazeState,
+                shape = chipShape,
+                tint = tint,
+                blurRadius = 18.dp
+            )
+            .echoShapeClick(chipShape, onClick = onClick),
+        shape = chipShape,
+        color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else Color.Transparent,
+        contentColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 13.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            leadingIcon?.invoke()
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }

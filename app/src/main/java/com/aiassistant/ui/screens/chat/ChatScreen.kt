@@ -997,7 +997,10 @@ private fun ChatHeaderTitle(
     ) {
         Text(
             text = title,
-            style = MaterialTheme.typography.titleLarge,
+            style = MaterialTheme.typography.titleMedium.copy(
+                fontSize = 16.sp,
+                lineHeight = 20.sp
+            ),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
@@ -1169,7 +1172,7 @@ private fun MessageBubble(
             } else {
                 Modifier
                     .fillMaxWidth()
-                    .padding(top = 2.dp, bottom = 4.dp)
+                    .padding(top = 0.dp, bottom = 4.dp)
             }
         ) {
             val thinkingBubbleColor = userBubbleTint.copy(alpha = userBubbleAlpha)
@@ -1233,7 +1236,10 @@ private fun MessageBubble(
                             if (hasThinkingContent) {
                                 IconButton(
                                     onClick = onCopyThinking,
-                                    modifier = Modifier.size(24.dp)
+                                    modifier = Modifier.size(24.dp),
+                                    colors = IconButtonDefaults.iconButtonColors(
+                                        contentColor = thinkingContentColor.copy(alpha = 0.78f)
+                                    )
                                 ) {
                                     Icon(
                                         Icons.Default.ContentCopy,
@@ -1394,12 +1400,12 @@ private fun MessageFooter(
 
     Row(
         modifier = modifier.padding(top = 5.dp),
-        verticalAlignment = Alignment.Top
+        verticalAlignment = Alignment.CenterVertically
     ) {
         FlowRow(
             modifier = Modifier
                 .weight(1f)
-                .padding(top = 4.dp, end = 4.dp),
+                .padding(end = 4.dp),
             horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
@@ -1649,7 +1655,7 @@ private fun formatTime(ms: Long): String {
 }
 
 private fun formatMessageClock(timestamp: Long): String {
-    return SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(timestamp))
+    return SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(timestamp))
 }
 
 @Composable
@@ -1743,8 +1749,8 @@ fun ChatInputBar(
                 .echoHazePanel(
                     hazeState = hazeState,
                     shape = inputShape,
-                    tint = MaterialTheme.colorScheme.surface.copy(alpha = 0.12f),
-                    blurRadius = 32.dp
+                    tint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.28f),
+                    blurRadius = 18.dp
                 ),
             shape = inputShape,
             color = Color.Transparent,
@@ -1786,7 +1792,6 @@ fun ChatInputBar(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .heightIn(min = 42.dp)
-                                .clip(RoundedCornerShape(22.dp))
                                 .padding(horizontal = 4.dp, vertical = 4.dp),
                             contentAlignment = Alignment.CenterStart
                         ) {
