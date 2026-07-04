@@ -515,7 +515,7 @@ private fun NewConversationFab(
     val buttonShape = RoundedCornerShape(22.dp)
     val primary = MaterialTheme.colorScheme.primary
     val content = readableTextColorFor(
-        background = primary.copy(alpha = 0.28f),
+        background = primary.copy(alpha = 0.22f),
         fallbackSurface = readableBackdrop
     )
 
@@ -525,7 +525,7 @@ private fun NewConversationFab(
             .echoHazePanel(
                 hazeState = hazeState,
                 shape = buttonShape,
-                tint = primary.copy(alpha = 0.28f),
+                tint = primary.copy(alpha = 0.22f),
                 blurRadius = 34.dp
             )
             .combinedClickable(
@@ -534,7 +534,7 @@ private fun NewConversationFab(
                 onLongClickLabel = "配置新对话"
         ),
         shape = buttonShape,
-        color = primary.copy(alpha = 0.18f),
+        color = primary.copy(alpha = 0.14f),
         contentColor = content,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
@@ -632,7 +632,7 @@ private fun StatsIconButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val buttonTint = MaterialTheme.colorScheme.primary.copy(alpha = 0.26f)
+    val buttonTint = MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
     val glassBlue = MaterialTheme.colorScheme.primary
     Surface(
         modifier = modifier.echoHazePanel(
@@ -689,7 +689,7 @@ private fun GlassHomeIconButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val buttonTint = MaterialTheme.colorScheme.primary.copy(alpha = 0.26f)
+    val buttonTint = MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
     val glassBlue = MaterialTheme.colorScheme.primary
     Surface(
         modifier = modifier.echoHazePanel(
@@ -727,7 +727,7 @@ private fun HomeSearchRow(
     onNavigateToHistory: () -> Unit,
     readableBackdrop: Color
 ) {
-    val searchTint = MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
+    val searchTint = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
     val searchTextColor = readableTextColorFor(
         background = searchTint,
         fallbackSurface = readableBackdrop
@@ -1228,9 +1228,9 @@ private fun HomeGlassChip(
 ) {
     val chipShape = RoundedCornerShape(999.dp)
     val tint = if (selected) {
-        MaterialTheme.colorScheme.primary.copy(alpha = 0.32f)
+        MaterialTheme.colorScheme.primary.copy(alpha = 0.26f)
     } else {
-        MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
+        MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
     }
     val chipTextColor = readableTextColorFor(
         background = tint,

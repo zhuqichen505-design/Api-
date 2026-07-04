@@ -67,8 +67,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private const val StatsGlassPanelAlpha = 0.52f
-private const val StatsGlassInnerAlpha = 0.44f
+private const val StatsGlassPanelAlpha = 0.72f
+private const val StatsGlassInnerAlpha = 0.58f
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -167,17 +167,21 @@ fun StatsScreen(
                 }
 
                 item {
-                    ChartCard(hazeState = hazeState, title = "Token 消耗", readableBackdrop = readableBackdrop) {
+                    ChartCard(hazeState = hazeState, title = "Token 消耗", readableBackdrop = readableBackdrop) { chartContentColor ->
                         TokenBars(
                             buckets = buckets,
-                            maxToken = niceAxisMax(buckets.maxOfOrNull { it.totalTokens } ?: 0)
+                            maxToken = niceAxisMax(buckets.maxOfOrNull { it.totalTokens } ?: 0),
+                            labelColor = chartContentColor.copy(alpha = 0.72f)
                         )
                     }
                 }
 
                 item {
-                    ChartCard(hazeState = hazeState, title = "命中率趋势", readableBackdrop = readableBackdrop) {
-                        RateLines(buckets = buckets)
+                    ChartCard(hazeState = hazeState, title = "命中率趋势", readableBackdrop = readableBackdrop) { chartContentColor ->
+                        RateLines(
+                            buckets = buckets,
+                            labelColor = chartContentColor.copy(alpha = 0.72f)
+                        )
                     }
                 }
 
@@ -279,9 +283,9 @@ private fun PeriodTabs(
                     .echoShapeClick(shape) { onSelected(period) },
                 shape = shape,
                 color = if (period == selected) {
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
                 } else {
-                    Color.Transparent
+                    MaterialTheme.colorScheme.surface.copy(alpha = StatsGlassInnerAlpha)
                 },
                 contentColor = if (period == selected) {
                     MaterialTheme.colorScheme.primary
@@ -320,9 +324,9 @@ private fun SummaryCard(
                 shape = EchoGlassPagePanelShape,
                 tint = tint,
                 blurRadius = 20.dp
-            ),
+        ),
         shape = EchoGlassPagePanelShape,
-        color = Color.Transparent,
+        color = tint,
         contentColor = content,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
@@ -374,7 +378,7 @@ private fun ChartCard(
     hazeState: dev.chrisbanes.haze.HazeState,
     title: String,
     readableBackdrop: Color,
-    content: @Composable () -> Unit
+    content: @Composable (Color) -> Unit
 ) {
     val tint = MaterialTheme.colorScheme.surface.copy(alpha = StatsGlassPanelAlpha)
     val contentColor = readableTextColorFor(
@@ -389,9 +393,9 @@ private fun ChartCard(
                 shape = EchoGlassPagePanelShape,
                 tint = tint,
                 blurRadius = 18.dp
-            ),
+        ),
         shape = EchoGlassPagePanelShape,
-        color = Color.Transparent,
+        color = tint,
         contentColor = contentColor,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
@@ -406,19 +410,19 @@ private fun ChartCard(
                 fontWeight = FontWeight.SemiBold,
                 color = contentColor
             )
-            content()
+            content(contentColor)
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                LegendDot("输入", MaterialTheme.colorScheme.primary)
-                LegendDot("输出", MaterialTheme.colorScheme.secondary)
-                LegendDot("思考", MaterialTheme.colorScheme.tertiary)
-                LegendDot("其他", MaterialTheme.colorScheme.outline)
+                LegendDot("输入", MaterialTheme.colorScheme.primary, contentColor.copy(alpha = 0.72f))
+                LegendDot("输出", MaterialTheme.colorScheme.secondary, contentColor.copy(alpha = 0.72f))
+                LegendDot("思考", MaterialTheme.colorScheme.tertiary, contentColor.copy(alpha = 0.72f))
+                LegendDot("其他", MaterialTheme.colorScheme.outline, contentColor.copy(alpha = 0.72f))
             }
         }
     }
 }
 
 @Composable
-private fun LegendDot(text: String, color: Color) {
+private fun LegendDot(text: String, color: Color, textColor: Color) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(
             modifier = Modifier
@@ -427,29 +431,34 @@ private fun LegendDot(text: String, color: Color) {
                 .background(color)
         )
         Spacer(modifier = Modifier.width(5.dp))
-        Text(text, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(text, style = MaterialTheme.typography.labelSmall, color = textColor)
     }
 }
 
 @Composable
 private fun TokenBars(buckets: List<Bucket>) {
-    TokenBars(buckets = buckets, maxToken = buckets.maxOfOrNull { it.totalTokens }?.coerceAtLeast(1) ?: 1)
+    TokenBars(
+        buckets = buckets,
+        maxToken = buckets.maxOfOrNull { it.totalTokens }?.coerceAtLeast(1) ?: 1,
+        labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+    )
 }
 
 @Composable
-private fun TokenBars(buckets: List<Bucket>, maxToken: Int) {
+private fun TokenBars(buckets: List<Bucket>, maxToken: Int, labelColor: Color) {
     val input = MaterialTheme.colorScheme.primary
     val output = MaterialTheme.colorScheme.secondary
     val thinking = MaterialTheme.colorScheme.tertiary
     val unclassified = MaterialTheme.colorScheme.outline
     val grid = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.32f)
-    val plot = MaterialTheme.colorScheme.surface.copy(alpha = 0.32f)
+    val plot = MaterialTheme.colorScheme.surface.copy(alpha = 0.66f)
 
     Column {
         Row {
             AxisLabels(
                 labels = listOf(formatNumber(maxToken), formatNumber(maxToken / 2), "0"),
-                height = 170.dp
+                height = 170.dp,
+                color = labelColor
             )
             Canvas(
                 modifier = Modifier
@@ -497,16 +506,16 @@ private fun TokenBars(buckets: List<Bucket>, maxToken: Int) {
 }
 
 @Composable
-private fun RateLines(buckets: List<Bucket>) {
+private fun RateLines(buckets: List<Bucket>, labelColor: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
     val cache = MaterialTheme.colorScheme.tertiary
     val success = MaterialTheme.colorScheme.secondary
     val grid = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.32f)
-    val plot = MaterialTheme.colorScheme.surface.copy(alpha = 0.32f)
+    val plot = MaterialTheme.colorScheme.surface.copy(alpha = 0.66f)
     val pointHalo = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f)
 
     Column {
         Row {
-            AxisLabels(labels = listOf("100%", "50%", "0%"), height = 170.dp)
+            AxisLabels(labels = listOf("100%", "50%", "0%"), height = 170.dp, color = labelColor)
             Canvas(
                 modifier = Modifier
                     .weight(1f)
@@ -549,7 +558,7 @@ private fun RateLines(buckets: List<Bucket>) {
 }
 
 @Composable
-private fun AxisLabels(labels: List<String>, height: androidx.compose.ui.unit.Dp) {
+private fun AxisLabels(labels: List<String>, height: androidx.compose.ui.unit.Dp, color: Color) {
     Column(
         modifier = Modifier
             .width(42.dp)
@@ -562,7 +571,7 @@ private fun AxisLabels(labels: List<String>, height: androidx.compose.ui.unit.Dp
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = color,
                 maxLines = 1
             )
         }
@@ -609,9 +618,9 @@ private fun ModelRowCard(
                 shape = RoundedCornerShape(22.dp),
                 tint = tint,
                 blurRadius = 16.dp
-            ),
+        ),
         shape = RoundedCornerShape(22.dp),
-        color = Color.Transparent,
+        color = tint,
         contentColor = content,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
@@ -655,6 +664,11 @@ private fun EmptyCard(
             ),
         contentAlignment = Alignment.Center
     ) {
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(tint, EchoGlassPagePanelShape)
+        )
         Text(text, color = content.copy(alpha = 0.70f))
     }
 }

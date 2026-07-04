@@ -57,7 +57,7 @@ import com.aiassistant.ui.components.echoShapeClick
 import com.aiassistant.ui.components.echoHazePanel
 import com.aiassistant.ui.components.echoHazeSource
 import com.aiassistant.ui.components.readableTextColorFor
-import com.aiassistant.ui.components.rememberReadableBackdropColor
+import com.aiassistant.ui.components.rememberReadableBackdropColors
 import com.aiassistant.ui.components.rememberEchoHazeState
 import com.aiassistant.ui.components.rememberLazyListControlsVisible
 import com.aiassistant.utils.AvatarManager
@@ -67,7 +67,8 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
-private const val ChatGlassTintAlpha = 0.22f
+private const val ChatGlassTintAlpha = 0.52f
+private val ChatUserGlassTint = Color(0xFFD9ECFF)
 private val ThinkingContentBlue = Color(0xFF2563EB)
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -97,7 +98,7 @@ fun ChatScreen(
     val contextUsage by viewModel.contextUsage.collectAsState()
 
     val hazeState = rememberEchoHazeState()
-    val readableBackdrop = rememberReadableBackdropColor(chatBackgroundBitmap)
+    val readableBackdrops = rememberReadableBackdropColors(chatBackgroundBitmap)
     val listState = rememberLazyListState()
     val showScrollControls by rememberLazyListControlsVisible(listState)
     val clipboardManager = LocalClipboardManager.current
@@ -229,10 +230,10 @@ fun ChatScreen(
     Scaffold(
         topBar = {
             val toolbarShape = RoundedCornerShape(999.dp)
-            val chatGlassTint = MaterialTheme.colorScheme.primary.copy(alpha = ChatGlassTintAlpha)
+            val chatGlassTint = ChatUserGlassTint.copy(alpha = ChatGlassTintAlpha)
             val toolbarContentColor = readableTextColorFor(
                 background = chatGlassTint,
-                fallbackSurface = readableBackdrop
+                fallbackSurface = readableBackdrops.top
             )
 
             Surface(
@@ -246,9 +247,9 @@ fun ChatScreen(
                         shape = toolbarShape,
                         tint = chatGlassTint,
                         blurRadius = 32.dp
-                    ),
+                ),
                 shape = toolbarShape,
-                color = Color.Transparent,
+                color = chatGlassTint,
                 contentColor = toolbarContentColor,
                 tonalElevation = 0.dp,
                 shadowElevation = 0.dp
@@ -339,7 +340,7 @@ fun ChatScreen(
                 onWebSearchChange = { enabled ->
                     viewModel.updateTempSettings(tempSettings.copy(enableWebSearch = enabled))
                 },
-                readableBackdrop = readableBackdrop
+                readableBackdrop = readableBackdrops.bottom
             )
         }
     ) { paddingValues ->
@@ -421,7 +422,7 @@ fun ChatScreen(
                             MessageBubble(
                                 message = message,
                                 hazeState = hazeState,
-                                readableBackdrop = readableBackdrop,
+                                readableBackdrop = readableBackdrops.content,
                                 assistantAvatarRevision = modelAvatarRevision,
                                 assistantApiConfigId = currentModelOption?.apiConfigId,
                                 variantInfo = displayItem.variantInfo,
@@ -478,7 +479,7 @@ fun ChatScreen(
                                         variantGroupId = streamingBranchGroupId
                                     ),
                                     hazeState = hazeState,
-                                    readableBackdrop = readableBackdrop,
+                                    readableBackdrop = readableBackdrops.content,
                                     isGenerating = true,
                                     assistantAvatarRevision = modelAvatarRevision,
                                     assistantApiConfigId = currentModelOption?.apiConfigId,
@@ -504,7 +505,7 @@ fun ChatScreen(
                                     thinkingContent = currentThinking.ifEmpty { null }
                                 ),
                                 hazeState = hazeState,
-                                readableBackdrop = readableBackdrop,
+                                readableBackdrop = readableBackdrops.content,
                                 isGenerating = true,
                                 assistantAvatarRevision = modelAvatarRevision,
                                 assistantApiConfigId = currentModelOption?.apiConfigId,
@@ -1005,8 +1006,8 @@ private fun ChatHeaderTitle(
         Text(
             text = title,
             style = MaterialTheme.typography.titleMedium.copy(
-                fontSize = 14.5.sp,
-                lineHeight = 18.sp
+                fontSize = 15.5.sp,
+                lineHeight = 19.sp
             ),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
@@ -1107,8 +1108,8 @@ private fun MessageBubble(
     val resolvedReadableBackdrop = readableBackdrop.takeOrElse {
         MaterialTheme.colorScheme.background
     }
-    val userBubbleTint = Color(0xFFD9ECFF)
-    val userBubbleAlpha = if (hazeState != null) 0.84f else 0.78f
+    val userBubbleTint = ChatUserGlassTint
+    val userBubbleAlpha = ChatGlassTintAlpha
     val bubbleColor = if (isUser) userBubbleTint.copy(alpha = userBubbleAlpha) else MaterialTheme.colorScheme.surface
     val textBackground = if (isUser) bubbleColor else resolvedReadableBackdrop
     val textColor = readableTextColorFor(
@@ -1167,7 +1168,21 @@ private fun MessageBubble(
                     Modifier.fillMaxWidth()
                 }
                 Surface(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (hazeState != null) {
+                                Modifier.echoHazePanel(
+                                    hazeState = hazeState,
+                                    shape = thinkingShape,
+                                    tint = thinkingBubbleColor,
+                                    blurRadius = 18.dp,
+                                    highlightAlpha = 0.04f
+                                )
+                            } else {
+                                Modifier
+                            }
+                        ),
                     color = thinkingBubbleColor,
                     contentColor = thinkingContentColor,
                     shape = thinkingShape,
@@ -1314,8 +1329,19 @@ private fun MessageBubble(
                 }
 
                 if (isUser && (message.content.isNotBlank() || isGenerating)) {
+                    val userBubbleModifier = if (hazeState != null) {
+                        Modifier.echoHazePanel(
+                            hazeState = hazeState,
+                            shape = bubbleShape,
+                            tint = bubbleColor,
+                            blurRadius = 18.dp,
+                            highlightAlpha = 0.04f
+                        )
+                    } else {
+                        Modifier
+                    }
                     Surface(
-                        modifier = Modifier,
+                        modifier = userBubbleModifier,
                         color = bubbleColor,
                         contentColor = textColor,
                         shape = bubbleShape,
@@ -1719,7 +1745,7 @@ fun ChatInputBar(
     val resolvedReadableBackdrop = readableBackdrop.takeOrElse {
         MaterialTheme.colorScheme.background
     }
-    val inputTint = MaterialTheme.colorScheme.primary.copy(alpha = ChatGlassTintAlpha)
+    val inputTint = ChatUserGlassTint.copy(alpha = ChatGlassTintAlpha)
     val inputTextColor = readableTextColorFor(
         background = inputTint,
         fallbackSurface = resolvedReadableBackdrop
@@ -1741,9 +1767,9 @@ fun ChatInputBar(
                     tint = inputTint,
                     blurRadius = 18.dp,
                     highlightAlpha = 0f
-                ),
+            ),
             shape = inputShape,
-            color = Color.Transparent,
+            color = inputTint,
             tonalElevation = 0.dp,
             shadowElevation = 0.dp
         ) {
@@ -1818,8 +1844,21 @@ fun ChatInputBar(
                                 text = "智能搜索",
                                 selected = enableWebSearch,
                                 onClick = { onWebSearchChange(!enableWebSearch) },
-                                containerColor = inputTint.copy(alpha = if (enableWebSearch) 0.38f else 0.30f),
-                                contentColor = inputTextColor
+                                containerColor = if (enableWebSearch) {
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
+                                } else {
+                                    ChatUserGlassTint.copy(alpha = 0.38f)
+                                },
+                                contentColor = if (enableWebSearch) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    inputTextColor
+                                },
+                                borderColor = if (enableWebSearch) {
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.62f)
+                                } else {
+                                    inputTextColor.copy(alpha = 0.18f)
+                                }
                             )
                         }
 
@@ -1829,7 +1868,7 @@ fun ChatInputBar(
                                     onClick = {},
                                     label = { Text(status, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                                     colors = AssistChipDefaults.assistChipColors(
-                                        containerColor = inputTint.copy(alpha = 0.34f),
+                                        containerColor = ChatUserGlassTint.copy(alpha = 0.42f),
                                         labelColor = inputTextColor,
                                         leadingIconContentColor = inputTextColor
                                     ),
@@ -1851,9 +1890,9 @@ fun ChatInputBar(
                     }
 
                     val softButtonColors = IconButtonDefaults.filledTonalIconButtonColors(
-                        containerColor = inputTint.copy(alpha = 0.34f),
+                        containerColor = ChatUserGlassTint.copy(alpha = 0.42f),
                         contentColor = MaterialTheme.colorScheme.primary,
-                        disabledContainerColor = inputTint.copy(alpha = 0.22f),
+                        disabledContainerColor = ChatUserGlassTint.copy(alpha = 0.34f),
                         disabledContentColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f)
                     )
 
@@ -1913,7 +1952,7 @@ fun ChatInputBar(
                             enabled = !isProcessingAttachments && (inputText.isNotBlank() || attachments.isNotEmpty()),
                             modifier = Modifier.size(40.dp),
                             colors = IconButtonDefaults.filledIconButtonColors(
-                                disabledContainerColor = inputTint.copy(alpha = 0.22f),
+                                disabledContainerColor = ChatUserGlassTint.copy(alpha = 0.34f),
                                 disabledContentColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f)
                             )
                         ) {
@@ -2018,7 +2057,8 @@ private fun InputPillButton(
     selected: Boolean,
     onClick: () -> Unit,
     containerColor: Color? = null,
-    contentColor: Color? = null
+    contentColor: Color? = null,
+    borderColor: Color? = null
 ) {
     val pillShape = RoundedCornerShape(999.dp)
     val resolvedContainerColor = containerColor ?: if (selected) {
@@ -2040,7 +2080,8 @@ private fun InputPillButton(
             .echoShapeClick(pillShape, onClick = onClick),
         shape = pillShape,
         color = resolvedContainerColor,
-        contentColor = resolvedContentColor
+        contentColor = resolvedContentColor,
+        border = borderColor?.let { BorderStroke(1.dp, it) }
     ) {
         Text(
             text = text,
@@ -2086,7 +2127,7 @@ fun AttachmentPreview(
     val resolvedReadableBackdrop = readableBackdrop.takeOrElse {
         MaterialTheme.colorScheme.background
     }
-    val attachmentTint = MaterialTheme.colorScheme.primary.copy(alpha = ChatGlassTintAlpha)
+    val attachmentTint = ChatUserGlassTint.copy(alpha = ChatGlassTintAlpha)
     val attachmentTextColor = readableTextColorFor(
         background = attachmentTint,
         fallbackSurface = resolvedReadableBackdrop
@@ -2094,7 +2135,7 @@ fun AttachmentPreview(
 
     Card(
         colors = CardDefaults.cardColors(
-            containerColor = attachmentTint.copy(alpha = 0.34f)
+            containerColor = ChatUserGlassTint.copy(alpha = 0.42f)
         ),
         shape = RoundedCornerShape(8.dp)
     ) {
@@ -2739,13 +2780,15 @@ private fun ChatSettingsModelSelector(
     currentOption: ChatModelOption?,
     fallbackModel: String,
     availableOptions: List<ChatModelOption>,
+    contentColor: Color,
+    secondaryColor: Color,
     onModelSelected: (ChatModelOption) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
     val currentLabel = currentOption?.modelName ?: fallbackModel
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("模型", style = MaterialTheme.typography.titleSmall)
+        Text("模型", style = MaterialTheme.typography.titleSmall, color = contentColor)
         Box {
             OutlinedButton(
                 onClick = { expanded = true },
@@ -2758,10 +2801,11 @@ private fun ChatSettingsModelSelector(
                 Text(
                     text = currentLabel.ifBlank { "未选择模型" },
                     modifier = Modifier.weight(1f),
+                    color = contentColor,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = secondaryColor)
             }
 
             DropdownMenu(
@@ -2804,11 +2848,13 @@ private fun ChatSettingsSystemPromptSection(
     promptText: String,
     onPromptChange: (String) -> Unit,
     hasTemplates: Boolean,
+    contentColor: Color,
+    secondaryColor: Color,
     onChooseTemplate: () -> Unit,
     onSaveTemplate: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("系统提示词", style = MaterialTheme.typography.titleSmall)
+        Text("系统提示词", style = MaterialTheme.typography.titleSmall, color = contentColor)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -2840,10 +2886,35 @@ private fun ChatSettingsSystemPromptSection(
                 .heightIn(min = 118.dp),
             placeholder = { Text("例如：你是一个专业、简洁、可靠的助手。") },
             maxLines = 8,
-            shape = RoundedCornerShape(14.dp)
+            shape = RoundedCornerShape(14.dp),
+            colors = glassTextFieldColors(
+                contentColor = contentColor,
+                secondaryColor = secondaryColor,
+                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.74f)
+            )
         )
     }
 }
+
+@Composable
+private fun glassTextFieldColors(
+    contentColor: Color,
+    secondaryColor: Color,
+    containerColor: Color
+) = OutlinedTextFieldDefaults.colors(
+    focusedTextColor = contentColor,
+    unfocusedTextColor = contentColor,
+    focusedContainerColor = containerColor,
+    unfocusedContainerColor = containerColor,
+    disabledContainerColor = containerColor,
+    cursorColor = contentColor,
+    focusedLabelColor = MaterialTheme.colorScheme.primary,
+    unfocusedLabelColor = secondaryColor,
+    focusedPlaceholderColor = secondaryColor,
+    unfocusedPlaceholderColor = secondaryColor,
+    focusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.62f),
+    unfocusedBorderColor = secondaryColor.copy(alpha = 0.28f)
+)
 
 @Composable
 fun ChatSettingsDialog(
@@ -2861,6 +2932,12 @@ fun ChatSettingsDialog(
     onModelAvatarChanged: () -> Unit
 ) {
     val context = LocalContext.current
+    val dialogContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f)
+    val dialogContentColor = readableTextColorFor(
+        background = dialogContainerColor,
+        fallbackSurface = MaterialTheme.colorScheme.background
+    )
+    val dialogSecondaryColor = dialogContentColor.copy(alpha = 0.72f)
     var maxTokens by remember { mutableStateOf(tempSettings.maxTokens.toString()) }
     var topP by remember { mutableStateOf(tempSettings.topP) }
     var enableThinking by remember { mutableStateOf(tempSettings.enableThinking) }
@@ -2917,17 +2994,20 @@ fun ChatSettingsDialog(
         modifier = Modifier
             .fillMaxWidth()
             .widthIn(max = 560.dp),
+        tint = dialogContainerColor,
+        containerColor = dialogContainerColor,
+        contentColor = dialogContentColor,
         title = {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("对话设置", style = MaterialTheme.typography.titleLarge)
+                    Text("对话设置", style = MaterialTheme.typography.titleLarge, color = dialogContentColor)
                     Text(
                         text = "当前对话配置会直接生效",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = dialogSecondaryColor
                     )
                 }
             }
@@ -2945,7 +3025,7 @@ fun ChatSettingsDialog(
                     Text(
                         text = "这些设置仅对当前对话有效，不会影响全局配置",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = dialogSecondaryColor
                     )
                 }
 
@@ -2954,6 +3034,8 @@ fun ChatSettingsDialog(
                         currentOption = currentOption,
                         fallbackModel = fallbackModel,
                         availableOptions = modelOptions,
+                        contentColor = dialogContentColor,
+                        secondaryColor = dialogSecondaryColor,
                         onModelSelected = onModelSelected
                     )
                 }
@@ -2963,6 +3045,8 @@ fun ChatSettingsDialog(
                         promptText = promptText,
                         onPromptChange = { promptText = it },
                         hasTemplates = templates.isNotEmpty(),
+                        contentColor = dialogContentColor,
+                        secondaryColor = dialogSecondaryColor,
                         onChooseTemplate = { showTemplates = true },
                         onSaveTemplate = { showSaveDialog = true }
                     )
@@ -2977,7 +3061,8 @@ fun ChatSettingsDialog(
                             } else {
                                 "温度: 思考模式下不可调"
                             },
-                            style = MaterialTheme.typography.titleSmall
+                            style = MaterialTheme.typography.titleSmall,
+                            color = dialogContentColor
                         )
                         Slider(
                             value = temperature,
@@ -2993,16 +3078,16 @@ fun ChatSettingsDialog(
                             Text(
                                 text = "${tuningProfile.modelLabel} 的思考模式不支持调整温度，发送请求时会自动省略 temperature。",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = dialogSecondaryColor
                             )
                         }
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("精确", style = MaterialTheme.typography.labelSmall)
-                            Text("平衡", style = MaterialTheme.typography.labelSmall)
-                            Text("发散", style = MaterialTheme.typography.labelSmall)
+                            Text("精确", style = MaterialTheme.typography.labelSmall, color = dialogSecondaryColor)
+                            Text("平衡", style = MaterialTheme.typography.labelSmall, color = dialogSecondaryColor)
+                            Text("发散", style = MaterialTheme.typography.labelSmall, color = dialogSecondaryColor)
                         }
                     }
                 }
@@ -3014,7 +3099,8 @@ fun ChatSettingsDialog(
                         onValueChange = { maxTokens = it },
                         modifier = Modifier.fillMaxWidth(),
                         label = { Text("最大Token数") },
-                        singleLine = true
+                        singleLine = true,
+                        colors = glassTextFieldColors(dialogContentColor, dialogSecondaryColor, dialogContainerColor)
                     )
                 }
 
@@ -3022,7 +3108,8 @@ fun ChatSettingsDialog(
                     Column {
                         Text(
                             text = "Top P: ${String.format("%.2f", topP)}",
-                            style = MaterialTheme.typography.titleSmall
+                            style = MaterialTheme.typography.titleSmall,
+                            color = dialogContentColor
                         )
                         Slider(
                             value = topP,
@@ -3047,11 +3134,11 @@ fun ChatSettingsDialog(
                                 .weight(1f)
                                 .padding(end = 12.dp)
                         ) {
-                            Text("思考模式", style = MaterialTheme.typography.titleSmall)
+                            Text("思考模式", style = MaterialTheme.typography.titleSmall, color = dialogContentColor)
                             Text(
                                 "支持时会传入真实思考参数；DeepSeek 官方 chat 会改用 reasoner",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = dialogSecondaryColor
                             )
                         }
                         Switch(
@@ -3072,11 +3159,11 @@ fun ChatSettingsDialog(
                                 .weight(1f)
                                 .padding(end = 12.dp)
                         ) {
-                            Text("联网", style = MaterialTheme.typography.titleSmall)
+                            Text("联网", style = MaterialTheme.typography.titleSmall, color = dialogContentColor)
                             Text(
                                 "仅对支持联网的API或模型生效",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = dialogSecondaryColor
                             )
                         }
                         Switch(
@@ -3090,7 +3177,7 @@ fun ChatSettingsDialog(
                 if (enableThinking && tuningProfile.thinkingEfforts.isNotEmpty()) {
                     item {
                         Column {
-                            Text("思考强度", style = MaterialTheme.typography.titleSmall)
+                            Text("思考强度", style = MaterialTheme.typography.titleSmall, color = dialogContentColor)
                             Spacer(modifier = Modifier.height(8.dp))
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 items(tuningProfile.thinkingEfforts) { level ->
@@ -3110,14 +3197,14 @@ fun ChatSettingsDialog(
                         Text(
                             text = tuningProfile.noThinkingEffortReason,
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = dialogSecondaryColor
                         )
                     }
                 }
 
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("模型头像", style = MaterialTheme.typography.titleSmall)
+                        Text("模型头像", style = MaterialTheme.typography.titleSmall, color = dialogContentColor)
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
@@ -3157,7 +3244,7 @@ fun ChatSettingsDialog(
                                 Text(
                                     text = if (modelAvatarBitmap == null) "当前使用 deepseek 默认头像" else "当前使用自定义头像",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = dialogSecondaryColor
                                 )
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     OutlinedButton(

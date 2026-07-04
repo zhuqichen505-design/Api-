@@ -70,7 +70,7 @@ fun Modifier.echoHazePanel(
     highlightAlpha: Float = 0.07f
 ): Modifier {
     val colorScheme = MaterialTheme.colorScheme
-    val liquidTint = tint.copy(alpha = tint.alpha.coerceIn(0.22f, 0.55f))
+    val liquidTint = tint.copy(alpha = tint.alpha.coerceIn(0.12f, 0.62f))
     return this
         .shadow(
             elevation = 8.dp,
@@ -220,6 +220,9 @@ fun EchoGlassDialog(
     onDismissRequest: () -> Unit,
     modifier: Modifier = Modifier,
     shape: Shape = EchoGlassDialogShape,
+    tint: Color = MaterialTheme.colorScheme.surface.copy(alpha = 0.74f),
+    contentColor: Color = MaterialTheme.colorScheme.onSurface,
+    containerColor: Color = MaterialTheme.colorScheme.surface.copy(alpha = 0.62f),
     title: @Composable ColumnScope.() -> Unit,
     content: @Composable ColumnScope.() -> Unit,
     buttons: @Composable ColumnScope.() -> Unit
@@ -236,11 +239,12 @@ fun EchoGlassDialog(
                 .echoHazePanel(
                     hazeState = hazeState,
                     shape = shape,
-                    tint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f),
+                    tint = tint,
                     blurRadius = 28.dp
                 ),
             shape = shape,
-            color = Color.Transparent,
+            color = containerColor,
+            contentColor = contentColor,
             tonalElevation = 0.dp,
             shadowElevation = 0.dp
         ) {

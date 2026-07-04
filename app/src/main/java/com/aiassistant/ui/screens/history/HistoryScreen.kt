@@ -38,8 +38,8 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 
-private const val HistoryGlassPanelAlpha = 0.52f
-private const val HistoryGlassInnerAlpha = 0.40f
+private const val HistoryGlassPanelAlpha = 0.72f
+private const val HistoryGlassInnerAlpha = 0.58f
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -162,9 +162,9 @@ fun HistoryScreen(
                         shape = EchoGlassPagePanelShape,
                         tint = searchTint,
                         blurRadius = 18.dp
-                    ),
+                ),
                 shape = EchoGlassPagePanelShape,
-                color = Color.Transparent,
+                color = searchTint,
                 contentColor = searchTextColor,
                 tonalElevation = 0.dp,
                 shadowElevation = 0.dp
@@ -354,7 +354,7 @@ fun HistoryConversationCard(
             )
             .echoShapeClick(EchoGlassPagePanelShape, onClick = onClick),
         shape = EchoGlassPagePanelShape,
-        color = Color.Transparent,
+        color = cardTint,
         contentColor = content,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
@@ -775,7 +775,7 @@ fun SearchResultCard(
             )
             .echoShapeClick(EchoGlassPagePanelShape, onClick = onClick),
         shape = EchoGlassPagePanelShape,
-        color = Color.Transparent,
+        color = cardTint,
         contentColor = content,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp

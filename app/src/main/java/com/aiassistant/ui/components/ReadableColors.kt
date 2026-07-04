@@ -12,6 +12,13 @@ import androidx.compose.ui.graphics.luminance
 private val ReadableDark = Color.Black
 private val ReadableLight = Color(0xFFFFFFFF)
 
+data class ReadableBackdropColors(
+    val full: Color,
+    val top: Color,
+    val content: Color,
+    val bottom: Color
+)
+
 fun readableTextColorFor(
     background: Color,
     fallbackSurface: Color = Color.White
@@ -54,20 +61,45 @@ fun rememberReadableBackdropColor(bitmap: Bitmap?): Color {
     }
 }
 
-fun sampledBackgroundColor(bitmap: Bitmap?, fallback: Color): Color {
+@Composable
+fun rememberReadableBackdropColors(bitmap: Bitmap?): ReadableBackdropColors {
+    val fallback = MaterialTheme.colorScheme.background
+    return remember(bitmap, fallback) {
+        ReadableBackdropColors(
+            full = sampledBackgroundColor(bitmap, fallback),
+            top = sampledBackgroundColor(bitmap, fallback, verticalStart = 0f, verticalEnd = 0.24f),
+            content = sampledBackgroundColor(bitmap, fallback, verticalStart = 0.20f, verticalEnd = 0.78f),
+            bottom = sampledBackgroundColor(bitmap, fallback, verticalStart = 0.72f, verticalEnd = 1f)
+        )
+    }
+}
+
+fun sampledBackgroundColor(
+    bitmap: Bitmap?,
+    fallback: Color,
+    verticalStart: Float = 0f,
+    verticalEnd: Float = 1f
+): Color {
     if (bitmap == null || bitmap.width <= 0 || bitmap.height <= 0) {
         return fallback
     }
 
+    val startY = (bitmap.height * verticalStart.coerceIn(0f, 1f))
+        .toInt()
+        .coerceIn(0, bitmap.height - 1)
+    val endY = (bitmap.height * verticalEnd.coerceIn(verticalStart, 1f))
+        .toInt()
+        .coerceIn(startY + 1, bitmap.height)
+    val sampleHeight = (endY - startY).coerceAtLeast(1)
     val xStep = maxOf(1, bitmap.width / 24)
-    val yStep = maxOf(1, bitmap.height / 24)
+    val yStep = maxOf(1, sampleHeight / 16)
     var red = 0f
     var green = 0f
     var blue = 0f
     var weightTotal = 0f
 
-    var y = yStep / 2
-    while (y < bitmap.height) {
+    var y = startY + yStep / 2
+    while (y < endY) {
         var x = xStep / 2
         while (x < bitmap.width) {
             val pixel = bitmap.getPixel(x, y)
