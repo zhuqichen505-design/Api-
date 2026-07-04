@@ -44,15 +44,12 @@ import com.aiassistant.domain.model.ChatModelOption
 import com.aiassistant.domain.model.ConversationContextUsage
 import com.aiassistant.domain.model.Message
 import com.aiassistant.domain.model.PromptTemplate
-import com.aiassistant.ui.components.EchoGlassBackground
-import com.aiassistant.ui.components.GlassSurface
 import com.aiassistant.ui.components.MarkdownText
 import com.aiassistant.ui.components.SideAnchorItem
 import com.aiassistant.ui.components.SideAnchorNavigator
 import com.aiassistant.ui.components.TransientLazyListScrollbar
 import com.aiassistant.ui.components.rememberLazyListControlsVisible
 import com.aiassistant.utils.AvatarManager
-import com.aiassistant.utils.BackgroundManager
 import com.aiassistant.utils.FileUtils
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -106,9 +103,6 @@ fun ChatScreen(
     }
     val chatNavItems = remember(displayMessages) {
         buildChatAnchorItems(displayMessages)
-    }
-    val chatBackground = remember(context) {
-        BackgroundManager.getChatBackgroundBitmap(context)
     }
 
     BackHandler {
@@ -233,8 +227,8 @@ fun ChatScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.64f),
-                    scrolledContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.74f),
+                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
+                    scrolledContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.86f),
                     titleContentColor = MaterialTheme.colorScheme.onSurface
                 )
             )
@@ -295,11 +289,11 @@ fun ChatScreen(
             )
         }
     ) { paddingValues ->
-        EchoGlassBackground(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues),
-            backgroundBitmap = chatBackground
+                .padding(paddingValues)
+                .background(MaterialTheme.colorScheme.background)
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 // 错误提示
@@ -1619,13 +1613,12 @@ fun ChatInputBar(
             .imePadding()
             .navigationBarsPadding()
     ) {
-        GlassSurface(
+        Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp),
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.70f),
-            borderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+            color = MaterialTheme.colorScheme.surface,
             tonalElevation = 0.dp,
-            shadowElevation = 7.dp
+            shadowElevation = 0.dp
         ) {
             Column(
                 modifier = Modifier
@@ -1899,7 +1892,7 @@ private fun InputPillButton(
         color = if (selected) {
             MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
         } else {
-            MaterialTheme.colorScheme.surface.copy(alpha = 0.58f)
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
         },
         contentColor = if (selected) {
             MaterialTheme.colorScheme.primary

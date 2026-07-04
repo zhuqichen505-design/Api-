@@ -50,14 +50,11 @@ import com.aiassistant.R
 import com.aiassistant.domain.model.ApiConfig
 import com.aiassistant.domain.model.Conversation
 import com.aiassistant.domain.model.Folder
-import com.aiassistant.ui.components.EchoGlassBackground
-import com.aiassistant.ui.components.GlassSurface
 import com.aiassistant.ui.components.SideAnchorItem
 import com.aiassistant.ui.components.SideAnchorNavigator
 import com.aiassistant.ui.components.TransientLazyListScrollbar
 import com.aiassistant.ui.components.rememberLazyListControlsVisible
 import com.aiassistant.utils.AvatarManager
-import com.aiassistant.utils.BackgroundManager
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -75,7 +72,6 @@ fun HomeScreen(
     onNavigateToFolders: () -> Unit
 ) {
     val viewModel: HomeViewModel = viewModel()
-    val context = LocalContext.current
     val conversations by viewModel.conversations.collectAsState()
     val apiConfigs by viewModel.apiConfigs.collectAsState()
     val selectedConfig by viewModel.selectedConfig.collectAsState()
@@ -89,9 +85,6 @@ fun HomeScreen(
     var selectedConversationIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
     var showBatchMoveDialog by remember { mutableStateOf(false) }
     var showBatchDeleteDialog by remember { mutableStateOf(false) }
-    val homeBackground = remember(context) {
-        BackgroundManager.getHomeBackgroundBitmap(context)
-    }
     val filteredConversations = remember(conversations, searchQuery) {
         val query = searchQuery.trim()
         if (query.isBlank()) {
@@ -133,7 +126,7 @@ fun HomeScreen(
     }
 
     Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = Color.White,
         floatingActionButton = {
             if (conversations.isNotEmpty() && !isSelectionMode) {
                 NewConversationFab(
@@ -147,17 +140,16 @@ fun HomeScreen(
             }
         }
     ) { paddingValues ->
-        EchoGlassBackground(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues),
-            backgroundBitmap = homeBackground
+                .padding(paddingValues)
+                .background(Color.White)
         ) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                HomeDashboardHeader(
-                    onNavigateToSettings = onNavigateToSettings,
-                    onNavigateToStats = onNavigateToStats
-                )
+            HomeDashboardHeader(
+                onNavigateToSettings = onNavigateToSettings,
+                onNavigateToStats = onNavigateToStats
+            )
 
             HomeSearchRow(
                 searchQuery = searchQuery,
@@ -340,7 +332,6 @@ fun HomeScreen(
                     )
                 }
             }
-            }
         }
     }
 
@@ -457,6 +448,7 @@ fun HomeDashboardHeader(
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .background(Color.White)
             .padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 10.dp)
     ) {
         Row(
@@ -473,7 +465,7 @@ fun HomeDashboardHeader(
                 onClick = onNavigateToSettings,
                 modifier = Modifier.size(42.dp),
                 colors = IconButtonDefaults.filledTonalIconButtonColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f),
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
                     contentColor = MaterialTheme.colorScheme.onSurface
                 )
             ) {
@@ -644,14 +636,13 @@ private fun HomeSearchRow(
             .padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        GlassSurface(
+        Surface(
             modifier = Modifier
                 .weight(1f)
                 .height(46.dp),
             shape = RoundedCornerShape(22.dp),
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.68f),
-            borderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
-            shadowElevation = 2.dp
+            color = Color.White,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
         ) {
             Row(
                 modifier = Modifier
@@ -711,7 +702,7 @@ private fun HomeSearchRow(
             onClick = onNavigateToHistory,
             modifier = Modifier.size(40.dp),
             colors = IconButtonDefaults.filledTonalIconButtonColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f),
+                containerColor = MaterialTheme.colorScheme.surfaceVariant,
                 contentColor = MaterialTheme.colorScheme.onSurface
             )
         ) {
@@ -1259,7 +1250,7 @@ fun ConversationCard(
     var showMoveToFolderDialog by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
 
-    GlassSurface(
+    Card(
         modifier = Modifier
             .fillMaxWidth()
             .combinedClickable(
@@ -1268,17 +1259,18 @@ fun ConversationCard(
                 onLongClickLabel = "多选对话"
             ),
         shape = RoundedCornerShape(18.dp),
-        color = if (selected) {
-            HomeSelectedChipColor.copy(alpha = 0.78f)
-        } else {
-            MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)
-        },
-        borderColor = if (selected) {
-            MaterialTheme.colorScheme.primary.copy(alpha = 0.72f)
-        } else {
-            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.56f)
-        },
-        shadowElevation = if (selected) 8.dp else 5.dp
+        colors = CardDefaults.cardColors(
+            containerColor = if (selected) {
+                HomeSelectedChipColor
+            } else {
+                Color(0xFFFBFEFD)
+            }
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        border = BorderStroke(
+            width = if (selected) 1.5.dp else 1.dp,
+            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+        )
     ) {
         Row(
             modifier = Modifier

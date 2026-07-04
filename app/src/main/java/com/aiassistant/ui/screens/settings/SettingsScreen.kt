@@ -32,10 +32,7 @@ import com.aiassistant.domain.model.ApiConfig
 import com.aiassistant.domain.model.Conversation
 import com.aiassistant.domain.model.EnvironmentVariable
 import com.aiassistant.domain.model.PromptTemplate
-import com.aiassistant.ui.components.EchoGlassBackground
-import com.aiassistant.ui.components.GlassSurface
 import com.aiassistant.utils.AvatarManager
-import com.aiassistant.utils.BackgroundManager
 import com.aiassistant.utils.BackupManager
 import com.aiassistant.utils.HiddenConversationLock
 import com.aiassistant.utils.TavilySearchSettings
@@ -55,11 +52,11 @@ private val CurrentFeatureHighlights = listOf(
     "思考模式、联网搜索与临时对话设置",
     "文件/图片上传与 OCR 辅助",
     "环境变量管理、数据备份与恢复",
-    "自定义用户头像、模型头像与界面背景"
+    "自定义用户头像与模型头像"
 )
 
 private const val CurrentVersionUserUpdates =
-    "默认背景恢复纯色、支持首页和对话页自定义图片背景、半透明层次弱化灰色边框"
+    "上下文用量查看、主动压缩上下文、对话导航显隐优化、使用统计图标调整"
 
 @Composable
 fun SettingsScreen(
@@ -111,78 +108,74 @@ fun SettingsMenu(
     modifier: Modifier = Modifier,
     onSectionSelected: (String) -> Unit
 ) {
-    EchoGlassBackground(
-        modifier = modifier.fillMaxSize()
+    LazyColumn(
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(7.dp)
-        ) {
-            item {
-                SettingsMenuItem(
-                    icon = Icons.Default.Key,
-                    title = "API配置",
-                    subtitle = "管理AI模型API密钥和配置",
-                    onClick = { onSectionSelected("api_config") }
-                )
-            }
-            item {
-                SettingsMenuItem(
-                    icon = Icons.Default.Search,
-                    title = "联网搜索",
-                    subtitle = "配置 Tavily，让对话中的智能搜索真正联网",
-                    onClick = { onSectionSelected("web_search") }
-                )
-            }
-            item {
-                SettingsMenuItem(
-                    icon = Icons.Default.AutoAwesome,
-                    title = "个性化",
-                    subtitle = "设置所有对话都会参考的自定义偏好",
-                    onClick = { onSectionSelected("personalization") }
-                )
-            }
-            item {
-                SettingsMenuItem(
-                    icon = Icons.Default.Psychology,
-                    title = "全局提示词",
-                    subtitle = "设置适用于所有对话的系统提示词",
-                    onClick = { onSectionSelected("global_prompt") }
-                )
-            }
-            item {
-                SettingsMenuItem(
-                    icon = Icons.Default.Code,
-                    title = "环境变量",
-                    subtitle = "管理可在对话中引用的变量",
-                    onClick = { onSectionSelected("env_variables") }
-                )
-            }
-            item {
-                SettingsMenuItem(
-                    icon = Icons.Default.VisibilityOff,
-                    title = "其他对话",
-                    subtitle = "输入 6 位数字密码查看隐藏对话",
-                    onClick = { onSectionSelected("hidden_conversations") }
-                )
-            }
-            item {
-                SettingsMenuItem(
-                    icon = Icons.Default.Backup,
-                    title = "数据备份",
-                    subtitle = "备份和恢复应用数据",
-                    onClick = { onSectionSelected("backup") }
-                )
-            }
-            item {
-                SettingsMenuItem(
-                    icon = Icons.Default.Info,
-                    title = "关于",
-                    subtitle = "版本信息和功能介绍",
-                    onClick = { onSectionSelected("about") }
-                )
-            }
+        item {
+            SettingsMenuItem(
+                icon = Icons.Default.Key,
+                title = "API配置",
+                subtitle = "管理AI模型API密钥和配置",
+                onClick = { onSectionSelected("api_config") }
+            )
+        }
+        item {
+            SettingsMenuItem(
+                icon = Icons.Default.Search,
+                title = "联网搜索",
+                subtitle = "配置 Tavily，让对话中的智能搜索真正联网",
+                onClick = { onSectionSelected("web_search") }
+            )
+        }
+        item {
+            SettingsMenuItem(
+                icon = Icons.Default.AutoAwesome,
+                title = "个性化",
+                subtitle = "设置所有对话都会参考的自定义偏好",
+                onClick = { onSectionSelected("personalization") }
+            )
+        }
+        item {
+            SettingsMenuItem(
+                icon = Icons.Default.Psychology,
+                title = "全局提示词",
+                subtitle = "设置适用于所有对话的系统提示词",
+                onClick = { onSectionSelected("global_prompt") }
+            )
+        }
+        item {
+            SettingsMenuItem(
+                icon = Icons.Default.Code,
+                title = "环境变量",
+                subtitle = "管理可在对话中引用的变量",
+                onClick = { onSectionSelected("env_variables") }
+            )
+        }
+        item {
+            SettingsMenuItem(
+                icon = Icons.Default.VisibilityOff,
+                title = "其他对话",
+                subtitle = "输入 6 位数字密码查看隐藏对话",
+                onClick = { onSectionSelected("hidden_conversations") }
+            )
+        }
+        item {
+            SettingsMenuItem(
+                icon = Icons.Default.Backup,
+                title = "数据备份",
+                subtitle = "备份和恢复应用数据",
+                onClick = { onSectionSelected("backup") }
+            )
+        }
+        item {
+            SettingsMenuItem(
+                icon = Icons.Default.Info,
+                title = "关于",
+                subtitle = "版本信息和功能介绍",
+                onClick = { onSectionSelected("about") }
+            )
         }
     }
 }
@@ -194,13 +187,9 @@ fun SettingsMenuItem(
     subtitle: String,
     onClick: () -> Unit
 ) {
-    GlassSurface(
+    Card(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
-        borderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
-        shadowElevation = 4.dp
+        modifier = Modifier.fillMaxWidth()
     ) {
         Row(
             modifier = Modifier
@@ -611,7 +600,6 @@ fun GlobalPromptTab(modifier: Modifier = Modifier) {
 
 @Composable
 fun PersonalizationTab(modifier: Modifier = Modifier) {
-    val context = androidx.compose.ui.platform.LocalContext.current
     val manager = AiAssistantApp.instance.personalizationManager
     var settings by remember { mutableStateOf(manager.getSettings()) }
     var instruction by remember(settings) {
@@ -627,31 +615,6 @@ fun PersonalizationTab(modifier: Modifier = Modifier) {
         )
     }
     var savedMessage by remember { mutableStateOf<String?>(null) }
-    var hasHomeBackground by remember {
-        mutableStateOf(BackgroundManager.hasHomeBackground(context))
-    }
-    var hasChatBackground by remember {
-        mutableStateOf(BackgroundManager.hasChatBackground(context))
-    }
-    var backgroundMessage by remember { mutableStateOf<String?>(null) }
-    val homeBackgroundPicker = androidx.activity.compose.rememberLauncherForActivityResult(
-        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
-    ) { uri ->
-        uri?.let {
-            val saved = BackgroundManager.saveHomeBackgroundFromUri(context, it)
-            hasHomeBackground = BackgroundManager.hasHomeBackground(context)
-            backgroundMessage = if (saved) "首页背景已更新" else "首页背景保存失败"
-        }
-    }
-    val chatBackgroundPicker = androidx.activity.compose.rememberLauncherForActivityResult(
-        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
-    ) { uri ->
-        uri?.let {
-            val saved = BackgroundManager.saveChatBackgroundFromUri(context, it)
-            hasChatBackground = BackgroundManager.hasChatBackground(context)
-            backgroundMessage = if (saved) "对话页背景已更新" else "对话页背景保存失败"
-        }
-    }
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
@@ -722,26 +685,6 @@ fun PersonalizationTab(modifier: Modifier = Modifier) {
         }
 
         item {
-            BackgroundSettingsCard(
-                hasHomeBackground = hasHomeBackground,
-                hasChatBackground = hasChatBackground,
-                message = backgroundMessage,
-                onPickHomeBackground = { homeBackgroundPicker.launch("image/*") },
-                onPickChatBackground = { chatBackgroundPicker.launch("image/*") },
-                onClearHomeBackground = {
-                    BackgroundManager.deleteHomeBackground(context)
-                    hasHomeBackground = false
-                    backgroundMessage = "首页背景已恢复为纯色"
-                },
-                onClearChatBackground = {
-                    BackgroundManager.deleteChatBackground(context)
-                    hasChatBackground = false
-                    backgroundMessage = "对话页背景已恢复为纯色"
-                }
-            )
-        }
-
-        item {
             Button(
                 onClick = {
                     val saved = manager.saveSettings(
@@ -786,97 +729,6 @@ private fun PersonalizationTextField(
             maxLines = 8,
             shape = RoundedCornerShape(16.dp)
         )
-    }
-}
-
-@Composable
-private fun BackgroundSettingsCard(
-    hasHomeBackground: Boolean,
-    hasChatBackground: Boolean,
-    message: String?,
-    onPickHomeBackground: () -> Unit,
-    onPickChatBackground: () -> Unit,
-    onClearHomeBackground: () -> Unit,
-    onClearChatBackground: () -> Unit
-) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    Icons.Default.Image,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("界面背景", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        "默认使用纯色背景，也可以分别给首页和对话页上传图片背景。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            BackgroundSettingRow(
-                title = "首页背景",
-                hasBackground = hasHomeBackground,
-                onPickBackground = onPickHomeBackground,
-                onClearBackground = onClearHomeBackground
-            )
-            BackgroundSettingRow(
-                title = "对话页背景",
-                hasBackground = hasChatBackground,
-                onPickBackground = onPickChatBackground,
-                onClearBackground = onClearChatBackground
-            )
-
-            if (message != null) {
-                Text(
-                    text = message,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun BackgroundSettingRow(
-    title: String,
-    hasBackground: Boolean,
-    onPickBackground: () -> Unit,
-    onClearBackground: () -> Unit
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleSmall)
-            Text(
-                if (hasBackground) "已使用自定义图片" else "当前为默认纯色",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        OutlinedButton(
-            onClick = onPickBackground,
-            shape = RoundedCornerShape(999.dp)
-        ) {
-            Text(if (hasBackground) "更换" else "上传")
-        }
-        TextButton(
-            onClick = onClearBackground,
-            enabled = hasBackground
-        ) {
-            Text("恢复默认")
-        }
     }
 }
 

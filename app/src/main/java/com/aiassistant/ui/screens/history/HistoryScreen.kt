@@ -22,8 +22,6 @@ import com.aiassistant.AiAssistantApp
 import com.aiassistant.BuildConfig
 import com.aiassistant.domain.model.Conversation
 import com.aiassistant.domain.model.Message
-import com.aiassistant.ui.components.EchoGlassBackground
-import com.aiassistant.ui.components.GlassSurface
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.io.File
@@ -117,33 +115,29 @@ fun HistoryScreen(
             )
         }
     ) { paddingValues ->
-        EchoGlassBackground(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            Column(
+            // 搜索栏
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
                 modifier = Modifier
-                    .fillMaxSize()
-            ) {
-                // 搜索栏
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    placeholder = { Text("搜索对话...") },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                    trailingIcon = {
-                        if (searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { searchQuery = "" }) {
-                                Icon(Icons.Default.Clear, contentDescription = "清除")
-                            }
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                placeholder = { Text("搜索对话...") },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { searchQuery = "" }) {
+                            Icon(Icons.Default.Clear, contentDescription = "清除")
                         }
-                    },
-                    singleLine = true
-                )
+                    }
+                },
+                singleLine = true
+            )
 
             // 搜索选项
             Row(
@@ -227,7 +221,6 @@ fun HistoryScreen(
                     }
                 }
             }
-            }
         }
     }
 
@@ -272,13 +265,9 @@ fun HistoryConversationCard(
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
 
-    GlassSurface(
+    Card(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
-        borderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
-        shadowElevation = 4.dp
+        modifier = Modifier.fillMaxWidth()
     ) {
         Row(
             modifier = Modifier
@@ -677,13 +666,9 @@ fun SearchResultCard(
 ) {
     val dateFormat = remember { SimpleDateFormat("MM/dd HH:mm", Locale.getDefault()) }
 
-    GlassSurface(
+    Card(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
-        borderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
-        shadowElevation = 4.dp
+        modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
             // 对话标题

@@ -48,8 +48,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.aiassistant.ui.components.EchoGlassBackground
-import com.aiassistant.ui.components.GlassSurface
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
@@ -85,7 +83,7 @@ fun StatsScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.66f))
+                    .background(MaterialTheme.colorScheme.surface)
                     .padding(horizontal = 10.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -116,58 +114,55 @@ fun StatsScreen(
             }
         }
     ) { padding ->
-        EchoGlassBackground(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
+                .background(MaterialTheme.colorScheme.background)
+                .padding(padding),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                item {
-                    PeriodTabs(
-                        selected = selectedPeriod,
-                        onSelected = {
-                            selectedPeriod = it
-                            refreshKey = System.currentTimeMillis()
-                        }
-                    )
-                }
-
-                item {
-                    SummaryCard(summary = summary, period = selectedPeriod, statusText = statusText)
-                }
-
-                item {
-                    ChartCard(title = "Token 消耗") {
-                        TokenBars(buckets = buckets, maxToken = buckets.maxOfOrNull { it.totalTokens }?.coerceAtLeast(1) ?: 1)
+            item {
+                PeriodTabs(
+                    selected = selectedPeriod,
+                    onSelected = {
+                        selectedPeriod = it
+                        refreshKey = System.currentTimeMillis()
                     }
-                }
+                )
+            }
 
+            item {
+                SummaryCard(summary = summary, period = selectedPeriod, statusText = statusText)
+            }
+
+            item {
+                ChartCard(title = "Token 消耗") {
+                    TokenBars(buckets = buckets, maxToken = buckets.maxOfOrNull { it.totalTokens }?.coerceAtLeast(1) ?: 1)
+                }
+            }
+
+            item {
+                ChartCard(title = "命中率趋势") {
+                    RateLines(buckets = buckets)
+                }
+            }
+
+            item {
+                Text(
+                    text = "模型明细",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+
+            if (modelRows.isEmpty()) {
                 item {
-                    ChartCard(title = "命中率趋势") {
-                        RateLines(buckets = buckets)
-                    }
+                    EmptyCard("暂无统计记录。之后的新请求会在这里显示。")
                 }
-
-                item {
-                    Text(
-                        text = "模型明细",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-
-                if (modelRows.isEmpty()) {
-                    item {
-                        EmptyCard("暂无统计记录。之后的新请求会在这里显示。")
-                    }
-                } else {
-                    items(modelRows.size) { index ->
-                        ModelRowCard(row = modelRows[index])
-                    }
+            } else {
+                items(modelRows.size) { index ->
+                    ModelRowCard(row = modelRows[index])
                 }
             }
         }
@@ -253,13 +248,12 @@ private fun SummaryCard(
     period: StatsPeriod,
     statusText: String
 ) {
-    GlassSurface(
+    Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f),
-        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        borderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-        shadowElevation = 6.dp
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer
+        )
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -304,12 +298,10 @@ private fun MetricPill(label: String, value: String, modifier: Modifier = Modifi
 
 @Composable
 private fun ChartCard(title: String, content: @Composable () -> Unit) {
-    GlassSurface(
+    Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(22.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
-        borderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
-        shadowElevation = 4.dp
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -499,12 +491,10 @@ private fun XAxisLabels(buckets: List<Bucket>) {
 
 @Composable
 private fun ModelRowCard(row: ModelRow) {
-    GlassSurface(
+    Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
-        borderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
-        shadowElevation = 3.dp
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Row(
             modifier = Modifier.padding(14.dp),
