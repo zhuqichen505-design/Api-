@@ -1,0 +1,739 @@
+@file:OptIn(ExperimentalMaterial3Api::class)
+
+package com.aiassistant.ui.screens.history
+
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
+import com.aiassistant.AiAssistantApp
+import com.aiassistant.BuildConfig
+import com.aiassistant.domain.model.Conversation
+import com.aiassistant.domain.model.Message
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.*
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun HistoryScreen(
+    onNavigateBack: () -> Unit,
+    onNavigateToChat: (Long) -> Unit
+) {
+    val repository = AiAssistantApp.instance.repository
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+
+    val conversations by repository.getAllConversations().collectAsState(initial = emptyList())
+    var searchQuery by remember { mutableStateOf("") }
+    var searchInMessages by remember { mutableStateOf(false) }
+    var showExportDialog by remember { mutableStateOf(false) }
+    var selectedConversation by remember { mutableStateOf<Conversation?>(null) }
+    var searchResults by remember { mutableStateOf<List<SearchResult>>(emptyList()) }
+    val importConversationLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let {
+            scope.launch {
+                val imported = importConversation(context, it)
+                Toast.makeText(
+                    context,
+                    if (imported) "对话导入成功" else "对话导入失败，请确认文件格式",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+    }
+
+    // 搜索逻辑
+    LaunchedEffect(searchQuery, searchInMessages, conversations) {
+        if (searchQuery.isBlank()) {
+            searchResults = emptyList()
+            return@LaunchedEffect
+        }
+
+        if (searchInMessages) {
+            // 搜索消息内容
+            val results = mutableListOf<SearchResult>()
+            conversations.forEach { conv ->
+                val messages = repository.getMessagesList(conv.id)
+                messages.forEach { msg ->
+                    if (msg.content.contains(searchQuery, ignoreCase = true)) {
+                        results.add(
+                            SearchResult(
+                                conversation = conv,
+                                message = msg,
+                                matchText = msg.content
+                            )
+                        )
+                    }
+                }
+            }
+            searchResults = results
+        }
+    }
+
+    val filteredConversations = if (searchInMessages) {
+        conversations // 消息搜索时显示所有对话
+    } else {
+        conversations.filter {
+            searchQuery.isBlank() || it.title.contains(searchQuery, ignoreCase = true)
+        }
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("历史记录") },
+                navigationIcon = {
+                    IconButton(onClick = onNavigateBack) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "返回")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { importConversationLauncher.launch(arrayOf("application/json", "text/*", "*/*")) }) {
+                        Icon(Icons.Default.FileUpload, contentDescription = "导入")
+                    }
+                    IconButton(onClick = { showExportDialog = true }) {
+                        Icon(Icons.Default.FileDownload, contentDescription = "导出")
+                    }
+                }
+            )
+        }
+    ) { paddingValues ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+        ) {
+            // 搜索栏
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                placeholder = { Text("搜索对话...") },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { searchQuery = "" }) {
+                            Icon(Icons.Default.Clear, contentDescription = "清除")
+                        }
+                    }
+                },
+                singleLine = true
+            )
+
+            // 搜索选项
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Checkbox(
+                    checked = searchInMessages,
+                    onCheckedChange = { searchInMessages = it }
+                )
+                Text(
+                    text = "搜索消息内容",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+
+            // 统计信息
+            Text(
+                text = if (searchInMessages && searchQuery.isNotBlank()) {
+                    "找到 ${searchResults.size} 条匹配消息"
+                } else {
+                    "共 ${filteredConversations.size} 个对话"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+            )
+
+            if (searchInMessages && searchQuery.isNotBlank()) {
+                // 显示消息搜索结果
+                if (searchResults.isEmpty()) {
+                    EmptyHistoryContent(
+                        modifier = Modifier.weight(1f),
+                        hasSearch = true
+                    )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(
+                            items = searchResults,
+                            key = { "${it.conversation.id}_${it.message?.id}" }
+                        ) { result ->
+                            SearchResultCard(
+                                result = result,
+                                searchQuery = searchQuery,
+                                onClick = { onNavigateToChat(result.conversation.id) }
+                            )
+                        }
+                    }
+                }
+            } else if (filteredConversations.isEmpty()) {
+                EmptyHistoryContent(
+                    modifier = Modifier.weight(1f),
+                    hasSearch = searchQuery.isNotBlank()
+                )
+            } else {
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(
+                        items = filteredConversations,
+                        key = { it.id }
+                    ) { conversation ->
+                        HistoryConversationCard(
+                            conversation = conversation,
+                            onClick = { onNavigateToChat(conversation.id) },
+                            onExport = { selectedConversation = conversation },
+                            onDelete = {
+                                scope.launch {
+                                    repository.deleteConversation(conversation.id)
+                                }
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    // 导出对话框
+    if (showExportDialog) {
+        ExportDialog(
+            conversations = filteredConversations,
+            onDismiss = { showExportDialog = false },
+            onExport = { conv ->
+                scope.launch {
+                    exportConversation(context, conv)
+                }
+                showExportDialog = false
+            }
+        )
+    }
+
+    // 单个对话导出
+    selectedConversation?.let { conv ->
+        ExportSingleDialog(
+            conversation = conv,
+            onDismiss = { selectedConversation = null },
+            onExport = { format ->
+                scope.launch {
+                    exportConversation(context, conv, format)
+                }
+                selectedConversation = null
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun HistoryConversationCard(
+    conversation: Conversation,
+    onClick: () -> Unit,
+    onExport: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var showMenu by remember { mutableStateOf(false) }
+
+    Card(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .padding(16.dp)
+                .fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // 模型图标
+            Box(
+                modifier = Modifier.size(40.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.SmartToy,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            // 对话信息
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = conversation.title,
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = conversation.modelName,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "${conversation.messageCount} 条",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (conversation.totalTokens > 0) {
+                        Text(
+                            text = "${conversation.totalTokens} tokens",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = dateFormat.format(Date(conversation.updatedAt)),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            // 菜单
+            Box {
+                IconButton(onClick = { showMenu = true }) {
+                    Icon(Icons.Default.MoreVert, contentDescription = "更多")
+                }
+
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("导出") },
+                        onClick = {
+                            onExport()
+                            showMenu = false
+                        },
+                        leadingIcon = {
+                            Icon(Icons.Default.FileDownload, contentDescription = null)
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("删除") },
+                        onClick = {
+                            showDeleteDialog = true
+                            showMenu = false
+                        },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("删除对话") },
+            text = { Text("确定要删除这个对话吗？此操作不可撤销。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onDelete()
+                        showDeleteDialog = false
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text("删除")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+}
+
+@Composable
+fun EmptyHistoryContent(
+    modifier: Modifier = Modifier,
+    hasSearch: Boolean
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            if (hasSearch) Icons.Default.SearchOff else Icons.Default.History,
+            contentDescription = null,
+            modifier = Modifier.size(64.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = if (hasSearch) "未找到匹配的对话" else "暂无历史记录",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        if (hasSearch) {
+            Text(
+                text = "尝试使用不同的关键词搜索",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+            )
+        }
+    }
+}
+
+@Composable
+fun ExportDialog(
+    conversations: List<Conversation>,
+    onDismiss: () -> Unit,
+    onExport: (Conversation) -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("导出对话") },
+        text = {
+            Column {
+                Text(
+                    text = "选择要导出的对话：",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                if (conversations.isEmpty()) {
+                    Text(
+                        text = "没有可导出的对话",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.heightIn(max = 300.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        items(conversations.take(20)) { conv ->
+                            OutlinedCard(
+                                onClick = { onExport(conv) }
+                            ) {
+                                Text(
+                                    text = conv.title,
+                                    modifier = Modifier.padding(12.dp),
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("关闭")
+            }
+        }
+    )
+}
+
+@Composable
+fun ExportSingleDialog(
+    conversation: Conversation,
+    onDismiss: () -> Unit,
+    onExport: (String) -> Unit
+) {
+    var selectedFormat by remember { mutableStateOf("json") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("导出格式") },
+        text = {
+            Column {
+                Text(
+                    text = "选择导出格式：",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = selectedFormat == "json",
+                        onClick = { selectedFormat = "json" },
+                        label = { Text("JSON") }
+                    )
+                    FilterChip(
+                        selected = selectedFormat == "markdown",
+                        onClick = { selectedFormat = "markdown" },
+                        label = { Text("Markdown") }
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onExport(selectedFormat) }) {
+                Text("导出")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        }
+    )
+}
+
+suspend fun exportConversation(
+    context: android.content.Context,
+    conversation: Conversation,
+    format: String = "json"
+) {
+    val repository = AiAssistantApp.instance.repository
+    val messages = repository.getMessagesList(conversation.id)
+
+    val content = when (format) {
+        "json" -> buildJsonExport(conversation, messages)
+        "markdown" -> buildMarkdownExport(conversation, messages)
+        else -> ""
+    }
+
+    try {
+        val extension = if (format == "markdown") "md" else "json"
+        val mimeType = if (format == "markdown") "text/markdown" else "application/json"
+        val safeTitle = conversation.title
+            .ifBlank { "conversation_${conversation.id}" }
+            .replace(Regex("""[\\/:*?"<>|]"""), "_")
+            .take(48)
+        val exportDir = File(context.cacheDir, "exports").apply { mkdirs() }
+        val exportFile = File(exportDir, "$safeTitle.$extension")
+        exportFile.writeText(content, Charsets.UTF_8)
+
+        val uri = FileProvider.getUriForFile(
+            context,
+            "${BuildConfig.APPLICATION_ID}.fileprovider",
+            exportFile
+        )
+        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+            type = mimeType
+            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_SUBJECT, conversation.title.ifBlank { "导出对话" })
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(shareIntent, "导出对话"))
+    } catch (e: Exception) {
+        Toast.makeText(context, "导出失败：${e.message ?: "未知错误"}", Toast.LENGTH_SHORT).show()
+    }
+}
+
+suspend fun importConversation(
+    context: android.content.Context,
+    uri: Uri
+): Boolean {
+    return try {
+        val repository = AiAssistantApp.instance.repository
+        val defaultConfig = repository.getDefaultApiConfig()
+            ?: repository.getAllApiConfigs().first().firstOrNull()
+            ?: return false
+        val json = context.contentResolver.openInputStream(uri)
+            ?.bufferedReader(Charsets.UTF_8)
+            ?.use { it.readText() }
+            ?: return false
+        val root = com.google.gson.JsonParser.parseString(json).asJsonObject
+        val title = root.get("title")?.asString?.takeIf { it.isNotBlank() } ?: "导入对话"
+        val model = root.get("model")?.asString?.takeIf { it.isNotBlank() } ?: defaultConfig.modelName
+        val conversationId = repository.createConversation(
+            title = title,
+            apiConfigId = defaultConfig.id,
+            modelName = model
+        )
+        val messages = root.getAsJsonArray("messages") ?: return true
+        messages.forEachIndexed { index, item ->
+            val obj = item.asJsonObject
+            val role = obj.get("role")?.asString ?: "user"
+            val content = obj.get("content")?.asString ?: ""
+            val thinking = obj.get("thinkingContent")?.takeIf { !it.isJsonNull }?.asString
+            val attachments = obj.get("attachments")?.takeIf { !it.isJsonNull }?.asString
+            repository.saveMessage(
+                Message(
+                    conversationId = conversationId,
+                    role = role,
+                    content = content,
+                    thinkingContent = thinking,
+                    attachments = attachments,
+                    createdAt = System.currentTimeMillis() + index
+                )
+            )
+        }
+        true
+    } catch (e: Exception) {
+        false
+    }
+}
+
+fun buildJsonExport(conversation: Conversation, messages: List<Message>): String {
+    val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.getDefault())
+    val export = mapOf(
+        "title" to conversation.title,
+        "model" to conversation.modelName,
+        "created" to dateFormat.format(Date(conversation.createdAt)),
+        "updated" to dateFormat.format(Date(conversation.updatedAt)),
+        "messageCount" to messages.size,
+        "messages" to messages.map { msg ->
+            mapOf(
+                "role" to msg.role,
+                "content" to msg.content,
+                "thinkingContent" to msg.thinkingContent,
+                "attachments" to msg.attachments,
+                "timestamp" to dateFormat.format(Date(msg.createdAt))
+            )
+        }
+    )
+    return com.google.gson.GsonBuilder().setPrettyPrinting().create().toJson(export)
+}
+
+fun buildMarkdownExport(conversation: Conversation, messages: List<Message>): String {
+    val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+    return buildString {
+        appendLine("# ${conversation.title}")
+        appendLine()
+        appendLine("- **模型**: ${conversation.modelName}")
+        appendLine("- **创建时间**: ${dateFormat.format(Date(conversation.createdAt))}")
+        appendLine("- **消息数**: ${messages.size}")
+        appendLine()
+        appendLine("---")
+        appendLine()
+        messages.forEach { msg ->
+            val role = if (msg.role == "user") "👤 用户" else "🤖 助手"
+            appendLine("**$role** (${dateFormat.format(Date(msg.createdAt))})")
+            appendLine()
+            appendLine(msg.content)
+            appendLine()
+            appendLine("---")
+            appendLine()
+        }
+    }
+}
+
+// 搜索结果数据类
+data class SearchResult(
+    val conversation: Conversation,
+    val message: Message?,
+    val matchText: String
+)
+
+@Composable
+fun SearchResultCard(
+    result: SearchResult,
+    searchQuery: String,
+    onClick: () -> Unit
+) {
+    val dateFormat = remember { SimpleDateFormat("MM/dd HH:mm", Locale.getDefault()) }
+
+    Card(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            // 对话标题
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Default.ChatBubbleOutline,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = result.conversation.title,
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            // 匹配的消息内容
+            if (result.message != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+
+                val content = result.message.content
+                val matchIndex = content.indexOf(searchQuery, ignoreCase = true)
+                val start = maxOf(0, matchIndex - 50)
+                val end = minOf(content.length, matchIndex + searchQuery.length + 50)
+                val preview = if (start > 0) "..." else "" +
+                    content.substring(start, end) +
+                    if (end < content.length) "..." else ""
+
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+                ) {
+                    Text(
+                        text = preview,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(8.dp),
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                // 消息信息
+                Row(
+                    modifier = Modifier.padding(top = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = if (result.message.role == "user") "用户" else "AI",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = dateFormat.format(Date(result.message.createdAt)),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
