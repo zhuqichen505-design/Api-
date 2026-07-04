@@ -7,6 +7,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -659,8 +660,8 @@ private fun ContextUsageButton(
 
     Surface(
         modifier = Modifier
-            .size(40.dp)
             .padding(end = 4.dp)
+            .size(40.dp)
             .clip(CircleShape)
             .clickable(onClick = onClick),
         shape = CircleShape,
@@ -720,7 +721,6 @@ private fun ContextUsageDialog(
     onCompress: () -> Unit
 ) {
     val usage = state.usage
-    val canCompress = usage?.canCompress == true && !state.isCompressing
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -783,7 +783,7 @@ private fun ContextUsageDialog(
         confirmButton = {
             Button(
                 onClick = onCompress,
-                enabled = canCompress
+                enabled = !state.isCompressing
             ) {
                 if (state.isCompressing) {
                     CircularProgressIndicator(
@@ -1125,7 +1125,8 @@ private fun MessageBubble(
 ) {
     val isUser = message.role == "user"
     val userBubbleTint = Color(0xFFD9ECFF)
-    val bubbleColor = if (isUser) userBubbleTint.copy(alpha = 0.52f) else MaterialTheme.colorScheme.surface
+    val userBubbleAlpha = if (hazeState != null) 0.84f else 0.78f
+    val bubbleColor = if (isUser) userBubbleTint.copy(alpha = userBubbleAlpha) else MaterialTheme.colorScheme.surface
     val textColor = if (isUser) Color(0xFF111827) else MaterialTheme.colorScheme.onSurface
     val bubbleShape = if (isUser) {
         RoundedCornerShape(18.dp, 6.dp, 18.dp, 18.dp)
@@ -1284,23 +1285,17 @@ private fun MessageBubble(
                 }
 
                 if (isUser && (message.content.isNotBlank() || isGenerating)) {
-                    val surfaceModifier = if (hazeState != null) {
-                        Modifier.echoHazePanel(
-                            hazeState = hazeState,
-                            shape = bubbleShape,
-                            tint = userBubbleTint.copy(alpha = 0.52f),
-                            blurRadius = 24.dp
-                        )
-                    } else {
-                        Modifier
-                    }
                     Surface(
-                        modifier = surfaceModifier,
+                        modifier = Modifier,
                         color = bubbleColor,
                         contentColor = textColor,
                         shape = bubbleShape,
                         tonalElevation = 0.dp,
-                        shadowElevation = 0.dp
+                        shadowElevation = 0.dp,
+                        border = BorderStroke(
+                            width = 1.dp,
+                            color = Color.White.copy(alpha = 0.55f)
+                        )
                     ) {
                         MessageContent(textColor)
                     }
@@ -1310,101 +1305,17 @@ private fun MessageBubble(
                     }
                 }
 
-                FlowRow(
+                MessageFooter(
+                    isUser = isUser,
+                    message = message,
+                    onCopy = onCopy,
+                    onRegenerate = onRegenerate,
+                    onEdit = onEdit,
+                    onDelete = onDelete,
                     modifier = Modifier
                         .widthIn(max = bubbleMaxWidth)
-                        .padding(top = 5.dp),
-                    horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Text(
-                        text = formatMessageClock(message.createdAt),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    if (message.responseTime > 0) {
-                        Text(
-                            text = formatTime(message.responseTime),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                    }
-
-                    if (message.tokenCount > 0) {
-                        Text(
-                            text = "${message.tokenCount} tokens",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                    }
-
-                    if (message.thinkingTokens > 0) {
-                        Text(
-                            text = "思考: ${message.thinkingTokens}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                    }
-
-                    IconButton(
-                        onClick = onCopy,
-                        modifier = Modifier.size(26.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.ContentCopy,
-                            contentDescription = "复制",
-                            modifier = Modifier.size(14.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    if (!isUser && onRegenerate != null) {
-                        IconButton(
-                            onClick = onRegenerate,
-                            modifier = Modifier.size(26.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.Refresh,
-                                contentDescription = "重新生成",
-                                modifier = Modifier.size(14.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    if (isUser && onEdit != null) {
-                        IconButton(
-                            onClick = onEdit,
-                            modifier = Modifier.size(26.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.Edit,
-                                contentDescription = "重新编辑",
-                                modifier = Modifier.size(14.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    if (onDelete != null) {
-                        IconButton(
-                            onClick = onDelete,
-                            modifier = Modifier.size(26.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.DeleteOutline,
-                                contentDescription = "删除本条",
-                                modifier = Modifier.size(14.dp),
-                                tint = MaterialTheme.colorScheme.error.copy(alpha = 0.78f)
-                            )
-                        }
-                    }
-                }
+                        .fillMaxWidth()
+                )
 
                 variantInfo?.let { info ->
                     VariantSwitcher(
@@ -1420,6 +1331,128 @@ private fun MessageBubble(
                 ChatAvatar(isUser = true)
             }
         }
+    }
+}
+
+@Composable
+private fun MessageFooter(
+    isUser: Boolean,
+    message: Message,
+    onCopy: () -> Unit,
+    onRegenerate: (() -> Unit)?,
+    onEdit: (() -> Unit)?,
+    onDelete: (() -> Unit)?,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier.padding(top = 5.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        FlowRow(
+            modifier = Modifier
+                .weight(1f)
+                .padding(top = 4.dp, end = 4.dp),
+            horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            MessageMetaText(
+                text = formatMessageClock(message.createdAt),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
+            )
+
+            if (message.responseTime > 0) {
+                MessageMetaText(
+                    text = formatTime(message.responseTime),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.70f)
+                )
+            }
+
+            if (message.tokenCount > 0) {
+                MessageMetaText(
+                    text = "${message.tokenCount} tokens",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.70f)
+                )
+            }
+
+            if (message.thinkingTokens > 0) {
+                MessageMetaText(
+                    text = "思考: ${message.thinkingTokens}",
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+
+        Row(
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            FooterIconButton(
+                icon = Icons.Default.ContentCopy,
+                contentDescription = "复制",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                onClick = onCopy
+            )
+
+            if (!isUser && onRegenerate != null) {
+                FooterIconButton(
+                    icon = Icons.Default.Refresh,
+                    contentDescription = "重新生成",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    onClick = onRegenerate
+                )
+            }
+
+            if (isUser && onEdit != null) {
+                FooterIconButton(
+                    icon = Icons.Default.Edit,
+                    contentDescription = "重新编辑",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    onClick = onEdit
+                )
+            }
+
+            if (onDelete != null) {
+                FooterIconButton(
+                    icon = Icons.Default.DeleteOutline,
+                    contentDescription = "删除本条",
+                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.78f),
+                    onClick = onDelete
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MessageMetaText(
+    text: String,
+    color: Color
+) {
+    Text(
+        text = text,
+        modifier = Modifier.padding(end = 8.dp),
+        style = MaterialTheme.typography.labelSmall,
+        color = color
+    )
+}
+
+@Composable
+private fun FooterIconButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    tint: Color,
+    onClick: () -> Unit
+) {
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier.size(28.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            modifier = Modifier.size(15.dp),
+            tint = tint
+        )
     }
 }
 

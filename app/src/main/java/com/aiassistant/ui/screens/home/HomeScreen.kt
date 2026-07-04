@@ -139,7 +139,6 @@ fun HomeScreen(
         floatingActionButton = {
             if (conversations.isNotEmpty() && !isSelectionMode) {
                 NewConversationFab(
-                    hazeState = hazeState,
                     onClick = {
                         viewModel.createDefaultConversation { conversationId ->
                             onNavigateToChat(conversationId)
@@ -348,6 +347,7 @@ fun HomeScreen(
                     SideAnchorNavigator(
                         items = homeNavItems,
                         listState = conversationListState,
+                        visible = showScrollControls,
                         modifier = Modifier
                             .align(Alignment.CenterEnd)
                             .padding(end = 12.dp)
@@ -500,7 +500,6 @@ fun HomeDashboardHeader(
 
 @Composable
 private fun NewConversationFab(
-    hazeState: dev.chrisbanes.haze.HazeState,
     onClick: () -> Unit,
     onLongClick: () -> Unit
 ) {
@@ -509,19 +508,14 @@ private fun NewConversationFab(
     Surface(
         modifier = Modifier
             .height(56.dp)
-            .echoHazePanel(
-                hazeState = hazeState,
-                shape = buttonShape,
-                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.22f),
-                blurRadius = 32.dp
-            )
+            .clip(buttonShape)
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick,
                 onLongClickLabel = "配置新对话"
             ),
         shape = buttonShape,
-        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.82f),
+        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.92f),
         contentColor = MaterialTheme.colorScheme.onPrimary,
         shadowElevation = 8.dp,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.18f))

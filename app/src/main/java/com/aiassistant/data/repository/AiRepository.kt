@@ -532,8 +532,6 @@ class AiRepository(
                 modelName = modelName,
                 maxOutputTokens = maxOutputTokens
             )
-            if (!snapshot.canCompress) return@runCatching snapshot
-
             val tokenBudget = (snapshot.promptBudgetTokens * SUMMARY_BUDGET_RATIO)
                 .toInt()
                 .coerceIn(600, 1_800)
@@ -1379,7 +1377,9 @@ class AiRepository(
     private fun estimatePromptBudgetTokens(modelName: String, maxOutputTokens: Int?): Int {
         val contextWindow = estimateModelContextWindowTokens(modelName)
         val outputReserve = (maxOutputTokens ?: 4_096).coerceIn(512, 32_768)
-        return (contextWindow - outputReserve - 1_024).coerceIn(3_000, 64_000)
+        return (contextWindow - outputReserve - 1_024)
+            .coerceAtLeast(3_000)
+            .coerceAtMost((contextWindow - 512).coerceAtLeast(3_000))
     }
 
     private fun estimateModelContextWindowTokens(modelName: String): Int {
@@ -1402,7 +1402,8 @@ class AiRepository(
         return when {
             name.contains("gemini") -> 1_000_000
             name.contains("claude") -> 200_000
-            name.contains("gpt-4.1") || name.contains("gpt-4o") || name.contains("gpt-5") -> 128_000
+            name.contains("gpt-4.1") -> 1_000_000
+            name.contains("gpt-4o") || name.contains("gpt-5") -> 128_000
             name.contains("qwen-long") || name.contains("qwen-max-long") -> 1_000_000
             name.contains("qwen") && (name.contains("max") || name.contains("long")) -> 128_000
             name.contains("qwen") || name.contains("glm") -> 64_000
