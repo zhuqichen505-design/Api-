@@ -66,7 +66,8 @@ fun Modifier.echoHazePanel(
     hazeState: HazeState,
     shape: Shape = RoundedCornerShape(26.dp),
     tint: Color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f),
-    blurRadius: Dp = 22.dp
+    blurRadius: Dp = 22.dp,
+    highlightAlpha: Float = 0.07f
 ): Modifier {
     val colorScheme = MaterialTheme.colorScheme
     val liquidTint = tint.copy(alpha = tint.alpha.coerceIn(0.22f, 0.55f))
@@ -90,7 +91,8 @@ fun Modifier.echoHazePanel(
             shape = shape,
             accent = colorScheme.primary,
             surface = colorScheme.surface,
-            outline = colorScheme.outlineVariant
+            outline = colorScheme.outlineVariant,
+            highlightAlpha = highlightAlpha
         )
 }
 
@@ -118,7 +120,8 @@ fun Modifier.echoLiquidGlassOverlay(
     shape: Shape,
     accent: Color,
     surface: Color,
-    outline: Color
+    outline: Color,
+    highlightAlpha: Float = 0.07f
 ): Modifier = this
     .clip(shape)
     .drawWithCache {
@@ -157,7 +160,7 @@ fun Modifier.echoLiquidGlassOverlay(
             drawRect(sideGlow, blendMode = BlendMode.Screen)
             drawRect(lowerShade, blendMode = BlendMode.Multiply)
             drawRoundRect(
-                color = Color.White.copy(alpha = 0.07f),
+                color = Color.White.copy(alpha = highlightAlpha.coerceIn(0f, 0.16f)),
                 topLeft = Offset(size.width * 0.08f, 1.1.dp.toPx()),
                 size = Size(size.width * 0.56f, 1.25.dp.toPx()),
                 cornerRadius = CornerRadius(999.dp.toPx(), 999.dp.toPx()),

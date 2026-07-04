@@ -55,6 +55,7 @@ import com.aiassistant.ui.components.TransientLazyListScrollbar
 import com.aiassistant.ui.components.echoShapeClick
 import com.aiassistant.ui.components.echoHazePanel
 import com.aiassistant.ui.components.echoHazeSource
+import com.aiassistant.ui.components.readableTextColorFor
 import com.aiassistant.ui.components.rememberEchoHazeState
 import com.aiassistant.ui.components.rememberLazyListControlsVisible
 import com.aiassistant.utils.AvatarManager
@@ -514,7 +515,7 @@ private fun NewConversationFab(
             .echoHazePanel(
                 hazeState = hazeState,
                 shape = buttonShape,
-                tint = primary.copy(alpha = 0.22f),
+                tint = primary.copy(alpha = 0.32f),
                 blurRadius = 34.dp
             )
             .combinedClickable(
@@ -523,7 +524,7 @@ private fun NewConversationFab(
                 onLongClickLabel = "配置新对话"
             ),
         shape = buttonShape,
-        color = primary.copy(alpha = 0.16f),
+        color = primary.copy(alpha = 0.22f),
         contentColor = primary,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
@@ -621,12 +622,13 @@ private fun StatsIconButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val glassBlue = MaterialTheme.colorScheme.primary.copy(alpha = 0.92f)
+    val buttonTint = MaterialTheme.colorScheme.primary.copy(alpha = 0.30f)
+    val glassBlue = MaterialTheme.colorScheme.primary
     Surface(
         modifier = modifier.echoHazePanel(
             hazeState = hazeState,
             shape = CircleShape,
-            tint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f),
+            tint = buttonTint,
             blurRadius = 18.dp
         ),
         shape = CircleShape,
@@ -677,12 +679,13 @@ private fun GlassHomeIconButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val glassBlue = MaterialTheme.colorScheme.primary.copy(alpha = 0.92f)
+    val buttonTint = MaterialTheme.colorScheme.primary.copy(alpha = 0.30f)
+    val glassBlue = MaterialTheme.colorScheme.primary
     Surface(
         modifier = modifier.echoHazePanel(
             hazeState = hazeState,
             shape = CircleShape,
-            tint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f),
+            tint = buttonTint,
             blurRadius = 18.dp
         ),
         shape = CircleShape,
@@ -1202,10 +1205,16 @@ private fun HomeGlassChip(
 ) {
     val chipShape = RoundedCornerShape(999.dp)
     val tint = if (selected) {
-        MaterialTheme.colorScheme.primary.copy(alpha = 0.26f)
+        MaterialTheme.colorScheme.primary.copy(alpha = 0.36f)
     } else {
-        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f)
+        MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)
     }
+    val chipContentColor = readableTextColorFor(
+        background = tint,
+        darkColor = MaterialTheme.colorScheme.primary,
+        lightColor = Color(0xFFEAF4FF),
+        fallbackSurface = MaterialTheme.colorScheme.surface
+    )
     Surface(
         modifier = Modifier
             .height(38.dp)
@@ -1218,7 +1227,7 @@ private fun HomeGlassChip(
             .echoShapeClick(chipShape, onClick = onClick),
         shape = chipShape,
         color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else Color.Transparent,
-        contentColor = MaterialTheme.colorScheme.primary.copy(alpha = if (selected) 0.94f else 0.82f),
+        contentColor = chipContentColor,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
     ) {

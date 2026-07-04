@@ -55,6 +55,7 @@ import com.aiassistant.ui.components.EchoGlassDialog
 import com.aiassistant.ui.components.echoShapeClick
 import com.aiassistant.ui.components.echoHazePanel
 import com.aiassistant.ui.components.echoHazeSource
+import com.aiassistant.ui.components.readableTextColorFor
 import com.aiassistant.ui.components.rememberEchoHazeState
 import com.aiassistant.ui.components.rememberLazyListControlsVisible
 import com.aiassistant.utils.AvatarManager
@@ -1088,7 +1089,10 @@ private fun MessageBubble(
     val userBubbleTint = Color(0xFFD9ECFF)
     val userBubbleAlpha = if (hazeState != null) 0.84f else 0.78f
     val bubbleColor = if (isUser) userBubbleTint.copy(alpha = userBubbleAlpha) else MaterialTheme.colorScheme.surface
-    val textColor = if (isUser) Color(0xFF111827) else MaterialTheme.colorScheme.onSurface
+    val textColor = readableTextColorFor(
+        background = bubbleColor,
+        fallbackSurface = MaterialTheme.colorScheme.surface
+    )
     val bubbleShape = if (isUser) {
         RoundedCornerShape(18.dp, 6.dp, 18.dp, 18.dp)
     } else {
@@ -1129,7 +1133,12 @@ private fun MessageBubble(
             }
         ) {
             val thinkingBubbleColor = userBubbleTint.copy(alpha = userBubbleAlpha)
-            val thinkingContentColor = Color(0xFF111827)
+            val thinkingContentColor = readableTextColorFor(
+                background = thinkingBubbleColor,
+                darkColor = Color(0xFF0F3A6D),
+                lightColor = Color(0xFFEAF4FF),
+                fallbackSurface = MaterialTheme.colorScheme.surface
+            )
             if (hasThinking) {
                 val thinkingShape = RoundedCornerShape(18.dp)
                 val headerShape = RoundedCornerShape(14.dp)
@@ -1688,6 +1697,11 @@ fun ChatInputBar(
 ) {
     var showToolMenu by remember { mutableStateOf(false) }
     val inputShape = RoundedCornerShape(30.dp)
+    val inputTint = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)
+    val inputTextColor = readableTextColorFor(
+        background = inputTint,
+        fallbackSurface = MaterialTheme.colorScheme.surface
+    )
 
     Column(
         modifier = Modifier
@@ -1702,8 +1716,9 @@ fun ChatInputBar(
                 .echoHazePanel(
                     hazeState = hazeState,
                     shape = inputShape,
-                    tint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.28f),
-                    blurRadius = 18.dp
+                    tint = inputTint,
+                    blurRadius = 18.dp,
+                    highlightAlpha = 0f
                 ),
             shape = inputShape,
             color = Color.Transparent,
@@ -1734,24 +1749,27 @@ fun ChatInputBar(
                     onValueChange = onInputChange,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 42.dp, max = 112.dp),
+                        .heightIn(min = 42.dp, max = 112.dp)
+                        .background(Color.Transparent),
                     textStyle = MaterialTheme.typography.bodyLarge.copy(
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = inputTextColor,
+                        background = Color.Transparent
                     ),
-                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    cursorBrush = SolidColor(inputTextColor),
                     maxLines = 5,
                     decorationBox = { innerTextField ->
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .heightIn(min = 42.dp)
+                                .background(Color.Transparent)
                                 .padding(horizontal = 4.dp, vertical = 4.dp),
                             contentAlignment = Alignment.CenterStart
                         ) {
                             if (inputText.isBlank()) {
                                 Text(
                                     text = "给 Echo 发送消息",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    color = inputTextColor.copy(alpha = 0.62f),
                                     style = MaterialTheme.typography.bodyLarge
                                 )
                             }
