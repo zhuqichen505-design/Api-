@@ -249,7 +249,9 @@ data class ChatRequestOptions(
     val topP: Float? = null,
     val enableThinking: Boolean? = null,
     val thinkingEffort: String? = null,
-    val enableWebSearch: Boolean? = null
+    val enableWebSearch: Boolean? = null,
+    val overrideSystemPrompt: Boolean = false,
+    val systemPromptOverride: String? = null
 )
 
 data class ConversationContextUsage(
@@ -427,7 +429,17 @@ data class ModelsResponse(
 data class ModelInfo(
     val id: String,
     val name: String?,
-    val owned_by: String?
+    val owned_by: String?,
+    val context_length: Int? = null,
+    val context_window: Int? = null,
+    val max_context_length: Int? = null,
+    val max_context_window: Int? = null,
+    val max_input_tokens: Int? = null,
+    val input_token_limit: Int? = null,
+    val contextLength: Int? = null,
+    val contextWindow: Int? = null,
+    val maxContextLength: Int? = null,
+    val maxContextWindow: Int? = null
 )
 
 // Anthropic API 格式

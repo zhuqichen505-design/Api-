@@ -572,8 +572,7 @@ fun ChatScreen(
             templates = promptTemplates,
             onDismiss = { showSettingsDialog = false },
             onSave = { settings, prompt ->
-                viewModel.updateTempSettings(settings)
-                viewModel.updateSystemPrompt(prompt)
+                viewModel.updateChatSettings(settings, prompt)
                 showSettingsDialog = false
             },
             onModelSelected = { viewModel.switchModel(it) },

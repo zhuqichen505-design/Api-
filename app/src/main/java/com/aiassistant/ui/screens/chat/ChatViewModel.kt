@@ -258,6 +258,20 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
         refreshContextUsage()
     }
 
+    fun updateChatSettings(settings: TempChatSettings, prompt: String?) {
+        val normalizedPrompt = normalizeSystemPrompt(prompt)
+        _tempSettings.value = settings
+        _useTempSettings.value = true
+        _uiState.update {
+            it.copy(
+                systemPrompt = normalizedPrompt,
+                enableThinking = settings.enableThinking
+            )
+        }
+        saveConversationSettings(settings, normalizedPrompt)
+        refreshContextUsage()
+    }
+
     // 启用/禁用临时设置
     fun toggleTempSettings(enabled: Boolean) {
         _useTempSettings.value = enabled
@@ -327,19 +341,24 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
     }
 
     // 保存对话级别配置
-    private fun saveConversationSettings(settings: TempChatSettings?) {
-        viewModelScope.launch {
-            conversation?.let { conv ->
-                val updated = conv.copy(
-                    temperature = settings?.temperature,
-                    maxTokens = settings?.maxTokens,
-                    topP = settings?.topP,
-                    enableThinking = settings?.enableThinking,
-                    thinkingEffort = settings?.thinkingEffort,
-                    enableWebSearch = settings?.enableWebSearch
-                )
+    private fun saveConversationSettings(
+        settings: TempChatSettings?,
+        systemPrompt: String? = _uiState.value.systemPrompt
+    ) {
+        conversation?.let { conv ->
+            val updated = conv.copy(
+                temperature = settings?.temperature,
+                maxTokens = settings?.maxTokens,
+                topP = settings?.topP,
+                enableThinking = settings?.enableThinking,
+                thinkingEffort = settings?.thinkingEffort,
+                enableWebSearch = settings?.enableWebSearch,
+                systemPrompt = normalizeSystemPrompt(systemPrompt)
+            )
+            conversation = updated
+            systemPromptSaveJob?.cancel()
+            systemPromptSaveJob = viewModelScope.launch {
                 AiAssistantApp.instance.database.conversationDao().updateConversation(updated)
-                conversation = updated
             }
         }
     }
@@ -436,6 +455,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
 
         // 获取当前选择的模型和设置
         val settings = if (_useTempSettings.value) _tempSettings.value else null
+        val currentSystemPrompt = normalizeSystemPrompt(_uiState.value.systemPrompt)
 
         generationJob = AiAssistantApp.instance.applicationScope.launch {
             _isGenerating.value = true
@@ -460,16 +480,16 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                     ?: throw Exception("API配置不存在，请重新配置")
                 systemPromptSaveJob?.join()
                 val effectiveConfig = selectedConfig.copy(modelName = selectedOption.modelName)
-                val requestOptions = settings?.let {
-                    ChatRequestOptions(
-                        temperature = it.temperature,
-                        maxTokens = it.maxTokens,
-                        topP = it.topP,
-                        enableThinking = it.enableThinking,
-                        thinkingEffort = it.thinkingEffort,
-                        enableWebSearch = it.enableWebSearch
-                    )
-                }
+                val requestOptions = ChatRequestOptions(
+                    temperature = settings?.temperature,
+                    maxTokens = settings?.maxTokens,
+                    topP = settings?.topP,
+                    enableThinking = settings?.enableThinking,
+                    thinkingEffort = settings?.thinkingEffort,
+                    enableWebSearch = settings?.enableWebSearch,
+                    overrideSystemPrompt = true,
+                    systemPromptOverride = currentSystemPrompt
+                )
 
                 // 直接在主线程调用，通过withContext切换到IO线程
                 withContext(Dispatchers.IO) {
@@ -666,14 +686,20 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
     }
 
     fun updateSystemPrompt(prompt: String?) {
+        val normalizedPrompt = normalizeSystemPrompt(prompt)
         conversation?.let { conv ->
-            val updated = conv.copy(systemPrompt = prompt)
+            val updated = conv.copy(systemPrompt = normalizedPrompt)
             conversation = updated
-            _uiState.update { it.copy(systemPrompt = prompt) }
+            _uiState.update { it.copy(systemPrompt = normalizedPrompt) }
+            systemPromptSaveJob?.cancel()
             systemPromptSaveJob = viewModelScope.launch {
                 AiAssistantApp.instance.database.conversationDao().updateConversation(updated)
             }
         }
+    }
+
+    private fun normalizeSystemPrompt(prompt: String?): String? {
+        return prompt?.trim()?.ifBlank { null }
     }
 
     // 创建会话分支

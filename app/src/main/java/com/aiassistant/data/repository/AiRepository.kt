@@ -38,6 +38,7 @@ class AiRepository(
     private val gson = Gson()
     private val tag = "AiRepository"
     private val activeStreamingCalls = ConcurrentHashMap<Long, Call>()
+    private val modelContextWindowCache = ConcurrentHashMap<String, Int>()
 
     private companion object {
         const val SUMMARY_BUDGET_RATIO = 0.14f
@@ -310,11 +311,33 @@ class AiRepository(
 
             val body = gson.fromJson(bodyText, ModelsResponse::class.java)
             return body?.data
-                ?.mapNotNull { sanitizeModelName(it.id) }
+                ?.onEach { cacheModelContextWindow(it) }
+                ?.mapNotNull { sanitizeModelName(it.id.ifBlank { it.name.orEmpty() }) }
                 ?.distinct()
                 ?.sorted()
                 .orEmpty()
         }
+    }
+
+    private fun cacheModelContextWindow(modelInfo: ModelInfo) {
+        val limit = listOfNotNull(
+            modelInfo.context_length,
+            modelInfo.context_window,
+            modelInfo.max_context_length,
+            modelInfo.max_context_window,
+            modelInfo.max_input_tokens,
+            modelInfo.input_token_limit,
+            modelInfo.contextLength,
+            modelInfo.contextWindow,
+            modelInfo.maxContextLength,
+            modelInfo.maxContextWindow
+        ).firstOrNull { it > 0 } ?: return
+
+        listOf(modelInfo.id, modelInfo.name.orEmpty())
+            .mapNotNull(::sanitizeModelName)
+            .forEach { modelName ->
+                modelContextWindowCache[modelName.lowercase()] = limit.coerceIn(4_000, 2_000_000)
+            }
     }
 
     private fun sanitizeModelNames(models: List<String>): List<String> {
@@ -685,7 +708,7 @@ class AiRepository(
         val chatMessages = mutableListOf<ChatMessage>()
 
         buildEffectiveSystemPrompt(
-            customPrompt = conversation?.systemPrompt,
+            customPrompt = effectiveSystemPrompt(conversation, effectiveOptions),
             olderSummary = contextBundle.summary,
             memoryBlock = contextBundle.memoryBlock,
             options = effectiveOptions
@@ -903,7 +926,7 @@ class AiRepository(
             currentUserMessage = userMessage
         )
         val systemPrompt = buildEffectiveSystemPrompt(
-            customPrompt = conversation?.systemPrompt,
+            customPrompt = effectiveSystemPrompt(conversation, effectiveOptions),
             olderSummary = contextBundle.summary,
             memoryBlock = contextBundle.memoryBlock,
             options = effectiveOptions
@@ -1104,8 +1127,21 @@ class AiRepository(
             topP = (overrides?.topP ?: config.topP).coerceIn(0f, 1f),
             enableThinking = overrides?.enableThinking ?: config.enableThinking,
             thinkingEffort = normalizeThinkingEffort(overrides?.thinkingEffort ?: config.thinkingEffort, config),
-            enableWebSearch = overrides?.enableWebSearch ?: config.enableWebSearch
+            enableWebSearch = overrides?.enableWebSearch ?: config.enableWebSearch,
+            overrideSystemPrompt = overrides?.overrideSystemPrompt == true,
+            systemPromptOverride = overrides?.systemPromptOverride
         )
+    }
+
+    private fun effectiveSystemPrompt(
+        conversation: Conversation?,
+        options: ChatRequestOptions
+    ): String? {
+        return if (options.overrideSystemPrompt) {
+            options.systemPromptOverride
+        } else {
+            conversation?.systemPrompt
+        }
     }
 
     private fun normalizeThinkingEffort(effort: String?, config: ApiConfig): String {
@@ -1348,6 +1384,8 @@ class AiRepository(
 
     private fun estimateModelContextWindowTokens(modelName: String): Int {
         val name = modelName.lowercase()
+        modelContextWindowCache[name]?.let { return it }
+
         val explicitLimit = Regex("""(?<!\d)(\d+(?:\.\d+)?)\s*(m|k)(?![a-z])""")
             .find(name)
             ?.let { match ->
@@ -1521,7 +1559,7 @@ class AiRepository(
             buildRuntimeFeaturePrompt(options),
             memoryBlock,
             customPrompt?.takeIf { it.isNotBlank() }?.let {
-                "用户为当前对话设置的系统提示（优先级高于默认建议）：\n${it.trim()}"
+                "用户为当前对话设置的系统提示（从本轮请求开始立即生效；若与较早对话内容冲突，以这里为准）：\n${it.trim()}"
             },
             olderSummary
         ).joinToString("\n\n").ifBlank { null }
