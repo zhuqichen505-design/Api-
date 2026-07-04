@@ -98,6 +98,15 @@
       background: var(--bg);
     }
 
+    .home-screen-v3 {
+      background: #fff;
+    }
+
+    .home-screen-v3 .content,
+    .home-screen-v3 .top-plain {
+      background: #fff;
+    }
+
     .top-plain {
       padding: 18px 16px 10px;
       background: #fff;
@@ -429,6 +438,16 @@
       border-radius: 6px 18px 18px 18px;
     }
 
+    .bubble.assistant .msg {
+      width: calc(100% - 40px);
+      max-width: none;
+      padding: 2px 4px 4px 0;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      box-shadow: none;
+    }
+
     .time {
       margin-top: 7px;
       font-size: 11px;
@@ -628,6 +647,16 @@
       font-size: 13px;
     }
 
+    .setting-icon svg {
+      width: 22px;
+      height: 22px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2.1;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
     .setting-name {
       font-size: 15px;
       font-weight: 780;
@@ -705,7 +734,7 @@
     <section class="grid">
       <article class="tile" data-screen="home">
         <div class="label">主页：入口不变</div>
-        <div class="phone"><div class="screen">
+        <div class="phone"><div class="screen home-screen-v3">
           <div class="top-plain">
             <div class="row space">
               <div class="home-word">Echo</div>
@@ -871,14 +900,14 @@
             <div class="chat-title">设置</div>
           </div>
           <div class="settings-menu">
-            <div class="setting-card"><div class="setting-icon">钥</div><div><div class="setting-name">API配置</div><div class="setting-sub">管理AI模型API密钥和配置</div></div><div class="chev">›</div></div>
-            <div class="setting-card"><div class="setting-icon">搜</div><div><div class="setting-name">联网搜索</div><div class="setting-sub">配置 Tavily，让对话中的智能搜索真正联网</div></div><div class="chev">›</div></div>
-            <div class="setting-card"><div class="setting-icon">✨</div><div><div class="setting-name">个性化</div><div class="setting-sub">设置所有对话都会参考的自定义偏好</div></div><div class="chev">›</div></div>
-            <div class="setting-card"><div class="setting-icon">脑</div><div><div class="setting-name">全局提示词</div><div class="setting-sub">设置适用于所有对话的系统提示词</div></div><div class="chev">›</div></div>
-            <div class="setting-card"><div class="setting-icon">码</div><div><div class="setting-name">环境变量</div><div class="setting-sub">管理可在对话中引用的变量</div></div><div class="chev">›</div></div>
-            <div class="setting-card"><div class="setting-icon">隐</div><div><div class="setting-name">其他对话</div><div class="setting-sub">输入 6 位数字密码查看隐藏对话</div></div><div class="chev">›</div></div>
-            <div class="setting-card"><div class="setting-icon">备</div><div><div class="setting-name">数据备份</div><div class="setting-sub">备份和恢复应用数据</div></div><div class="chev">›</div></div>
-            <div class="setting-card"><div class="setting-icon">i</div><div><div class="setting-name">关于</div><div class="setting-sub">版本信息和功能介绍</div></div><div class="chev">›</div></div>
+            <div class="setting-card"><div class="setting-icon"><svg viewBox="0 0 24 24"><circle cx="8" cy="15" r="3.4"/><path d="M10.7 12.3 20 3"/><path d="M16 7h4v4"/><path d="M14.2 9.8 16.6 12.2"/></svg></div><div><div class="setting-name">API配置</div><div class="setting-sub">管理AI模型API密钥和配置</div></div><div class="chev">›</div></div>
+            <div class="setting-card"><div class="setting-icon"><svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.2"/><path d="M15.2 15.2 21 21"/></svg></div><div><div class="setting-name">联网搜索</div><div class="setting-sub">配置 Tavily，让对话中的智能搜索真正联网</div></div><div class="chev">›</div></div>
+            <div class="setting-card"><div class="setting-icon"><svg viewBox="0 0 24 24"><path d="M12 2.5 14.2 9.8 21.5 12 14.2 14.2 12 21.5 9.8 14.2 2.5 12 9.8 9.8Z"/><path d="M19 3v4"/><path d="M21 5h-4"/></svg></div><div><div class="setting-name">个性化</div><div class="setting-sub">设置所有对话都会参考的自定义偏好</div></div><div class="chev">›</div></div>
+            <div class="setting-card"><div class="setting-icon"><svg viewBox="0 0 24 24"><path d="M9 19c-2.8 0-5-2.2-5-5 0-2.1 1.3-3.9 3.1-4.6C7.4 6.9 9.5 5 12 5s4.6 1.9 4.9 4.4C18.7 10.1 20 11.9 20 14c0 2.8-2.2 5-5 5"/><path d="M9 9v10"/><path d="M15 9v10"/><path d="M9 13h6"/></svg></div><div><div class="setting-name">全局提示词</div><div class="setting-sub">设置适用于所有对话的系统提示词</div></div><div class="chev">›</div></div>
+            <div class="setting-card"><div class="setting-icon"><svg viewBox="0 0 24 24"><path d="M8 8 4 12l4 4"/><path d="m16 8 4 4-4 4"/><path d="m14 4-4 16"/></svg></div><div><div class="setting-name">环境变量</div><div class="setting-sub">管理可在对话中引用的变量</div></div><div class="chev">›</div></div>
+            <div class="setting-card"><div class="setting-icon"><svg viewBox="0 0 24 24"><path d="M3 3l18 18"/><path d="M10.6 10.6A2 2 0 0 0 13.4 13.4"/><path d="M9.9 5.2A9.4 9.4 0 0 1 12 5c5 0 8.5 4.5 9.5 7-0.4 1-1.2 2.2-2.2 3.3"/><path d="M6.4 6.8C4.5 8.2 3.2 10.3 2.5 12c1 2.5 4.5 7 9.5 7 1.6 0 3-.4 4.2-1.1"/></svg></div><div><div class="setting-name">其他对话</div><div class="setting-sub">输入 6 位数字密码查看隐藏对话</div></div><div class="chev">›</div></div>
+            <div class="setting-card"><div class="setting-icon"><svg viewBox="0 0 24 24"><path d="M7 18.5h9.5a4 4 0 0 0 .4-8 6 6 0 0 0-11.2-2A4.7 4.7 0 0 0 7 18.5Z"/><path d="M12 12v7"/><path d="m9 16 3 3 3-3"/></svg></div><div><div class="setting-name">数据备份</div><div class="setting-sub">备份和恢复应用数据</div></div><div class="chev">›</div></div>
+            <div class="setting-card"><div class="setting-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 10v6"/><path d="M12 7h.01"/></svg></div><div><div class="setting-name">关于</div><div class="setting-sub">版本信息和功能介绍</div></div><div class="chev">›</div></div>
           </div>
           <div class="bottom-handle"></div>
         </div></div>
