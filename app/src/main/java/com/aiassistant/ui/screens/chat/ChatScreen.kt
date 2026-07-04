@@ -11,7 +11,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
@@ -52,6 +51,7 @@ import com.aiassistant.ui.components.MarkdownText
 import com.aiassistant.ui.components.SideAnchorItem
 import com.aiassistant.ui.components.SideAnchorNavigator
 import com.aiassistant.ui.components.TransientLazyListScrollbar
+import com.aiassistant.ui.components.echoShapeClick
 import com.aiassistant.ui.components.echoHazePanel
 import com.aiassistant.ui.components.echoHazeSource
 import com.aiassistant.ui.components.rememberEchoHazeState
@@ -217,43 +217,45 @@ fun ChatScreen(
                 tonalElevation = 0.dp,
                 shadowElevation = 0.dp
             ) {
-                TopAppBar(
-                    title = {
-                        ChatHeaderTitle(
-                            title = uiState.conversationTitle.ifBlank { "新对话" },
-                            isGenerating = isGenerating
-                        )
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = { viewModel.leaveConversation(onNavigateBack) }) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = "返回")
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp)
+                        .padding(horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = { viewModel.leaveConversation(onNavigateBack) },
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "返回")
+                    }
+                    ChatHeaderTitle(
+                        title = uiState.conversationTitle.ifBlank { "新对话" },
+                        isGenerating = isGenerating,
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                    )
+                    ContextUsageButton(
+                        usage = contextUsage.usage,
+                        canCompress = contextUsage.usage?.canCompress == true,
+                        onClick = {
+                            viewModel.refreshContextUsage()
+                            showContextUsageDialog = true
                         }
-                    },
-                    actions = {
-                        ContextUsageButton(
-                            usage = contextUsage.usage,
-                            canCompress = contextUsage.usage?.canCompress == true,
-                            onClick = {
-                                viewModel.refreshContextUsage()
-                                showContextUsageDialog = true
-                            }
+                    )
+                    IconButton(
+                        onClick = { showSettingsDialog = true },
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Tune,
+                            contentDescription = "对话设置",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        IconButton(onClick = { showSettingsDialog = true }) {
-                            Icon(
-                                Icons.Default.Tune,
-                                contentDescription = "对话设置",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = Color.Transparent,
-                        scrolledContainerColor = Color.Transparent,
-                        titleContentColor = MaterialTheme.colorScheme.onSurface
-                    ),
-                    modifier = Modifier.height(56.dp),
-                    windowInsets = WindowInsets(0.dp)
-                )
+                    }
+                }
             }
         },
         bottomBar = {
@@ -633,6 +635,7 @@ private fun ChatScrollJumpButtons(
         ) {
             SmallFloatingActionButton(
                 onClick = onJumpToTop,
+                shape = CircleShape,
                 containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
                 contentColor = MaterialTheme.colorScheme.primary
             ) {
@@ -640,6 +643,7 @@ private fun ChatScrollJumpButtons(
             }
             SmallFloatingActionButton(
                 onClick = onJumpToBottom,
+                shape = CircleShape,
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary
             ) {
@@ -657,15 +661,15 @@ private fun ContextUsageButton(
 ) {
     val usagePercent = usage?.usagePercent ?: 0f
     val accent = contextUsageColor(usagePercent)
+    val buttonShape = CircleShape
 
     Surface(
         modifier = Modifier
             .padding(end = 4.dp)
             .size(40.dp)
-            .clip(CircleShape)
-            .clickable(onClick = onClick),
-        shape = CircleShape,
-        color = accent.copy(alpha = 0.12f),
+            .echoShapeClick(buttonShape, onClick = onClick),
+        shape = buttonShape,
+        color = Color.Transparent,
         contentColor = accent
     ) {
         Box(
@@ -984,12 +988,11 @@ private fun formatContextTimestamp(timestamp: Long): String {
 @Composable
 private fun ChatHeaderTitle(
     title: String,
-    isGenerating: Boolean
+    isGenerating: Boolean,
+    modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .fillMaxHeight(),
+        modifier = modifier.fillMaxHeight(),
         verticalArrangement = Arrangement.Center
     ) {
         Text(
@@ -1135,8 +1138,11 @@ private fun MessageBubble(
     } else {
         RoundedCornerShape(6.dp, 18.dp, 18.dp, 18.dp)
     }
-    var showThinking by remember(message.id, isGenerating) { mutableStateOf(isGenerating) }
-    val hasThinking = !message.thinkingContent.isNullOrBlank()
+    val hasThinkingContent = !message.thinkingContent.isNullOrBlank()
+    val hasThinking = hasThinkingContent || message.thinkingTokens > 0
+    var showThinking by remember(message.id, isGenerating, hasThinkingContent) {
+        mutableStateOf(isGenerating && hasThinkingContent)
+    }
 
     // 解析附件
     val attachments = remember(message.attachments) {
@@ -1166,67 +1172,90 @@ private fun MessageBubble(
                     .padding(top = 2.dp, bottom = 4.dp)
             }
         ) {
+            val thinkingBubbleColor = userBubbleTint.copy(alpha = userBubbleAlpha)
+            val thinkingContentColor = Color(0xFF111827)
             if (hasThinking) {
+                val thinkingShape = RoundedCornerShape(18.dp)
+                val headerShape = RoundedCornerShape(14.dp)
+                val headerModifier = if (hasThinkingContent) {
+                    Modifier
+                        .fillMaxWidth()
+                        .echoShapeClick(headerShape) { showThinking = !showThinking }
+                } else {
+                    Modifier.fillMaxWidth()
+                }
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                    contentColor = MaterialTheme.colorScheme.primary,
-                    shape = RoundedCornerShape(12.dp)
+                    color = thinkingBubbleColor,
+                    contentColor = thinkingContentColor,
+                    shape = thinkingShape,
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.55f))
                 ) {
                     Column(modifier = Modifier.padding(10.dp)) {
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { showThinking = !showThinking },
+                            modifier = headerModifier,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
                                 Icons.Default.Psychology,
                                 contentDescription = null,
                                 modifier = Modifier.size(16.dp),
-                                tint = MaterialTheme.colorScheme.primary
+                                tint = thinkingContentColor
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Row(
                                 modifier = Modifier.weight(1f),
-                                verticalAlignment = Alignment.CenterVertically
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Text(
                                     text = if (isGenerating) "正在努力思考" else "思考过程",
-                                    style = MaterialTheme.typography.labelMedium
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = thinkingContentColor
                                 )
                                 if (message.responseTime > 0) {
-                                    Spacer(modifier = Modifier.width(8.dp))
                                     Text(
                                         text = formatTime(message.responseTime),
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.72f),
+                                        color = thinkingContentColor.copy(alpha = 0.68f),
+                                        maxLines = 1
+                                    )
+                                }
+                                if (message.thinkingTokens > 0) {
+                                    Text(
+                                        text = "思考: ${message.thinkingTokens} tokens",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = thinkingContentColor.copy(alpha = 0.68f),
                                         maxLines = 1
                                     )
                                 }
                             }
-                            IconButton(
-                                onClick = onCopyThinking,
-                                modifier = Modifier.size(24.dp)
-                            ) {
+                            if (hasThinkingContent) {
+                                IconButton(
+                                    onClick = onCopyThinking,
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.ContentCopy,
+                                        contentDescription = "复制思考",
+                                        modifier = Modifier.size(14.dp),
+                                        tint = thinkingContentColor.copy(alpha = 0.78f)
+                                    )
+                                }
                                 Icon(
-                                    Icons.Default.ContentCopy,
-                                    contentDescription = "复制思考",
-                                    modifier = Modifier.size(14.dp)
+                                    if (showThinking) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp),
+                                    tint = thinkingContentColor.copy(alpha = 0.78f)
                                 )
                             }
-                            Icon(
-                                if (showThinking) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                contentDescription = null,
-                                modifier = Modifier.size(20.dp)
-                            )
                         }
 
-                        AnimatedVisibility(visible = showThinking) {
+                        AnimatedVisibility(visible = showThinking && hasThinkingContent) {
                             Text(
                                 text = message.thinkingContent ?: "",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary,
+                                color = thinkingContentColor,
                                 modifier = Modifier.padding(top = 8.dp)
                             )
                         }
@@ -1359,7 +1388,9 @@ private fun MessageFooter(
     onDelete: (() -> Unit)?,
     modifier: Modifier = Modifier
 ) {
-    val responseTimeInThinkingBubble = message.role == "assistant" && !message.thinkingContent.isNullOrBlank()
+    val thinkingTokensInThinkingBubble = message.role == "assistant" &&
+        (!message.thinkingContent.isNullOrBlank() || message.thinkingTokens > 0)
+    val responseTimeInThinkingBubble = thinkingTokensInThinkingBubble
 
     Row(
         modifier = modifier.padding(top = 5.dp),
@@ -1391,7 +1422,7 @@ private fun MessageFooter(
                 )
             }
 
-            if (message.thinkingTokens > 0) {
+            if (message.thinkingTokens > 0 && !thinkingTokensInThinkingBubble) {
                 MessageMetaText(
                     text = "思考: ${message.thinkingTokens} tokens",
                     color = MaterialTheme.colorScheme.primary
@@ -1712,6 +1743,7 @@ fun ChatInputBar(
                 .echoHazePanel(
                     hazeState = hazeState,
                     shape = inputShape,
+                    tint = MaterialTheme.colorScheme.surface.copy(alpha = 0.12f),
                     blurRadius = 32.dp
                 ),
             shape = inputShape,
@@ -1754,6 +1786,7 @@ fun ChatInputBar(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .heightIn(min = 42.dp)
+                                .clip(RoundedCornerShape(22.dp))
                                 .padding(horizontal = 4.dp, vertical = 4.dp),
                             contentAlignment = Alignment.CenterStart
                         ) {
@@ -1974,12 +2007,12 @@ private fun InputPillButton(
     selected: Boolean,
     onClick: () -> Unit
 ) {
+    val pillShape = RoundedCornerShape(999.dp)
     Surface(
         modifier = Modifier
             .heightIn(min = 34.dp)
-            .clip(RoundedCornerShape(999.dp))
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(999.dp),
+            .echoShapeClick(pillShape, onClick = onClick),
+        shape = pillShape,
         color = if (selected) {
             MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
         } else {
@@ -2439,13 +2472,14 @@ fun ModelSelector(
     var expanded by remember { mutableStateOf(false) }
 
     Box {
+        val selectorShape = RoundedCornerShape(999.dp)
         Surface(
             modifier = Modifier
                 .padding(top = 2.dp)
-                .clickable { expanded = true },
+                .echoShapeClick(selectorShape) { expanded = true },
             color = MaterialTheme.colorScheme.secondaryContainer,
             contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-            shape = RoundedCornerShape(999.dp)
+            shape = selectorShape
         ) {
             Row(
                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
@@ -2535,13 +2569,14 @@ fun ModelSelector(
     val currentLabel = currentOption?.modelName ?: fallbackModel
 
     Box {
+        val selectorShape = RoundedCornerShape(999.dp)
         Surface(
             modifier = Modifier
                 .padding(top = 2.dp)
-                .clickable { expanded = true },
+                .echoShapeClick(selectorShape) { expanded = true },
             color = MaterialTheme.colorScheme.secondaryContainer,
             contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-            shape = RoundedCornerShape(999.dp)
+            shape = selectorShape
         ) {
             Row(
                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),

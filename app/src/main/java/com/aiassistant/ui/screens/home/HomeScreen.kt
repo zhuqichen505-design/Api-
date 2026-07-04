@@ -13,7 +13,6 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -53,6 +52,7 @@ import com.aiassistant.domain.model.Folder
 import com.aiassistant.ui.components.SideAnchorItem
 import com.aiassistant.ui.components.SideAnchorNavigator
 import com.aiassistant.ui.components.TransientLazyListScrollbar
+import com.aiassistant.ui.components.echoShapeClick
 import com.aiassistant.ui.components.echoHazePanel
 import com.aiassistant.ui.components.echoHazeSource
 import com.aiassistant.ui.components.rememberEchoHazeState
@@ -345,18 +345,18 @@ fun HomeScreen(
                             .align(Alignment.CenterEnd)
                             .padding(end = 4.dp)
                     )
-                    SideAnchorNavigator(
-                        items = homeNavItems,
-                        listState = conversationListState,
-                        visible = showScrollControls,
-                        modifier = Modifier
-                            .align(Alignment.CenterEnd)
-                            .padding(end = 12.dp)
-                    )
                 }
             }
         }
-    }
+            SideAnchorNavigator(
+                items = homeNavItems,
+                listState = conversationListState,
+                visible = showScrollControls,
+                modifier = Modifier
+                    .matchParentSize()
+                    .padding(end = 12.dp)
+            )
+        }
     }
 
     if (showBatchMoveDialog) {
@@ -766,11 +766,12 @@ private fun BatchSelectionBar(
     onHideSelected: () -> Unit,
     onDeleteSelected: () -> Unit
 ) {
+    val barShape = RoundedCornerShape(24.dp)
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp),
-        shape = RoundedCornerShape(14.dp),
+        shape = barShape,
         color = MaterialTheme.colorScheme.primaryContainer,
         contentColor = MaterialTheme.colorScheme.onPrimaryContainer
     ) {
@@ -807,6 +808,7 @@ private fun BatchSelectionBar(
                 FilledTonalButton(
                     onClick = onPinSelected,
                     modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(999.dp),
                     contentPadding = PaddingValues(horizontal = 8.dp)
                 ) {
                     Text("置顶", maxLines = 1)
@@ -814,6 +816,7 @@ private fun BatchSelectionBar(
                 FilledTonalButton(
                     onClick = onUnpinSelected,
                     modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(999.dp),
                     contentPadding = PaddingValues(horizontal = 8.dp)
                 ) {
                     Text("取消置顶", maxLines = 1)
@@ -821,6 +824,7 @@ private fun BatchSelectionBar(
                 FilledTonalButton(
                     onClick = onMoveSelected,
                     modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(999.dp),
                     contentPadding = PaddingValues(horizontal = 8.dp)
                 ) {
                     Text(moveActionText, maxLines = 1)
@@ -829,7 +833,8 @@ private fun BatchSelectionBar(
 
             FilledTonalButton(
                 onClick = onHideSelected,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(999.dp)
             ) {
                 Icon(
                     Icons.Default.VisibilityOff,
@@ -843,6 +848,7 @@ private fun BatchSelectionBar(
             FilledTonalButton(
                 onClick = onDeleteSelected,
                 modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(999.dp),
                 colors = ButtonDefaults.filledTonalButtonColors(
                     containerColor = DeleteDialogPink,
                     contentColor = DeleteDialogContent
@@ -916,11 +922,11 @@ private fun PinnedSectionHeader(
     expanded: Boolean,
     onToggle: () -> Unit
 ) {
+    val headerShape = RoundedCornerShape(18.dp)
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .clickable(onClick = onToggle),
+            .echoShapeClick(headerShape, onClick = onToggle),
         color = Color.Transparent
     ) {
         Row(
@@ -964,15 +970,16 @@ fun HomeMetric(
     onClick: (() -> Unit)? = null,
     icon: (@Composable () -> Unit)? = null
 ) {
+    val metricShape = RoundedCornerShape(20.dp)
     val clickableModifier = if (onClick != null) {
-        modifier.clickable(onClick = onClick)
+        modifier.echoShapeClick(metricShape, onClick = onClick)
     } else {
         modifier
     }
 
     Surface(
         modifier = clickableModifier.height(64.dp),
-        shape = RoundedCornerShape(18.dp),
+        shape = metricShape,
         color = MaterialTheme.colorScheme.surfaceVariant,
         contentColor = MaterialTheme.colorScheme.onSurfaceVariant
     ) {
@@ -1290,15 +1297,17 @@ fun ConversationCard(
     var showMoveToFolderDialog by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
 
+    val cardShape = RoundedCornerShape(30.dp)
     Card(
         modifier = Modifier
             .fillMaxWidth()
+            .clip(cardShape)
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick,
                 onLongClickLabel = "多选对话"
             ),
-        shape = RoundedCornerShape(18.dp),
+        shape = cardShape,
         colors = CardDefaults.cardColors(
             containerColor = if (selected) {
                 HomeSelectedChipColor
@@ -1569,11 +1578,11 @@ fun MoveToFolderDialog(
                     modifier = Modifier.heightIn(max = 360.dp)
                 ) {
                     item {
+                        val unfiledShape = RoundedCornerShape(16.dp)
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable { onMove(null) }
+                                .echoShapeClick(unfiledShape) { onMove(null) }
                                 .padding(12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -1595,6 +1604,7 @@ fun MoveToFolderDialog(
                     }
 
                     items(folders) { folder ->
+                        val folderRowShape = RoundedCornerShape(16.dp)
                         val folderColors = listOf(
                             Color(0xFFE57373), Color(0xFFFFB74D), Color(0xFFFFF176),
                             Color(0xFF60A5FA), Color(0xFF64B5F6), Color(0xFF9575CD),
@@ -1607,8 +1617,7 @@ fun MoveToFolderDialog(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable { onMove(folder.id) }
+                                .echoShapeClick(folderRowShape) { onMove(folder.id) }
                                 .padding(start = 12.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {

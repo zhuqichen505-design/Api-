@@ -8,7 +8,6 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -37,6 +36,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -83,7 +84,7 @@ fun SideAnchorNavigator(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .clickable { expanded = false }
+                        .echoPlainClick { expanded = false }
                 )
             }
 
@@ -138,7 +139,7 @@ private fun CollapsedAnchorRail(
         modifier = Modifier
             .width(38.dp)
             .height(railHeight)
-            .clickable(onClick = onClick),
+            .echoShapeClick(RoundedCornerShape(999.dp), onClick = onClick),
         color = Color.Transparent,
         contentColor = MaterialTheme.colorScheme.onSurface,
         shape = RoundedCornerShape(999.dp),
@@ -182,40 +183,49 @@ private fun ExpandedAnchorPanel(
     onDismiss: () -> Unit,
     onSelected: (SideAnchorItem) -> Unit
 ) {
+    val panelShape = RoundedCornerShape(28.dp)
     Surface(
         modifier = Modifier
+            .padding(end = 4.dp)
             .widthIn(min = 242.dp, max = 316.dp)
             .heightIn(max = 470.dp)
-            .padding(end = 4.dp),
-        shape = RoundedCornerShape(24.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f),
-        tonalElevation = 6.dp,
-        shadowElevation = 12.dp
+            .shadow(
+                elevation = 12.dp,
+                shape = panelShape,
+                ambientColor = Color.Black.copy(alpha = 0.08f),
+                spotColor = Color.Black.copy(alpha = 0.12f)
+            )
+            .clip(panelShape),
+        shape = panelShape,
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp
     ) {
         LazyColumn(
             modifier = Modifier
                 .border(
                     width = 1.dp,
                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.42f),
-                    shape = RoundedCornerShape(24.dp)
+                    shape = panelShape
                 )
                 .padding(vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(3.dp)
         ) {
             items(items = items, key = { "${it.itemIndex}_${it.title}" }) { item ->
                 val selected = item.itemIndex == currentIndex
+                val itemShape = RoundedCornerShape(16.dp)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { onSelected(item) }
                         .background(
                             color = if (selected) {
                                 MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
                             } else {
                                 Color.Transparent
                             },
-                            shape = RoundedCornerShape(14.dp)
+                            shape = itemShape
                         )
+                        .echoShapeClick(itemShape) { onSelected(item) }
                         .padding(start = 16.dp, end = 14.dp, top = 9.dp, bottom = 9.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -249,10 +259,11 @@ private fun ExpandedAnchorPanel(
                 }
             }
             item {
+                val dismissShape = RoundedCornerShape(999.dp)
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable(onClick = onDismiss)
+                        .echoShapeClick(dismissShape, onClick = onDismiss)
                         .padding(vertical = 6.dp),
                     contentAlignment = Alignment.Center
                 ) {

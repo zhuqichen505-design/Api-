@@ -5,7 +5,6 @@ package com.aiassistant.ui.screens.settings
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -32,6 +31,7 @@ import com.aiassistant.domain.model.ApiConfig
 import com.aiassistant.domain.model.Conversation
 import com.aiassistant.domain.model.EnvironmentVariable
 import com.aiassistant.domain.model.PromptTemplate
+import com.aiassistant.ui.components.echoShapeClick
 import com.aiassistant.utils.AvatarManager
 import com.aiassistant.utils.BackgroundImageManager
 import com.aiassistant.utils.BackupManager
@@ -58,10 +58,13 @@ private val CurrentFeatureHighlights = listOf(
 )
 
 private val CurrentVersionUserUpdates = listOf(
-    "升级 Kotlin 与 Compose 构建链，切换到 Kotlin 2.x Compose Compiler 插件",
-    "Compose 运行库 BOM 从 2023.10.01 更新到 2024.06.00，移除旧的手动编译器扩展配置",
-    "首页搜索栏、创建对话按钮、对话页顶部工具栏和输入框升级为液态玻璃效果",
-    "玻璃控件加入真实背景模糊、渐变高光、边缘亮线和轻微阴影"
+    "液态玻璃控件整体调得更透明，去除输入框内明显白色矩形感",
+    "首页对话卡片和设置菜单选项改为更圆润的边缘",
+    "思考过程气泡改为和我的对话气泡一致的淡蓝色，并在气泡内显示耗时和思考 token",
+    "思考过程、滑动导航栏等点击反馈改为控件自身响应，不再出现不协调的方块",
+    "修复一键到顶/到底和导航栏展开面板的圆角阴影表现",
+    "对话页上下文圆环去除蓝色背景，并和返回键、设置键在顶栏内居中",
+    "首页导航栏展开后，点击 Echo 标志等顶部区域也会自动收起"
 )
 
 @Composable
@@ -195,7 +198,8 @@ fun SettingsMenuItem(
 ) {
     Card(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(28.dp)
     ) {
         Row(
             modifier = Modifier
@@ -800,7 +804,7 @@ private fun BackgroundPickerRow(
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(26.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
     ) {
         Row(
@@ -1432,8 +1436,9 @@ fun AboutTab(modifier: Modifier = Modifier) {
                     Box(
                         modifier = Modifier
                             .size(80.dp)
-                            .clip(CircleShape)
-                            .clickable { imagePickerLauncher.launch("image/*") },
+                            .echoShapeClick(CircleShape) {
+                                imagePickerLauncher.launch("image/*")
+                            },
                         contentAlignment = Alignment.Center
                     ) {
                         if (avatarBase64 != null) {
@@ -1958,11 +1963,11 @@ private fun ModelDisplaySelectionRow(
     onCapabilityChange: (String) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
+    val rowShape = RoundedCornerShape(18.dp)
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(MaterialTheme.shapes.medium)
-            .clickable(onClick = onRowClick)
+            .echoShapeClick(rowShape, onClick = onRowClick)
             .padding(horizontal = 4.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
