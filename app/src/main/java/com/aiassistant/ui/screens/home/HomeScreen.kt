@@ -53,6 +53,9 @@ import com.aiassistant.domain.model.Folder
 import com.aiassistant.ui.components.SideAnchorItem
 import com.aiassistant.ui.components.SideAnchorNavigator
 import com.aiassistant.ui.components.TransientLazyListScrollbar
+import com.aiassistant.ui.components.echoHazePanel
+import com.aiassistant.ui.components.echoHazeSource
+import com.aiassistant.ui.components.rememberEchoHazeState
 import com.aiassistant.ui.components.rememberLazyListControlsVisible
 import com.aiassistant.utils.AvatarManager
 import java.text.SimpleDateFormat
@@ -78,6 +81,7 @@ fun HomeScreen(
     val showNewChatDialog by viewModel.showNewChatDialog.collectAsState()
     val folders by viewModel.folders.collectAsState()
     val selectedFolderId by viewModel.selectedFolderId.collectAsState()
+    val hazeState = rememberEchoHazeState()
     val conversationListState = rememberLazyListState()
     val showScrollControls by rememberLazyListControlsVisible(conversationListState)
     var searchQuery by remember { mutableStateOf("") }
@@ -145,13 +149,16 @@ fun HomeScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
                 .background(Color.White)
+                .echoHazeSource(hazeState)
         ) {
             HomeDashboardHeader(
+                hazeState = hazeState,
                 onNavigateToSettings = onNavigateToSettings,
                 onNavigateToStats = onNavigateToStats
             )
 
             HomeSearchRow(
+                hazeState = hazeState,
                 searchQuery = searchQuery,
                 onSearchQueryChange = { searchQuery = it },
                 onNavigateToHistory = onNavigateToHistory
@@ -442,13 +449,17 @@ private fun anchorTitle(value: String): String {
 
 @Composable
 fun HomeDashboardHeader(
+    hazeState: dev.chrisbanes.haze.HazeState,
     onNavigateToSettings: () -> Unit,
     onNavigateToStats: () -> Unit
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color.White)
+            .echoHazePanel(
+                hazeState = hazeState,
+                shape = RoundedCornerShape(bottomStart = 22.dp, bottomEnd = 22.dp)
+            )
             .padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 10.dp)
     ) {
         Row(
@@ -626,6 +637,7 @@ private fun StatsIconButton(
 
 @Composable
 private fun HomeSearchRow(
+    hazeState: dev.chrisbanes.haze.HazeState,
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
     onNavigateToHistory: () -> Unit
@@ -639,10 +651,14 @@ private fun HomeSearchRow(
         Surface(
             modifier = Modifier
                 .weight(1f)
-                .height(46.dp),
+                .height(46.dp)
+                .echoHazePanel(
+                    hazeState = hazeState,
+                    shape = RoundedCornerShape(22.dp)
+                ),
             shape = RoundedCornerShape(22.dp),
-            color = Color.White,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+            color = Color.Transparent,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
         ) {
             Row(
                 modifier = Modifier

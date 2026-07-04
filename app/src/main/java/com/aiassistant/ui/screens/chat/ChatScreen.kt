@@ -48,6 +48,9 @@ import com.aiassistant.ui.components.MarkdownText
 import com.aiassistant.ui.components.SideAnchorItem
 import com.aiassistant.ui.components.SideAnchorNavigator
 import com.aiassistant.ui.components.TransientLazyListScrollbar
+import com.aiassistant.ui.components.echoHazePanel
+import com.aiassistant.ui.components.echoHazeSource
+import com.aiassistant.ui.components.rememberEchoHazeState
 import com.aiassistant.ui.components.rememberLazyListControlsVisible
 import com.aiassistant.utils.AvatarManager
 import com.aiassistant.utils.FileUtils
@@ -79,6 +82,7 @@ fun ChatScreen(
     val useTempSettings by viewModel.useTempSettings.collectAsState()
     val contextUsage by viewModel.contextUsage.collectAsState()
 
+    val hazeState = rememberEchoHazeState()
     val listState = rememberLazyListState()
     val showScrollControls by rememberLazyListControlsVisible(listState)
     val clipboardManager = LocalClipboardManager.current
@@ -227,14 +231,16 @@ fun ChatScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
-                    scrolledContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.86f),
+                    containerColor = Color.Transparent,
+                    scrolledContainerColor = Color.Transparent,
                     titleContentColor = MaterialTheme.colorScheme.onSurface
-                )
+                ),
+                modifier = Modifier.echoHazePanel(hazeState)
             )
         },
         bottomBar = {
             ChatInputBar(
+                hazeState = hazeState,
                 inputText = inputText,
                 onInputChange = { inputText = it },
                 onSend = {
@@ -292,8 +298,8 @@ fun ChatScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
                 .background(MaterialTheme.colorScheme.background)
+                .echoHazeSource(hazeState)
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 // 错误提示
@@ -334,7 +340,12 @@ fun ChatScreen(
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     state = listState,
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 18.dp),
+                    contentPadding = PaddingValues(
+                        start = 14.dp,
+                        end = 14.dp,
+                        top = paddingValues.calculateTopPadding() + 18.dp,
+                        bottom = paddingValues.calculateBottomPadding() + 18.dp
+                    ),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     // 空状态
@@ -1585,6 +1596,7 @@ private fun AttachmentGroupBubble(
 
 @Composable
 fun ChatInputBar(
+    hazeState: dev.chrisbanes.haze.HazeState,
     inputText: String,
     onInputChange: (String) -> Unit,
     onSend: () -> Unit,
@@ -1614,9 +1626,14 @@ fun ChatInputBar(
             .navigationBarsPadding()
     ) {
         Surface(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .echoHazePanel(
+                    hazeState = hazeState,
+                    shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp)
+                ),
             shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp),
-            color = MaterialTheme.colorScheme.surface,
+            color = Color.Transparent,
             tonalElevation = 0.dp,
             shadowElevation = 0.dp
         ) {
