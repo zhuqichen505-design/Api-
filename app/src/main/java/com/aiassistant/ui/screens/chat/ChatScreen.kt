@@ -44,6 +44,8 @@ import com.aiassistant.domain.model.ChatModelOption
 import com.aiassistant.domain.model.ConversationContextUsage
 import com.aiassistant.domain.model.Message
 import com.aiassistant.domain.model.PromptTemplate
+import com.aiassistant.ui.components.EchoGlassBackground
+import com.aiassistant.ui.components.GlassSurface
 import com.aiassistant.ui.components.MarkdownText
 import com.aiassistant.ui.components.SideAnchorItem
 import com.aiassistant.ui.components.SideAnchorNavigator
@@ -227,8 +229,8 @@ fun ChatScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
-                    scrolledContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.86f),
+                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.64f),
+                    scrolledContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.74f),
                     titleContentColor = MaterialTheme.colorScheme.onSurface
                 )
             )
@@ -289,11 +291,11 @@ fun ChatScreen(
             )
         }
     ) { paddingValues ->
-        Box(
+        EchoGlassBackground(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
-                .background(MaterialTheme.colorScheme.background)
+                .padding(paddingValues),
+            textureAlpha = 0.16f
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 // 错误提示
@@ -1613,12 +1615,13 @@ fun ChatInputBar(
             .imePadding()
             .navigationBarsPadding()
     ) {
-        Surface(
+        GlassSurface(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp),
-            color = MaterialTheme.colorScheme.surface,
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.70f),
+            borderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.48f),
             tonalElevation = 0.dp,
-            shadowElevation = 0.dp
+            shadowElevation = 10.dp
         ) {
             Column(
                 modifier = Modifier
@@ -1892,7 +1895,7 @@ private fun InputPillButton(
         color = if (selected) {
             MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
         } else {
-            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
+            MaterialTheme.colorScheme.surface.copy(alpha = 0.58f)
         },
         contentColor = if (selected) {
             MaterialTheme.colorScheme.primary

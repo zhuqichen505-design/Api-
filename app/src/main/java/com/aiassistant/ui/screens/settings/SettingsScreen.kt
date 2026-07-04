@@ -32,6 +32,8 @@ import com.aiassistant.domain.model.ApiConfig
 import com.aiassistant.domain.model.Conversation
 import com.aiassistant.domain.model.EnvironmentVariable
 import com.aiassistant.domain.model.PromptTemplate
+import com.aiassistant.ui.components.EchoGlassBackground
+import com.aiassistant.ui.components.GlassSurface
 import com.aiassistant.utils.AvatarManager
 import com.aiassistant.utils.BackupManager
 import com.aiassistant.utils.HiddenConversationLock
@@ -108,74 +110,79 @@ fun SettingsMenu(
     modifier: Modifier = Modifier,
     onSectionSelected: (String) -> Unit
 ) {
-    LazyColumn(
+    EchoGlassBackground(
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+        textureAlpha = 0.15f
     ) {
-        item {
-            SettingsMenuItem(
-                icon = Icons.Default.Key,
-                title = "API配置",
-                subtitle = "管理AI模型API密钥和配置",
-                onClick = { onSectionSelected("api_config") }
-            )
-        }
-        item {
-            SettingsMenuItem(
-                icon = Icons.Default.Search,
-                title = "联网搜索",
-                subtitle = "配置 Tavily，让对话中的智能搜索真正联网",
-                onClick = { onSectionSelected("web_search") }
-            )
-        }
-        item {
-            SettingsMenuItem(
-                icon = Icons.Default.AutoAwesome,
-                title = "个性化",
-                subtitle = "设置所有对话都会参考的自定义偏好",
-                onClick = { onSectionSelected("personalization") }
-            )
-        }
-        item {
-            SettingsMenuItem(
-                icon = Icons.Default.Psychology,
-                title = "全局提示词",
-                subtitle = "设置适用于所有对话的系统提示词",
-                onClick = { onSectionSelected("global_prompt") }
-            )
-        }
-        item {
-            SettingsMenuItem(
-                icon = Icons.Default.Code,
-                title = "环境变量",
-                subtitle = "管理可在对话中引用的变量",
-                onClick = { onSectionSelected("env_variables") }
-            )
-        }
-        item {
-            SettingsMenuItem(
-                icon = Icons.Default.VisibilityOff,
-                title = "其他对话",
-                subtitle = "输入 6 位数字密码查看隐藏对话",
-                onClick = { onSectionSelected("hidden_conversations") }
-            )
-        }
-        item {
-            SettingsMenuItem(
-                icon = Icons.Default.Backup,
-                title = "数据备份",
-                subtitle = "备份和恢复应用数据",
-                onClick = { onSectionSelected("backup") }
-            )
-        }
-        item {
-            SettingsMenuItem(
-                icon = Icons.Default.Info,
-                title = "关于",
-                subtitle = "版本信息和功能介绍",
-                onClick = { onSectionSelected("about") }
-            )
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            item {
+                SettingsMenuItem(
+                    icon = Icons.Default.Key,
+                    title = "API配置",
+                    subtitle = "管理AI模型API密钥和配置",
+                    onClick = { onSectionSelected("api_config") }
+                )
+            }
+            item {
+                SettingsMenuItem(
+                    icon = Icons.Default.Search,
+                    title = "联网搜索",
+                    subtitle = "配置 Tavily，让对话中的智能搜索真正联网",
+                    onClick = { onSectionSelected("web_search") }
+                )
+            }
+            item {
+                SettingsMenuItem(
+                    icon = Icons.Default.AutoAwesome,
+                    title = "个性化",
+                    subtitle = "设置所有对话都会参考的自定义偏好",
+                    onClick = { onSectionSelected("personalization") }
+                )
+            }
+            item {
+                SettingsMenuItem(
+                    icon = Icons.Default.Psychology,
+                    title = "全局提示词",
+                    subtitle = "设置适用于所有对话的系统提示词",
+                    onClick = { onSectionSelected("global_prompt") }
+                )
+            }
+            item {
+                SettingsMenuItem(
+                    icon = Icons.Default.Code,
+                    title = "环境变量",
+                    subtitle = "管理可在对话中引用的变量",
+                    onClick = { onSectionSelected("env_variables") }
+                )
+            }
+            item {
+                SettingsMenuItem(
+                    icon = Icons.Default.VisibilityOff,
+                    title = "其他对话",
+                    subtitle = "输入 6 位数字密码查看隐藏对话",
+                    onClick = { onSectionSelected("hidden_conversations") }
+                )
+            }
+            item {
+                SettingsMenuItem(
+                    icon = Icons.Default.Backup,
+                    title = "数据备份",
+                    subtitle = "备份和恢复应用数据",
+                    onClick = { onSectionSelected("backup") }
+                )
+            }
+            item {
+                SettingsMenuItem(
+                    icon = Icons.Default.Info,
+                    title = "关于",
+                    subtitle = "版本信息和功能介绍",
+                    onClick = { onSectionSelected("about") }
+                )
+            }
         }
     }
 }
@@ -187,9 +194,13 @@ fun SettingsMenuItem(
     subtitle: String,
     onClick: () -> Unit
 ) {
-    Card(
+    GlassSurface(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
+        borderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.52f),
+        shadowElevation = 5.dp
     ) {
         Row(
             modifier = Modifier

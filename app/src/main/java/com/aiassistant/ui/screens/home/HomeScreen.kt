@@ -50,6 +50,8 @@ import com.aiassistant.R
 import com.aiassistant.domain.model.ApiConfig
 import com.aiassistant.domain.model.Conversation
 import com.aiassistant.domain.model.Folder
+import com.aiassistant.ui.components.EchoGlassBackground
+import com.aiassistant.ui.components.GlassSurface
 import com.aiassistant.ui.components.SideAnchorItem
 import com.aiassistant.ui.components.SideAnchorNavigator
 import com.aiassistant.ui.components.TransientLazyListScrollbar
@@ -126,7 +128,7 @@ fun HomeScreen(
     }
 
     Scaffold(
-        containerColor = Color.White,
+        containerColor = MaterialTheme.colorScheme.background,
         floatingActionButton = {
             if (conversations.isNotEmpty() && !isSelectionMode) {
                 NewConversationFab(
@@ -140,16 +142,17 @@ fun HomeScreen(
             }
         }
     ) { paddingValues ->
-        Column(
+        EchoGlassBackground(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
-                .background(Color.White)
+                .padding(paddingValues),
+            textureAlpha = 0.12f
         ) {
-            HomeDashboardHeader(
-                onNavigateToSettings = onNavigateToSettings,
-                onNavigateToStats = onNavigateToStats
-            )
+            Column(modifier = Modifier.fillMaxSize()) {
+                HomeDashboardHeader(
+                    onNavigateToSettings = onNavigateToSettings,
+                    onNavigateToStats = onNavigateToStats
+                )
 
             HomeSearchRow(
                 searchQuery = searchQuery,
@@ -332,6 +335,7 @@ fun HomeScreen(
                     )
                 }
             }
+            }
         }
     }
 
@@ -448,7 +452,6 @@ fun HomeDashboardHeader(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color.White)
             .padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 10.dp)
     ) {
         Row(
@@ -465,7 +468,7 @@ fun HomeDashboardHeader(
                 onClick = onNavigateToSettings,
                 modifier = Modifier.size(42.dp),
                 colors = IconButtonDefaults.filledTonalIconButtonColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f),
                     contentColor = MaterialTheme.colorScheme.onSurface
                 )
             ) {
@@ -636,13 +639,14 @@ private fun HomeSearchRow(
             .padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Surface(
+        GlassSurface(
             modifier = Modifier
                 .weight(1f)
                 .height(46.dp),
             shape = RoundedCornerShape(22.dp),
-            color = Color.White,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.68f),
+            borderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.62f),
+            shadowElevation = 3.dp
         ) {
             Row(
                 modifier = Modifier
@@ -702,7 +706,7 @@ private fun HomeSearchRow(
             onClick = onNavigateToHistory,
             modifier = Modifier.size(40.dp),
             colors = IconButtonDefaults.filledTonalIconButtonColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f),
                 contentColor = MaterialTheme.colorScheme.onSurface
             )
         ) {
@@ -1250,7 +1254,7 @@ fun ConversationCard(
     var showMoveToFolderDialog by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
 
-    Card(
+    GlassSurface(
         modifier = Modifier
             .fillMaxWidth()
             .combinedClickable(
@@ -1259,18 +1263,17 @@ fun ConversationCard(
                 onLongClickLabel = "多选对话"
             ),
         shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (selected) {
-                HomeSelectedChipColor
-            } else {
-                Color(0xFFFBFEFD)
-            }
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        border = BorderStroke(
-            width = if (selected) 1.5.dp else 1.dp,
-            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
-        )
+        color = if (selected) {
+            HomeSelectedChipColor.copy(alpha = 0.78f)
+        } else {
+            MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)
+        },
+        borderColor = if (selected) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.72f)
+        } else {
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.56f)
+        },
+        shadowElevation = if (selected) 8.dp else 5.dp
     ) {
         Row(
             modifier = Modifier
