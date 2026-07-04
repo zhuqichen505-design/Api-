@@ -29,6 +29,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 
 @Composable
@@ -254,7 +255,7 @@ private fun parseMarkdownTable(lines: List<String>, startIndex: Int): MarkdownTa
     while (index < lines.size) {
         val line = lines[index].trim()
         if (!line.startsWith("|") || !line.endsWith("|")) break
-        rows += splitTableRow(line)
+        rows += normalizeTableCells(splitTableRow(line), headers.size)
         index++
     }
 
@@ -271,11 +272,50 @@ private fun isMarkdownTableDivider(line: String): Boolean {
 }
 
 private fun splitTableRow(line: String): List<String> {
-    return line.trim()
+    val trimmed = line.trim()
+    val content = trimmed
         .removePrefix("|")
         .removeSuffix("|")
-        .split("|")
-        .map { it.trim() }
+    val cells = mutableListOf<String>()
+    val current = StringBuilder()
+    var inCodeSpan = false
+    var index = 0
+
+    while (index < content.length) {
+        val char = content[index]
+        val next = content.getOrNull(index + 1)
+        when {
+            char == '\\' && next == '|' -> {
+                current.append('|')
+                index += 2
+            }
+            char == '`' -> {
+                inCodeSpan = !inCodeSpan
+                current.append(char)
+                index++
+            }
+            char == '|' && !inCodeSpan -> {
+                cells += current.toString().trim()
+                current.clear()
+                index++
+            }
+            else -> {
+                current.append(char)
+                index++
+            }
+        }
+    }
+    cells += current.toString().trim()
+    return cells
+}
+
+private fun normalizeTableCells(cells: List<String>, columnCount: Int): List<String> {
+    if (columnCount <= 0) return cells
+    return when {
+        cells.size == columnCount -> cells
+        cells.size < columnCount -> cells + List(columnCount - cells.size) { "" }
+        else -> cells.take(columnCount - 1) + cells.drop(columnCount - 1).joinToString(" | ")
+    }
 }
 
 @Composable
@@ -339,15 +379,27 @@ private fun ScrollableMarkdownTable(
     color: androidx.compose.ui.graphics.Color
 ) {
     val scrollState = rememberScrollState()
+    val rows = remember(table) {
+        table.rows.map { normalizeTableCells(it, table.headers.size) }
+    }
+    val columnWidths = remember(table) {
+        table.headers.indices.map { index ->
+            val maxLength = (listOf(table.headers) + rows)
+                .map { it.getOrNull(index).orEmpty().length }
+                .maxOrNull()
+                ?: 0
+            (maxLength * 7 + 52).dp.coerceIn(112.dp, 260.dp)
+        }
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 6.dp)
             .horizontalScroll(scrollState)
     ) {
-        TableRow(cells = table.headers, color = color, isHeader = true)
-        table.rows.forEach { row ->
-            TableRow(cells = table.headers.mapIndexed { index, _ -> row.getOrNull(index).orEmpty() }, color = color)
+        TableRow(cells = table.headers, columnWidths = columnWidths, color = color, isHeader = true)
+        rows.forEach { row ->
+            TableRow(cells = row, columnWidths = columnWidths, color = color)
         }
     }
 }
@@ -355,14 +407,15 @@ private fun ScrollableMarkdownTable(
 @Composable
 private fun TableRow(
     cells: List<String>,
+    columnWidths: List<Dp>,
     color: androidx.compose.ui.graphics.Color,
     isHeader: Boolean = false
 ) {
-    Row {
-        cells.forEach { cell ->
+    Row(modifier = Modifier.width(columnWidths.fold(0.dp) { total, width -> total + width })) {
+        cells.forEachIndexed { index, cell ->
             Surface(
                 modifier = Modifier
-                    .widthIn(min = 112.dp, max = 220.dp)
+                    .width(columnWidths.getOrElse(index) { 140.dp })
                     .heightIn(min = 42.dp),
                 color = if (isHeader) {
                     MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)

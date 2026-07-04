@@ -51,7 +51,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
     val tempSettings: StateFlow<TempChatSettings> = _tempSettings.asStateFlow()
 
     // 是否使用临时设置
-    private val _useTempSettings = MutableStateFlow(false)
+    private val _useTempSettings = MutableStateFlow(true)
     val useTempSettings: StateFlow<Boolean> = _useTempSettings.asStateFlow()
 
     // 提示词模板列表
@@ -97,8 +97,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                         enableWebSearch = conv.enableWebSearch ?: apiConfig?.enableWebSearch ?: false
                     )
                     // 如果对话有自定义配置，自动启用临时设置
-                    _useTempSettings.value = conv.temperature != null || conv.maxTokens != null ||
-                            conv.topP != null || conv.enableThinking != null || conv.enableWebSearch != null
+                    _useTempSettings.value = true
                 }
                 _uiState.update {
                     it.copy(

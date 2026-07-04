@@ -1,4 +1,4 @@
-@file:OptIn(ExperimentalMaterial3Api::class)
+@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 
 package com.aiassistant.ui.screens.chat
 
@@ -7,6 +7,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -27,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -34,6 +36,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -53,6 +56,7 @@ import com.aiassistant.ui.components.echoHazeSource
 import com.aiassistant.ui.components.rememberEchoHazeState
 import com.aiassistant.ui.components.rememberLazyListControlsVisible
 import com.aiassistant.utils.AvatarManager
+import com.aiassistant.utils.BackgroundImageManager
 import com.aiassistant.utils.FileUtils
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -65,6 +69,9 @@ fun ChatScreen(
     onNavigateBack: () -> Unit
 ) {
     val context = LocalContext.current
+    val chatBackgroundBitmap = remember(context) {
+        BackgroundImageManager.getChatBackgroundBitmap(context)
+    }
     val scope = rememberCoroutineScope()
     val viewModel: ChatViewModel = viewModel(
         factory = ChatViewModel.factory(conversationId)
@@ -79,7 +86,6 @@ fun ChatScreen(
     val currentModel by viewModel.currentModel.collectAsState()
     val currentModelOption by viewModel.currentModelOption.collectAsState()
     val tempSettings by viewModel.tempSettings.collectAsState()
-    val useTempSettings by viewModel.useTempSettings.collectAsState()
     val contextUsage by viewModel.contextUsage.collectAsState()
 
     val hazeState = rememberEchoHazeState()
@@ -89,7 +95,6 @@ fun ChatScreen(
     val promptTemplates by viewModel.promptTemplates.collectAsState()
 
     var inputText by remember { mutableStateOf("") }
-    var showSystemPromptDialog by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
     var showContextUsageDialog by remember { mutableStateOf(false) }
     var selectedAttachments by remember { mutableStateOf<List<Attachment>>(emptyList()) }
@@ -215,12 +220,7 @@ fun ChatScreen(
                     title = {
                         ChatHeaderTitle(
                             title = uiState.conversationTitle.ifBlank { "新对话" },
-                            currentOption = currentModelOption,
-                            fallbackModel = currentModel ?: uiState.modelName,
-                            availableOptions = availableModelOptions,
-                            useTempSettings = useTempSettings,
-                            isGenerating = isGenerating,
-                            onModelSelected = { viewModel.switchModel(it) }
+                            isGenerating = isGenerating
                         )
                     },
                     navigationIcon = {
@@ -241,11 +241,8 @@ fun ChatScreen(
                             Icon(
                                 Icons.Default.Tune,
                                 contentDescription = "对话设置",
-                                tint = if (useTempSettings) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                        }
-                        IconButton(onClick = { showSystemPromptDialog = true }) {
-                            Icon(Icons.Default.Psychology, contentDescription = "系统提示词")
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
@@ -294,10 +291,6 @@ fun ChatScreen(
                 },
                 isProcessingAttachments = isProcessingAttachments,
                 attachmentStatus = attachmentStatus,
-                onClearAttachments = {
-                    selectedAttachments = emptyList()
-                    attachmentStatus = null
-                },
                 onPickFile = { filePickerLauncher.launch(arrayOf("*/*")) },
                 onPickImage = { imagePickerLauncher.launch(arrayOf("image/*")) },
                 onOcrImages = {
@@ -307,11 +300,7 @@ fun ChatScreen(
                 enableWebSearch = tempSettings.enableWebSearch,
                 onWebSearchChange = { enabled ->
                     viewModel.updateTempSettings(tempSettings.copy(enableWebSearch = enabled))
-                },
-                currentOption = currentModelOption,
-                fallbackModel = currentModel ?: uiState.modelName,
-                availableOptions = availableModelOptions,
-                onModelSelected = { viewModel.switchModel(it) }
+                }
             )
         }
     ) { paddingValues ->
@@ -321,6 +310,14 @@ fun ChatScreen(
                 .background(MaterialTheme.colorScheme.background)
                 .echoHazeSource(hazeState)
         ) {
+            chatBackgroundBitmap?.let { bitmap ->
+                Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            }
             Column(modifier = Modifier.fillMaxSize()) {
                 // 错误提示
                 error?.let { errorMsg ->
@@ -384,6 +381,7 @@ fun ChatScreen(
                         Column(modifier = Modifier.fillMaxWidth()) {
                             MessageBubble(
                                 message = message,
+                                hazeState = hazeState,
                                 assistantAvatarRevision = modelAvatarRevision,
                                 assistantApiConfigId = currentModelOption?.apiConfigId,
                                 variantInfo = displayItem.variantInfo,
@@ -439,6 +437,7 @@ fun ChatScreen(
                                         thinkingContent = currentThinking.ifEmpty { null },
                                         variantGroupId = streamingBranchGroupId
                                     ),
+                                    hazeState = hazeState,
                                     isGenerating = true,
                                     assistantAvatarRevision = modelAvatarRevision,
                                     assistantApiConfigId = currentModelOption?.apiConfigId,
@@ -463,6 +462,7 @@ fun ChatScreen(
                                     content = currentResponse,
                                     thinkingContent = currentThinking.ifEmpty { null }
                                 ),
+                                hazeState = hazeState,
                                 isGenerating = true,
                                 assistantAvatarRevision = modelAvatarRevision,
                                 assistantApiConfigId = currentModelOption?.apiConfigId,
@@ -553,42 +553,32 @@ fun ChatScreen(
                 },
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(end = 18.dp, bottom = 18.dp)
+                    .padding(
+                        end = 18.dp,
+                        bottom = paddingValues.calculateBottomPadding() + 18.dp
+                    )
             )
         }
-    }
-
-    // 系统提示词对话框
-    if (showSystemPromptDialog) {
-        SystemPromptDialog(
-            currentPrompt = uiState.systemPrompt,
-            onDismiss = { showSystemPromptDialog = false },
-            onSave = { prompt ->
-                viewModel.updateSystemPrompt(prompt)
-                showSystemPromptDialog = false
-            },
-            onSaveAsTemplate = { name, content ->
-                viewModel.savePromptTemplate(name, content)
-            },
-            templates = promptTemplates
-        )
     }
 
     // 设置对话框
     if (showSettingsDialog) {
         ChatSettingsDialog(
             tempSettings = tempSettings,
-            useTempSettings = useTempSettings,
+            currentPrompt = uiState.systemPrompt,
             currentOption = currentModelOption,
             fallbackModel = currentModel ?: uiState.modelName,
+            availableOptions = availableModelOptions,
+            templates = promptTemplates,
             onDismiss = { showSettingsDialog = false },
-            onSave = { settings, enabled ->
-                if (enabled) {
-                    viewModel.updateTempSettings(settings)
-                } else {
-                    viewModel.toggleTempSettings(false)
-                }
+            onSave = { settings, prompt ->
+                viewModel.updateTempSettings(settings)
+                viewModel.updateSystemPrompt(prompt)
                 showSettingsDialog = false
+            },
+            onModelSelected = { viewModel.switchModel(it) },
+            onSavePromptTemplate = { name, content ->
+                viewModel.savePromptTemplate(name, content)
             },
             onModelAvatarChanged = { modelAvatarRevision++ }
         )
@@ -667,41 +657,59 @@ private fun ContextUsageButton(
 ) {
     val usagePercent = usage?.usagePercent ?: 0f
     val accent = contextUsageColor(usagePercent)
-    val percentText = usage?.let { "${(usagePercent * 100).toInt().coerceIn(0, 999)}%" } ?: "--%"
 
     Surface(
         modifier = Modifier
-            .height(36.dp)
+            .size(40.dp)
             .padding(end = 4.dp)
-            .clip(RoundedCornerShape(18.dp))
+            .clip(CircleShape)
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(18.dp),
+        shape = CircleShape,
         color = accent.copy(alpha = 0.12f),
         contentColor = accent
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp)
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
         ) {
-            Icon(
-                Icons.Default.Memory,
-                contentDescription = null,
-                modifier = Modifier.size(17.dp)
-            )
-            Text(
-                text = percentText,
-                style = MaterialTheme.typography.labelMedium,
-                maxLines = 1
+            ContextUsageRing(
+                progress = usagePercent,
+                color = accent,
+                modifier = Modifier.size(24.dp)
             )
             if (canCompress) {
                 Box(
                     modifier = Modifier
                         .size(6.dp)
+                        .align(Alignment.TopEnd)
+                        .offset(x = (-6).dp, y = 6.dp)
                         .background(MaterialTheme.colorScheme.error, CircleShape)
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun ContextUsageRing(
+    progress: Float,
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    val trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.48f)
+    Canvas(modifier = modifier) {
+        val strokeWidth = 3.5.dp.toPx()
+        drawCircle(
+            color = trackColor,
+            style = Stroke(width = strokeWidth)
+        )
+        drawArc(
+            color = color,
+            startAngle = -90f,
+            sweepAngle = progress.coerceIn(0f, 1f) * 360f,
+            useCenter = false,
+            style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+        )
     }
 }
 
@@ -734,7 +742,7 @@ private fun ContextUsageDialog(
                 Column(modifier = Modifier.weight(1f)) {
                     Text("上下文使用情况", style = MaterialTheme.typography.titleLarge)
                     Text(
-                        text = "当前对话的预算估算",
+                        text = "当前模型窗口、上下文预算与压缩状态",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -805,6 +813,7 @@ private fun ContextUsageDialog(
             }
         }
     )
+
 }
 
 @Composable
@@ -812,6 +821,7 @@ private fun ContextUsageOverview(usage: ConversationContextUsage) {
     val progress = usage.usagePercent.coerceIn(0f, 1f)
     val accent = contextUsageColor(progress)
     val percentText = "${(progress * 100).toInt().coerceIn(0, 100)}%"
+    val contextLimit = usage.contextWindowTokens.takeIf { it > 0 } ?: usage.promptBudgetTokens
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
@@ -820,11 +830,11 @@ private fun ContextUsageOverview(usage: ConversationContextUsage) {
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "输入预算",
+                    text = "最大上下文限制",
                     style = MaterialTheme.typography.titleSmall
                 )
                 Text(
-                    text = "${formatTokenCount(usage.estimatedInputTokens)} / ${formatTokenCount(usage.promptBudgetTokens)} tokens",
+                    text = "${formatTokenCount(usage.estimatedInputTokens)} / ${formatTokenCount(contextLimit)} tokens",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -857,6 +867,10 @@ private fun ContextUsageDetails(usage: ConversationContextUsage) {
             modifier = Modifier.padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            ContextUsageRow(
+                label = "可用输入预算",
+                value = "${formatTokenCount(usage.promptBudgetTokens)} tokens"
+            )
             ContextUsageRow(
                 label = "近期原文",
                 value = "${usage.recentMessageCount} 条 · ${formatTokenCount(usage.recentTokens)} tokens"
@@ -971,12 +985,7 @@ private fun formatContextTimestamp(timestamp: Long): String {
 @Composable
 private fun ChatHeaderTitle(
     title: String,
-    currentOption: ChatModelOption?,
-    fallbackModel: String,
-    availableOptions: List<ChatModelOption>,
-    useTempSettings: Boolean,
-    isGenerating: Boolean,
-    onModelSelected: (ChatModelOption) -> Unit
+    isGenerating: Boolean
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -993,13 +1002,6 @@ private fun ChatHeaderTitle(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            if (useTempSettings) {
-                HeaderStatusChip(
-                    icon = Icons.Default.Tune,
-                    checked = true,
-                    text = "本对话配置"
-                )
-            }
             if (isGenerating) {
                 HeaderStatusChip(
                     icon = Icons.Default.Bolt,
@@ -1110,6 +1112,7 @@ private fun pairedVariantGroupId(groupId: String): String? {
 @Composable
 private fun MessageBubble(
     message: Message,
+    hazeState: dev.chrisbanes.haze.HazeState? = null,
     isGenerating: Boolean = false,
     assistantAvatarRevision: Int = 0,
     assistantApiConfigId: Long? = null,
@@ -1122,8 +1125,9 @@ private fun MessageBubble(
     onDelete: (() -> Unit)? = null
 ) {
     val isUser = message.role == "user"
-    val bubbleColor = if (isUser) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface
-    val textColor = if (isUser) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+    val userBubbleTint = Color(0xFFD9ECFF)
+    val bubbleColor = if (isUser) userBubbleTint.copy(alpha = 0.52f) else MaterialTheme.colorScheme.surface
+    val textColor = if (isUser) Color(0xFF111827) else MaterialTheme.colorScheme.onSurface
     val bubbleShape = if (isUser) {
         RoundedCornerShape(18.dp, 6.dp, 18.dp, 18.dp)
     } else {
@@ -1281,7 +1285,18 @@ private fun MessageBubble(
                 }
 
                 if (isUser && (message.content.isNotBlank() || isGenerating)) {
+                    val surfaceModifier = if (hazeState != null) {
+                        Modifier.echoHazePanel(
+                            hazeState = hazeState,
+                            shape = bubbleShape,
+                            tint = userBubbleTint.copy(alpha = 0.52f),
+                            blurRadius = 24.dp
+                        )
+                    } else {
+                        Modifier
+                    }
                     Surface(
+                        modifier = surfaceModifier,
                         color = bubbleColor,
                         contentColor = textColor,
                         shape = bubbleShape,
@@ -1296,12 +1311,12 @@ private fun MessageBubble(
                     }
                 }
 
-                Row(
+                FlowRow(
                     modifier = Modifier
                         .widthIn(max = bubbleMaxWidth)
                         .padding(top = 5.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
+                    horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
+                    verticalArrangement = Arrangement.Center
                 ) {
                     Text(
                         text = formatMessageClock(message.createdAt),
@@ -1626,16 +1641,11 @@ fun ChatInputBar(
     onRemoveAttachment: (Attachment) -> Unit,
     isProcessingAttachments: Boolean,
     attachmentStatus: String?,
-    onClearAttachments: () -> Unit,
     onPickFile: () -> Unit,
     onPickImage: () -> Unit,
     onOcrImages: () -> Unit,
     enableWebSearch: Boolean,
-    onWebSearchChange: (Boolean) -> Unit,
-    currentOption: ChatModelOption?,
-    fallbackModel: String,
-    availableOptions: List<ChatModelOption>,
-    onModelSelected: (ChatModelOption) -> Unit
+    onWebSearchChange: (Boolean) -> Unit
 ) {
     var showToolMenu by remember { mutableStateOf(false) }
     val inputShape = RoundedCornerShape(30.dp)
@@ -1727,14 +1737,6 @@ fun ChatInputBar(
                                 text = "智能搜索",
                                 selected = enableWebSearch,
                                 onClick = { onWebSearchChange(!enableWebSearch) }
-                            )
-                        }
-                        item {
-                            InputModelSelector(
-                                currentOption = currentOption,
-                                fallbackModel = fallbackModel,
-                                availableOptions = availableOptions,
-                                onModelSelected = onModelSelected
                             )
                         }
 
@@ -2620,13 +2622,128 @@ private fun chatTuningProfile(
 }
 
 @Composable
-fun ChatSettingsDialog(
-    tempSettings: TempChatSettings,
-    useTempSettings: Boolean,
+private fun ChatSettingsModelSelector(
     currentOption: ChatModelOption?,
     fallbackModel: String,
+    availableOptions: List<ChatModelOption>,
+    onModelSelected: (ChatModelOption) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val currentLabel = currentOption?.modelName ?: fallbackModel
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("模型", style = MaterialTheme.typography.titleSmall)
+        Box {
+            OutlinedButton(
+                onClick = { expanded = true },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
+            ) {
+                Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = currentLabel.ifBlank { "未选择模型" },
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+            }
+
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false }
+            ) {
+                if (availableOptions.isEmpty()) {
+                    DropdownMenuItem(
+                        text = { Text("暂无可切换模型") },
+                        onClick = { expanded = false }
+                    )
+                } else {
+                    availableOptions.forEach { option ->
+                        DropdownMenuItem(
+                            text = { ModelOptionText(option = option) },
+                            enabled = option.apiConfigId > 0,
+                            onClick = {
+                                onModelSelected(option)
+                                expanded = false
+                            },
+                            leadingIcon = {
+                                if (option.sameModelOption(currentOption, currentLabel)) {
+                                    Icon(
+                                        Icons.Default.Check,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChatSettingsSystemPromptSection(
+    promptText: String,
+    onPromptChange: (String) -> Unit,
+    hasTemplates: Boolean,
+    onChooseTemplate: () -> Unit,
+    onSaveTemplate: () -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("系统提示词", style = MaterialTheme.typography.titleSmall)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedButton(
+                onClick = onChooseTemplate,
+                enabled = hasTemplates,
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(Icons.Default.List, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("选择模板")
+            }
+            OutlinedButton(
+                onClick = onSaveTemplate,
+                enabled = promptText.isNotBlank(),
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("保存模板")
+            }
+        }
+        OutlinedTextField(
+            value = promptText,
+            onValueChange = onPromptChange,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 118.dp),
+            placeholder = { Text("例如：你是一个专业、简洁、可靠的助手。") },
+            maxLines = 8,
+            shape = RoundedCornerShape(14.dp)
+        )
+    }
+}
+
+@Composable
+fun ChatSettingsDialog(
+    tempSettings: TempChatSettings,
+    currentPrompt: String?,
+    currentOption: ChatModelOption?,
+    fallbackModel: String,
+    availableOptions: List<ChatModelOption>,
+    templates: List<PromptTemplate>,
     onDismiss: () -> Unit,
-    onSave: (TempChatSettings, Boolean) -> Unit,
+    onSave: (TempChatSettings, String?) -> Unit,
+    onModelSelected: (ChatModelOption) -> Unit,
+    onSavePromptTemplate: (String, String) -> Unit,
     onModelAvatarChanged: () -> Unit
 ) {
     val context = LocalContext.current
@@ -2635,8 +2752,22 @@ fun ChatSettingsDialog(
     var enableThinking by remember { mutableStateOf(tempSettings.enableThinking) }
     var thinkingEffort by remember { mutableStateOf(tempSettings.thinkingEffort) }
     var enableWebSearch by remember { mutableStateOf(tempSettings.enableWebSearch) }
-    var isEnabled by remember { mutableStateOf(useTempSettings) }
+    var promptText by remember(currentPrompt) { mutableStateOf(currentPrompt.orEmpty()) }
+    var showTemplates by remember { mutableStateOf(false) }
+    var showSaveDialog by remember { mutableStateOf(false) }
     var avatarRevision by remember { mutableIntStateOf(0) }
+    val modelOptions = remember(currentOption, fallbackModel, availableOptions) {
+        val fallback = currentOption ?: ChatModelOption(
+            apiConfigId = 0,
+            configName = "当前对话",
+            provider = "",
+            apiType = "",
+            modelName = fallbackModel
+        )
+        (availableOptions + fallback)
+            .filter { it.modelName.isNotBlank() }
+            .distinctBy { "${it.apiConfigId}:${it.modelName}" }
+    }
     val tuningProfile = remember(currentOption, fallbackModel, enableThinking) {
         chatTuningProfile(currentOption, fallbackModel, enableThinking)
     }
@@ -2678,15 +2809,11 @@ fun ChatSettingsDialog(
                 Column(modifier = Modifier.weight(1f)) {
                     Text("对话设置", style = MaterialTheme.typography.titleLarge)
                     Text(
-                        text = if (isEnabled) "当前对话配置生效" else "使用模型默认配置",
+                        text = "当前对话配置会直接生效",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                Switch(
-                    checked = isEnabled,
-                    onCheckedChange = { isEnabled = it }
-                )
             }
         },
         text = {
@@ -2702,6 +2829,25 @@ fun ChatSettingsDialog(
                         text = "这些设置仅对当前对话有效，不会影响全局配置",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                item {
+                    ChatSettingsModelSelector(
+                        currentOption = currentOption,
+                        fallbackModel = fallbackModel,
+                        availableOptions = modelOptions,
+                        onModelSelected = onModelSelected
+                    )
+                }
+
+                item {
+                    ChatSettingsSystemPromptSection(
+                        promptText = promptText,
+                        onPromptChange = { promptText = it },
+                        hasTemplates = templates.isNotEmpty(),
+                        onChooseTemplate = { showTemplates = true },
+                        onSaveTemplate = { showSaveDialog = true }
                     )
                 }
 
@@ -2724,7 +2870,7 @@ fun ChatSettingsDialog(
                             },
                             valueRange = 0f..tuningProfile.temperatureMax,
                             steps = (tuningProfile.temperatureMax * 20).toInt().coerceAtLeast(1) - 1,
-                            enabled = isEnabled && tuningProfile.temperatureEnabled
+                            enabled = tuningProfile.temperatureEnabled
                         )
                         if (!tuningProfile.temperatureEnabled) {
                             Text(
@@ -2751,8 +2897,7 @@ fun ChatSettingsDialog(
                         onValueChange = { maxTokens = it },
                         modifier = Modifier.fillMaxWidth(),
                         label = { Text("最大Token数") },
-                        singleLine = true,
-                        enabled = isEnabled
+                        singleLine = true
                     )
                 }
 
@@ -2768,8 +2913,7 @@ fun ChatSettingsDialog(
                                 topP = (newValue * 20).toInt() / 20f
                             },
                             valueRange = 0f..1f,
-                            steps = 19,
-                            enabled = isEnabled
+                            steps = 19
                         )
                     }
                 }
@@ -2795,8 +2939,7 @@ fun ChatSettingsDialog(
                         }
                         Switch(
                             checked = enableThinking,
-                            onCheckedChange = { enableThinking = it },
-                            enabled = isEnabled
+                            onCheckedChange = { enableThinking = it }
                         )
                     }
                 }
@@ -2821,8 +2964,7 @@ fun ChatSettingsDialog(
                         }
                         Switch(
                             checked = enableWebSearch,
-                            onCheckedChange = { enableWebSearch = it },
-                            enabled = isEnabled
+                            onCheckedChange = { enableWebSearch = it }
                         )
                     }
                 }
@@ -2840,8 +2982,7 @@ fun ChatSettingsDialog(
                                         onClick = { thinkingEffort = level.value },
                                         label = {
                                             Text(level.label)
-                                        },
-                                        enabled = isEnabled
+                                        }
                                     )
                                 }
                             }
@@ -2937,7 +3078,7 @@ fun ChatSettingsDialog(
                         thinkingEffort = thinkingEffort,
                         enableWebSearch = enableWebSearch
                     )
-                    onSave(settings, isEnabled)
+                    onSave(settings, promptText.ifBlank { null })
                 }
             ) {
                 Text("保存")
@@ -2949,4 +3090,26 @@ fun ChatSettingsDialog(
             }
         }
     )
+
+    if (showTemplates) {
+        TemplateListDialog(
+            templates = templates,
+            onDismiss = { showTemplates = false },
+            onSelect = { template ->
+                promptText = template.content
+                showTemplates = false
+            }
+        )
+    }
+
+    if (showSaveDialog) {
+        SaveTemplateDialog(
+            content = promptText,
+            onDismiss = { showSaveDialog = false },
+            onSave = { name, content ->
+                onSavePromptTemplate(name, content)
+                showSaveDialog = false
+            }
+        )
+    }
 }

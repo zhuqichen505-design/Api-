@@ -58,6 +58,7 @@ import com.aiassistant.ui.components.echoHazeSource
 import com.aiassistant.ui.components.rememberEchoHazeState
 import com.aiassistant.ui.components.rememberLazyListControlsVisible
 import com.aiassistant.utils.AvatarManager
+import com.aiassistant.utils.BackgroundImageManager
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -74,6 +75,10 @@ fun HomeScreen(
     onNavigateToStats: () -> Unit,
     onNavigateToFolders: () -> Unit
 ) {
+    val context = LocalContext.current
+    val homeBackgroundBitmap = remember(context) {
+        BackgroundImageManager.getHomeBackgroundBitmap(context)
+    }
     val viewModel: HomeViewModel = viewModel()
     val conversations by viewModel.conversations.collectAsState()
     val apiConfigs by viewModel.apiConfigs.collectAsState()
@@ -145,12 +150,21 @@ fun HomeScreen(
             }
         }
     ) { paddingValues ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
                 .background(Color.White)
         ) {
+            homeBackgroundBitmap?.let { bitmap ->
+                Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            }
+            Column(modifier = Modifier.fillMaxSize()) {
             HomeDashboardHeader(
                 onNavigateToSettings = onNavigateToSettings,
                 onNavigateToStats = onNavigateToStats
@@ -174,7 +188,7 @@ fun HomeScreen(
             AnimatedVisibility(visible = isSelectionMode) {
                 BatchSelectionBar(
                     selectedCount = selectedConversationIds.size,
-                    moveActionText = if (selectedAreAllInFolders) "移出文件夹" else "移入文件夹",
+                    moveActionText = if (selectedAreAllInFolders) "\u79fb\u51fa\u6587\u4ef6\u5939" else "\u79fb\u5165\u6587\u4ef6\u5939",
                     onClearSelection = { selectedConversationIds = emptySet() },
                     onPinSelected = {
                         viewModel.setPinned(selectedConversationIds, true)
@@ -341,6 +355,7 @@ fun HomeScreen(
                 }
             }
         }
+    }
     }
 
     if (showBatchMoveDialog) {

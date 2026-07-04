@@ -253,6 +253,7 @@ data class ChatRequestOptions(
 )
 
 data class ConversationContextUsage(
+    val contextWindowTokens: Int = 0,
     val promptBudgetTokens: Int = 0,
     val estimatedInputTokens: Int = 0,
     val usagePercent: Float = 0f,

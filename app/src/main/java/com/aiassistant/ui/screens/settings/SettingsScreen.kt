@@ -33,6 +33,7 @@ import com.aiassistant.domain.model.Conversation
 import com.aiassistant.domain.model.EnvironmentVariable
 import com.aiassistant.domain.model.PromptTemplate
 import com.aiassistant.utils.AvatarManager
+import com.aiassistant.utils.BackgroundImageManager
 import com.aiassistant.utils.BackupManager
 import com.aiassistant.utils.HiddenConversationLock
 import com.aiassistant.utils.TavilySearchSettings
@@ -55,8 +56,13 @@ private val CurrentFeatureHighlights = listOf(
     "自定义用户头像与模型头像"
 )
 
-private const val CurrentVersionUserUpdates =
-    "上下文用量查看、主动压缩上下文、对话导航显隐优化、使用统计图标调整"
+private val CurrentVersionUserUpdates = listOf(
+    "对话页上下文使用情况改为圆环状态入口，并保留主动压缩能力",
+    "模型切换和系统提示词统一移入对话设置，输入栏更清爽",
+    "支持分别自定义首页和对话页图片背景",
+    "用户消息气泡改为淡蓝色磨砂样式，滚动到顶/到底按钮避让输入框",
+    "优化 Markdown 表格列对齐，减少回复表格错列"
+)
 
 @Composable
 fun SettingsScreen(
@@ -600,6 +606,7 @@ fun GlobalPromptTab(modifier: Modifier = Modifier) {
 
 @Composable
 fun PersonalizationTab(modifier: Modifier = Modifier) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val manager = AiAssistantApp.instance.personalizationManager
     var settings by remember { mutableStateOf(manager.getSettings()) }
     var instruction by remember(settings) {
@@ -615,6 +622,31 @@ fun PersonalizationTab(modifier: Modifier = Modifier) {
         )
     }
     var savedMessage by remember { mutableStateOf<String?>(null) }
+    var backgroundRevision by remember { mutableIntStateOf(0) }
+    val hasHomeBackground = remember(backgroundRevision) {
+        BackgroundImageManager.hasHomeBackground(context)
+    }
+    val hasChatBackground = remember(backgroundRevision) {
+        BackgroundImageManager.hasChatBackground(context)
+    }
+    val homeBackgroundPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let {
+            val saved = BackgroundImageManager.saveHomeBackgroundFromUri(context, it)
+            backgroundRevision++
+            savedMessage = if (saved) "已设置首页背景" else "背景保存失败，请重试"
+        }
+    }
+    val chatBackgroundPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let {
+            val saved = BackgroundImageManager.saveChatBackgroundFromUri(context, it)
+            backgroundRevision++
+            savedMessage = if (saved) "已设置对话页背景" else "背景保存失败，请重试"
+        }
+    }
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
@@ -668,6 +700,56 @@ fun PersonalizationTab(modifier: Modifier = Modifier) {
             }
         }
 
+        item {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.Image,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("界面背景", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                "可分别为首页和对话页设置自定义图片背景，未设置时保持原有纯色背景。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    BackgroundPickerRow(
+                        title = "首页背景",
+                        hasImage = hasHomeBackground,
+                        onPick = { homeBackgroundPicker.launch("image/*") },
+                        onClear = {
+                            BackgroundImageManager.deleteHomeBackground(context)
+                            backgroundRevision++
+                            savedMessage = "已恢复首页默认背景"
+                        }
+                    )
+                    BackgroundPickerRow(
+                        title = "对话页背景",
+                        hasImage = hasChatBackground,
+                        onPick = { chatBackgroundPicker.launch("image/*") },
+                        onClear = {
+                            BackgroundImageManager.deleteChatBackground(context)
+                            backgroundRevision++
+                            savedMessage = "已恢复对话页默认背景"
+                        }
+                    )
+                }
+            }
+        }
+
         savedMessage?.let { message ->
             item {
                 Card(
@@ -704,6 +786,48 @@ fun PersonalizationTab(modifier: Modifier = Modifier) {
                 Icon(Icons.Default.Save, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("保存")
+            }
+        }
+    }
+}
+
+@Composable
+private fun BackgroundPickerRow(
+    title: String,
+    hasImage: Boolean,
+    onPick: () -> Unit,
+    onClear: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Icon(
+                if (hasImage) Icons.Default.CheckCircle else Icons.Default.Wallpaper,
+                contentDescription = null,
+                tint = if (hasImage) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    text = if (hasImage) "已使用自定义图片" else "使用默认纯色背景",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            TextButton(onClick = onPick) {
+                Text(if (hasImage) "更换" else "选择")
+            }
+            if (hasImage) {
+                TextButton(onClick = onClear) {
+                    Text("恢复")
+                }
             }
         }
     }
@@ -1376,6 +1500,28 @@ fun AboutTab(modifier: Modifier = Modifier) {
                         text = "Echo",
                         style = MaterialTheme.typography.headlineMedium
                     )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "版本 ${BuildConfig.VERSION_NAME}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+
+        // 本次更新
+        item {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "本次更新",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    CurrentVersionUserUpdates.forEach { update ->
+                        FeatureItem(update)
+                    }
                 }
             }
         }
@@ -1392,12 +1538,6 @@ fun AboutTab(modifier: Modifier = Modifier) {
                     CurrentFeatureHighlights.forEach { feature ->
                         FeatureItem(feature)
                     }
-                    Divider(modifier = Modifier.padding(vertical = 12.dp))
-                    Text(
-                        text = "Echo 版本 ${BuildConfig.VERSION_NAME} · 本次更新：$CurrentVersionUserUpdates",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
                 }
             }
         }

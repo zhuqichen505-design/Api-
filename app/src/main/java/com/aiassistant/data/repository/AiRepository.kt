@@ -1228,6 +1228,7 @@ class AiRepository(
             (message.role == "user" || message.role == "assistant") && message.content.isNotBlank()
         }
 
+        val contextWindow = estimateModelContextWindowTokens(modelName)
         val promptBudget = estimatePromptBudgetTokens(modelName, maxOutputTokens)
         val summaryBudget = (promptBudget * SUMMARY_BUDGET_RATIO).toInt().coerceIn(600, 1_800)
         val memoryBudget = (promptBudget * MEMORY_BUDGET_RATIO).toInt().coerceIn(300, 1_200)
@@ -1269,6 +1270,7 @@ class AiRepository(
         val canCompress = lastOlderMessageId != null && summarizedThrough < lastOlderMessageId
 
         return ConversationContextUsage(
+            contextWindowTokens = contextWindow,
             promptBudgetTokens = promptBudget,
             estimatedInputTokens = estimatedInputTokens,
             usagePercent = (estimatedInputTokens / promptBudget.toFloat()).coerceIn(0f, 1f),
@@ -1346,12 +1348,29 @@ class AiRepository(
 
     private fun estimateModelContextWindowTokens(modelName: String): Int {
         val name = modelName.lowercase()
+        val explicitLimit = Regex("""(?<!\d)(\d+(?:\.\d+)?)\s*(m|k)(?![a-z])""")
+            .find(name)
+            ?.let { match ->
+                val number = match.groupValues[1].toFloatOrNull() ?: return@let null
+                val multiplier = when (match.groupValues[2]) {
+                    "m" -> 1_000_000
+                    else -> 1_000
+                }
+                (number * multiplier).toInt()
+            }
+        if (explicitLimit != null) {
+            return explicitLimit.coerceIn(4_000, 2_000_000)
+        }
         return when {
-            name.contains("gemini") -> 128_000
-            name.contains("claude") -> 128_000
+            name.contains("gemini") -> 1_000_000
+            name.contains("claude") -> 200_000
             name.contains("gpt-4.1") || name.contains("gpt-4o") || name.contains("gpt-5") -> 128_000
+            name.contains("qwen-long") || name.contains("qwen-max-long") -> 1_000_000
+            name.contains("qwen") && (name.contains("max") || name.contains("long")) -> 128_000
             name.contains("qwen") || name.contains("glm") -> 64_000
             name.contains("deepseek") || name.contains("reasoner") -> 64_000
+            name.contains("kimi") -> 128_000
+            name.contains("mimo") -> 32_000
             else -> 32_000
         }
     }
