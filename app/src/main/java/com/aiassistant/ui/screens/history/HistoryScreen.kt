@@ -26,6 +26,10 @@ import com.aiassistant.domain.model.Conversation
 import com.aiassistant.domain.model.Message
 import com.aiassistant.ui.components.EchoGlassPagePanelShape
 import com.aiassistant.ui.components.EchoWallpaperBackground
+import com.aiassistant.ui.components.echoFilterChipBorder
+import com.aiassistant.ui.components.echoFilterChipColors
+import com.aiassistant.ui.components.echoFilterChipElevation
+import com.aiassistant.ui.components.echoGlassPalette
 import com.aiassistant.ui.components.echoHazePanel
 import com.aiassistant.ui.components.echoShapeClick
 import com.aiassistant.ui.components.readableTextColorFor
@@ -38,7 +42,6 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 
-private const val HistoryGlassPanelAlpha = 0.72f
 private const val HistoryGlassInnerAlpha = 0.58f
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -148,7 +151,7 @@ fun HistoryScreen(
                     .padding(paddingValues)
             ) {
             // 搜索栏
-            val searchTint = MaterialTheme.colorScheme.surface.copy(alpha = HistoryGlassPanelAlpha)
+            val searchTint = echoGlassPalette().panelStrong
             val searchTextColor = readableTextColorFor(
                 background = searchTint,
                 fallbackSurface = readableBackdrop
@@ -337,7 +340,7 @@ fun HistoryConversationCard(
     val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
-    val cardTint = MaterialTheme.colorScheme.surface.copy(alpha = HistoryGlassPanelAlpha)
+    val cardTint = echoGlassPalette().panelStrong
     val content = readableTextColorFor(
         background = cardTint,
         fallbackSurface = readableBackdrop
@@ -585,14 +588,22 @@ fun ExportSingleDialog(
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val jsonSelected = selectedFormat == "json"
                     FilterChip(
-                        selected = selectedFormat == "json",
+                        selected = jsonSelected,
                         onClick = { selectedFormat = "json" },
+                        colors = echoFilterChipColors(),
+                        border = echoFilterChipBorder(jsonSelected),
+                        elevation = echoFilterChipElevation(),
                         label = { Text("JSON") }
                     )
+                    val markdownSelected = selectedFormat == "markdown"
                     FilterChip(
-                        selected = selectedFormat == "markdown",
+                        selected = markdownSelected,
                         onClick = { selectedFormat = "markdown" },
+                        colors = echoFilterChipColors(),
+                        border = echoFilterChipBorder(markdownSelected),
+                        elevation = echoFilterChipElevation(),
                         label = { Text("Markdown") }
                     )
                 }
@@ -758,7 +769,7 @@ fun SearchResultCard(
     onClick: () -> Unit
 ) {
     val dateFormat = remember { SimpleDateFormat("MM/dd HH:mm", Locale.getDefault()) }
-    val cardTint = MaterialTheme.colorScheme.surface.copy(alpha = HistoryGlassPanelAlpha)
+    val cardTint = echoGlassPalette().panelStrong
     val content = readableTextColorFor(
         background = cardTint,
         fallbackSurface = readableBackdrop

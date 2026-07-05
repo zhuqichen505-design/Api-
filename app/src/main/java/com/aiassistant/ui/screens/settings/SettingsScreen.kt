@@ -1,4 +1,4 @@
-@file:OptIn(ExperimentalMaterial3Api::class)
+﻿@file:OptIn(ExperimentalMaterial3Api::class)
 
 package com.aiassistant.ui.screens.settings
 
@@ -33,6 +33,12 @@ import com.aiassistant.domain.model.Conversation
 import com.aiassistant.domain.model.EnvironmentVariable
 import com.aiassistant.domain.model.PromptTemplate
 import com.aiassistant.ui.components.EchoGlassDialog
+import com.aiassistant.ui.components.echoFilterChipBorder
+import com.aiassistant.ui.components.echoFilterChipColors
+import com.aiassistant.ui.components.echoFilterChipElevation
+import com.aiassistant.ui.components.echoGlassPalette
+import com.aiassistant.ui.components.echoSegmentedButtonBorder
+import com.aiassistant.ui.components.echoSegmentedButtonColors
 import com.aiassistant.ui.components.echoHazePanel
 import com.aiassistant.ui.components.echoHazeSource
 import com.aiassistant.ui.components.echoShapeClick
@@ -76,6 +82,43 @@ private val CurrentVersionUserUpdates = listOf(
 
 private val SettingsPanelShape = RoundedCornerShape(28.dp)
 private val SettingsInnerShape = RoundedCornerShape(22.dp)
+
+@Composable
+private fun SettingsGlassCard(
+    hazeState: dev.chrisbanes.haze.HazeState? = null,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val glass = echoGlassPalette()
+    val glassModifier = if (hazeState != null) {
+        modifier
+            .fillMaxWidth()
+            .echoHazePanel(
+                hazeState = hazeState,
+                shape = SettingsPanelShape,
+                tint = glass.panel,
+                blurRadius = 18.dp,
+                highlightAlpha = 0.025f
+            )
+    } else {
+        modifier.fillMaxWidth()
+    }
+    Surface(
+        modifier = glassModifier,
+        shape = SettingsPanelShape,
+        color = glass.panel,
+        contentColor = glass.textPrimary,
+        border = androidx.compose.foundation.BorderStroke(1.dp, glass.outline),
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            content = content
+        )
+    }
+}
 
 @Composable
 fun SettingsScreen(
@@ -142,12 +185,13 @@ fun SettingsScreen(
                     onThemeModeChange = onThemeModeChange,
                     onSectionSelected = { selectedSection = it }
                 )
-                "api_config" -> ApiConfigTab(modifier = Modifier.padding(paddingValues))
-                "web_search" -> WebSearchTab(modifier = Modifier.padding(paddingValues))
-                "personalization" -> PersonalizationTab(modifier = Modifier.padding(paddingValues))
-                "global_prompt" -> GlobalPromptTab(modifier = Modifier.padding(paddingValues))
-                "env_variables" -> EnvironmentVariablesTab(modifier = Modifier.padding(paddingValues))
+                "api_config" -> ApiConfigTab(hazeState = hazeState, modifier = Modifier.padding(paddingValues))
+                "web_search" -> WebSearchTab(hazeState = hazeState, modifier = Modifier.padding(paddingValues))
+                "personalization" -> PersonalizationTab(hazeState = hazeState, modifier = Modifier.padding(paddingValues))
+                "global_prompt" -> GlobalPromptTab(hazeState = hazeState, modifier = Modifier.padding(paddingValues))
+                "env_variables" -> EnvironmentVariablesTab(hazeState = hazeState, modifier = Modifier.padding(paddingValues))
                 "hidden_conversations" -> HiddenConversationsTab(
+                    hazeState = hazeState,
                     modifier = Modifier.padding(paddingValues),
                     onNavigateToChat = onNavigateToChat
                 )
@@ -155,7 +199,7 @@ fun SettingsScreen(
                     hazeState = hazeState,
                     modifier = Modifier.padding(paddingValues)
                 )
-                "about" -> AboutTab(modifier = Modifier.padding(paddingValues))
+                "about" -> AboutTab(hazeState = hazeState, modifier = Modifier.padding(paddingValues))
             }
         }
     }
@@ -268,11 +312,11 @@ private fun ThemeModeCard(
             .echoHazePanel(
                 hazeState = hazeState,
                 shape = SettingsPanelShape,
-                tint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f),
+                tint = echoGlassPalette().panel,
                 blurRadius = 18.dp
             ),
         shape = SettingsPanelShape,
-        color = Color.Transparent,
+        color = echoGlassPalette().panel,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
     ) {
@@ -305,7 +349,9 @@ private fun ThemeModeCard(
                         shape = SegmentedButtonDefaults.itemShape(
                             index = index,
                             count = AppThemeMode.entries.size
-                        )
+                        ),
+                        colors = echoSegmentedButtonColors(),
+                        border = echoSegmentedButtonBorder(selected == mode)
                     ) {
                         Text(mode.label)
                     }
@@ -330,12 +376,12 @@ fun SettingsMenuItem(
             .echoHazePanel(
                 hazeState = hazeState,
                 shape = itemShape,
-                tint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f),
+                tint = echoGlassPalette().panel,
                 blurRadius = 18.dp
             )
             .echoShapeClick(itemShape, onClick = onClick),
         shape = itemShape,
-        color = Color.Transparent,
+        color = echoGlassPalette().panel,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
     ) {
@@ -373,7 +419,10 @@ fun SettingsMenuItem(
 }
 
 @Composable
-fun ApiConfigTab(modifier: Modifier = Modifier) {
+fun ApiConfigTab(
+    hazeState: dev.chrisbanes.haze.HazeState,
+    modifier: Modifier = Modifier
+) {
     val repository = AiAssistantApp.instance.repository
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -398,6 +447,7 @@ fun ApiConfigTab(modifier: Modifier = Modifier) {
 
         items(configs) { config ->
             ApiConfigCard(
+                hazeState = hazeState,
                 config = config,
                 onEdit = { editingConfig = it },
                 onDelete = {
@@ -467,6 +517,7 @@ fun ApiConfigTab(modifier: Modifier = Modifier) {
 
 @Composable
 fun ApiConfigCard(
+    hazeState: dev.chrisbanes.haze.HazeState,
     config: ApiConfig,
     onEdit: (ApiConfig) -> Unit,
     onDelete: () -> Unit,
@@ -474,8 +525,7 @@ fun ApiConfigCard(
 ) {
     var showDeleteDialog by remember { mutableStateOf(false) }
 
-    Card(modifier = Modifier.fillMaxWidth(), shape = SettingsPanelShape) {
-        Column(modifier = Modifier.padding(16.dp)) {
+    SettingsGlassCard(hazeState = hazeState) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -536,7 +586,6 @@ fun ApiConfigCard(
                     }
                 }
             }
-        }
     }
 
     if (showDeleteDialog) {
@@ -567,7 +616,10 @@ fun ApiConfigCard(
 }
 
 @Composable
-fun WebSearchTab(modifier: Modifier = Modifier) {
+fun WebSearchTab(
+    hazeState: dev.chrisbanes.haze.HazeState,
+    modifier: Modifier = Modifier
+) {
     val manager = AiAssistantApp.instance.tavilySearchManager
     var settings by remember { mutableStateOf(manager.getSettings()) }
     var apiKey by remember(settings) { mutableStateOf(settings.apiKey) }
@@ -583,11 +635,7 @@ fun WebSearchTab(modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
-            Card(modifier = Modifier.fillMaxWidth(), shape = SettingsPanelShape) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
+            SettingsGlassCard(hazeState = hazeState) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -621,23 +669,22 @@ fun WebSearchTab(modifier: Modifier = Modifier) {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                }
             }
         }
 
         item {
-            Card(modifier = Modifier.fillMaxWidth(), shape = SettingsPanelShape) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
+            SettingsGlassCard(hazeState = hazeState) {
                     Text("搜索参数", style = MaterialTheme.typography.titleMedium)
 
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf("basic", "advanced").forEach { depth ->
+                            val selected = searchDepth == depth
                             FilterChip(
-                                selected = searchDepth == depth,
+                                selected = selected,
                                 onClick = { searchDepth = depth },
+                                colors = echoFilterChipColors(),
+                                border = echoFilterChipBorder(selected),
+                                elevation = echoFilterChipElevation(),
                                 label = { Text(if (depth == "basic") "基础" else "深入") }
                             )
                         }
@@ -664,7 +711,6 @@ fun WebSearchTab(modifier: Modifier = Modifier) {
                             onCheckedChange = { includeAnswer = it }
                         )
                     }
-                }
             }
         }
 
@@ -703,7 +749,10 @@ fun WebSearchTab(modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun GlobalPromptTab(modifier: Modifier = Modifier) {
+fun GlobalPromptTab(
+    hazeState: dev.chrisbanes.haze.HazeState,
+    modifier: Modifier = Modifier
+) {
     val repository = AiAssistantApp.instance.repository
     val scope = rememberCoroutineScope()
     val templates by repository.getAllPromptTemplates().collectAsState(initial = emptyList())
@@ -716,6 +765,7 @@ fun GlobalPromptTab(modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
+            SettingsGlassCard(hazeState = hazeState) {
             Text(
                 text = "全局系统提示词",
                 style = MaterialTheme.typography.titleMedium
@@ -725,6 +775,7 @@ fun GlobalPromptTab(modifier: Modifier = Modifier) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            }
         }
 
         item {
@@ -757,7 +808,10 @@ fun GlobalPromptTab(modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun PersonalizationTab(modifier: Modifier = Modifier) {
+fun PersonalizationTab(
+    hazeState: dev.chrisbanes.haze.HazeState,
+    modifier: Modifier = Modifier
+) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val manager = AiAssistantApp.instance.personalizationManager
     var settings by remember { mutableStateOf(manager.getSettings()) }
@@ -806,11 +860,7 @@ fun PersonalizationTab(modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
-            Card(modifier = Modifier.fillMaxWidth(), shape = SettingsPanelShape) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
+            SettingsGlassCard(hazeState = hazeState) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
@@ -848,16 +898,11 @@ fun PersonalizationTab(modifier: Modifier = Modifier) {
                         maxLines = 18,
                         shape = SettingsInnerShape
                     )
-                }
             }
         }
 
         item {
-            Card(modifier = Modifier.fillMaxWidth(), shape = SettingsPanelShape) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
+            SettingsGlassCard(hazeState = hazeState) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
@@ -898,7 +943,6 @@ fun PersonalizationTab(modifier: Modifier = Modifier) {
                             savedMessage = "已恢复对话页默认背景"
                         }
                     )
-                }
             }
         }
 
@@ -950,10 +994,13 @@ private fun BackgroundPickerRow(
     onPick: () -> Unit,
     onClear: () -> Unit
 ) {
+    val glass = echoGlassPalette()
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = SettingsInnerShape,
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+        color = glass.control,
+        contentColor = glass.textPrimary,
+        border = androidx.compose.foundation.BorderStroke(1.dp, glass.outline)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
@@ -1010,6 +1057,7 @@ private fun PersonalizationTextField(
 
 @Composable
 fun HiddenConversationsTab(
+    hazeState: dev.chrisbanes.haze.HazeState,
     modifier: Modifier = Modifier,
     onNavigateToChat: (Long) -> Unit
 ) {
@@ -1030,11 +1078,7 @@ fun HiddenConversationsTab(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
-            Card(modifier = Modifier.fillMaxWidth(), shape = SettingsPanelShape) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
+            SettingsGlassCard(hazeState = hazeState) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
                             Icons.Default.VisibilityOff,
@@ -1049,13 +1093,13 @@ fun HiddenConversationsTab(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                }
             }
         }
 
         if (!hasPassword) {
             item {
                 PinSetupCard(
+                    hazeState = hazeState,
                     pin = pin,
                     confirmPin = confirmPin,
                     message = message,
@@ -1080,6 +1124,7 @@ fun HiddenConversationsTab(
         } else if (!unlocked) {
             item {
                 PinVerifyCard(
+                    hazeState = hazeState,
                     pin = pin,
                     message = message,
                     onPinChange = { pin = it.onlySixDigits() },
@@ -1105,10 +1150,9 @@ fun HiddenConversationsTab(
 
             if (hiddenConversations.isEmpty()) {
                 item {
-                    Card(modifier = Modifier.fillMaxWidth(), shape = SettingsPanelShape) {
+                    SettingsGlassCard(hazeState = hazeState) {
                         Text(
                             text = "当前没有隐藏对话。",
-                            modifier = Modifier.padding(16.dp),
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -1116,6 +1160,7 @@ fun HiddenConversationsTab(
             } else {
                 items(hiddenConversations, key = { it.id }) { conversation ->
                     HiddenConversationCard(
+                        hazeState = hazeState,
                         conversation = conversation,
                         onOpen = { onNavigateToChat(conversation.id) },
                         onUnhide = {
@@ -1132,6 +1177,7 @@ fun HiddenConversationsTab(
 
 @Composable
 private fun PinSetupCard(
+    hazeState: dev.chrisbanes.haze.HazeState,
     pin: String,
     confirmPin: String,
     message: String?,
@@ -1139,11 +1185,7 @@ private fun PinSetupCard(
     onConfirmPinChange: (String) -> Unit,
     onSave: () -> Unit
 ) {
-    Card(modifier = Modifier.fillMaxWidth(), shape = SettingsPanelShape) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
+    SettingsGlassCard(hazeState = hazeState) {
             Text("首次使用请设置密码", style = MaterialTheme.typography.titleSmall)
             PinField(value = pin, onValueChange = onPinChange, label = "输入 6 位数字密码")
             PinField(value = confirmPin, onValueChange = onConfirmPinChange, label = "再次输入密码")
@@ -1157,22 +1199,17 @@ private fun PinSetupCard(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("设置并进入")
             }
-        }
     }
 }
-
 @Composable
 private fun PinVerifyCard(
+    hazeState: dev.chrisbanes.haze.HazeState,
     pin: String,
     message: String?,
     onPinChange: (String) -> Unit,
     onVerify: () -> Unit
 ) {
-    Card(modifier = Modifier.fillMaxWidth(), shape = SettingsPanelShape) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
+    SettingsGlassCard(hazeState = hazeState) {
             Text("输入密码", style = MaterialTheme.typography.titleSmall)
             PinField(value = pin, onValueChange = onPinChange, label = "6 位数字密码")
             HiddenLockMessage(message)
@@ -1185,7 +1222,6 @@ private fun PinVerifyCard(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("进入其他对话")
             }
-        }
     }
 }
 
@@ -1219,17 +1255,14 @@ private fun HiddenLockMessage(message: String?) {
 
 @Composable
 private fun HiddenConversationCard(
+    hazeState: dev.chrisbanes.haze.HazeState,
     conversation: Conversation,
     onOpen: () -> Unit,
     onUnhide: () -> Unit
 ) {
     val dateFormat = remember { SimpleDateFormat("MM/dd HH:mm", Locale.getDefault()) }
 
-    Card(modifier = Modifier.fillMaxWidth(), shape = SettingsPanelShape) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
+    SettingsGlassCard(hazeState = hazeState) {
             Text(
                 text = conversation.title.ifBlank { "未命名对话" },
                 style = MaterialTheme.typography.titleSmall
@@ -1256,7 +1289,6 @@ private fun HiddenConversationCard(
                     Text("进入")
                 }
             }
-        }
     }
 }
 
@@ -1265,7 +1297,10 @@ private fun String.onlySixDigits(): String {
 }
 
 @Composable
-fun EnvironmentVariablesTab(modifier: Modifier = Modifier) {
+fun EnvironmentVariablesTab(
+    hazeState: dev.chrisbanes.haze.HazeState,
+    modifier: Modifier = Modifier
+) {
     val repository = AiAssistantApp.instance.repository
     val scope = rememberCoroutineScope()
     val variables by repository.getAllEnvironmentVariables().collectAsState(initial = emptyList())
@@ -1278,6 +1313,7 @@ fun EnvironmentVariablesTab(modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         item {
+            SettingsGlassCard(hazeState = hazeState) {
             Text(
                 text = "环境变量",
                 style = MaterialTheme.typography.titleMedium
@@ -1287,12 +1323,13 @@ fun EnvironmentVariablesTab(modifier: Modifier = Modifier) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            }
         }
 
         items(variables) { variable ->
-            Card(modifier = Modifier.fillMaxWidth(), shape = SettingsPanelShape) {
+            SettingsGlassCard(hazeState = hazeState) {
                 Row(
-                    modifier = Modifier.padding(16.dp),
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
@@ -1386,11 +1423,11 @@ fun BackupTab(
                     .echoHazePanel(
                         hazeState = hazeState,
                         shape = SettingsPanelShape,
-                        tint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f),
+                        tint = echoGlassPalette().panel,
                         blurRadius = 18.dp
                     ),
                 shape = SettingsPanelShape,
-                color = Color.Transparent,
+                color = echoGlassPalette().panel,
                 tonalElevation = 0.dp,
                 shadowElevation = 0.dp
             ) {
@@ -1541,11 +1578,11 @@ fun BackupItemCard(
             .echoHazePanel(
                 hazeState = hazeState,
                 shape = SettingsPanelShape,
-                tint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f),
+                tint = echoGlassPalette().panel,
                 blurRadius = 18.dp
             ),
         shape = SettingsPanelShape,
-        color = Color.Transparent,
+        color = echoGlassPalette().panel,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
     ) {
@@ -1661,7 +1698,10 @@ fun BackupItemCard(
 }
 
 @Composable
-fun AboutTab(modifier: Modifier = Modifier) {
+fun AboutTab(
+    hazeState: dev.chrisbanes.haze.HazeState,
+    modifier: Modifier = Modifier
+) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var avatarBase64 by remember { mutableStateOf(AvatarManager.getAvatar(context)) }
 
@@ -1682,10 +1722,9 @@ fun AboutTab(modifier: Modifier = Modifier) {
     ) {
         // 用户头像设置
         item {
-            Card(modifier = Modifier.fillMaxWidth(), shape = SettingsPanelShape) {
+            SettingsGlassCard(hazeState = hazeState) {
                 Column(
                     modifier = Modifier
-                        .padding(16.dp)
                         .fillMaxWidth(),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
@@ -1746,10 +1785,9 @@ fun AboutTab(modifier: Modifier = Modifier) {
 
         // 应用信息
         item {
-            Card(modifier = Modifier.fillMaxWidth(), shape = SettingsPanelShape) {
+            SettingsGlassCard(hazeState = hazeState) {
                 Column(
                     modifier = Modifier
-                        .padding(16.dp)
                         .fillMaxWidth(),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
@@ -1778,8 +1816,8 @@ fun AboutTab(modifier: Modifier = Modifier) {
 
         // 本次更新
         item {
-            Card(modifier = Modifier.fillMaxWidth(), shape = SettingsPanelShape) {
-                Column(modifier = Modifier.padding(16.dp)) {
+            SettingsGlassCard(hazeState = hazeState) {
+                Column {
                     Text(
                         text = "本次更新",
                         style = MaterialTheme.typography.titleMedium
@@ -1794,8 +1832,8 @@ fun AboutTab(modifier: Modifier = Modifier) {
 
         // 功能特性
         item {
-            Card(modifier = Modifier.fillMaxWidth(), shape = SettingsPanelShape) {
-                Column(modifier = Modifier.padding(16.dp)) {
+            SettingsGlassCard(hazeState = hazeState) {
+                Column {
                     Text(
                         text = "功能特性",
                         style = MaterialTheme.typography.titleMedium
@@ -1962,14 +2000,22 @@ fun ApiConfigDialog(
                 item {
                     Text("API类型", style = MaterialTheme.typography.titleSmall)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        val openAiSelected = apiType == "openai"
                         FilterChip(
-                            selected = apiType == "openai",
+                            selected = openAiSelected,
                             onClick = { apiType = "openai" },
+                            colors = echoFilterChipColors(),
+                            border = echoFilterChipBorder(openAiSelected),
+                            elevation = echoFilterChipElevation(),
                             label = { Text("OpenAI") }
                         )
+                        val anthropicSelected = apiType == "anthropic"
                         FilterChip(
-                            selected = apiType == "anthropic",
+                            selected = anthropicSelected,
                             onClick = { apiType = "anthropic" },
+                            colors = echoFilterChipColors(),
+                            border = echoFilterChipBorder(anthropicSelected),
+                            elevation = echoFilterChipElevation(),
                             label = { Text("Anthropic") }
                         )
                     }

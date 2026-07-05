@@ -53,6 +53,12 @@ import com.aiassistant.ui.components.SideAnchorItem
 import com.aiassistant.ui.components.SideAnchorNavigator
 import com.aiassistant.ui.components.TransientLazyListScrollbar
 import com.aiassistant.ui.components.EchoGlassDialog
+import com.aiassistant.ui.components.echoFilterChipBorder
+import com.aiassistant.ui.components.echoFilterChipColors
+import com.aiassistant.ui.components.echoFilterChipElevation
+import com.aiassistant.ui.components.echoGlassPalette
+import com.aiassistant.ui.components.echoSegmentedButtonBorder
+import com.aiassistant.ui.components.echoSegmentedButtonColors
 import com.aiassistant.ui.components.echoShapeClick
 import com.aiassistant.ui.components.echoHazePanel
 import com.aiassistant.ui.components.echoHazeSource
@@ -67,7 +73,7 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
-private const val ChatGlassTintAlpha = 0.52f
+private const val ChatGlassTintAlpha = 0.86f
 private val ChatUserGlassTint = Color(0xFFD9ECFF)
 private val ThinkingContentBlue = Color(0xFF2563EB)
 
@@ -230,7 +236,8 @@ fun ChatScreen(
     Scaffold(
         topBar = {
             val toolbarShape = RoundedCornerShape(999.dp)
-            val chatGlassTint = ChatUserGlassTint.copy(alpha = ChatGlassTintAlpha)
+            val glass = echoGlassPalette()
+            val chatGlassTint = glass.input
             val toolbarContentColor = readableTextColorFor(
                 background = chatGlassTint,
                 fallbackSurface = readableBackdrops.top
@@ -246,7 +253,8 @@ fun ChatScreen(
                         hazeState = hazeState,
                         shape = toolbarShape,
                         tint = chatGlassTint,
-                        blurRadius = 32.dp
+                        blurRadius = 24.dp,
+                        highlightAlpha = 0.04f
                 ),
                 shape = toolbarShape,
                 color = chatGlassTint,
@@ -1114,12 +1122,12 @@ private fun MessageBubble(
     val resolvedReadableBackdrop = readableBackdrop.takeOrElse {
         MaterialTheme.colorScheme.background
     }
-    val userBubbleTint = ChatUserGlassTint
-    val userBubbleAlpha = ChatGlassTintAlpha
-    val bubbleColor = if (isUser) userBubbleTint.copy(alpha = userBubbleAlpha) else MaterialTheme.colorScheme.surface
+    val glass = echoGlassPalette()
+    val userBubbleTint = glass.userBubble
+    val bubbleColor = if (isUser) glass.userBubble else glass.assistantBubble
     val textBackground = if (isUser) bubbleColor else resolvedReadableBackdrop
     val textColor = readableTextColorFor(
-        background = textBackground,
+        background = if (isUser) textBackground else glass.panelStrong,
         fallbackSurface = resolvedReadableBackdrop
     )
     val bubbleShape = if (isUser) {
@@ -1158,11 +1166,11 @@ private fun MessageBubble(
             } else {
                 Modifier
                     .fillMaxWidth()
-                    .padding(top = 0.dp, bottom = 4.dp)
+                    .padding(horizontal = 14.dp, vertical = 12.dp)
             }
         ) {
-            val thinkingBubbleColor = userBubbleTint.copy(alpha = userBubbleAlpha)
-            val thinkingContentColor = ThinkingContentBlue
+            val thinkingBubbleColor = glass.controlSelected
+            val thinkingContentColor = MaterialTheme.colorScheme.primary
             if (hasThinking) {
                 val thinkingShape = RoundedCornerShape(18.dp)
                 val headerShape = RoundedCornerShape(14.dp)
@@ -1182,8 +1190,8 @@ private fun MessageBubble(
                                     hazeState = hazeState,
                                     shape = thinkingShape,
                                     tint = thinkingBubbleColor,
-                                    blurRadius = 18.dp,
-                                    highlightAlpha = 0.04f
+                                    blurRadius = 16.dp,
+                                    highlightAlpha = 0.03f
                                 )
                             } else {
                                 Modifier
@@ -1192,7 +1200,7 @@ private fun MessageBubble(
                     color = thinkingBubbleColor,
                     contentColor = thinkingContentColor,
                     shape = thinkingShape,
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.55f))
+                    border = BorderStroke(1.dp, glass.outlineSelected.copy(alpha = 0.72f))
                 ) {
                     Column(modifier = Modifier.padding(10.dp)) {
                         Row(
@@ -1340,8 +1348,8 @@ private fun MessageBubble(
                             hazeState = hazeState,
                             shape = bubbleShape,
                             tint = bubbleColor,
-                            blurRadius = 18.dp,
-                            highlightAlpha = 0.04f
+                            blurRadius = 16.dp,
+                            highlightAlpha = 0.03f
                         )
                     } else {
                         Modifier
@@ -1355,15 +1363,38 @@ private fun MessageBubble(
                         shadowElevation = 0.dp,
                         border = BorderStroke(
                             width = 1.dp,
-                            color = Color.White.copy(alpha = 0.55f)
+                            color = glass.outlineSelected
                         )
                     ) {
                         MessageContent(textColor)
                     }
-                } else {
-                    if (!isUser || message.content.isNotBlank() || isGenerating) {
+                } else if (!isUser && (message.content.isNotBlank() || isGenerating || hasThinking)) {
+                    val assistantBubbleModifier = if (hazeState != null) {
+                        Modifier
+                            .fillMaxWidth()
+                            .echoHazePanel(
+                                hazeState = hazeState,
+                                shape = bubbleShape,
+                                tint = bubbleColor,
+                                blurRadius = 14.dp,
+                                highlightAlpha = 0.025f
+                            )
+                    } else {
+                        Modifier.fillMaxWidth()
+                    }
+                    Surface(
+                        modifier = assistantBubbleModifier,
+                        color = bubbleColor,
+                        contentColor = textColor,
+                        shape = bubbleShape,
+                        tonalElevation = 0.dp,
+                        shadowElevation = 0.dp,
+                        border = BorderStroke(1.dp, glass.outline)
+                    ) {
                         MessageContent(textColor)
                     }
+                } else if (message.content.isNotBlank() || isGenerating) {
+                    MessageContent(textColor)
                 }
 
                 MessageFooter(
@@ -1751,7 +1782,8 @@ fun ChatInputBar(
     val resolvedReadableBackdrop = readableBackdrop.takeOrElse {
         MaterialTheme.colorScheme.background
     }
-    val inputTint = ChatUserGlassTint.copy(alpha = ChatGlassTintAlpha)
+    val glass = echoGlassPalette()
+    val inputTint = glass.input
     val inputTextColor = readableTextColorFor(
         background = inputTint,
         fallbackSurface = resolvedReadableBackdrop
@@ -1771,11 +1803,13 @@ fun ChatInputBar(
                     hazeState = hazeState,
                     shape = inputShape,
                     tint = inputTint,
-                    blurRadius = 18.dp,
-                    highlightAlpha = 0f
+                    blurRadius = 16.dp,
+                    highlightAlpha = 0.025f
             ),
             shape = inputShape,
             color = inputTint,
+            contentColor = inputTextColor,
+            border = BorderStroke(1.dp, glass.outline),
             tonalElevation = 0.dp,
             shadowElevation = 0.dp
         ) {
@@ -1851,9 +1885,9 @@ fun ChatInputBar(
                                 selected = enableWebSearch,
                                 onClick = { onWebSearchChange(!enableWebSearch) },
                                 containerColor = if (enableWebSearch) {
-                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
+                                    glass.controlSelected
                                 } else {
-                                    ChatUserGlassTint.copy(alpha = 0.38f)
+                                    glass.control
                                 },
                                 contentColor = if (enableWebSearch) {
                                     MaterialTheme.colorScheme.primary
@@ -1861,9 +1895,9 @@ fun ChatInputBar(
                                     inputTextColor
                                 },
                                 borderColor = if (enableWebSearch) {
-                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.62f)
+                                    glass.outlineSelected
                                 } else {
-                                    inputTextColor.copy(alpha = 0.18f)
+                                    glass.outline
                                 }
                             )
                         }
@@ -1872,7 +1906,7 @@ fun ChatInputBar(
                             item {
                                 Surface(
                                     shape = RoundedCornerShape(999.dp),
-                                    color = ChatUserGlassTint.copy(alpha = 0.42f),
+                                    color = glass.control,
                                     contentColor = inputTextColor,
                                     tonalElevation = 0.dp,
                                     shadowElevation = 0.dp
@@ -1899,9 +1933,9 @@ fun ChatInputBar(
                     }
 
                     val softButtonColors = IconButtonDefaults.filledTonalIconButtonColors(
-                        containerColor = ChatUserGlassTint.copy(alpha = 0.42f),
+                        containerColor = glass.control,
                         contentColor = MaterialTheme.colorScheme.primary,
-                        disabledContainerColor = ChatUserGlassTint.copy(alpha = 0.34f),
+                        disabledContainerColor = glass.control.copy(alpha = 0.52f),
                         disabledContentColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f)
                     )
 
@@ -1961,7 +1995,7 @@ fun ChatInputBar(
                             enabled = !isProcessingAttachments && (inputText.isNotBlank() || attachments.isNotEmpty()),
                             modifier = Modifier.size(40.dp),
                             colors = IconButtonDefaults.filledIconButtonColors(
-                                disabledContainerColor = ChatUserGlassTint.copy(alpha = 0.34f),
+                                disabledContainerColor = glass.control.copy(alpha = 0.52f),
                                 disabledContentColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f)
                             )
                         ) {
@@ -2068,12 +2102,13 @@ private fun InputPillButton(
     containerColor: Color? = null,
     contentColor: Color? = null,
     borderColor: Color? = null
-) {
-    val pillShape = RoundedCornerShape(999.dp)
+    ) {
+        val pillShape = RoundedCornerShape(999.dp)
+    val glass = echoGlassPalette()
     val resolvedContainerColor = containerColor ?: if (selected) {
-        MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+        glass.controlSelected
     } else {
-        MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+        glass.control
     }
     val resolvedContentColor = contentColor ?: if (selected) {
         MaterialTheme.colorScheme.primary
@@ -2090,7 +2125,7 @@ private fun InputPillButton(
         shape = pillShape,
         color = resolvedContainerColor,
         contentColor = resolvedContentColor,
-        border = borderColor?.let { BorderStroke(1.dp, it) }
+        border = BorderStroke(if (selected) 1.3.dp else 1.dp, borderColor ?: if (selected) glass.outlineSelected else glass.outline)
     ) {
         Text(
             text = text,
@@ -2136,7 +2171,8 @@ fun AttachmentPreview(
     val resolvedReadableBackdrop = readableBackdrop.takeOrElse {
         MaterialTheme.colorScheme.background
     }
-    val attachmentTint = ChatUserGlassTint.copy(alpha = ChatGlassTintAlpha)
+    val glass = echoGlassPalette()
+    val attachmentTint = glass.control
     val attachmentTextColor = readableTextColorFor(
         background = attachmentTint,
         fallbackSurface = resolvedReadableBackdrop
@@ -2144,8 +2180,9 @@ fun AttachmentPreview(
 
     Card(
         colors = CardDefaults.cardColors(
-            containerColor = ChatUserGlassTint.copy(alpha = 0.42f)
+            containerColor = attachmentTint
         ),
+        border = BorderStroke(1.dp, glass.outline),
         shape = RoundedCornerShape(8.dp)
     ) {
         Row(
@@ -2456,9 +2493,13 @@ fun SaveTemplateDialog(
                     Text("分类", style = MaterialTheme.typography.titleSmall)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf("general", "coding", "writing", "analysis", "education").forEach { cat ->
+                            val selected = category == cat
                             FilterChip(
-                                selected = category == cat,
+                                selected = selected,
                                 onClick = { category = cat },
+                                colors = echoFilterChipColors(),
+                                border = echoFilterChipBorder(selected),
+                                elevation = echoFilterChipElevation(),
                                 label = {
                                     Text(when(cat) {
                                         "general" -> "通用"
@@ -3103,14 +3144,45 @@ fun ChatSettingsDialog(
 
                 // 最大Token
                 item {
-                    OutlinedTextField(
-                        value = maxTokens,
-                        onValueChange = { maxTokens = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("最大Token数") },
-                        singleLine = true,
-                        colors = glassTextFieldColors(dialogContentColor, dialogSecondaryColor, dialogContainerColor)
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("最大 Token 数", style = MaterialTheme.typography.titleSmall, color = dialogContentColor)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = maxTokens,
+                                onValueChange = { value -> maxTokens = value.filter { it.isDigit() }.take(6) },
+                                modifier = Modifier.weight(1f),
+                                placeholder = { Text("例如 4096") },
+                                singleLine = true,
+                                shape = RoundedCornerShape(14.dp),
+                                colors = glassTextFieldColors(dialogContentColor, dialogSecondaryColor, dialogContainerColor)
+                            )
+                            Surface(
+                                modifier = Modifier.height(54.dp),
+                                shape = RoundedCornerShape(14.dp),
+                                color = echoGlassPalette().control,
+                                contentColor = dialogSecondaryColor,
+                                border = BorderStroke(1.dp, echoGlassPalette().outline),
+                                tonalElevation = 0.dp,
+                                shadowElevation = 0.dp
+                            ) {
+                                Box(
+                                    modifier = Modifier.padding(horizontal = 14.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("tokens", style = MaterialTheme.typography.labelLarge)
+                                }
+                            }
+                        }
+                        Text(
+                            "留空会使用模型或全局配置的默认值。",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = dialogSecondaryColor
+                        )
+                    }
                 }
 
                 item {
@@ -3190,9 +3262,13 @@ fun ChatSettingsDialog(
                             Spacer(modifier = Modifier.height(8.dp))
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 items(tuningProfile.thinkingEfforts) { level ->
+                                    val selected = thinkingEffort == level.value
                                     FilterChip(
-                                        selected = thinkingEffort == level.value,
+                                        selected = selected,
                                         onClick = { thinkingEffort = level.value },
+                                        colors = echoFilterChipColors(),
+                                        border = echoFilterChipBorder(selected),
+                                        elevation = echoFilterChipElevation(),
                                         label = {
                                             Text(level.label)
                                         }

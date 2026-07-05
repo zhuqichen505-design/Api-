@@ -1,5 +1,36 @@
 # Echo 更新日志
 
+## v1.7.18 (2026-07-05) - 液态玻璃 token 统一、深色可读性与统计表格修复
+### 用户侧可见更新
+- 全局统一液态玻璃面板、输入框、按钮、筛选 chip 和分段按钮的选中态，深色/浅色模式下选中与未选中状态更容易区分。
+- 修复玻璃组件中高光层和透明底叠加导致的浅色方块、泛白遮罩、滚动时变色和文字被糊住的问题。
+- 对话页用户气泡、AI 气泡、思考过程、顶部工具栏、输入栏、附件预览和智能搜索开关统一为稳定玻璃材质，输入区不再过度透明。
+- 首页对话卡片由固定浅色卡片改为液态玻璃胶囊，文件夹筛选 chip 和“新对话”入口使用统一状态 token。
+- 首页左上角 Echo 艺术字改为液态玻璃质感版本，并在 `HomeScreen.kt` 中保留 3 个可一键切换候选预设。
+- 对话设置中的“最大 Token 数”改为数字输入 + 单位块的稳定布局，修复不同宽度下文字和输入框错位。
+- 使用统计模型明细从卡片列表改为带表头、行底、右对齐数值的半透明表格，提升深色/浅色模式下的数据辨识度。
+- 设置页、文件夹管理、历史记录和备份相关卡片改用统一玻璃 panel token，减少页面滚动时忽明忽暗和旧新版割裂感。
+
+### 技术实现细则
+- 新增 `EchoGlassPalette` 与 `EchoControls.kt`，集中提供 `panel`、`panelStrong`、`control`、`controlSelected`、`input`、`userBubble`、`assistantBubble`、`outline`、`outlineSelected`、`textPrimary` 等语义 token。
+- `echoHazePanel` 新增主题感知稳定承托底，降低透明层对滚动内容的依赖；`echoLiquidGlassOverlay` 改为内容先绘制、高光后轻量叠加，避免遮挡文字和图标。
+- `HomeScreen` 的 `ConversationCard` 接入 `echoHazePanel`，移除固定 `#FBFEFD` / `#F0F8FF` 浅色背景。
+- `ChatScreen` 将对话气泡、输入栏、附件状态、输入胶囊和思考强度 chip 全部迁移到统一 glass/control token。
+- `SettingsScreen` 将主题分段、联网搜索 chip、API 类型 chip、主要设置卡片、隐藏对话卡片、环境变量卡片和关于页卡片迁移到统一玻璃体系。
+- `StatsScreen` 新增 `ModelStatsTable`，统一表头、行底、数值列和可读文字色。
+
+### 验证
+- `:app:assembleDebug` 通过，确认 Kotlin/Compose 编译和 debug APK 构建成功。
+- 后续 release/lint/test 验证见本版本最终交付记录。
+
+### 版本与构建
+- `versionCode`: 69
+- `versionName`: 1.7.18
+- Room 数据库版本：17
+- ABI：arm64-v8a
+
+---
+
 ## v1.7.17 (2026-07-05) - 玻璃遮罩源隔离与新对话入口统一
 ### 用户侧可见更新
 - 修复使用统计、历史记录、文件夹管理、设置页和对话页中大块内容被玻璃遮罩泛白、模糊、遮挡的问题。

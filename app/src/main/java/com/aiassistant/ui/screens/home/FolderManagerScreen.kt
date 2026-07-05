@@ -23,6 +23,7 @@ import com.aiassistant.AiAssistantApp
 import com.aiassistant.domain.model.Folder
 import com.aiassistant.ui.components.EchoGlassPagePanelShape
 import com.aiassistant.ui.components.EchoWallpaperBackground
+import com.aiassistant.ui.components.echoGlassPalette
 import com.aiassistant.ui.components.echoHazePanel
 import com.aiassistant.ui.components.echoShapeClick
 import com.aiassistant.ui.components.rememberEchoHazeState
@@ -220,12 +221,12 @@ fun FolderItem(
             .echoHazePanel(
                 hazeState = hazeState,
                 shape = EchoGlassPagePanelShape,
-                tint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f),
+                tint = echoGlassPalette().panel,
                 blurRadius = 18.dp
             )
             .echoShapeClick(EchoGlassPagePanelShape, onClick = onClick),
         shape = EchoGlassPagePanelShape,
-        color = Color.Transparent,
+        color = echoGlassPalette().panel,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
     ) {
@@ -341,12 +342,12 @@ private fun FolderShortcutItem(
             .echoHazePanel(
                 hazeState = hazeState,
                 shape = EchoGlassPagePanelShape,
-                tint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f),
+                tint = echoGlassPalette().panel,
                 blurRadius = 18.dp
             )
             .echoShapeClick(EchoGlassPagePanelShape, onClick = onClick),
         shape = EchoGlassPagePanelShape,
-        color = Color.Transparent,
+        color = echoGlassPalette().panel,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
     ) {

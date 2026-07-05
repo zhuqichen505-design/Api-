@@ -52,6 +52,10 @@ import com.aiassistant.domain.model.Folder
 import com.aiassistant.ui.components.SideAnchorItem
 import com.aiassistant.ui.components.SideAnchorNavigator
 import com.aiassistant.ui.components.TransientLazyListScrollbar
+import com.aiassistant.ui.components.echoFilterChipBorder
+import com.aiassistant.ui.components.echoFilterChipColors
+import com.aiassistant.ui.components.echoFilterChipElevation
+import com.aiassistant.ui.components.echoGlassPalette
 import com.aiassistant.ui.components.echoShapeClick
 import com.aiassistant.ui.components.echoHazePanel
 import com.aiassistant.ui.components.echoHazeSource
@@ -64,9 +68,25 @@ import com.aiassistant.utils.BackgroundImageManager
 import java.text.SimpleDateFormat
 import java.util.*
 
-private val HomeSelectedChipColor = Color(0xFFF0F8FF)
 private val DeleteDialogPink = Color(0xFFFFE4E6)
 private val DeleteDialogContent = Color(0xFFBE123C)
+private const val EchoWordmarkActiveVariant = "liquid-script"
+
+private data class EchoWordmarkPreset(
+    val id: String,
+    val typefaceStyle: Int,
+    val textScale: Float,
+    val strokeWidth: Float,
+    val underlineAlpha: Float,
+    val accentAlpha: Float
+)
+
+private val EchoWordmarkPresets = listOf(
+    EchoWordmarkPreset("liquid-script", Typeface.BOLD_ITALIC, 1.00f, 1.8f, 0.36f, 0.90f),
+    EchoWordmarkPreset("crystal-serif", Typeface.BOLD, 0.96f, 1.35f, 0.28f, 0.72f),
+    EchoWordmarkPreset("haze-calligraphy", Typeface.ITALIC, 1.04f, 2.2f, 0.42f, 0.84f),
+    EchoWordmarkPreset("aurora-compact", Typeface.BOLD_ITALIC, 0.90f, 1.55f, 0.30f, 0.78f)
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -268,6 +288,7 @@ fun HomeScreen(
                                     key = { "pinned_${it.id}" }
                                 ) { conversation ->
                                     ConversationCard(
+                                        hazeState = hazeState,
                                         conversation = conversation,
                                         selected = conversation.id in selectedConversationIds,
                                         selectionMode = isSelectionMode,
@@ -319,6 +340,7 @@ fun HomeScreen(
                             key = { it.id }
                         ) { conversation ->
                             ConversationCard(
+                                hazeState = hazeState,
                                 conversation = conversation,
                                 selected = conversation.id in selectedConversationIds,
                                 selectionMode = isSelectionMode,
@@ -583,13 +605,16 @@ private fun NewConversationGlassButton(
 private fun EchoWordmark(modifier: Modifier = Modifier) {
     val primary = MaterialTheme.colorScheme.primary
     val ink = MaterialTheme.colorScheme.onSurface
+    val surface = MaterialTheme.colorScheme.surface
+    val preset = EchoWordmarkPresets.firstOrNull { it.id == EchoWordmarkActiveVariant }
+        ?: EchoWordmarkPresets.first()
 
     Canvas(
         modifier = modifier
             .height(56.dp)
             .widthIn(min = 132.dp)
     ) {
-        val textSize = 39.sp.toPx()
+        val textSize = 39.sp.toPx() * preset.textScale
         val baseline = size.height * 0.68f
         val startX = 1.dp.toPx()
 
@@ -606,39 +631,49 @@ private fun EchoWordmark(modifier: Modifier = Modifier) {
         }
         drawPath(
             path = underline,
-            color = primary.copy(alpha = 0.38f),
+            color = primary.copy(alpha = preset.underlineAlpha),
             style = Stroke(width = 3.2.dp.toPx())
         )
 
         drawIntoCanvas { canvas ->
             val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = primary.copy(alpha = 0.22f).toArgb()
+                color = primary.copy(alpha = 0.20f).toArgb()
                 this.textSize = textSize
-                typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD_ITALIC)
+                typeface = Typeface.create(Typeface.SERIF, preset.typefaceStyle)
                 letterSpacing = 0.01f
             }
             canvas.nativeCanvas.drawText("Echo", startX + 2.2.dp.toPx(), baseline + 2.4.dp.toPx(), shadowPaint)
 
+            val glassBackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = surface.copy(alpha = 0.20f).toArgb()
+                this.textSize = textSize
+                typeface = Typeface.create(Typeface.SERIF, preset.typefaceStyle)
+                letterSpacing = 0.01f
+                style = Paint.Style.STROKE
+                strokeWidth = 4.4.dp.toPx()
+            }
+            canvas.nativeCanvas.drawText("Echo", startX, baseline, glassBackPaint)
+
             val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 this.textSize = textSize
-                typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD_ITALIC)
+                typeface = Typeface.create(Typeface.SERIF, preset.typefaceStyle)
                 letterSpacing = 0.01f
                 shader = LinearGradient(
                     0f,
                     0f,
                     size.width * 0.78f,
                     size.height,
-                    intArrayOf(ink.toArgb(), primary.toArgb()),
-                    floatArrayOf(0f, 1f),
+                    intArrayOf(ink.toArgb(), surface.toArgb(), primary.toArgb()),
+                    floatArrayOf(0f, 0.48f, 1f),
                     Shader.TileMode.CLAMP
                 )
             }
             canvas.nativeCanvas.drawText("Echo", startX, baseline, fillPaint)
 
             val accentPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = primary.copy(alpha = 0.9f).toArgb()
+                color = primary.copy(alpha = preset.accentAlpha).toArgb()
                 style = Paint.Style.STROKE
-                strokeWidth = 1.8.dp.toPx()
+                strokeWidth = preset.strokeWidth.dp.toPx()
                 strokeCap = Paint.Cap.ROUND
             }
             canvas.nativeCanvas.drawLine(
@@ -1253,10 +1288,11 @@ private fun HomeGlassChip(
     leadingIcon: @Composable (() -> Unit)? = null
 ) {
     val chipShape = RoundedCornerShape(999.dp)
+    val glass = echoGlassPalette()
     val tint = if (selected) {
-        MaterialTheme.colorScheme.primary.copy(alpha = 0.26f)
+        glass.controlSelected
     } else {
-        MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+        glass.control
     }
     val defaultContentColor = readableTextColorFor(
         background = tint,
@@ -1274,8 +1310,9 @@ private fun HomeGlassChip(
             )
             .echoShapeClick(chipShape, onClick = onClick),
         shape = chipShape,
-        color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else Color.Transparent,
+        color = tint,
         contentColor = chipContentColor,
+        border = BorderStroke(if (selected) 1.4.dp else 1.dp, if (selected) glass.outlineSelected else glass.outline),
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
     ) {
@@ -1418,6 +1455,7 @@ private fun HomeModelAvatar(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ConversationCard(
+    hazeState: dev.chrisbanes.haze.HazeState,
     conversation: Conversation,
     selected: Boolean,
     selectionMode: Boolean,
@@ -1439,27 +1477,31 @@ fun ConversationCard(
     var showRenameDialog by remember { mutableStateOf(false) }
 
     val cardShape = RoundedCornerShape(30.dp)
-    Card(
+    val glass = echoGlassPalette()
+    val cardTint = if (selected) glass.controlSelected else glass.panel
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(cardShape)
+            .echoHazePanel(
+                hazeState = hazeState,
+                shape = cardShape,
+                tint = cardTint,
+                blurRadius = 16.dp,
+                highlightAlpha = 0.025f
+            )
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick,
                 onLongClickLabel = "多选对话"
             ),
         shape = cardShape,
-        colors = CardDefaults.cardColors(
-            containerColor = if (selected) {
-                HomeSelectedChipColor
-            } else {
-                Color(0xFFFBFEFD)
-            }
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        color = cardTint,
+        contentColor = glass.textPrimary,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
         border = BorderStroke(
             width = if (selected) 1.5.dp else 1.dp,
-            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+            color = if (selected) glass.outlineSelected else glass.outline
         )
     ) {
         Row(
@@ -2078,9 +2120,9 @@ fun NewChatDialog(
                                 createNewFolder = false
                                 selectedFolderId = null
                             },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = HomeSelectedChipColor
-                            ),
+                            colors = echoFilterChipColors(),
+                            border = echoFilterChipBorder(!createNewFolder && selectedFolderId == null),
+                            elevation = echoFilterChipElevation(),
                             label = { Text("无") }
                         )
                     }
@@ -2091,9 +2133,9 @@ fun NewChatDialog(
                                 createNewFolder = true
                                 selectedFolderId = null
                             },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = HomeSelectedChipColor
-                            ),
+                            colors = echoFilterChipColors(),
+                            border = echoFilterChipBorder(createNewFolder),
+                            elevation = echoFilterChipElevation(),
                             leadingIcon = {
                                 Icon(
                                     Icons.Default.CreateNewFolder,
@@ -2111,9 +2153,9 @@ fun NewChatDialog(
                                 createNewFolder = false
                                 selectedFolderId = folder.id
                             },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = HomeSelectedChipColor
-                            ),
+                            colors = echoFilterChipColors(),
+                            border = echoFilterChipBorder(!createNewFolder && selectedFolderId == folder.id),
+                            elevation = echoFilterChipElevation(),
                             label = { Text(folder.name) }
                         )
                     }

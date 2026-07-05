@@ -4,6 +4,7 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -54,6 +55,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.aiassistant.ui.components.EchoGlassPagePanelShape
 import com.aiassistant.ui.components.EchoWallpaperBackground
+import com.aiassistant.ui.components.echoGlassPalette
 import com.aiassistant.ui.components.echoHazePanel
 import com.aiassistant.ui.components.echoShapeClick
 import com.aiassistant.ui.components.readableTextColorFor
@@ -67,7 +69,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private const val StatsGlassPanelAlpha = 0.72f
 private const val StatsGlassInnerAlpha = 0.58f
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -202,10 +203,10 @@ fun StatsScreen(
                         )
                     }
                 } else {
-                    items(modelRows.size) { index ->
-                        ModelRowCard(
+                    item {
+                        ModelStatsTable(
                             hazeState = hazeState,
-                            row = modelRows[index],
+                            rows = modelRows,
                             readableBackdrop = readableBackdrop
                         )
                     }
@@ -217,11 +218,13 @@ fun StatsScreen(
 
 @Composable
 private fun StatsHeaderIcon() {
+    val glass = echoGlassPalette()
     Surface(
         modifier = Modifier.size(36.dp),
         shape = CircleShape,
-        color = Color(0xFFE7EDF5),
-        contentColor = Color(0xFF1F2937)
+        color = glass.control,
+        contentColor = MaterialTheme.colorScheme.primary,
+        border = BorderStroke(1.dp, glass.outline)
     ) {
         Box(
             modifier = Modifier.fillMaxSize(),
@@ -231,7 +234,7 @@ private fun StatsHeaderIcon() {
                 modifier = Modifier
                     .size(21.dp)
                     .clip(RoundedCornerShape(5.dp))
-                    .background(Color(0xFF1F2937)),
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)),
                 contentAlignment = Alignment.Center
             ) {
                 Row(
@@ -246,7 +249,7 @@ private fun StatsHeaderIcon() {
                             modifier = Modifier
                                 .width(3.dp)
                                 .height(barHeight)
-                                .background(Color.White, RoundedCornerShape(1.dp))
+                                .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(1.dp))
                         )
                     }
                 }
@@ -262,12 +265,12 @@ private fun PeriodTabs(
     readableBackdrop: Color,
     onSelected: (StatsPeriod) -> Unit
 ) {
+    val glass = echoGlassPalette()
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         StatsPeriod.entries.forEach { period ->
             val shape = RoundedCornerShape(999.dp)
-            val tint = MaterialTheme.colorScheme.surface.copy(
-                alpha = if (period == selected) StatsGlassPanelAlpha else StatsGlassInnerAlpha
-            )
+            val isSelected = period == selected
+            val tint = if (isSelected) glass.controlSelected else glass.control
             val content = readableTextColorFor(
                 background = tint,
                 fallbackSurface = readableBackdrop
@@ -282,16 +285,13 @@ private fun PeriodTabs(
                     )
                     .echoShapeClick(shape) { onSelected(period) },
                 shape = shape,
-                color = if (period == selected) {
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
-                } else {
-                    MaterialTheme.colorScheme.surface.copy(alpha = StatsGlassInnerAlpha)
-                },
-                contentColor = if (period == selected) {
+                color = tint,
+                contentColor = if (isSelected) {
                     MaterialTheme.colorScheme.primary
                 } else {
                     content
-                }
+                },
+                border = BorderStroke(if (isSelected) 1.4.dp else 1.dp, if (isSelected) glass.outlineSelected else glass.outline)
             ) {
                 Text(
                     text = period.label,
@@ -311,7 +311,7 @@ private fun SummaryCard(
     statusText: String,
     readableBackdrop: Color
 ) {
-    val tint = MaterialTheme.colorScheme.surface.copy(alpha = StatsGlassPanelAlpha)
+    val tint = echoGlassPalette().panelStrong
     val content = readableTextColorFor(
         background = tint,
         fallbackSurface = readableBackdrop
@@ -380,7 +380,7 @@ private fun ChartCard(
     readableBackdrop: Color,
     content: @Composable (Color) -> Unit
 ) {
-    val tint = MaterialTheme.colorScheme.surface.copy(alpha = StatsGlassPanelAlpha)
+    val tint = echoGlassPalette().panelStrong
     val contentColor = readableTextColorFor(
         background = tint,
         fallbackSurface = readableBackdrop
@@ -605,7 +605,7 @@ private fun ModelRowCard(
     row: ModelRow,
     readableBackdrop: Color
 ) {
-    val tint = MaterialTheme.colorScheme.surface.copy(alpha = StatsGlassPanelAlpha)
+    val tint = echoGlassPalette().panelStrong
     val content = readableTextColorFor(
         background = tint,
         fallbackSurface = readableBackdrop
@@ -642,12 +642,147 @@ private fun ModelRowCard(
 }
 
 @Composable
+private fun ModelStatsTable(
+    hazeState: dev.chrisbanes.haze.HazeState,
+    rows: List<ModelRow>,
+    readableBackdrop: Color
+) {
+    val glass = echoGlassPalette()
+    val tint = glass.panelStrong
+    val content = readableTextColorFor(
+        background = tint,
+        fallbackSurface = readableBackdrop
+    )
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .echoHazePanel(
+                hazeState = hazeState,
+                shape = EchoGlassPagePanelShape,
+                tint = tint,
+                blurRadius = 16.dp,
+                highlightAlpha = 0.025f
+            ),
+        shape = EchoGlassPagePanelShape,
+        color = tint,
+        contentColor = content,
+        border = BorderStroke(1.dp, glass.outline),
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            ModelStatsTableRow(
+                model = "模型",
+                provider = "服务商",
+                tokens = "Token",
+                requests = "请求",
+                success = "成功率",
+                textColor = content,
+                isHeader = true
+            )
+            rows.forEachIndexed { index, row ->
+                val rowBackground = if (index % 2 == 0) glass.control.copy(alpha = 0.54f) else Color.Transparent
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    color = rowBackground,
+                    contentColor = content,
+                    tonalElevation = 0.dp,
+                    shadowElevation = 0.dp
+                ) {
+                    ModelStatsTableRow(
+                        model = row.modelName,
+                        provider = row.provider,
+                        tokens = formatNumber(row.totalTokens),
+                        requests = row.requestCount.toString(),
+                        success = formatPercent(row.successRate),
+                        textColor = content,
+                        isHeader = false
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ModelStatsTableRow(
+    model: String,
+    provider: String,
+    tokens: String,
+    requests: String,
+    success: String,
+    textColor: Color,
+    isHeader: Boolean
+) {
+    val headerColor = if (isHeader) MaterialTheme.colorScheme.primary else textColor
+    val secondaryColor = textColor.copy(alpha = if (isHeader) 0.78f else 0.70f)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 10.dp, vertical = if (isHeader) 9.dp else 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Column(modifier = Modifier.weight(1.55f)) {
+            Text(
+                text = model,
+                style = if (isHeader) MaterialTheme.typography.labelLarge else MaterialTheme.typography.titleSmall,
+                color = headerColor,
+                fontWeight = if (isHeader) FontWeight.Bold else FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (!isHeader) {
+                Text(
+                    text = provider,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = secondaryColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+        Text(
+            text = if (isHeader) provider else "",
+            modifier = Modifier.weight(0.75f),
+            style = MaterialTheme.typography.labelSmall,
+            color = secondaryColor,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text = tokens,
+            modifier = Modifier.weight(0.78f),
+            style = if (isHeader) MaterialTheme.typography.labelLarge else MaterialTheme.typography.titleSmall,
+            color = headerColor,
+            fontWeight = if (isHeader) FontWeight.Bold else FontWeight.SemiBold,
+            maxLines = 1
+        )
+        Text(
+            text = requests,
+            modifier = Modifier.weight(0.58f),
+            style = MaterialTheme.typography.labelMedium,
+            color = secondaryColor,
+            maxLines = 1
+        )
+        Text(
+            text = success,
+            modifier = Modifier.weight(0.70f),
+            style = MaterialTheme.typography.labelMedium,
+            color = if (!isHeader && success == "100%") MaterialTheme.colorScheme.primary else secondaryColor,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
 private fun EmptyCard(
     hazeState: dev.chrisbanes.haze.HazeState,
     text: String,
     readableBackdrop: Color
 ) {
-    val tint = MaterialTheme.colorScheme.surface.copy(alpha = StatsGlassPanelAlpha)
+    val tint = echoGlassPalette().panelStrong
     val content = readableTextColorFor(
         background = tint,
         fallbackSurface = readableBackdrop
