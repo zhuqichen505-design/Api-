@@ -1,6 +1,6 @@
 # Echo 更新日志
 
-## v1.7.16 Hotfix (2026-07-05) - 玻璃遮罩源隔离与新对话入口统一
+## v1.7.17 (2026-07-05) - 玻璃遮罩源隔离与新对话入口统一
 ### 用户侧可见更新
 - 修复使用统计、历史记录、文件夹管理、设置页和对话页中大块内容被玻璃遮罩泛白、模糊、遮挡的问题。
 - 修复首页点击“置顶”筛选后，未选中的文件夹筛选按钮也跟着发生异常颜色变化的问题。
@@ -20,7 +20,16 @@
 - `:app:compileDebugKotlin` 通过。
 - `:app:testDebugUnitTest` 通过（当前项目无 debug unit test 源，任务结果为 `NO-SOURCE`）。
 - `:app:assembleDebug` 通过，生成 `app-arm64-v8a-debug.apk`。
+- `:app:assembleRelease` 通过，生成正式发布 APK `Echo-v1.7.17.apk`。
 - `:app:lintDebug` 运行到分析阶段后因 Android lint/Compose lint 工具链 metadata 版本不兼容崩溃，崩溃点为 `ComposableStateFlowValueDetector`，不是业务代码 lint 结果。
+
+### 版本与构建
+- `versionCode`: 68
+- `versionName`: 1.7.17
+- 说明：本次按正式发布流程递增 `versionCode`，Android 会识别为可升级的新版本。
+- Room 数据库版本：17
+- ABI：arm64-v8a
+- 构建命令：`.\gradlew.bat --no-daemon assembleRelease`
 
 ---
 
