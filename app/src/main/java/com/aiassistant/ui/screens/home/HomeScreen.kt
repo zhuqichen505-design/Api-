@@ -160,13 +160,20 @@ fun HomeScreen(
                 .padding(paddingValues)
                 .background(MaterialTheme.colorScheme.background)
         ) {
-            homeBackgroundBitmap?.let { bitmap ->
-                Image(
-                    bitmap = bitmap.asImageBitmap(),
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(MaterialTheme.colorScheme.background)
+                    .echoHazeSource(hazeState)
+            ) {
+                homeBackgroundBitmap?.let { bitmap ->
+                    Image(
+                        bitmap = bitmap.asImageBitmap(),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                }
             }
             Column(modifier = Modifier.fillMaxSize()) {
                 HomeDashboardHeader(
@@ -227,6 +234,8 @@ fun HomeScreen(
             if (filteredConversations.isEmpty()) {
                 EmptyHomeContent(
                     modifier = Modifier.weight(1f),
+                    hazeState = hazeState,
+                    readableBackdrop = readableBackdrop,
                     onStartChat = {
                         viewModel.createDefaultConversation { conversationId ->
                             onNavigateToChat(conversationId)
@@ -238,8 +247,7 @@ fun HomeScreen(
                 Box(modifier = Modifier.fillMaxSize()) {
                     LazyColumn(
                         modifier = Modifier
-                            .fillMaxSize()
-                            .echoHazeSource(hazeState),
+                            .fillMaxSize(),
                         state = conversationListState,
                         contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -403,7 +411,7 @@ fun HomeScreen(
         )
     }
 
-    // 新建对话对话框
+    // 新对话对话框
     if (showNewChatDialog) {
         NewChatDialog(
             selectedConfig = selectedConfig,
@@ -512,6 +520,25 @@ private fun NewConversationFab(
     onClick: () -> Unit,
     onLongClick: () -> Unit
 ) {
+    NewConversationGlassButton(
+        hazeState = hazeState,
+        readableBackdrop = readableBackdrop,
+        modifier = Modifier.height(56.dp),
+        onClick = onClick,
+        onLongClick = onLongClick,
+        onLongClickLabel = "配置新对话"
+    )
+}
+
+@Composable
+private fun NewConversationGlassButton(
+    hazeState: dev.chrisbanes.haze.HazeState,
+    readableBackdrop: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
+    onLongClickLabel: String? = null
+) {
     val buttonShape = RoundedCornerShape(22.dp)
     val primary = MaterialTheme.colorScheme.primary
     val content = readableTextColorFor(
@@ -520,8 +547,7 @@ private fun NewConversationFab(
     )
 
     Surface(
-        modifier = Modifier
-            .height(56.dp)
+        modifier = modifier
             .echoHazePanel(
                 hazeState = hazeState,
                 shape = buttonShape,
@@ -531,7 +557,7 @@ private fun NewConversationFab(
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick,
-                onLongClickLabel = "配置新对话"
+                onLongClickLabel = onLongClickLabel
         ),
         shape = buttonShape,
         color = primary.copy(alpha = 0.14f),
@@ -546,7 +572,7 @@ private fun NewConversationFab(
         ) {
             Icon(Icons.Default.Add, contentDescription = null)
             Text(
-                text = "创建对话",
+                text = "新对话",
                 style = MaterialTheme.typography.titleMedium
             )
         }
@@ -1232,10 +1258,11 @@ private fun HomeGlassChip(
     } else {
         MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
     }
-    val chipTextColor = readableTextColorFor(
+    val defaultContentColor = readableTextColorFor(
         background = tint,
         fallbackSurface = readableBackdrop
     )
+    val chipContentColor = if (selected) MaterialTheme.colorScheme.primary else defaultContentColor
     Surface(
         modifier = Modifier
             .height(38.dp)
@@ -1248,7 +1275,7 @@ private fun HomeGlassChip(
             .echoShapeClick(chipShape, onClick = onClick),
         shape = chipShape,
         color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else Color.Transparent,
-        contentColor = MaterialTheme.colorScheme.primary,
+        contentColor = chipContentColor,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
     ) {
@@ -1261,7 +1288,7 @@ private fun HomeGlassChip(
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelLarge,
-                color = chipTextColor,
+                color = chipContentColor,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -1491,16 +1518,24 @@ fun ConversationCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // 模型标签
-                    SuggestionChip(
-                        onClick = {},
-                        label = {
+                    Surface(
+                        modifier = Modifier.height(24.dp),
+                        shape = RoundedCornerShape(999.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.54f),
+                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        tonalElevation = 0.dp,
+                        shadowElevation = 0.dp
+                    ) {
+                        Box(
+                            modifier = Modifier.padding(horizontal = 9.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
                             Text(
                                 conversation.modelName,
                                 style = MaterialTheme.typography.labelSmall
                             )
-                        },
-                        modifier = Modifier.height(24.dp)
-                    )
+                        }
+                    }
                     Text(
                         text = "${conversation.messageCount}条",
                         style = MaterialTheme.typography.bodySmall,
@@ -1858,6 +1893,8 @@ fun RenameConversationDialog(
 @Composable
 fun EmptyHomeContent(
     modifier: Modifier = Modifier,
+    hazeState: dev.chrisbanes.haze.HazeState,
+    readableBackdrop: Color,
     onStartChat: () -> Unit,
     isSearching: Boolean = false
 ) {
@@ -1904,15 +1941,12 @@ fun EmptyHomeContent(
         Spacer(modifier = Modifier.height(32.dp))
 
         if (!isSearching) {
-            Button(
+            NewConversationGlassButton(
+                hazeState = hazeState,
+                readableBackdrop = readableBackdrop,
                 onClick = onStartChat,
-                modifier = Modifier.height(48.dp),
-                shape = MaterialTheme.shapes.large
-            ) {
-                Icon(Icons.Default.Add, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("新建对话")
-            }
+                modifier = Modifier.height(56.dp)
+            )
         }
     }
 }
@@ -1945,7 +1979,7 @@ fun NewChatDialog(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "新建对话",
+                    text = "新对话",
                     modifier = Modifier.weight(1f)
                 )
                 Box {

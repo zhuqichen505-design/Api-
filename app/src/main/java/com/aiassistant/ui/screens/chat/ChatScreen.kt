@@ -348,15 +348,21 @@ fun ChatScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
-                .echoHazeSource(hazeState)
         ) {
-            chatBackgroundBitmap?.let { bitmap ->
-                Image(
-                    bitmap = bitmap.asImageBitmap(),
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(MaterialTheme.colorScheme.background)
+                    .echoHazeSource(hazeState)
+            ) {
+                chatBackgroundBitmap?.let { bitmap ->
+                    Image(
+                        bitmap = bitmap.asImageBitmap(),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                }
             }
             Column(modifier = Modifier.fillMaxSize()) {
                 // 错误提示
@@ -1864,16 +1870,18 @@ fun ChatInputBar(
 
                         attachmentStatus?.let { status ->
                             item {
-                                AssistChip(
-                                    onClick = {},
-                                    label = { Text(status, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                                    colors = AssistChipDefaults.assistChipColors(
-                                        containerColor = ChatUserGlassTint.copy(alpha = 0.42f),
-                                        labelColor = inputTextColor,
-                                        leadingIconContentColor = inputTextColor
-                                    ),
-                                    border = null,
-                                    leadingIcon = {
+                                Surface(
+                                    shape = RoundedCornerShape(999.dp),
+                                    color = ChatUserGlassTint.copy(alpha = 0.42f),
+                                    contentColor = inputTextColor,
+                                    tonalElevation = 0.dp,
+                                    shadowElevation = 0.dp
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
                                         if (isProcessingAttachments) {
                                             CircularProgressIndicator(
                                                 modifier = Modifier.size(14.dp),
@@ -1883,8 +1891,9 @@ fun ChatInputBar(
                                         } else {
                                             Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(14.dp))
                                         }
+                                        Text(status, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     }
-                                )
+                                }
                             }
                         }
                     }

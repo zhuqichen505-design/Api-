@@ -1,5 +1,29 @@
 # Echo 更新日志
 
+## v1.7.16 Hotfix (2026-07-05) - 玻璃遮罩源隔离与新对话入口统一
+### 用户侧可见更新
+- 修复使用统计、历史记录、文件夹管理、设置页和对话页中大块内容被玻璃遮罩泛白、模糊、遮挡的问题。
+- 修复首页点击“置顶”筛选后，未选中的文件夹筛选按钮也跟着发生异常颜色变化的问题。
+- 首页右下角入口、空状态入口和新建配置弹窗统一使用“新对话”文案。
+- 首页空状态的“新对话”入口复用同一套液态玻璃按钮样式，不再和首页右下角入口割裂。
+- 历史记录消息搜索结果的预览文本不再因为省略号拼接优先级错误而只显示 `...`。
+- 将模型标签、默认 API 标签和附件状态从伪按钮改为非交互状态标签，避免出现点击无响应的控件。
+
+### 技术实现细则
+- `EchoWallpaperBackground` 改为仅把壁纸/主题背景层注册为 Haze 源，前景页面内容不再参与玻璃采样。
+- `HomeScreen`、`ChatScreen`、`SettingsScreen` 都采用独立背景采样层，列表、消息和主要内容不再作为 Haze 源。
+- `echoLiquidGlassOverlay` 的高光和折射层改为先绘制，内容后绘制，确保文字、图标和统计数据始终位于玻璃高光之上。
+- 抽取 `NewConversationGlassButton`，统一首页浮动入口和空状态入口的玻璃材质、圆角、文字和图标。
+- `HomeGlassChip` 的内容色区分选中/未选中状态，只有当前筛选项显示主题主色。
+
+### 验证
+- `:app:compileDebugKotlin` 通过。
+- `:app:testDebugUnitTest` 通过（当前项目无 debug unit test 源，任务结果为 `NO-SOURCE`）。
+- `:app:assembleDebug` 通过，生成 `app-arm64-v8a-debug.apk`。
+- `:app:lintDebug` 运行到分析阶段后因 Android lint/Compose lint 工具链 metadata 版本不兼容崩溃，崩溃点为 `ComposableStateFlowValueDetector`，不是业务代码 lint 结果。
+
+---
+
 ## v1.7.16 (2026-07-05) - 淡蓝玻璃体系、区域可读色与承托层修复
 ### 用户侧可见更新
 - 首页设置、使用统计、历史记录和文件夹入口的液态玻璃颜色再次略微变淡。

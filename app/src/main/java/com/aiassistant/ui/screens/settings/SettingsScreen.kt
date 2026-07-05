@@ -34,6 +34,7 @@ import com.aiassistant.domain.model.EnvironmentVariable
 import com.aiassistant.domain.model.PromptTemplate
 import com.aiassistant.ui.components.EchoGlassDialog
 import com.aiassistant.ui.components.echoHazePanel
+import com.aiassistant.ui.components.echoHazeSource
 import com.aiassistant.ui.components.echoShapeClick
 import com.aiassistant.ui.components.rememberEchoHazeState
 import com.aiassistant.utils.AvatarManager
@@ -95,13 +96,20 @@ fun SettingsScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        settingsBackgroundBitmap?.let { bitmap ->
-            Image(
-                bitmap = bitmap.asImageBitmap(),
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
-            )
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(MaterialTheme.colorScheme.background)
+                .echoHazeSource(hazeState)
+        ) {
+            settingsBackgroundBitmap?.let { bitmap ->
+                Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            }
         }
         Scaffold(
             containerColor = Color.Transparent,
@@ -481,11 +489,21 @@ fun ApiConfigCard(
                         )
                     if (config.isDefault) {
                         Spacer(modifier = Modifier.width(8.dp))
-                        SuggestionChip(
-                            onClick = {},
-                            label = { Text("新对话默认API") },
-                            modifier = Modifier.height(24.dp)
-                        )
+                        Surface(
+                            modifier = Modifier.height(24.dp),
+                            shape = RoundedCornerShape(999.dp),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                            contentColor = MaterialTheme.colorScheme.primary,
+                            tonalElevation = 0.dp,
+                            shadowElevation = 0.dp
+                        ) {
+                            Box(
+                                modifier = Modifier.padding(horizontal = 9.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("新对话默认API", style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
                     }
                     }
                     Text(
@@ -2013,7 +2031,7 @@ fun ApiConfigDialog(
                             singleLine = true
                         )
                         Text(
-                            text = "新建对话会先使用标记为“新对话默认API”的配置，再使用这里设置的默认模型。",
+                            text = "新对话会先使用标记为“新对话默认API”的配置，再使用这里设置的默认模型。",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(top = 4.dp)

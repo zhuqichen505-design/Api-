@@ -155,7 +155,6 @@ fun Modifier.echoLiquidGlassOverlay(
         )
 
         onDrawWithContent {
-            drawContent()
             drawRect(topRefraction, blendMode = BlendMode.Screen)
             drawRect(sideGlow, blendMode = BlendMode.Screen)
             drawRect(lowerShade, blendMode = BlendMode.Multiply)
@@ -172,6 +171,7 @@ fun Modifier.echoLiquidGlassOverlay(
                 size = Size(size.width * 0.76f, 1.dp.toPx()),
                 cornerRadius = CornerRadius(999.dp.toPx(), 999.dp.toPx())
             )
+            drawContent()
         }
     }
     .border(
@@ -200,15 +200,21 @@ fun EchoWallpaperBackground(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .echoHazeSource(hazeState)
     ) {
-        backgroundBitmap?.let { bitmap ->
-            Image(
-                bitmap = bitmap.asImageBitmap(),
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
-            )
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(MaterialTheme.colorScheme.background)
+                .echoHazeSource(hazeState)
+        ) {
+            backgroundBitmap?.let { bitmap ->
+                Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            }
         }
         content()
     }

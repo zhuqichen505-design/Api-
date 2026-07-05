@@ -809,9 +809,11 @@ fun SearchResultCard(
                 val matchIndex = messageContent.indexOf(searchQuery, ignoreCase = true)
                 val start = maxOf(0, matchIndex - 50)
                 val end = minOf(messageContent.length, matchIndex + searchQuery.length + 50)
-                val preview = if (start > 0) "..." else "" +
-                    messageContent.substring(start, end) +
-                    if (end < messageContent.length) "..." else ""
+                val preview = buildString {
+                    if (start > 0) append("...")
+                    append(messageContent.substring(start, end))
+                    if (end < messageContent.length) append("...")
+                }
 
                 Card(
                     colors = CardDefaults.cardColors(
