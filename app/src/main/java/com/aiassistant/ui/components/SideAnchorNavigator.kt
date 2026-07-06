@@ -45,6 +45,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.chrisbanes.haze.HazeState
 import kotlinx.coroutines.launch
 
 data class SideAnchorItem(
@@ -57,6 +58,7 @@ fun SideAnchorNavigator(
     items: List<SideAnchorItem>,
     listState: LazyListState,
     visible: Boolean = true,
+    hazeState: HazeState? = null,
     modifier: Modifier = Modifier
 ) {
     if (items.size < 2) return
@@ -97,6 +99,7 @@ fun SideAnchorNavigator(
                 CollapsedAnchorRail(
                     items = items,
                     currentIndex = currentIndex,
+                    hazeState = hazeState,
                     onClick = { expanded = true }
                 )
             }
@@ -110,6 +113,7 @@ fun SideAnchorNavigator(
                 ExpandedAnchorPanel(
                     items = items,
                     currentIndex = currentIndex,
+                    hazeState = hazeState,
                     onDismiss = { expanded = false },
                     onSelected = { item ->
                         expanded = false
@@ -127,6 +131,7 @@ fun SideAnchorNavigator(
 private fun CollapsedAnchorRail(
     items: List<SideAnchorItem>,
     currentIndex: Int,
+    hazeState: HazeState?,
     onClick: () -> Unit
 ) {
     val primary = MaterialTheme.colorScheme.primary.copy(alpha = 0.62f)
@@ -135,14 +140,30 @@ private fun CollapsedAnchorRail(
     val railHeight = (28 + (visibleCount - 1).coerceAtLeast(0) * 8)
         .coerceIn(48, 220)
         .dp
-    Surface(
-        modifier = Modifier
+    val railShape = RoundedCornerShape(999.dp)
+    val railModifier = if (hazeState != null) {
+        Modifier
             .width(38.dp)
             .height(railHeight)
-            .echoShapeClick(RoundedCornerShape(999.dp), onClick = onClick),
+            .echoHazePanel(
+                hazeState = hazeState,
+                shape = railShape,
+                tint = echoGlassPalette().control,
+                blurRadius = 14.dp,
+                highlightAlpha = 0.02f
+            )
+            .echoShapeClick(railShape, onClick = onClick)
+    } else {
+        Modifier
+            .width(38.dp)
+            .height(railHeight)
+            .echoShapeClick(railShape, onClick = onClick)
+    }
+    Surface(
+        modifier = railModifier,
         color = Color.Transparent,
         contentColor = MaterialTheme.colorScheme.onSurface,
-        shape = RoundedCornerShape(999.dp),
+        shape = railShape,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
     ) {
@@ -180,12 +201,26 @@ private fun CollapsedAnchorRail(
 private fun ExpandedAnchorPanel(
     items: List<SideAnchorItem>,
     currentIndex: Int,
+    hazeState: HazeState?,
     onDismiss: () -> Unit,
     onSelected: (SideAnchorItem) -> Unit
 ) {
     val panelShape = RoundedCornerShape(28.dp)
-    Surface(
-        modifier = Modifier
+    val panelModifier = if (hazeState != null) {
+        Modifier
+            .padding(end = 4.dp)
+            .widthIn(min = 242.dp, max = 316.dp)
+            .heightIn(max = 470.dp)
+            .echoHazePanel(
+                hazeState = hazeState,
+                shape = panelShape,
+                tint = echoGlassPalette().panelStrong,
+                blurRadius = 18.dp,
+                highlightAlpha = 0.03f
+            )
+            .clip(panelShape)
+    } else {
+        Modifier
             .padding(end = 4.dp)
             .widthIn(min = 242.dp, max = 316.dp)
             .heightIn(max = 470.dp)
@@ -195,9 +230,12 @@ private fun ExpandedAnchorPanel(
                 ambientColor = Color.Black.copy(alpha = 0.08f),
                 spotColor = Color.Black.copy(alpha = 0.12f)
             )
-            .clip(panelShape),
+            .clip(panelShape)
+    }
+    Surface(
+        modifier = panelModifier,
         shape = panelShape,
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+        color = if (hazeState != null) echoGlassPalette().panelStrong else MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
     ) {

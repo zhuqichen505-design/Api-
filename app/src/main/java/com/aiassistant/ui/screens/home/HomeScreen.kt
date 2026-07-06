@@ -49,6 +49,7 @@ import com.aiassistant.R
 import com.aiassistant.domain.model.ApiConfig
 import com.aiassistant.domain.model.Conversation
 import com.aiassistant.domain.model.Folder
+import com.aiassistant.ui.components.EchoGlassDialog
 import com.aiassistant.ui.components.SideAnchorItem
 import com.aiassistant.ui.components.SideAnchorNavigator
 import com.aiassistant.ui.components.TransientLazyListScrollbar
@@ -390,6 +391,7 @@ fun HomeScreen(
                 items = homeNavItems,
                 listState = conversationListState,
                 visible = showScrollControls,
+                hazeState = hazeState,
                 modifier = Modifier
                     .matchParentSize()
                     .padding(end = 12.dp)
@@ -404,6 +406,7 @@ fun HomeScreen(
             .singleOrNull()
 
         MoveToFolderDialog(
+            hazeState = hazeState,
             folders = folders,
             currentFolderId = commonFolderId,
             onDismiss = { showBatchMoveDialog = false },
@@ -423,6 +426,7 @@ fun HomeScreen(
 
     if (showBatchDeleteDialog) {
         BatchDeleteConfirmDialog(
+            hazeState = hazeState,
             selectedCount = selectedConversationIds.size,
             onDismiss = { showBatchDeleteDialog = false },
             onConfirm = {
@@ -436,6 +440,7 @@ fun HomeScreen(
     // 新对话对话框
     if (showNewChatDialog) {
         NewChatDialog(
+            hazeState = hazeState,
             selectedConfig = selectedConfig,
             configs = apiConfigs,
             folders = folders,
@@ -989,11 +994,13 @@ private fun BatchSelectionBar(
 
 @Composable
 private fun BatchDeleteConfirmDialog(
+    hazeState: dev.chrisbanes.haze.HazeState,
     selectedCount: Int,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit
 ) {
-    AlertDialog(
+    EchoGlassDialog(
+        hazeState = hazeState,
         onDismissRequest = onDismiss,
         containerColor = DeleteDialogPink,
         icon = {
@@ -1680,7 +1687,8 @@ fun ConversationCard(
 
     // 删除确认对话框
     if (showDeleteDialog) {
-        AlertDialog(
+        EchoGlassDialog(
+            hazeState = hazeState,
             onDismissRequest = { showDeleteDialog = false },
             title = { Text("删除对话") },
             text = { Text("确定要删除这个对话吗？此操作不可撤销。") },
@@ -1708,6 +1716,7 @@ fun ConversationCard(
     // 移动到文件夹对话框
     if (showMoveToFolderDialog) {
         MoveToFolderDialog(
+            hazeState = hazeState,
             folders = folders,
             currentFolderId = conversation.folderId,
             onDismiss = { showMoveToFolderDialog = false },
@@ -1723,6 +1732,7 @@ fun ConversationCard(
     // 重命名对话框
     if (showRenameDialog) {
         RenameConversationDialog(
+            hazeState = hazeState,
             currentTitle = conversation.title,
             onDismiss = { showRenameDialog = false },
             onRename = { newTitle ->
@@ -1735,6 +1745,7 @@ fun ConversationCard(
 
 @Composable
 fun MoveToFolderDialog(
+    hazeState: dev.chrisbanes.haze.HazeState,
     folders: List<Folder>,
     currentFolderId: Long?,
     onDismiss: () -> Unit,
@@ -1745,7 +1756,8 @@ fun MoveToFolderDialog(
     var showCreateFolderDialog by remember { mutableStateOf(false) }
     var editingFolder by remember { mutableStateOf<Folder?>(null) }
 
-    AlertDialog(
+    EchoGlassDialog(
+        hazeState = hazeState,
         onDismissRequest = onDismiss,
         title = { Text("移动到文件夹") },
         text = {
@@ -1875,6 +1887,7 @@ fun MoveToFolderDialog(
 
     if (showCreateFolderDialog) {
         FolderEditDialog(
+            hazeState = hazeState,
             folder = null,
             onDismiss = { showCreateFolderDialog = false },
             onSave = { name, icon, color ->
@@ -1886,6 +1899,7 @@ fun MoveToFolderDialog(
 
     editingFolder?.let { folder ->
         FolderEditDialog(
+            hazeState = hazeState,
             folder = folder,
             onDismiss = { editingFolder = null },
             onSave = { name, icon, color ->
@@ -1898,13 +1912,15 @@ fun MoveToFolderDialog(
 
 @Composable
 fun RenameConversationDialog(
+    hazeState: dev.chrisbanes.haze.HazeState,
     currentTitle: String,
     onDismiss: () -> Unit,
     onRename: (String) -> Unit
 ) {
     var title by remember { mutableStateOf(currentTitle) }
 
-    AlertDialog(
+    EchoGlassDialog(
+        hazeState = hazeState,
         onDismissRequest = onDismiss,
         title = { Text("重命名对话") },
         text = {
@@ -1995,6 +2011,7 @@ fun EmptyHomeContent(
 
 @Composable
 fun NewChatDialog(
+    hazeState: dev.chrisbanes.haze.HazeState,
     selectedConfig: ApiConfig?,
     configs: List<ApiConfig>,
     folders: List<Folder>,
@@ -2013,7 +2030,8 @@ fun NewChatDialog(
     var modelMenuExpanded by remember { mutableStateOf(false) }
     var isPrivate by remember { mutableStateOf(false) }
 
-    AlertDialog(
+    EchoGlassDialog(
+        hazeState = hazeState,
         onDismissRequest = onDismiss,
         title = {
             Row(

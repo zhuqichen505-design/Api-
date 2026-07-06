@@ -477,6 +477,7 @@ fun ApiConfigTab(
 
     if (showAddDialog || editingConfig != null) {
         ApiConfigDialog(
+            hazeState = hazeState,
             config = editingConfig,
             isSaving = isSaving,
             onDismiss = {
@@ -589,7 +590,8 @@ fun ApiConfigCard(
     }
 
     if (showDeleteDialog) {
-        AlertDialog(
+        EchoGlassDialog(
+            hazeState = hazeState,
             onDismissRequest = { showDeleteDialog = false },
             title = { Text("删除配置") },
             text = { Text("确定要删除这个API配置吗？") },
@@ -1892,6 +1894,7 @@ private fun cleanModelName(raw: String?): String? {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ApiConfigDialog(
+    hazeState: dev.chrisbanes.haze.HazeState,
     config: ApiConfig?,
     isSaving: Boolean = false,
     onDismiss: () -> Unit,
@@ -1968,7 +1971,8 @@ fun ApiConfigDialog(
         }
     }
 
-    AlertDialog(
+    EchoGlassDialog(
+        hazeState = hazeState,
         onDismissRequest = onDismiss,
         title = { Text(if (config == null) "添加API配置" else "编辑API配置") },
         text = {

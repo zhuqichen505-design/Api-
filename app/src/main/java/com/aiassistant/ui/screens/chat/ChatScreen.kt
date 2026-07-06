@@ -551,6 +551,7 @@ fun ChatScreen(
                 items = chatNavItems,
                 listState = listState,
                 visible = showScrollControls,
+                hazeState = hazeState,
                 modifier = Modifier
                     .matchParentSize()
                     .padding(end = 12.dp)
@@ -2272,6 +2273,7 @@ fun EmptyChatPlaceholder() {
 
 @Composable
 fun SystemPromptDialog(
+    hazeState: dev.chrisbanes.haze.HazeState,
     currentPrompt: String?,
     onDismiss: () -> Unit,
     onSave: (String?) -> Unit,
@@ -2282,7 +2284,8 @@ fun SystemPromptDialog(
     var showTemplates by remember { mutableStateOf(false) }
     var showSaveDialog by remember { mutableStateOf(false) }
 
-    AlertDialog(
+    EchoGlassDialog(
+        hazeState = hazeState,
         onDismissRequest = onDismiss,
         title = { Text("系统提示词") },
         text = {
@@ -2354,6 +2357,7 @@ fun SystemPromptDialog(
     // 模板选择对话框
     if (showTemplates) {
         TemplateListDialog(
+            hazeState = hazeState,
             templates = templates,
             onDismiss = { showTemplates = false },
             onSelect = { template ->
@@ -2366,6 +2370,7 @@ fun SystemPromptDialog(
     // 保存模板对话框
     if (showSaveDialog) {
         SaveTemplateDialog(
+            hazeState = hazeState,
             content = promptText,
             onDismiss = { showSaveDialog = false },
             onSave = { name, content ->
@@ -2378,13 +2383,15 @@ fun SystemPromptDialog(
 
 @Composable
 fun TemplateListDialog(
+    hazeState: dev.chrisbanes.haze.HazeState,
     templates: List<PromptTemplate>,
     onDismiss: () -> Unit,
     onSelect: (PromptTemplate) -> Unit
 ) {
     val categories = remember(templates) { templates.map { it.category }.distinct() }
 
-    AlertDialog(
+    EchoGlassDialog(
+        hazeState = hazeState,
         onDismissRequest = onDismiss,
         title = { Text("选择提示词模板") },
         text = {
@@ -2457,6 +2464,7 @@ private fun getCategoryDisplayName(category: String): String {
 
 @Composable
 fun SaveTemplateDialog(
+    hazeState: dev.chrisbanes.haze.HazeState,
     content: String,
     onDismiss: () -> Unit,
     onSave: (String, String) -> Unit
@@ -2465,7 +2473,8 @@ fun SaveTemplateDialog(
     var description by remember { mutableStateOf("") }
     var category by remember { mutableStateOf("general") }
 
-    AlertDialog(
+    EchoGlassDialog(
+        hazeState = hazeState,
         onDismissRequest = onDismiss,
         title = { Text("保存为模板") },
         text = {
@@ -2534,6 +2543,7 @@ fun SaveTemplateDialog(
 
 @Composable
 fun RenameDialog(
+    hazeState: dev.chrisbanes.haze.HazeState,
     currentTitle: String,
     onDismiss: () -> Unit,
     onRename: (String) -> Unit,
@@ -2541,7 +2551,8 @@ fun RenameDialog(
 ) {
     var title by remember { mutableStateOf(currentTitle) }
 
-    AlertDialog(
+    EchoGlassDialog(
+        hazeState = hazeState,
         onDismissRequest = onDismiss,
         title = { Text("重命名对话") },
         text = {
@@ -3386,6 +3397,7 @@ fun ChatSettingsDialog(
 
     if (showTemplates) {
         TemplateListDialog(
+            hazeState = hazeState,
             templates = templates,
             onDismiss = { showTemplates = false },
             onSelect = { template ->
@@ -3397,6 +3409,7 @@ fun ChatSettingsDialog(
 
     if (showSaveDialog) {
         SaveTemplateDialog(
+            hazeState = hazeState,
             content = promptText,
             onDismiss = { showSaveDialog = false },
             onSave = { name, content ->

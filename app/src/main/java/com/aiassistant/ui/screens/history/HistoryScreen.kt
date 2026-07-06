@@ -24,6 +24,7 @@ import com.aiassistant.AiAssistantApp
 import com.aiassistant.BuildConfig
 import com.aiassistant.domain.model.Conversation
 import com.aiassistant.domain.model.Message
+import com.aiassistant.ui.components.EchoGlassDialog
 import com.aiassistant.ui.components.EchoGlassPagePanelShape
 import com.aiassistant.ui.components.EchoWallpaperBackground
 import com.aiassistant.ui.components.echoFilterChipBorder
@@ -301,6 +302,7 @@ fun HistoryScreen(
     // 导出对话框
     if (showExportDialog) {
         ExportDialog(
+            hazeState = hazeState,
             conversations = filteredConversations,
             onDismiss = { showExportDialog = false },
             onExport = { conv ->
@@ -315,6 +317,7 @@ fun HistoryScreen(
     // 单个对话导出
     selectedConversation?.let { conv ->
         ExportSingleDialog(
+            hazeState = hazeState,
             conversation = conv,
             onDismiss = { selectedConversation = null },
             onExport = { format ->
@@ -460,7 +463,8 @@ fun HistoryConversationCard(
     }
 
     if (showDeleteDialog) {
-        AlertDialog(
+        EchoGlassDialog(
+            hazeState = hazeState,
             onDismissRequest = { showDeleteDialog = false },
             title = { Text("删除对话") },
             text = { Text("确定要删除这个对话吗？此操作不可撤销。") },
@@ -520,11 +524,13 @@ fun EmptyHistoryContent(
 
 @Composable
 fun ExportDialog(
+    hazeState: dev.chrisbanes.haze.HazeState,
     conversations: List<Conversation>,
     onDismiss: () -> Unit,
     onExport: (Conversation) -> Unit
 ) {
-    AlertDialog(
+    EchoGlassDialog(
+        hazeState = hazeState,
         onDismissRequest = onDismiss,
         title = { Text("导出对话") },
         text = {
@@ -570,13 +576,15 @@ fun ExportDialog(
 
 @Composable
 fun ExportSingleDialog(
+    hazeState: dev.chrisbanes.haze.HazeState,
     conversation: Conversation,
     onDismiss: () -> Unit,
     onExport: (String) -> Unit
 ) {
     var selectedFormat by remember { mutableStateOf("json") }
 
-    AlertDialog(
+    EchoGlassDialog(
+        hazeState = hazeState,
         onDismissRequest = onDismiss,
         title = { Text("导出格式") },
         text = {

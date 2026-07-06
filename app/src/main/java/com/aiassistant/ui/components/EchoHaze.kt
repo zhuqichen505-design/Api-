@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -321,4 +323,44 @@ fun EchoGlassDialog(
             }
         }
     }
+}
+
+@Composable
+fun EchoGlassDialog(
+    hazeState: HazeState,
+    onDismissRequest: () -> Unit,
+    modifier: Modifier = Modifier,
+    shape: Shape = EchoGlassDialogShape,
+    tint: Color = MaterialTheme.colorScheme.surface.copy(alpha = 0.74f),
+    contentColor: Color = MaterialTheme.colorScheme.onSurface,
+    containerColor: Color = MaterialTheme.colorScheme.surface.copy(alpha = 0.62f),
+    icon: (@Composable ColumnScope.() -> Unit)? = null,
+    title: @Composable ColumnScope.() -> Unit,
+    text: @Composable ColumnScope.() -> Unit,
+    confirmButton: @Composable RowScope.() -> Unit,
+    dismissButton: (@Composable RowScope.() -> Unit)? = null
+) {
+    EchoGlassDialog(
+        hazeState = hazeState,
+        onDismissRequest = onDismissRequest,
+        modifier = modifier,
+        shape = shape,
+        tint = tint,
+        contentColor = contentColor,
+        containerColor = containerColor,
+        title = {
+            icon?.invoke(this)
+            title()
+        },
+        content = text,
+        buttons = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                dismissButton?.invoke(this)
+                confirmButton()
+            }
+        }
+    )
 }

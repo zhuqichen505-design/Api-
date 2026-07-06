@@ -21,6 +21,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.aiassistant.AiAssistantApp
 import com.aiassistant.domain.model.Folder
+import com.aiassistant.ui.components.EchoGlassDialog
 import com.aiassistant.ui.components.EchoGlassPagePanelShape
 import com.aiassistant.ui.components.EchoWallpaperBackground
 import com.aiassistant.ui.components.echoGlassPalette
@@ -156,6 +157,7 @@ fun FolderManagerScreen(
     // 添加文件夹对话框
     if (showAddDialog) {
         FolderEditDialog(
+            hazeState = hazeState,
             folder = null,
             onDismiss = { showAddDialog = false },
             onSave = { name, icon, color ->
@@ -170,6 +172,7 @@ fun FolderManagerScreen(
     // 编辑文件夹对话框
     editingFolder?.let { folder ->
         FolderEditDialog(
+            hazeState = hazeState,
             folder = folder,
             onDismiss = { editingFolder = null },
             onSave = { name, icon, color ->
@@ -303,7 +306,8 @@ fun FolderItem(
     }
 
     if (showDeleteDialog) {
-        AlertDialog(
+        EchoGlassDialog(
+            hazeState = hazeState,
             onDismissRequest = { showDeleteDialog = false },
             title = { Text("删除文件夹") },
             text = { Text("确定要删除这个文件夹吗？文件夹中的对话将被移至未分类。") },
@@ -379,6 +383,7 @@ private fun FolderShortcutItem(
 
 @Composable
 fun FolderEditDialog(
+    hazeState: dev.chrisbanes.haze.HazeState,
     folder: Folder?,
     onDismiss: () -> Unit,
     onSave: (name: String, icon: String, color: Int) -> Unit
@@ -410,7 +415,8 @@ fun FolderEditDialog(
         "bookmark" to "书签"
     )
 
-    AlertDialog(
+    EchoGlassDialog(
+        hazeState = hazeState,
         onDismissRequest = onDismiss,
         title = { Text(if (folder == null) "新建文件夹" else "编辑文件夹") },
         text = {
