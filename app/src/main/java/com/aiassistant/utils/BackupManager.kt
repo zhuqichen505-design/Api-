@@ -273,7 +273,11 @@ object BackupManager {
         val version: Int,
         val timestamp: Long,
         val appVersion: String,
-        val deviceInfo: String
+        val deviceInfo: String,
+        val includeRoleplayData: Boolean = true,
+        val roleplayCharacterCount: Int = 0,
+        val roleplayScenarioCount: Int = 0,
+        val roleplaySessionCount: Int = 0
     )
 
     data class BackupItem(

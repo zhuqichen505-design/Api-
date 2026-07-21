@@ -19,9 +19,15 @@ import com.aiassistant.domain.model.*
         PromptTemplate::class,
         MemoryItem::class,
         ConversationBranch::class,
-        SelectedModel::class
+        SelectedModel::class,
+        CharacterProfile::class,
+        RoleplayScenario::class,
+        RoleplaySession::class,
+        RoleplayMemory::class,
+        CharacterTag::class,
+        CharacterTagCrossRef::class
     ],
-    version = 17,
+    version = 18,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -35,6 +41,11 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun memoryDao(): MemoryDao
     abstract fun conversationBranchDao(): ConversationBranchDao
     abstract fun selectedModelDao(): SelectedModelDao
+    abstract fun characterProfileDao(): CharacterProfileDao
+    abstract fun roleplayScenarioDao(): RoleplayScenarioDao
+    abstract fun roleplaySessionDao(): RoleplaySessionDao
+    abstract fun roleplayMemoryDao(): RoleplayMemoryDao
+    abstract fun characterTagDao(): CharacterTagDao
 
     companion object {
         @Volatile
@@ -213,6 +224,130 @@ abstract class AppDatabase : RoomDatabase() {
             addColumnIfMissing(database, "conversations", "enableWebSearch", "INTEGER")
         }
 
+        // 从版本17迁移到版本18 - 添加角色扮演相关表
+        private val MIGRATION_17_18 = object : Migration(17, 18) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // 创建角色卡表
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `character_profiles` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `avatarUri` TEXT,
+                        `identity` TEXT NOT NULL DEFAULT '',
+                        `personality` TEXT NOT NULL DEFAULT '',
+                        `background` TEXT NOT NULL DEFAULT '',
+                        `speakingStyle` TEXT NOT NULL DEFAULT '',
+                        `goals` TEXT NOT NULL DEFAULT '',
+                        `relationships` TEXT NOT NULL DEFAULT '',
+                        `knowledge` TEXT NOT NULL DEFAULT '',
+                        `constraints` TEXT NOT NULL DEFAULT '',
+                        `behaviorRules` TEXT NOT NULL DEFAULT '',
+                        `greeting` TEXT NOT NULL DEFAULT '',
+                        `exampleDialogue` TEXT NOT NULL DEFAULT '',
+                        `tags` TEXT,
+                        `isFavorite` INTEGER NOT NULL DEFAULT 0,
+                        `isDefault` INTEGER NOT NULL DEFAULT 0,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL
+                    )
+                """)
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_character_profiles_isFavorite` ON `character_profiles` (`isFavorite`)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_character_profiles_isDefault` ON `character_profiles` (`isDefault`)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_character_profiles_createdAt` ON `character_profiles` (`createdAt`)")
+
+                // 创建场景卡表
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `roleplay_scenarios` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `worldview` TEXT NOT NULL DEFAULT '',
+                        `time` TEXT NOT NULL DEFAULT '',
+                        `location` TEXT NOT NULL DEFAULT '',
+                        `environment` TEXT NOT NULL DEFAULT '',
+                        `premise` TEXT NOT NULL DEFAULT '',
+                        `rules` TEXT NOT NULL DEFAULT '',
+                        `relationshipState` TEXT NOT NULL DEFAULT '',
+                        `conflict` TEXT NOT NULL DEFAULT '',
+                        `plotGoal` TEXT NOT NULL DEFAULT '',
+                        `atmosphere` TEXT NOT NULL DEFAULT '',
+                        `narrativePerspective` TEXT NOT NULL DEFAULT '',
+                        `outputFormat` TEXT NOT NULL DEFAULT '',
+                        `contentRestrictions` TEXT NOT NULL DEFAULT '',
+                        `openingPrompt` TEXT NOT NULL DEFAULT '',
+                        `tags` TEXT,
+                        `isFavorite` INTEGER NOT NULL DEFAULT 0,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL
+                    )
+                """)
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_roleplay_scenarios_isFavorite` ON `roleplay_scenarios` (`isFavorite`)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_roleplay_scenarios_createdAt` ON `roleplay_scenarios` (`createdAt`)")
+
+                // 创建角色扮演会话表
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `roleplay_sessions` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `characterId` INTEGER,
+                        `scenarioId` INTEGER,
+                        `conversationId` INTEGER NOT NULL,
+                        `narrativeMode` TEXT NOT NULL DEFAULT 'character',
+                        `currentPlotSummary` TEXT NOT NULL DEFAULT '',
+                        `pinnedFacts` TEXT,
+                        `lastVersionIndex` INTEGER NOT NULL DEFAULT 1,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        FOREIGN KEY(`characterId`) REFERENCES `character_profiles`(`id`) ON DELETE SET NULL,
+                        FOREIGN KEY(`scenarioId`) REFERENCES `roleplay_scenarios`(`id`) ON DELETE SET NULL,
+                        FOREIGN KEY(`conversationId`) REFERENCES `conversations`(`id`) ON DELETE CASCADE
+                    )
+                """)
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_roleplay_sessions_characterId` ON `roleplay_sessions` (`characterId`)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_roleplay_sessions_scenarioId` ON `roleplay_sessions` (`scenarioId`)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_roleplay_sessions_conversationId` ON `roleplay_sessions` (`conversationId`)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_roleplay_sessions_createdAt` ON `roleplay_sessions` (`createdAt`)")
+
+                // 创建角色扮演记忆表
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `roleplay_memories` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `sessionId` INTEGER NOT NULL,
+                        `memoryType` TEXT NOT NULL DEFAULT 'fact',
+                        `content` TEXT NOT NULL,
+                        `sourceMessageId` INTEGER,
+                        `isPinned` INTEGER NOT NULL DEFAULT 0,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        FOREIGN KEY(`sessionId`) REFERENCES `roleplay_sessions`(`id`) ON DELETE CASCADE
+                    )
+                """)
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_roleplay_memories_sessionId` ON `roleplay_memories` (`sessionId`)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_roleplay_memories_memoryType` ON `roleplay_memories` (`memoryType`)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_roleplay_memories_createdAt` ON `roleplay_memories` (`createdAt`)")
+
+                // 创建角色标签表
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `character_tags` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `createdAt` INTEGER NOT NULL
+                    )
+                """)
+                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_character_tags_name` ON `character_tags` (`name`)")
+
+                // 创建角色-标签关联表
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `character_tag_cross_ref` (
+                        `characterId` INTEGER NOT NULL,
+                        `tagId` INTEGER NOT NULL,
+                        PRIMARY KEY(`characterId`, `tagId`),
+                        FOREIGN KEY(`characterId`) REFERENCES `character_profiles`(`id`) ON DELETE CASCADE,
+                        FOREIGN KEY(`tagId`) REFERENCES `character_tags`(`id`) ON DELETE CASCADE
+                    )
+                """)
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_character_tag_cross_ref_tagId` ON `character_tag_cross_ref` (`tagId`)")
+            }
+        }
+
         private fun addColumnIfMissing(
             database: SupportSQLiteDatabase,
             tableName: String,
@@ -238,14 +373,14 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        private val LEGACY_REPAIR_MIGRATIONS: Array<Migration> = (1..16)
+        private val LEGACY_REPAIR_MIGRATIONS: Array<Migration> = ((1..16)
             .map { startVersion ->
                 object : Migration(startVersion, 17) {
                     override fun migrate(database: SupportSQLiteDatabase) {
                         repairSchema(database)
                     }
                 }
-            }
+            } + MIGRATION_17_18)
             .toTypedArray()
 
         private fun repairSchema(database: SupportSQLiteDatabase) {
@@ -437,6 +572,126 @@ abstract class AppDatabase : RoomDatabase() {
                     ColumnSpec("createdAt", "INTEGER NOT NULL", "0")
                 ),
                 indices = listOf("CREATE INDEX IF NOT EXISTS `index_selected_models_apiConfigId` ON `selected_models` (`apiConfigId`)")
+            )
+            repairTable(
+                database,
+                tableName = "character_profiles",
+                columns = listOf(
+                    ColumnSpec("id", "INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL", "0"),
+                    ColumnSpec("name", "TEXT NOT NULL", "''"),
+                    ColumnSpec("avatarUri", "TEXT", "NULL", nullable = true),
+                    ColumnSpec("identity", "TEXT NOT NULL", "''"),
+                    ColumnSpec("personality", "TEXT NOT NULL", "''"),
+                    ColumnSpec("background", "TEXT NOT NULL", "''"),
+                    ColumnSpec("speakingStyle", "TEXT NOT NULL", "''"),
+                    ColumnSpec("goals", "TEXT NOT NULL", "''"),
+                    ColumnSpec("relationships", "TEXT NOT NULL", "''"),
+                    ColumnSpec("knowledge", "TEXT NOT NULL", "''"),
+                    ColumnSpec("constraints", "TEXT NOT NULL", "''"),
+                    ColumnSpec("behaviorRules", "TEXT NOT NULL", "''"),
+                    ColumnSpec("greeting", "TEXT NOT NULL", "''"),
+                    ColumnSpec("exampleDialogue", "TEXT NOT NULL", "''"),
+                    ColumnSpec("tags", "TEXT", "NULL", nullable = true),
+                    ColumnSpec("isFavorite", "INTEGER NOT NULL", "0"),
+                    ColumnSpec("isDefault", "INTEGER NOT NULL", "0"),
+                    ColumnSpec("createdAt", "INTEGER NOT NULL", "0"),
+                    ColumnSpec("updatedAt", "INTEGER NOT NULL", "0")
+                ),
+                indices = listOf(
+                    "CREATE INDEX IF NOT EXISTS `index_character_profiles_isFavorite` ON `character_profiles` (`isFavorite`)",
+                    "CREATE INDEX IF NOT EXISTS `index_character_profiles_isDefault` ON `character_profiles` (`isDefault`)",
+                    "CREATE INDEX IF NOT EXISTS `index_character_profiles_createdAt` ON `character_profiles` (`createdAt`)"
+                )
+            )
+            repairTable(
+                database,
+                tableName = "roleplay_scenarios",
+                columns = listOf(
+                    ColumnSpec("id", "INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL", "0"),
+                    ColumnSpec("name", "TEXT NOT NULL", "''"),
+                    ColumnSpec("worldview", "TEXT NOT NULL", "''"),
+                    ColumnSpec("time", "TEXT NOT NULL", "''"),
+                    ColumnSpec("location", "TEXT NOT NULL", "''"),
+                    ColumnSpec("environment", "TEXT NOT NULL", "''"),
+                    ColumnSpec("premise", "TEXT NOT NULL", "''"),
+                    ColumnSpec("rules", "TEXT NOT NULL", "''"),
+                    ColumnSpec("relationshipState", "TEXT NOT NULL", "''"),
+                    ColumnSpec("conflict", "TEXT NOT NULL", "''"),
+                    ColumnSpec("plotGoal", "TEXT NOT NULL", "''"),
+                    ColumnSpec("atmosphere", "TEXT NOT NULL", "''"),
+                    ColumnSpec("narrativePerspective", "TEXT NOT NULL", "''"),
+                    ColumnSpec("outputFormat", "TEXT NOT NULL", "''"),
+                    ColumnSpec("contentRestrictions", "TEXT NOT NULL", "''"),
+                    ColumnSpec("openingPrompt", "TEXT NOT NULL", "''"),
+                    ColumnSpec("tags", "TEXT", "NULL", nullable = true),
+                    ColumnSpec("isFavorite", "INTEGER NOT NULL", "0"),
+                    ColumnSpec("createdAt", "INTEGER NOT NULL", "0"),
+                    ColumnSpec("updatedAt", "INTEGER NOT NULL", "0")
+                ),
+                indices = listOf(
+                    "CREATE INDEX IF NOT EXISTS `index_roleplay_scenarios_isFavorite` ON `roleplay_scenarios` (`isFavorite`)",
+                    "CREATE INDEX IF NOT EXISTS `index_roleplay_scenarios_createdAt` ON `roleplay_scenarios` (`createdAt`)"
+                )
+            )
+            repairTable(
+                database,
+                tableName = "roleplay_sessions",
+                columns = listOf(
+                    ColumnSpec("id", "INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL", "0"),
+                    ColumnSpec("characterId", "INTEGER", "NULL", nullable = true),
+                    ColumnSpec("scenarioId", "INTEGER", "NULL", nullable = true),
+                    ColumnSpec("conversationId", "INTEGER NOT NULL", "0"),
+                    ColumnSpec("narrativeMode", "TEXT NOT NULL", "'character'"),
+                    ColumnSpec("currentPlotSummary", "TEXT NOT NULL", "''"),
+                    ColumnSpec("pinnedFacts", "TEXT", "NULL", nullable = true),
+                    ColumnSpec("lastVersionIndex", "INTEGER NOT NULL", "1"),
+                    ColumnSpec("createdAt", "INTEGER NOT NULL", "0"),
+                    ColumnSpec("updatedAt", "INTEGER NOT NULL", "0")
+                ),
+                indices = listOf(
+                    "CREATE INDEX IF NOT EXISTS `index_roleplay_sessions_characterId` ON `roleplay_sessions` (`characterId`)",
+                    "CREATE INDEX IF NOT EXISTS `index_roleplay_sessions_scenarioId` ON `roleplay_sessions` (`scenarioId`)",
+                    "CREATE INDEX IF NOT EXISTS `index_roleplay_sessions_conversationId` ON `roleplay_sessions` (`conversationId`)",
+                    "CREATE INDEX IF NOT EXISTS `index_roleplay_sessions_createdAt` ON `roleplay_sessions` (`createdAt`)"
+                )
+            )
+            repairTable(
+                database,
+                tableName = "roleplay_memories",
+                columns = listOf(
+                    ColumnSpec("id", "INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL", "0"),
+                    ColumnSpec("sessionId", "INTEGER NOT NULL", "0"),
+                    ColumnSpec("memoryType", "TEXT NOT NULL", "'fact'"),
+                    ColumnSpec("content", "TEXT NOT NULL", "''"),
+                    ColumnSpec("sourceMessageId", "INTEGER", "NULL", nullable = true),
+                    ColumnSpec("isPinned", "INTEGER NOT NULL", "0"),
+                    ColumnSpec("createdAt", "INTEGER NOT NULL", "0"),
+                    ColumnSpec("updatedAt", "INTEGER NOT NULL", "0")
+                ),
+                indices = listOf(
+                    "CREATE INDEX IF NOT EXISTS `index_roleplay_memories_sessionId` ON `roleplay_memories` (`sessionId`)",
+                    "CREATE INDEX IF NOT EXISTS `index_roleplay_memories_memoryType` ON `roleplay_memories` (`memoryType`)",
+                    "CREATE INDEX IF NOT EXISTS `index_roleplay_memories_createdAt` ON `roleplay_memories` (`createdAt`)"
+                )
+            )
+            repairTable(
+                database,
+                tableName = "character_tags",
+                columns = listOf(
+                    ColumnSpec("id", "INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL", "0"),
+                    ColumnSpec("name", "TEXT NOT NULL", "''"),
+                    ColumnSpec("createdAt", "INTEGER NOT NULL", "0")
+                ),
+                indices = listOf("CREATE UNIQUE INDEX IF NOT EXISTS `index_character_tags_name` ON `character_tags` (`name`)")
+            )
+            repairTable(
+                database,
+                tableName = "character_tag_cross_ref",
+                columns = listOf(
+                    ColumnSpec("characterId", "INTEGER NOT NULL", "0"),
+                    ColumnSpec("tagId", "INTEGER NOT NULL", "0")
+                ),
+                indices = listOf("CREATE INDEX IF NOT EXISTS `index_character_tag_cross_ref_tagId` ON `character_tag_cross_ref` (`tagId`)")
             )
         }
 

@@ -4,8 +4,8 @@ Echo 是一个 Android 原生 AI API 客户端，用于统一调用 OpenAI 兼�
 
 ## 当前状态
 
-- 当前版本：`v1.7.18`
-- `versionCode`：`69`
+- 当前版本：`v1.8.0`
+- `versionCode`：`70`
 - 版本码说明：本次为正式发布包，已递增版本码，Android 会识别为可升级的新版本。
 - 应用包名：`com.aiassistant`
 - Room 数据库版本：`17`

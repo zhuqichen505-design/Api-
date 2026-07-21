@@ -1,5 +1,41 @@
 # Echo 更新日志
 
+## v1.8.0 (2026-07-22) - 角色扮演功能完整实现
+
+### 用户侧可见更新
+- 新增"角色扮演工作室"入口，可从首页进入。
+- 支持创建、编辑、删除和收藏角色卡，包含完整的角色设定字段。
+- 支持创建、编辑、删除和收藏场景卡，包含世界观、剧情、叙事控制等字段。
+- 支持创建角色扮演会话，绑定角色、场景和API配置。
+- 支持多种叙事模式：角色内指令、作者/导演指令、旁白模式、多角色模式。
+- 提供剧情操作栏，支持继续、重生成、改写、延长、缩短等操作。
+- 支持自定义剧情指令，用户可自由控制剧情发展方向。
+- 实现角色记忆管理，支持剧情摘要、固定事实和记忆编辑。
+- 上下文组装严格按照：全局约束 → 角色卡 → 场景卡 → 记忆 → 剧情摘要 → 用户输入的顺序。
+- 角色和场景支持标签分类和搜索功能。
+
+### 技术实现细则
+- 新增 `CharacterProfile`、`RoleplayScenario`、`RoleplaySession`、`RoleplayMemory`、`CharacterTag` 等数据实体。
+- 新增 `CharacterProfileDao`、`RoleplayScenarioDao`、`RoleplaySessionDao`、`RoleplayMemoryDao`、`CharacterTagDao` 等DAO接口。
+- 数据库版本从 17 升级到 18，提供完整的迁移脚本。
+- 新增 `RoleplayRepository` 处理角色扮演业务逻辑。
+- 新增 `RoleplayViewModel` 管理UI状态。
+- 新增 `RoleplayStudioScreen`、`CharacterEditorScreen`、`ScenarioEditorScreen`、`NewRoleplaySessionScreen`、`RoleplayMemoryScreen`、`PlotActionBar` 等UI组件。
+- 新增 `RoleplayModelsTest` 单元测试，覆盖数据模型和枚举类型。
+- 更新 `BackupManager` 支持角色扮演数据备份。
+
+### 验证
+- `:app:compileDebugKotlin` 通过，确认 Kotlin/Compose 编译成功。
+- `:app:assembleDebug` 通过，生成 debug APK。
+
+### 版本与构建
+- `versionCode`: 70
+- `versionName`: 1.8.0
+- Room 数据库版本：18
+- ABI：arm64-v8a
+
+---
+
 ## v1.7.18 (2026-07-05) - 液态玻璃 token 统一、深色可读性与统计表格修复
 ### 用户侧可见更新
 - 全局统一液态玻璃面板、输入框、按钮、筛选 chip 和分段按钮的选中态，深色/浅色模式下选中与未选中状态更容易区分。
