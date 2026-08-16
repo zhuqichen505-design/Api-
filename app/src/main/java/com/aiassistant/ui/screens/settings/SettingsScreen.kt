@@ -1,4 +1,4 @@
-﻿@file:OptIn(ExperimentalMaterial3Api::class)
+@file:OptIn(ExperimentalMaterial3Api::class)
 
 package com.aiassistant.ui.screens.settings
 
@@ -12,6 +12,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -64,7 +66,7 @@ private val CurrentFeatureHighlights = listOf(
     "对话历史、文件夹与置顶管理",
     "思考模式、联网搜索与临时对话设置",
     "文件/图片上传与 OCR 辅助",
-    "环境变量管理、数据备份与恢复",
+    "数据备份与安全恢复",
     "自定义用户头像、模型头像与背景图片",
     "液态玻璃悬浮控件"
 )
@@ -80,8 +82,8 @@ private val CurrentVersionUserUpdates = listOf(
     "对话页工具栏中的对话名称字号调大一号"
 )
 
-private val SettingsPanelShape = RoundedCornerShape(28.dp)
-private val SettingsInnerShape = RoundedCornerShape(22.dp)
+private val SettingsPanelShape = com.aiassistant.ui.theme.EchoTokens.Radius.shapeXl
+private val SettingsInnerShape = com.aiassistant.ui.theme.EchoTokens.Radius.shapeLg
 
 @Composable
 private fun SettingsGlassCard(
@@ -167,7 +169,7 @@ fun SettingsScreen(
                                 onNavigateBack()
                             }
                         }) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = "返回")
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
@@ -189,7 +191,6 @@ fun SettingsScreen(
                 "web_search" -> WebSearchTab(hazeState = hazeState, modifier = Modifier.padding(paddingValues))
                 "personalization" -> PersonalizationTab(hazeState = hazeState, modifier = Modifier.padding(paddingValues))
                 "global_prompt" -> GlobalPromptTab(hazeState = hazeState, modifier = Modifier.padding(paddingValues))
-                "env_variables" -> EnvironmentVariablesTab(hazeState = hazeState, modifier = Modifier.padding(paddingValues))
                 "hidden_conversations" -> HiddenConversationsTab(
                     hazeState = hazeState,
                     modifier = Modifier.padding(paddingValues),
@@ -259,15 +260,6 @@ fun SettingsMenu(
                 title = "全局提示词",
                 subtitle = "设置适用于所有对话的系统提示词",
                 onClick = { onSectionSelected("global_prompt") }
-            )
-        }
-        item {
-            SettingsMenuItem(
-                hazeState = hazeState,
-                icon = Icons.Default.Code,
-                title = "环境变量",
-                subtitle = "管理可在对话中引用的变量",
-                onClick = { onSectionSelected("env_variables") }
             )
         }
         item {
@@ -755,11 +747,10 @@ fun GlobalPromptTab(
     hazeState: dev.chrisbanes.haze.HazeState,
     modifier: Modifier = Modifier
 ) {
-    val repository = AiAssistantApp.instance.repository
-    val scope = rememberCoroutineScope()
-    val templates by repository.getAllPromptTemplates().collectAsState(initial = emptyList())
-
-    var globalPrompt by remember { mutableStateOf("") }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val prefs = remember(context) { context.getSharedPreferences("app_settings", android.content.Context.MODE_PRIVATE) }
+    var globalPrompt by remember { mutableStateOf(prefs.getString("global_system_prompt", "").orEmpty()) }
+    var savedMessage by remember { mutableStateOf<String?>(null) }
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
@@ -768,22 +759,25 @@ fun GlobalPromptTab(
     ) {
         item {
             SettingsGlassCard(hazeState = hazeState) {
-            Text(
-                text = "全局系统提示词",
-                style = MaterialTheme.typography.titleMedium
-            )
-            Text(
-                text = "设置的提示词将应用于所有新对话",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+                Text(
+                    text = "全局系统提示词",
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Text(
+                    text = "设置的提示词将作为默认提示词应用于新对话",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
 
         item {
             OutlinedTextField(
                 value = globalPrompt,
-                onValueChange = { globalPrompt = it },
+                onValueChange = {
+                    globalPrompt = it
+                    savedMessage = null
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 150.dp),
@@ -792,12 +786,21 @@ fun GlobalPromptTab(
             )
         }
 
+        savedMessage?.let { msg ->
+            item {
+                Text(
+                    text = msg,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+
         item {
             Button(
                 onClick = {
-                    scope.launch {
-                        // 保存全局提示词
-                    }
+                    prefs.edit().putString("global_system_prompt", globalPrompt.trim()).apply()
+                    savedMessage = "已保存全局系统提示词"
                 },
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -1203,6 +1206,7 @@ private fun PinSetupCard(
             }
     }
 }
+
 @Composable
 private fun PinVerifyCard(
     hazeState: dev.chrisbanes.haze.HazeState,
@@ -1265,32 +1269,32 @@ private fun HiddenConversationCard(
     val dateFormat = remember { SimpleDateFormat("MM/dd HH:mm", Locale.getDefault()) }
 
     SettingsGlassCard(hazeState = hazeState) {
-            Text(
-                text = conversation.title.ifBlank { "未命名对话" },
-                style = MaterialTheme.typography.titleSmall
-            )
-            Text(
-                text = "${conversation.modelName} · ${conversation.messageCount} 条 · ${dateFormat.format(Date(conversation.updatedAt))}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+        Text(
+            text = conversation.title.ifBlank { "未命名对话" },
+            style = MaterialTheme.typography.titleSmall
+        )
+        Text(
+            text = "${conversation.modelName} · ${conversation.messageCount} 条 · ${dateFormat.format(Date(conversation.updatedAt))}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedButton(
+                onClick = onUnhide,
+                modifier = Modifier.weight(1f)
             ) {
-                OutlinedButton(
-                    onClick = onUnhide,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("取消隐藏")
-                }
-                Button(
-                    onClick = onOpen,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("进入")
-                }
+                Text("取消隐藏")
             }
+            Button(
+                onClick = onOpen,
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("进入")
+            }
+        }
     }
 }
 
@@ -1298,83 +1302,7 @@ private fun String.onlySixDigits(): String {
     return filter { it.isDigit() }.take(6)
 }
 
-@Composable
-fun EnvironmentVariablesTab(
-    hazeState: dev.chrisbanes.haze.HazeState,
-    modifier: Modifier = Modifier
-) {
-    val repository = AiAssistantApp.instance.repository
-    val scope = rememberCoroutineScope()
-    val variables by repository.getAllEnvironmentVariables().collectAsState(initial = emptyList())
 
-    var showAddDialog by remember { mutableStateOf(false) }
-
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        item {
-            SettingsGlassCard(hazeState = hazeState) {
-            Text(
-                text = "环境变量",
-                style = MaterialTheme.typography.titleMedium
-            )
-            Text(
-                text = "使用 {{变量名}} 在对话中引用",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            }
-        }
-
-        items(variables) { variable ->
-            SettingsGlassCard(hazeState = hazeState) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "{{${variable.name}}}",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        variable.description?.let {
-                            Text(
-                                text = it,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                    IconButton(onClick = {
-                        scope.launch {
-                            repository.deleteEnvironmentVariable(variable)
-                        }
-                    }) {
-                        Icon(
-                            Icons.Default.Delete,
-                            contentDescription = "删除",
-                            tint = MaterialTheme.colorScheme.error
-                        )
-                    }
-                }
-            }
-        }
-
-        item {
-            OutlinedButton(
-                onClick = { showAddDialog = true },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Default.Add, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("添加环境变量")
-            }
-        }
-    }
-}
 
 @Composable
 fun BackupTab(
@@ -2169,6 +2097,44 @@ fun ApiConfigDialog(
                 }
 
                 if (availableModels.isNotEmpty() && modelsExpanded) {
+                    item {
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 6.dp, bottom = 4.dp),
+                            shape = SettingsInnerShape,
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.List,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp),
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "可用模型列表 (共 ${availableModels.size} 个)",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                Text(
+                                    text = "已启用 ${enabledModelNames.size} 个",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+
                     items(availableModels, key = { it }) { model ->
                         ModelDisplaySelectionRow(
                             model = model,

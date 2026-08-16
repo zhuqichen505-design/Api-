@@ -1,5 +1,8 @@
 package com.aiassistant.ui.screens.roleplay
 
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -8,10 +11,13 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.aiassistant.domain.model.CharacterProfile
-import com.aiassistant.ui.components.echoHazePanel
+import com.aiassistant.utils.RoleplaySmartParser
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -21,6 +27,7 @@ fun CharacterEditorScreen(
     onDelete: (() -> Unit)? = null,
     onBack: () -> Unit
 ) {
+    val context = LocalContext.current
     var name by remember { mutableStateOf(character?.name ?: "") }
     var identity by remember { mutableStateOf(character?.identity ?: "") }
     var personality by remember { mutableStateOf(character?.personality ?: "") }
@@ -39,6 +46,7 @@ fun CharacterEditorScreen(
 
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showPreview by remember { mutableStateOf(false) }
+    var showSmartReadDialog by remember { mutableStateOf(false) }
     var currentSection by remember { mutableStateOf(0) }
 
     val scrollState = rememberScrollState()
@@ -53,6 +61,13 @@ fun CharacterEditorScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { showSmartReadDialog = true }) {
+                        Icon(
+                            Icons.Default.AutoAwesome,
+                            contentDescription = "一键读取",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
                     IconButton(onClick = { showPreview = true }) {
                         Icon(Icons.Default.Preview, contentDescription = "预览")
                     }
@@ -78,6 +93,40 @@ fun CharacterEditorScreen(
                 .padding(paddingValues)
                 .verticalScroll(scrollState)
         ) {
+            // 顶部一键读取提示条
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.AutoAwesome,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "支持一键读取长文本或 TXT 角色卡，自动填充设定",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.weight(1f),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    TextButton(
+                        onClick = { showSmartReadDialog = true },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                    ) {
+                        Text("一键读取")
+                    }
+                }
+            }
+
             // 分区选择器
             ScrollableTabRow(
                 selectedTabIndex = currentSection,
@@ -192,6 +241,49 @@ fun CharacterEditorScreen(
         }
     }
 
+    // 一键读取对话框
+    if (showSmartReadDialog) {
+        SmartReadCharacterDialog(
+            currentProfile = CharacterProfile(
+                id = character?.id ?: 0,
+                name = name,
+                avatarUri = character?.avatarUri,
+                identity = identity,
+                personality = personality,
+                background = background,
+                speakingStyle = speakingStyle,
+                goals = goals,
+                relationships = relationships,
+                knowledge = knowledge,
+                constraints = constraints,
+                behaviorRules = behaviorRules,
+                greeting = greeting,
+                exampleDialogue = exampleDialogue,
+                tags = tags,
+                isFavorite = isFavorite,
+                isDefault = isDefault
+            ),
+            onDismiss = { showSmartReadDialog = false },
+            onApply = { parsed ->
+                if (parsed.name.isNotBlank()) name = parsed.name
+                if (parsed.identity.isNotBlank()) identity = parsed.identity
+                if (parsed.personality.isNotBlank()) personality = parsed.personality
+                if (parsed.background.isNotBlank()) background = parsed.background
+                if (parsed.speakingStyle.isNotBlank()) speakingStyle = parsed.speakingStyle
+                if (parsed.goals.isNotBlank()) goals = parsed.goals
+                if (parsed.relationships.isNotBlank()) relationships = parsed.relationships
+                if (parsed.knowledge.isNotBlank()) knowledge = parsed.knowledge
+                if (parsed.constraints.isNotBlank()) constraints = parsed.constraints
+                if (parsed.behaviorRules.isNotBlank()) behaviorRules = parsed.behaviorRules
+                if (parsed.greeting.isNotBlank()) greeting = parsed.greeting
+                if (parsed.exampleDialogue.isNotBlank()) exampleDialogue = parsed.exampleDialogue
+                parsed.tags?.takeIf { it.isNotBlank() }?.let { tags = it }
+                showSmartReadDialog = false
+                Toast.makeText(context, "角色设定已自动识别并填充", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
+
     // 删除确认对话框
     if (showDeleteDialog) {
         AlertDialog(
@@ -244,6 +336,240 @@ fun CharacterEditorScreen(
 }
 
 @Composable
+private fun SmartReadCharacterDialog(
+    currentProfile: CharacterProfile,
+    onDismiss: () -> Unit,
+    onApply: (CharacterProfile) -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val repository = com.aiassistant.AiAssistantApp.instance.repository
+    val apiConfigs by repository.getAllApiConfigs().collectAsState(initial = emptyList())
+    val visibleOptions = remember { mutableStateOf<List<com.aiassistant.domain.model.ChatModelOption>>(emptyList()) }
+    LaunchedEffect(Unit) {
+        visibleOptions.value = repository.getAllVisibleChatModelOptions()
+    }
+    var selectedConfig by remember { mutableStateOf<com.aiassistant.domain.model.ApiConfig?>(null) }
+    var selectedModelName by remember(selectedConfig) {
+        mutableStateOf(selectedConfig?.modelName.orEmpty())
+    }
+    var configMenuExpanded by remember { mutableStateOf(false) }
+
+    LaunchedEffect(apiConfigs) {
+        if (selectedConfig == null && apiConfigs.isNotEmpty()) {
+            val cfg = apiConfigs.firstOrNull { it.isDefault } ?: apiConfigs.firstOrNull()
+            selectedConfig = cfg
+            selectedModelName = cfg?.modelName.orEmpty()
+        }
+    }
+
+    var rawText by remember { mutableStateOf("") }
+    var loadedFileName by remember { mutableStateOf<String?>(null) }
+    var isAnalyzing by remember { mutableStateOf(false) }
+    var progressStatus by remember { mutableStateOf("") }
+
+    val filePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let {
+            val content = RoleplaySmartParser.readTextFromUri(context, it)
+            if (content.isNotBlank()) {
+                rawText = content
+                loadedFileName = it.lastPathSegment?.substringAfterLast('/') ?: "已加载文件"
+                Toast.makeText(context, "已读取 TXT 文件内容 (${content.length}字)", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(context, "无法读取该文件，请检查格式", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = { if (!isAnalyzing) onDismiss() },
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.AutoAwesome,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("AI 智能读取与人设拆解")
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 480.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = "支持粘贴小说正文、人物小传、设定长文本或导入 TXT，系统将调用大模型深度拆解主角/配角性格、生平经历、口吻文风、动机与开场白，绝不无脑照抄原文。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                // API 模型选择
+                if (apiConfigs.isNotEmpty()) {
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedCard(
+                            onClick = { if (!isAnalyzing) configMenuExpanded = true },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.SmartToy, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = selectedConfig?.let { "${it.name} (${selectedModelName.ifBlank { it.modelName }})" } ?: "选择分析模型",
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
+                                Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                            }
+                        }
+                        DropdownMenu(
+                            expanded = configMenuExpanded,
+                            onDismissRequest = { configMenuExpanded = false }
+                        ) {
+                            apiConfigs.forEach { cfg ->
+                                val modelsForCfg = visibleOptions.value.filter { it.apiConfigId == cfg.id }.map { it.modelName }.ifEmpty { listOf(cfg.modelName) }
+                                modelsForCfg.distinct().forEach { mName ->
+                                    DropdownMenuItem(
+                                        text = { Text("${cfg.name} · $mName") },
+                                        onClick = {
+                                            selectedConfig = cfg
+                                            selectedModelName = mName
+                                            configMenuExpanded = false
+                                        },
+                                        leadingIcon = {
+                                            if (selectedConfig?.id == cfg.id && selectedModelName == mName) {
+                                                Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedButton(
+                        onClick = { filePicker.launch(arrayOf("text/plain", "*/*")) },
+                        enabled = !isAnalyzing
+                    ) {
+                        Icon(
+                            Icons.Default.UploadFile,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(loadedFileName ?: "从 TXT 导入")
+                    }
+
+                    if (rawText.isNotBlank()) {
+                        Text(
+                            text = "已输入 ${rawText.length} 字",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                OutlinedTextField(
+                    value = rawText,
+                    onValueChange = { rawText = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f, fill = false)
+                        .heightIn(min = 140.dp, max = 220.dp),
+                    placeholder = {
+                        Text("在此粘贴小说章节、人物小传或人设长文本...\n例如：爱莉希雅是十三英桀第二位，开朗温柔带有一丝神秘优雅...")
+                    },
+                    maxLines = 15,
+                    enabled = !isAnalyzing
+                )
+
+                if (isAnalyzing) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = progressStatus.ifBlank { "正在分析拆解中..." },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = {
+                        if (rawText.isNotBlank()) {
+                            val parsed = RoleplaySmartParser.parseCharacter(rawText, currentProfile)
+                            onApply(parsed)
+                        }
+                    },
+                    enabled = rawText.isNotBlank() && !isAnalyzing
+                ) {
+                    Text("本地提取")
+                }
+                Button(
+                    onClick = {
+                        if (rawText.isNotBlank()) {
+                            scope.launch {
+                                isAnalyzing = true
+                                progressStatus = "正在调用 AI 模型进行人设深度拆解..."
+                                try {
+                                    val parsed = com.aiassistant.utils.RoleplaySmartAnalyzer.analyzeCharacter(
+                                        context = context,
+                                        rawText = rawText,
+                                        repository = repository,
+                                        apiConfig = selectedConfig,
+                                        selectedModel = selectedModelName,
+                                        onProgress = { progressStatus = it }
+                                    )
+                                    onApply(parsed)
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "拆解异常: ${e.message}", Toast.LENGTH_LONG).show()
+                                } finally {
+                                    isAnalyzing = false
+                                }
+                            }
+                        }
+                    },
+                    enabled = rawText.isNotBlank() && !isAnalyzing
+                ) {
+                    Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(if (isAnalyzing) "拆解中..." else "AI 深度拆解")
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !isAnalyzing) {
+                Text("取消")
+            }
+        }
+    )
+}
+
+@Composable
 private fun BasicInfoSection(
     name: String,
     onNameChange: (String) -> Unit,
@@ -292,7 +618,8 @@ private fun BasicInfoSection(
 
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Text("设为默认角色")
             Switch(
@@ -321,7 +648,7 @@ private fun PersonalitySection(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text(
-            text = "性格与背景",
+            text = "性格背景",
             style = MaterialTheme.typography.titleMedium
         )
 
@@ -331,7 +658,7 @@ private fun PersonalitySection(
             label = { Text("性格特征") },
             modifier = Modifier.fillMaxWidth(),
             minLines = 3,
-            placeholder = { Text("描述角色的性格特点，例如：温柔、坚强、幽默") }
+            placeholder = { Text("描述角色的性格特点，例如：开朗乐观，但在关键时刻非常冷静果断") }
         )
 
         OutlinedTextField(
@@ -339,26 +666,26 @@ private fun PersonalitySection(
             onValueChange = onBackgroundChange,
             label = { Text("背景故事") },
             modifier = Modifier.fillMaxWidth(),
-            minLines = 3,
-            placeholder = { Text("角色的过去经历和重要事件") }
+            minLines = 4,
+            placeholder = { Text("角色的出身、经历、重要过往等") }
         )
 
         OutlinedTextField(
             value = speakingStyle,
             onValueChange = onSpeakingStyleChange,
-            label = { Text("说话方式和语言风格") },
+            label = { Text("说话方式/文风") },
             modifier = Modifier.fillMaxWidth(),
             minLines = 2,
-            placeholder = { Text("例如：文雅、直率、带有口癖") }
+            placeholder = { Text("角色的语气、口头禅、用词习惯等，例如：喜欢用反问句，口头禅是'真是麻烦啊'") }
         )
 
         OutlinedTextField(
             value = goals,
             onValueChange = onGoalsChange,
-            label = { Text("目标、动机和当前欲望") },
+            label = { Text("目标与动机") },
             modifier = Modifier.fillMaxWidth(),
             minLines = 2,
-            placeholder = { Text("角色想要达成的目标") }
+            placeholder = { Text("角色当前追求的目标或行动动机") }
         )
     }
 }
@@ -388,28 +715,28 @@ private fun BehaviorSection(
         OutlinedTextField(
             value = relationships,
             onValueChange = onRelationshipsChange,
-            label = { Text("关系设定") },
+            label = { Text("人际关系") },
             modifier = Modifier.fillMaxWidth(),
-            minLines = 2,
-            placeholder = { Text("与其他角色或用户的关系") }
+            minLines = 3,
+            placeholder = { Text("与其他角色的关系，对用户的态度等") }
         )
 
         OutlinedTextField(
             value = knowledge,
             onValueChange = onKnowledgeChange,
-            label = { Text("已知信息和知识边界") },
+            label = { Text("知识边界") },
             modifier = Modifier.fillMaxWidth(),
             minLines = 2,
-            placeholder = { Text("角色知道什么，不知道什么") }
+            placeholder = { Text("角色了解和不了解的知识范围") }
         )
 
         OutlinedTextField(
             value = constraints,
             onValueChange = onConstraintsChange,
-            label = { Text("禁止违背的设定") },
+            label = { Text("绝对禁止") },
             modifier = Modifier.fillMaxWidth(),
             minLines = 2,
-            placeholder = { Text("绝对不能违反的规则") }
+            placeholder = { Text("角色绝不能做或说的事情") }
         )
 
         OutlinedTextField(
@@ -418,7 +745,7 @@ private fun BehaviorSection(
             label = { Text("行为约束") },
             modifier = Modifier.fillMaxWidth(),
             minLines = 2,
-            placeholder = { Text("角色应该遵守的行为准则") }
+            placeholder = { Text("角色的特殊行为模式或反应规则") }
         )
     }
 }
@@ -443,7 +770,7 @@ private fun DialogueSection(
 
         OutlinedTextField(
             value = greeting,
-            onValueChange = onGreetingChange,
+            onGreetingChange,
             label = { Text("初始问候语") },
             modifier = Modifier.fillMaxWidth(),
             minLines = 3,

@@ -1,5 +1,8 @@
 package com.aiassistant.ui.screens.roleplay
 
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -8,9 +11,13 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.aiassistant.domain.model.RoleplayScenario
+import com.aiassistant.utils.RoleplaySmartParser
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -20,6 +27,7 @@ fun ScenarioEditorScreen(
     onDelete: (() -> Unit)? = null,
     onBack: () -> Unit
 ) {
+    val context = LocalContext.current
     var name by remember { mutableStateOf(scenario?.name ?: "") }
     var worldview by remember { mutableStateOf(scenario?.worldview ?: "") }
     var time by remember { mutableStateOf(scenario?.time ?: "") }
@@ -40,6 +48,7 @@ fun ScenarioEditorScreen(
 
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showPreview by remember { mutableStateOf(false) }
+    var showSmartReadDialog by remember { mutableStateOf(false) }
     var currentSection by remember { mutableStateOf(0) }
 
     val scrollState = rememberScrollState()
@@ -54,6 +63,13 @@ fun ScenarioEditorScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { showSmartReadDialog = true }) {
+                        Icon(
+                            Icons.Default.AutoAwesome,
+                            contentDescription = "一键读取",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
                     IconButton(onClick = { showPreview = true }) {
                         Icon(Icons.Default.Preview, contentDescription = "预览")
                     }
@@ -79,6 +95,40 @@ fun ScenarioEditorScreen(
                 .padding(paddingValues)
                 .verticalScroll(scrollState)
         ) {
+            // 顶部一键读取提示条
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.AutoAwesome,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "支持一键读取长文本或 TXT 场景设定，自动拆解填入各设定项",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.weight(1f),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    TextButton(
+                        onClick = { showSmartReadDialog = true },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                    ) {
+                        Text("一键读取")
+                    }
+                }
+            }
+
             // 分区选择器
             ScrollableTabRow(
                 selectedTabIndex = currentSection,
@@ -198,6 +248,53 @@ fun ScenarioEditorScreen(
         }
     }
 
+    // 一键读取对话框
+    if (showSmartReadDialog) {
+        SmartReadScenarioDialog(
+            currentScenario = RoleplayScenario(
+                id = scenario?.id ?: 0,
+                name = name,
+                worldview = worldview,
+                time = time,
+                location = location,
+                environment = environment,
+                premise = premise,
+                rules = rules,
+                relationshipState = relationshipState,
+                conflict = conflict,
+                plotGoal = plotGoal,
+                atmosphere = atmosphere,
+                narrativePerspective = narrativePerspective,
+                outputFormat = outputFormat,
+                contentRestrictions = contentRestrictions,
+                openingPrompt = openingPrompt,
+                tags = tags,
+                isFavorite = isFavorite
+            ),
+            onDismiss = { showSmartReadDialog = false },
+            onApply = { parsed ->
+                if (parsed.name.isNotBlank()) name = parsed.name
+                if (parsed.worldview.isNotBlank()) worldview = parsed.worldview
+                if (parsed.time.isNotBlank()) time = parsed.time
+                if (parsed.location.isNotBlank()) location = parsed.location
+                if (parsed.environment.isNotBlank()) environment = parsed.environment
+                if (parsed.premise.isNotBlank()) premise = parsed.premise
+                if (parsed.rules.isNotBlank()) rules = parsed.rules
+                if (parsed.relationshipState.isNotBlank()) relationshipState = parsed.relationshipState
+                if (parsed.conflict.isNotBlank()) conflict = parsed.conflict
+                if (parsed.plotGoal.isNotBlank()) plotGoal = parsed.plotGoal
+                if (parsed.atmosphere.isNotBlank()) atmosphere = parsed.atmosphere
+                if (parsed.narrativePerspective.isNotBlank()) narrativePerspective = parsed.narrativePerspective
+                if (parsed.outputFormat.isNotBlank()) outputFormat = parsed.outputFormat
+                if (parsed.contentRestrictions.isNotBlank()) contentRestrictions = parsed.contentRestrictions
+                if (parsed.openingPrompt.isNotBlank()) openingPrompt = parsed.openingPrompt
+                parsed.tags?.takeIf { it.isNotBlank() }?.let { tags = it }
+                showSmartReadDialog = false
+                Toast.makeText(context, "场景设定已自动识别并填充", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
+
     // 删除确认对话框
     if (showDeleteDialog) {
         AlertDialog(
@@ -242,11 +339,246 @@ fun ScenarioEditorScreen(
                 outputFormat = outputFormat,
                 contentRestrictions = contentRestrictions,
                 openingPrompt = openingPrompt,
-                tags = tags
+                tags = tags,
+                isFavorite = isFavorite
             ),
             onDismiss = { showPreview = false }
         )
     }
+}
+
+@Composable
+private fun SmartReadScenarioDialog(
+    currentScenario: RoleplayScenario,
+    onDismiss: () -> Unit,
+    onApply: (RoleplayScenario) -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val repository = com.aiassistant.AiAssistantApp.instance.repository
+    val apiConfigs by repository.getAllApiConfigs().collectAsState(initial = emptyList())
+    val visibleOptions = remember { mutableStateOf<List<com.aiassistant.domain.model.ChatModelOption>>(emptyList()) }
+    LaunchedEffect(Unit) {
+        visibleOptions.value = repository.getAllVisibleChatModelOptions()
+    }
+    var selectedConfig by remember { mutableStateOf<com.aiassistant.domain.model.ApiConfig?>(null) }
+    var selectedModelName by remember(selectedConfig) {
+        mutableStateOf(selectedConfig?.modelName.orEmpty())
+    }
+    var configMenuExpanded by remember { mutableStateOf(false) }
+
+    LaunchedEffect(apiConfigs) {
+        if (selectedConfig == null && apiConfigs.isNotEmpty()) {
+            val cfg = apiConfigs.firstOrNull { it.isDefault } ?: apiConfigs.firstOrNull()
+            selectedConfig = cfg
+            selectedModelName = cfg?.modelName.orEmpty()
+        }
+    }
+
+    var rawText by remember { mutableStateOf("") }
+    var loadedFileName by remember { mutableStateOf<String?>(null) }
+    var isAnalyzing by remember { mutableStateOf(false) }
+    var progressStatus by remember { mutableStateOf("") }
+
+    val filePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let {
+            val content = RoleplaySmartParser.readTextFromUri(context, it)
+            if (content.isNotBlank()) {
+                rawText = content
+                loadedFileName = it.lastPathSegment?.substringAfterLast('/') ?: "已加载文件"
+                Toast.makeText(context, "已读取 TXT 文件内容 (${content.length}字)", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(context, "无法读取该文件，请检查格式", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = { if (!isAnalyzing) onDismiss() },
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.AutoAwesome,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("AI 智能读取与场景拆解")
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 480.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = "支持粘贴小说片段、世界观设定、剧本大纲或导入 TXT，系统将调用大模型深度拆解世界观、时间、地点、现场环境、核心冲突与开场引导语。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                // API 模型选择
+                if (apiConfigs.isNotEmpty()) {
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedCard(
+                            onClick = { if (!isAnalyzing) configMenuExpanded = true },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.SmartToy, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = selectedConfig?.let { "${it.name} (${selectedModelName.ifBlank { it.modelName }})" } ?: "选择分析模型",
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
+                                Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                            }
+                        }
+                        DropdownMenu(
+                            expanded = configMenuExpanded,
+                            onDismissRequest = { configMenuExpanded = false }
+                        ) {
+                            apiConfigs.forEach { cfg ->
+                                val modelsForCfg = visibleOptions.value.filter { it.apiConfigId == cfg.id }.map { it.modelName }.ifEmpty { listOf(cfg.modelName) }
+                                modelsForCfg.distinct().forEach { mName ->
+                                    DropdownMenuItem(
+                                        text = { Text("${cfg.name} · $mName") },
+                                        onClick = {
+                                            selectedConfig = cfg
+                                            selectedModelName = mName
+                                            configMenuExpanded = false
+                                        },
+                                        leadingIcon = {
+                                            if (selectedConfig?.id == cfg.id && selectedModelName == mName) {
+                                                Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedButton(
+                        onClick = { filePicker.launch(arrayOf("text/plain", "*/*")) },
+                        enabled = !isAnalyzing
+                    ) {
+                        Icon(
+                            Icons.Default.UploadFile,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(loadedFileName ?: "从 TXT 导入")
+                    }
+
+                    if (rawText.isNotBlank()) {
+                        Text(
+                            text = "已输入 ${rawText.length} 字",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                OutlinedTextField(
+                    value = rawText,
+                    onValueChange = { rawText = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f, fill = false)
+                        .heightIn(min = 140.dp, max = 220.dp),
+                    placeholder = {
+                        Text("在此粘贴场景设定长文本...\n例如：\n【场景名】赛博朋克夜雨街区\n【世界观】2077未来高科技低生活\n【时间】午夜2点\n【地点】霓虹闪烁的下城区巷道\n【剧情前提】追逐逃亡\n【当前冲突】被追捕者围堵\n【氛围】压抑紧张\n【标签】赛博,雨夜,战斗")
+                    },
+                    maxLines = 15,
+                    enabled = !isAnalyzing
+                )
+
+                if (isAnalyzing) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = progressStatus.ifBlank { "正在分析拆解中..." },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = {
+                        if (rawText.isNotBlank()) {
+                            val parsed = RoleplaySmartParser.parseScenario(rawText, currentScenario)
+                            onApply(parsed)
+                        }
+                    },
+                    enabled = rawText.isNotBlank() && !isAnalyzing
+                ) {
+                    Text("本地提取")
+                }
+                Button(
+                    onClick = {
+                        if (rawText.isNotBlank()) {
+                            scope.launch {
+                                isAnalyzing = true
+                                progressStatus = "正在调用 AI 模型进行场景深度拆解..."
+                                try {
+                                    val parsed = com.aiassistant.utils.RoleplaySmartAnalyzer.analyzeScenario(
+                                        context = context,
+                                        rawText = rawText,
+                                        repository = repository,
+                                        apiConfig = selectedConfig,
+                                        selectedModel = selectedModelName,
+                                        onProgress = { progressStatus = it }
+                                    )
+                                    onApply(parsed)
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "拆解异常: ${e.message}", Toast.LENGTH_LONG).show()
+                                } finally {
+                                    isAnalyzing = false
+                                }
+                            }
+                        }
+                    },
+                    enabled = rawText.isNotBlank() && !isAnalyzing
+                ) {
+                    Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(if (isAnalyzing) "拆解中..." else "AI 深度拆解")
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !isAnalyzing) {
+                Text("取消")
+            }
+        }
+    )
 }
 
 @Composable
@@ -285,17 +617,17 @@ private fun BasicSettingSection(
         OutlinedTextField(
             value = time,
             onValueChange = onTimeChange,
-            label = { Text("时间") },
+            label = { Text("时间背景") },
             modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("例如：中世纪、未来2150年、现代") }
+            placeholder = { Text("例如：黄昏时分、公元3024年、中世纪") }
         )
 
         OutlinedTextField(
             value = location,
             onValueChange = onLocationChange,
-            label = { Text("地点") },
+            label = { Text("主要地点") },
             modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("例如：魔法学院、太空站、古代宫廷") }
+            placeholder = { Text("例如：废弃图书馆、空间站控制室、酒馆") }
         )
 
         OutlinedTextField(
@@ -304,7 +636,7 @@ private fun BasicSettingSection(
             label = { Text("环境描述") },
             modifier = Modifier.fillMaxWidth(),
             minLines = 3,
-            placeholder = { Text("描述场景的具体环境和氛围") }
+            placeholder = { Text("描述周围的环境细节、天气、光线等") }
         )
 
         OutlinedTextField(
@@ -312,7 +644,7 @@ private fun BasicSettingSection(
             onValueChange = onTagsChange,
             label = { Text("标签") },
             modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("用逗号分隔，例如：奇幻,冒险,校园") }
+            placeholder = { Text("用逗号分隔，例如：科幻,冒险,战斗") }
         )
     }
 }
@@ -333,35 +665,35 @@ private fun WorldBuildingSection(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text(
-            text = "世界观设定",
+            text = "世界观与规则",
             style = MaterialTheme.typography.titleMedium
         )
 
         OutlinedTextField(
             value = worldview,
             onValueChange = onWorldviewChange,
-            label = { Text("世界观") },
+            label = { Text("世界观设定") },
             modifier = Modifier.fillMaxWidth(),
-            minLines = 3,
-            placeholder = { Text("描述这个世界的基本设定、历史背景") }
+            minLines = 4,
+            placeholder = { Text("描述世界的宏观背景、历史、势力分布等") }
         )
 
         OutlinedTextField(
             value = rules,
             onValueChange = onRulesChange,
-            label = { Text("世界规则") },
+            label = { Text("世界规则/法则") },
             modifier = Modifier.fillMaxWidth(),
             minLines = 3,
-            placeholder = { Text("这个世界的运行规则，例如魔法体系、科技水平") }
+            placeholder = { Text("魔法体系、科技水平、物理法则或特殊禁忌") }
         )
 
         OutlinedTextField(
             value = relationshipState,
             onValueChange = onRelationshipStateChange,
-            label = { Text("角色关系状态") },
+            label = { Text("初始关系状态") },
             modifier = Modifier.fillMaxWidth(),
             minLines = 2,
-            placeholder = { Text("当前角色之间的关系状态") }
+            placeholder = { Text("会话开始时各方角色的关系状态") }
         )
     }
 }
@@ -384,7 +716,7 @@ private fun PlotSettingSection(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text(
-            text = "剧情设定",
+            text = "剧情与目标",
             style = MaterialTheme.typography.titleMedium
         )
 
@@ -394,7 +726,7 @@ private fun PlotSettingSection(
             label = { Text("剧情前提") },
             modifier = Modifier.fillMaxWidth(),
             minLines = 3,
-            placeholder = { Text("故事开始的背景和起因") }
+            placeholder = { Text("发生这一场景的前情提要或起因") }
         )
 
         OutlinedTextField(
@@ -403,7 +735,7 @@ private fun PlotSettingSection(
             label = { Text("当前冲突") },
             modifier = Modifier.fillMaxWidth(),
             minLines = 2,
-            placeholder = { Text("目前的主要矛盾和冲突") }
+            placeholder = { Text("场景中正在发生或潜在的主要矛盾") }
         )
 
         OutlinedTextField(
@@ -412,16 +744,16 @@ private fun PlotSettingSection(
             label = { Text("剧情目标") },
             modifier = Modifier.fillMaxWidth(),
             minLines = 2,
-            placeholder = { Text("故事要达成的目标") }
+            placeholder = { Text("本次互动希望达成的剧情推进或结果") }
         )
 
         OutlinedTextField(
             value = openingPrompt,
             onValueChange = onOpeningPromptChange,
-            label = { Text("开场提示") },
+            label = { Text("开场引导/提示词") },
             modifier = Modifier.fillMaxWidth(),
             minLines = 3,
-            placeholder = { Text("用于引导模型生成开场的内容") }
+            placeholder = { Text("给 AI 的开场引导词，设定第一段描写的基调") }
         )
     }
 }
@@ -444,7 +776,7 @@ private fun NarrativeControlSection(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text(
-            text = "叙事控制",
+            text = "叙事控制与文风",
             style = MaterialTheme.typography.titleMedium
         )
 

@@ -42,6 +42,18 @@ class RoleplayRepository(
         characterProfileDao.setDefaultCharacter(id)
     }
 
+    suspend fun deleteCharactersByIds(ids: List<Long>) {
+        ids.forEach { characterProfileDao.deleteCharacterById(it) }
+    }
+
+    suspend fun deleteScenariosByIds(ids: List<Long>) {
+        ids.forEach { roleplayScenarioDao.deleteScenarioById(it) }
+    }
+
+    suspend fun getCharactersByIds(ids: List<Long>): List<CharacterProfile> {
+        return ids.mapNotNull { characterProfileDao.getCharacterById(it) }
+    }
+
     // ============ 场景卡操作 ============
 
     fun getAllScenarios(): Flow<List<RoleplayScenario>> = roleplayScenarioDao.getAllScenarios()
@@ -87,6 +99,19 @@ class RoleplayRepository(
 
     suspend fun updateSessionMemoryState(id: Long, summary: String, pinnedFacts: String?) =
         roleplaySessionDao.updateMemoryState(id, summary, pinnedFacts)
+
+    suspend fun getEffectiveCharactersForSession(session: RoleplaySession): List<CharacterProfile> {
+        val characterIds = session.getEffectiveCharacterIds()
+        val baseChars = if (characterIds.isNotEmpty()) {
+            getCharactersByIds(characterIds)
+        } else emptyList()
+        return session.getCustomizedCharacters(baseChars)
+    }
+
+    suspend fun getEffectiveScenarioForSession(session: RoleplaySession): RoleplayScenario? {
+        val baseScenario = session.scenarioId?.let { roleplayScenarioDao.getScenarioById(it) }
+        return session.getCustomizedScenario(baseScenario)
+    }
 
     // ============ 角色扮演记忆操作 ============
 
@@ -179,20 +204,24 @@ class RoleplayRepository(
             parts.add("【全局系统约束】\n$globalSystemPrompt")
         }
 
-        // 2. 角色卡
-        session.characterId?.let { characterId ->
-            val character = characterProfileDao.getCharacterById(characterId)
-            if (character != null) {
-                parts.add(buildCharacterCardPrompt(character))
+        // 2. 角色卡 (支持多角色与故事编排，并支持本故事专属定制覆盖)
+        val characterIds = session.getEffectiveCharacterIds()
+        if (characterIds.isNotEmpty()) {
+            val baseChars = characterIds.mapNotNull { characterId ->
+                characterProfileDao.getCharacterById(characterId)
+            }
+            val effectiveChars = session.getCustomizedCharacters(baseChars)
+            val charPrompts = effectiveChars.map { buildCharacterCardPrompt(it) }
+            if (charPrompts.isNotEmpty()) {
+                parts.add("【登场角色设定 (${charPrompts.size}位)】\n\n" + charPrompts.joinToString("\n\n---\n\n"))
             }
         }
 
-        // 3. 场景卡
-        session.scenarioId?.let { scenarioId ->
-            val scenario = roleplayScenarioDao.getScenarioById(scenarioId)
-            if (scenario != null) {
-                parts.add(buildScenarioCardPrompt(scenario))
-            }
+        // 3. 世界观/场景设定 (支持本故事专属定制覆盖)
+        val baseScenario = session.scenarioId?.let { roleplayScenarioDao.getScenarioById(it) }
+        val effectiveScenario = session.getCustomizedScenario(baseScenario)
+        if (effectiveScenario != null) {
+            parts.add(buildScenarioCardPrompt(effectiveScenario))
         }
 
         // 4. 长期记忆
@@ -238,6 +267,12 @@ class RoleplayRepository(
         if (character.greeting.isNotBlank()) parts.add("初始问候：${character.greeting}")
         if (character.exampleDialogue.isNotBlank()) parts.add("示例对话：${character.exampleDialogue}")
 
+        parts.add("\n【文学创作与角色演绎铁律 (Show, Don't Tell)】")
+        parts.add("1. 严禁在动作描写中直接使用生硬性格副词（如禁止输出“强硬地”、“冷酷地”、“温柔地”、“傲娇地”等词汇）。")
+        parts.add("2. 必须通过角色的眼神、微表情、肢体动作、用词节奏、呼吸停顿以及选择性沉默来生动展现性格。")
+        parts.add("3. 严格保持角色独立性：严禁代为描写用户的发言、动作、内心决定或情绪。")
+        parts.add("4. 采用小说级沉浸排版：动作描写与台词对话分段交替。")
+
         return parts.joinToString("\n")
     }
 
@@ -274,19 +309,15 @@ class RoleplayRepository(
         return when (NarrativeMode.fromValue(mode)) {
             NarrativeMode.CHARACTER -> {
                 "【叙事模式：角色内指令】\n" +
-                "你将以角色身份回应，完全沉浸在角色设定中，使用角色的说话方式和语言风格。"
+                "你将完全以登场角色的身份做出回应与互动，严格沉浸在角色设定中，使用角色的口吻习惯与语言风格。"
             }
             NarrativeMode.AUTHOR -> {
                 "【叙事模式：作者/导演指令】\n" +
-                "用户是故事的导演，你负责根据用户的指示推进剧情发展，可以控制所有角色的行为和对话。"
+                "用户为主导故事的大纲导演，你负责根据用户的剧情指示推进故事发展，精细铺陈所有登场角色的互动与情节进展。"
             }
             NarrativeMode.NARRATOR -> {
                 "【叙事模式：旁白模式】\n" +
-                "你只负责叙事和环境描写，不代替用户做决定，不代替用户角色说话。"
-            }
-            NarrativeMode.MULTI -> {
-                "【叙事模式：多角色模式】\n" +
-                "你将同时扮演多个角色，每个角色都有独立的性格和说话方式，注意区分不同角色的对话。"
+                "你只负责客观环境描写与第三人称剧情旁白，不代替用户做决定，不替用户角色做主观发言。"
             }
         }
     }
@@ -318,7 +349,8 @@ class RoleplayRepository(
                 // 回滚到上一个版本的逻辑
                 "请回到上一个版本重新开始。"
             }
-            PlotAction.SUMMARY -> "请生成当前剧情的摘要，包括主要事件、角色关系变化和当前状态。"
+            PlotAction.SUMMARY -> "请总结提炼当前所有剧情进展与核心事实摘要，包括登场人物状态变化、关键剧情转折与未解决的伏笔。"
+            PlotAction.BRANCH_CHOICES -> "【导演剧情分支决策】请不要直接输出单一走向。请基于当前局势与角色动机，提供 3~4 个不同节奏和方向的剧情分支选项（例如：A. 正面冲突方向；B. 智取暗中调查方向；C. 意外第三方介入方向；D. 情感转折方向），每个选项简要说明剧情走向预测与潜在风险。等待我做出选择后再正式展开后续详尽剧情。"
             PlotAction.DIALOGUE_ONLY -> "请只生成角色的对话，不要添加旁白和动作描写。"
             PlotAction.NARRATION_ONLY -> "请只生成旁白和环境描写，不要生成角色对话。"
             PlotAction.DIALOGUE_ACTION -> "请生成角色对话和动作描写，不要添加旁白。"

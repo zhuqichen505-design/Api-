@@ -21,7 +21,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -123,7 +124,7 @@ fun StatsScreen(
                     },
                     navigationIcon = {
                         IconButton(onClick = onNavigateBack) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = "返回")
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                         }
                     },
                     actions = {
@@ -324,7 +325,7 @@ private fun SummaryCard(
                 shape = EchoGlassPagePanelShape,
                 tint = tint,
                 blurRadius = 20.dp
-        ),
+            ),
         shape = EchoGlassPagePanelShape,
         color = tint,
         contentColor = content,
@@ -333,30 +334,103 @@ private fun SummaryCard(
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Text(
-                text = "${period.label} · ${formatNumber(summary.totalTokens)} Token",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-                color = content
-            )
-            Text(
-                text = statusText,
-                style = MaterialTheme.typography.bodySmall,
-                color = content.copy(alpha = 0.72f)
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                MetricPill("请求", summary.requestCount.toString(), content, Modifier.weight(1f))
-                MetricPill("命中率", formatPercent(summary.cacheHitRate), content, Modifier.weight(1f))
-                MetricPill("成功率", formatPercent(summary.successRate), content, Modifier.weight(1f))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "${period.label} · ${formatNumber(summary.totalTokens)} Token",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = content
+                    )
+                    Text(
+                        text = statusText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = content.copy(alpha = 0.72f)
+                    )
+                }
+            }
+
+            // 核心统计指标 3x2 丰富网格
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    MetricPill(
+                        icon = Icons.Default.Send,
+                        label = "总请求数",
+                        value = "${summary.requestCount} 次",
+                        contentColor = content,
+                        iconTint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.weight(1f)
+                    )
+                    MetricPill(
+                        icon = Icons.Default.Speed,
+                        label = "命中率",
+                        value = formatPercent(summary.cacheHitRate),
+                        contentColor = content,
+                        iconTint = MaterialTheme.colorScheme.tertiary,
+                        modifier = Modifier.weight(1f)
+                    )
+                    MetricPill(
+                        icon = Icons.Default.CheckCircle,
+                        label = "成功率",
+                        value = formatPercent(summary.successRate),
+                        contentColor = content,
+                        iconTint = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    MetricPill(
+                        icon = Icons.Default.Download,
+                        label = "输入 Token",
+                        value = formatNumber(summary.inputTokens),
+                        contentColor = content,
+                        iconTint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.weight(1f)
+                    )
+                    MetricPill(
+                        icon = Icons.Default.Upload,
+                        label = "输出 Token",
+                        value = formatNumber(summary.outputTokens),
+                        contentColor = content,
+                        iconTint = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.weight(1f)
+                    )
+                    MetricPill(
+                        icon = Icons.Default.Psychology,
+                        label = "思考 Token",
+                        value = formatNumber(summary.thinkingTokens),
+                        contentColor = content,
+                        iconTint = MaterialTheme.colorScheme.tertiary,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-private fun MetricPill(label: String, value: String, contentColor: Color, modifier: Modifier = Modifier) {
+private fun MetricPill(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    value: String,
+    contentColor: Color,
+    iconTint: Color = MaterialTheme.colorScheme.primary,
+    modifier: Modifier = Modifier
+) {
     Surface(
         modifier = modifier,
         shape = RoundedCornerShape(12.dp),
@@ -364,11 +438,18 @@ private fun MetricPill(label: String, value: String, contentColor: Color, modifi
         contentColor = contentColor
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = contentColor)
-            Text(label, style = MaterialTheme.typography.labelSmall, color = contentColor.copy(alpha = 0.68f))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Icon(icon, contentDescription = null, modifier = Modifier.size(14.dp), tint = iconTint)
+                Text(label, style = MaterialTheme.typography.labelSmall, color = contentColor.copy(alpha = 0.68f))
+            }
+            Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = contentColor)
         }
     }
 }
@@ -890,10 +971,15 @@ private fun queryUsageRows(db: SQLiteDatabase, startTime: Long, endTime: Long): 
 
 private fun List<UsageRow>.toSummary(): UsageSummary {
     val input = sumOf { it.inputTokens }
+    val output = sumOf { it.outputTokens }
+    val thinking = sumOf { it.thinkingTokens }
     val cached = sumOf { it.cachedTokens }
     val successCount = count { it.success }
     return UsageSummary(
         totalTokens = sumOf { it.totalTokens },
+        inputTokens = input,
+        outputTokens = output,
+        thinkingTokens = thinking,
         requestCount = size,
         cacheHitRate = if (input > 0) cached.toFloat() / input else 0f,
         successRate = if (isNotEmpty()) successCount.toFloat() / size else 0f
@@ -1002,6 +1088,9 @@ private data class UsageRow(
 
 private data class UsageSummary(
     val totalTokens: Int,
+    val inputTokens: Int = 0,
+    val outputTokens: Int = 0,
+    val thinkingTokens: Int = 0,
     val requestCount: Int,
     val cacheHitRate: Float,
     val successRate: Float

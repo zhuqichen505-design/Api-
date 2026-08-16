@@ -10,6 +10,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -60,7 +62,7 @@ fun FolderManagerScreen(
                     title = { Text("文件夹管理") },
                     navigationIcon = {
                         IconButton(onClick = onNavigateBack) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = "返回")
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
@@ -213,7 +215,7 @@ fun FolderItem(
         "work" to Icons.Default.Work,
         "school" to Icons.Default.School,
         "code" to Icons.Default.Code,
-        "chat" to Icons.Default.Chat,
+        "chat" to Icons.AutoMirrored.Filled.Chat,
         "favorite" to Icons.Default.Favorite,
         "bookmark" to Icons.Default.Bookmark
     )
@@ -481,7 +483,7 @@ fun FolderEditDialog(
                             "work" -> Icons.Default.Work
                             "school" -> Icons.Default.School
                             "code" -> Icons.Default.Code
-                            "chat" -> Icons.Default.Chat
+                            "chat" -> Icons.AutoMirrored.Filled.Chat
                             "favorite" -> Icons.Default.Favorite
                             "bookmark" -> Icons.Default.Bookmark
                             else -> Icons.Default.Folder

@@ -531,11 +531,18 @@ class AiRepository(
         systemPrompt: String? = null,
         tags: String? = null
     ): Long {
+        val config = apiConfigDao.getConfigById(apiConfigId)
         val conversation = Conversation(
             title = title,
             folderId = folderId,
             apiConfigId = apiConfigId,
             modelName = modelName,
+            temperature = config?.temperature ?: 0.95f,
+            maxTokens = config?.maxTokens ?: 8192,
+            topP = config?.topP ?: 1.0f,
+            enableThinking = config?.enableThinking ?: true,
+            thinkingEffort = config?.thinkingEffort ?: "high",
+            enableWebSearch = config?.enableWebSearch ?: false,
             systemPrompt = systemPrompt,
             tags = tags
         )
@@ -929,6 +936,16 @@ class AiRepository(
             if (msg.role == "user" || msg.role == "assistant") {
                 chatMessages.add(ChatMessage(role = msg.role, content = compactMessageForHistory(msg.content)))
             }
+        }
+
+        // 双端注水机制 (Dual-Anchor Prompting)：当长历史超过6轮或存在摘要时，注入尾部系统强化声明
+        val customPrompt = effectiveSystemPrompt(conversation, effectiveOptions)
+        if (!customPrompt.isNullOrBlank() && (contextBundle.recentMessages.size >= 6 || contextBundle.summary != null)) {
+            val tailOverride = "[System Override Directive / 核心指令强化声明]\n" +
+                "请注意：用户已对当前对话设定了最新的行为规范与提示词要求。\n" +
+                "无论前序历史对话风格如何，你必须立即完全遵循以下最新指令，放弃先前的惯性回复模式：\n" +
+                customPrompt.trim()
+            chatMessages.add(ChatMessage(role = "system", content = tailOverride))
         }
 
         // 构建当前用户消息（支持多模态）
@@ -2268,6 +2285,38 @@ class AiRepository(
             ?.take(30)
             ?.trim()
         return title?.ifBlank { null }
+    }
+
+    suspend fun executeQuickCompletion(config: ApiConfig, prompt: String, maxTokens: Int = 1000): String? = withContext(Dispatchers.IO) {
+        try {
+            if (config.apiType == "anthropic") {
+                val request = AnthropicRequest(
+                    model = config.modelName,
+                    messages = listOf(AnthropicMessage(role = "user", content = prompt)),
+                    max_tokens = maxTokens,
+                    temperature = 0.3f
+                )
+                val response = RetrofitClient.getService(config.baseUrl)
+                    .anthropicMessages(apiKey = config.apiKey, request = request)
+                    .execute()
+                if (!response.isSuccessful) null else response.body()?.content?.firstOrNull()?.text
+            } else {
+                val request = ChatCompletionRequest(
+                    model = config.modelName,
+                    messages = listOf(ChatMessage(role = "user", content = prompt)),
+                    temperature = 0.3f,
+                    max_tokens = maxTokens,
+                    stream = false
+                )
+                val response = RetrofitClient.getService(config.baseUrl)
+                    .chatCompletion(RetrofitClient.formatApiKey(config.apiKey), request)
+                    .execute()
+                if (!response.isSuccessful) null else response.body()?.choices?.firstOrNull()?.message?.content
+            }
+        } catch (e: Exception) {
+            Log.e(tag, "executeQuickCompletion 失败", e)
+            null
+        }
     }
 
     // ============ 统计相关 ============

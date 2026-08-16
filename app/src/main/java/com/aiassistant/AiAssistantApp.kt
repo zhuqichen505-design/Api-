@@ -19,6 +19,9 @@ class AiAssistantApp : Application() {
     lateinit var repository: AiRepository
         private set
 
+    lateinit var roleplayRepository: com.aiassistant.data.repository.RoleplayRepository
+        private set
+
     lateinit var database: AppDatabase
         private set
 
@@ -71,6 +74,13 @@ class AiAssistantApp : Application() {
                 personalizationManager = personalizationManager,
                 tavilySearchManager = tavilySearchManager
             )
+            roleplayRepository = com.aiassistant.data.repository.RoleplayRepository(
+                characterProfileDao = database.characterProfileDao(),
+                roleplayScenarioDao = database.roleplayScenarioDao(),
+                roleplaySessionDao = database.roleplaySessionDao(),
+                roleplayMemoryDao = database.roleplayMemoryDao(),
+                characterTagDao = database.characterTagDao()
+            )
             isDatabaseInitialized = true
         } catch (e: Exception) {
             Log.e("AiAssistantApp", "Database initialization failed", e)
@@ -99,6 +109,13 @@ class AiAssistantApp : Application() {
                         cryptoManager = cryptoManager,
                         personalizationManager = personalizationManager,
                         tavilySearchManager = tavilySearchManager
+                    )
+                    roleplayRepository = com.aiassistant.data.repository.RoleplayRepository(
+                        characterProfileDao = database.characterProfileDao(),
+                        roleplayScenarioDao = database.roleplayScenarioDao(),
+                        roleplaySessionDao = database.roleplaySessionDao(),
+                        roleplayMemoryDao = database.roleplayMemoryDao(),
+                        characterTagDao = database.characterTagDao()
                     )
                     isDatabaseInitialized = true
                 }

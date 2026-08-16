@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -14,6 +15,7 @@ import com.aiassistant.domain.model.PlotAction
 @Composable
 fun PlotActionBar(
     onAction: (PlotAction, String?) -> Unit,
+    onProposeSetting: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var showCustomDialog by remember { mutableStateOf(false) }
@@ -35,8 +37,20 @@ fun PlotActionBar(
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                if (onProposeSetting != null) {
+                    item {
+                        AssistChip(
+                            onClick = onProposeSetting,
+                            leadingIcon = {
+                                Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                            },
+                            label = { Text("识别输入补充设定", color = MaterialTheme.colorScheme.primary) }
+                        )
+                    }
+                }
                 val quickActions = listOf(
                     PlotAction.CONTINUE,
+                    PlotAction.BRANCH_CHOICES,
                     PlotAction.REGENERATE,
                     PlotAction.REWRITE,
                     PlotAction.EXTEND,
@@ -105,13 +119,14 @@ private fun ActionChip(
 ) {
     val icon = when (action) {
         PlotAction.CONTINUE -> Icons.Default.PlayArrow
+        PlotAction.BRANCH_CHOICES -> Icons.Default.AltRoute
         PlotAction.REGENERATE -> Icons.Default.Refresh
         PlotAction.REWRITE -> Icons.Default.Edit
         PlotAction.EXTEND -> Icons.Default.Add
         PlotAction.SHORTEN -> Icons.Default.Remove
         PlotAction.SUMMARY -> Icons.Default.Summarize
-        PlotAction.DIALOGUE_ONLY -> Icons.Default.Chat
-        PlotAction.NARRATION_ONLY -> Icons.Default.MenuBook
+        PlotAction.DIALOGUE_ONLY -> Icons.AutoMirrored.Filled.Chat
+        PlotAction.NARRATION_ONLY -> Icons.AutoMirrored.Filled.MenuBook
         PlotAction.DIALOGUE_ACTION -> Icons.Default.RecordVoiceOver
         PlotAction.CUSTOM -> Icons.Default.MoreHoriz
         else -> Icons.Default.MoreHoriz

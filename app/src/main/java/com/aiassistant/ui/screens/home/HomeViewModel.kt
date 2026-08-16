@@ -45,6 +45,9 @@ class HomeViewModel : ViewModel() {
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
+    private val _visibleModelOptions = MutableStateFlow<List<com.aiassistant.domain.model.ChatModelOption>>(emptyList())
+    val visibleModelOptions: StateFlow<List<com.aiassistant.domain.model.ChatModelOption>> = _visibleModelOptions.asStateFlow()
+
     init {
         loadData()
     }
@@ -67,6 +70,7 @@ class HomeViewModel : ViewModel() {
                     defaultConfig?.isDefault == true && currentConfig.id != defaultConfig.id -> defaultConfig
                     else -> configs.firstOrNull { it.id == currentConfig.id } ?: defaultConfig
                 }
+                _visibleModelOptions.value = repository.getAllVisibleChatModelOptions()
             }
         }
     }
@@ -92,6 +96,7 @@ class HomeViewModel : ViewModel() {
         systemPrompt: String?,
         folderId: Long? = null,
         apiConfig: ApiConfig? = null,
+        modelName: String? = null,
         isPrivate: Boolean = false,
         onSuccess: (Long) -> Unit
     ) {
@@ -103,11 +108,12 @@ class HomeViewModel : ViewModel() {
                 ?: return@launch
             _isLoading.value = true
             try {
-                val defaultModelName = repository.resolveDefaultModelName(config)
+                val targetModelName = modelName?.trim()?.ifBlank { null }
+                    ?: repository.resolveDefaultModelName(config)
                 val id = repository.createConversation(
                     title = title,
                     apiConfigId = config.id,
-                    modelName = defaultModelName,
+                    modelName = targetModelName,
                     folderId = normalizeFolderIdForCreation(folderId ?: _selectedFolderId.value),
                     systemPrompt = systemPrompt,
                     tags = if (isPrivate) "private" else null
@@ -136,6 +142,7 @@ class HomeViewModel : ViewModel() {
         systemPrompt: String?,
         folderName: String,
         apiConfig: ApiConfig?,
+        modelName: String? = null,
         isPrivate: Boolean = false,
         onSuccess: (Long) -> Unit
     ) {
@@ -151,11 +158,12 @@ class HomeViewModel : ViewModel() {
             _isLoading.value = true
             try {
                 val folderId = repository.createFolder(trimmedFolderName)
-                val defaultModelName = repository.resolveDefaultModelName(config)
+                val targetModelName = modelName?.trim()?.ifBlank { null }
+                    ?: repository.resolveDefaultModelName(config)
                 val conversationId = repository.createConversation(
                     title = title,
                     apiConfigId = config.id,
-                    modelName = defaultModelName,
+                    modelName = targetModelName,
                     folderId = folderId,
                     systemPrompt = systemPrompt,
                     tags = if (isPrivate) "private" else null

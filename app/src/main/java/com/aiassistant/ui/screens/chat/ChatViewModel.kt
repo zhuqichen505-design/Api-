@@ -90,21 +90,40 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                     // 使用对话级别配置，如果没有则使用API配置默认值
                     _tempSettings.value = TempChatSettings(
                         temperature = conv.temperature ?: apiConfig?.temperature ?: 0.95f,
-                        maxTokens = conv.maxTokens ?: apiConfig?.maxTokens ?: 4096,
+                        maxTokens = conv.maxTokens ?: apiConfig?.maxTokens ?: 8192,
                         topP = conv.topP ?: apiConfig?.topP ?: 1.0f,
-                        enableThinking = conv.enableThinking ?: apiConfig?.enableThinking ?: false,
-                        thinkingEffort = conv.thinkingEffort ?: apiConfig?.thinkingEffort ?: "medium",
+                        enableThinking = conv.enableThinking ?: apiConfig?.enableThinking ?: true,
+                        thinkingEffort = conv.thinkingEffort ?: apiConfig?.thinkingEffort ?: "high",
                         enableWebSearch = conv.enableWebSearch ?: apiConfig?.enableWebSearch ?: false
                     )
                     // 如果对话有自定义配置，自动启用临时设置
                     _useTempSettings.value = true
                 }
+
+                val roleplayRepo = AiAssistantApp.instance.roleplayRepository
+                val rpSession = roleplayRepo.getSessionByConversationId(conversationId)
+                val charIds = rpSession?.getEffectiveCharacterIds().orEmpty()
+                val rpCharacters = if (charIds.isNotEmpty()) {
+                    roleplayRepo.getCharactersByIds(charIds)
+                } else {
+                    listOfNotNull(rpSession?.characterId?.let { roleplayRepo.getCharacterById(it) })
+                }
+                val rpCharacter = rpCharacters.firstOrNull()
+                val rpScenario = rpSession?.scenarioId?.let { roleplayRepo.getScenarioById(it) }
+                val narrativeMode = rpSession?.let { NarrativeMode.fromValue(it.narrativeMode) } ?: NarrativeMode.CHARACTER
+
                 _uiState.update {
                     it.copy(
                         conversationTitle = conv.title,
                         modelName = conv.modelName,
                         systemPrompt = conv.systemPrompt,
-                        enableThinking = conversation?.enableThinking ?: false
+                        enableThinking = conversation?.enableThinking ?: false,
+                        isRoleplay = rpSession != null,
+                        roleplaySession = rpSession,
+                        roleplayCharacter = rpCharacter,
+                        roleplayCharacters = rpCharacters,
+                        roleplayScenario = rpScenario,
+                        narrativeMode = narrativeMode
                     )
                 }
             }
@@ -480,6 +499,19 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                     ?: throw Exception("API配置不存在，请重新配置")
                 systemPromptSaveJob?.join()
                 val effectiveConfig = selectedConfig.copy(modelName = selectedOption.modelName)
+
+                val roleplayRepo = AiAssistantApp.instance.roleplayRepository
+                val currentRoleplaySession = _uiState.value.roleplaySession
+                val effectiveSystemPrompt = if (currentRoleplaySession != null) {
+                    roleplayRepo.assembleRoleplayContext(
+                        sessionId = currentRoleplaySession.id,
+                        globalSystemPrompt = currentSystemPrompt,
+                        userMessage = content
+                    )
+                } else {
+                    currentSystemPrompt
+                }
+
                 val requestOptions = ChatRequestOptions(
                     temperature = settings?.temperature,
                     maxTokens = settings?.maxTokens,
@@ -488,7 +520,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                     thinkingEffort = settings?.thinkingEffort,
                     enableWebSearch = settings?.enableWebSearch,
                     overrideSystemPrompt = true,
-                    systemPromptOverride = currentSystemPrompt
+                    systemPromptOverride = effectiveSystemPrompt
                 )
 
                 // 直接在主线程调用，通过withContext切换到IO线程
@@ -531,25 +563,36 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                     return@launch
                 }
                 _isGenerating.value = false
-                val errorMsg = e.message ?: "未知错误"
-                _error.value = errorMsg
-                saveErrorReply(errorMsg)
-                _currentResponse.value = ""
-                _currentThinking.value = ""
+                if (!isMessageSaved) {
+                    isMessageSaved = true
+                    val errorMsg = e.message ?: "未知错误"
+                    _error.value = errorMsg
+                    saveErrorReply(errorMsg)
+                    _currentResponse.value = ""
+                    _currentThinking.value = ""
+                }
             }
         }
     }
 
     private fun saveErrorReply(errorMsg: String) {
+        val partialResponse = _currentResponse.value.trim()
+        val partialThinking = _currentThinking.value.trim().ifEmpty { null }
         AiAssistantApp.instance.applicationScope.launch {
-            val message = Message(
-                conversationId = conversationId,
-                role = "assistant",
-                content = buildString {
+            val content = if (partialResponse.isNotBlank()) {
+                "$partialResponse\n\n[输出已被中断: $errorMsg]"
+            } else {
+                buildString {
                     append("请求失败\n\n")
                     append(errorMsg.trim().ifBlank { "未知错误" })
                     append("\n\n可以检查 API 地址、密钥、模型名称或网络状态后重试。")
                 }
+            }
+            val message = Message(
+                conversationId = conversationId,
+                role = "assistant",
+                content = content,
+                thinkingContent = partialThinking
             )
             repository.saveMessage(message)
         }
@@ -762,7 +805,369 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
         }
     }
 
+    fun sendPlotAction(action: PlotAction, customInstruction: String? = null) {
+        val session = _uiState.value.roleplaySession ?: return
+        viewModelScope.launch {
+            val instruction = AiAssistantApp.instance.roleplayRepository.processPlotAction(session.id, action, customInstruction)
+            sendMessage(instruction)
+        }
+    }
+
+    fun updateNarrativeMode(mode: NarrativeMode) {
+        val session = _uiState.value.roleplaySession ?: return
+        viewModelScope.launch {
+            AiAssistantApp.instance.roleplayRepository.updateSession(session.copy(narrativeMode = mode.value))
+            _uiState.update { it.copy(narrativeMode = mode) }
+        }
+    }
+
+    fun appendAndMergeStoryBundle(
+        newCharacters: List<CharacterProfile>,
+        newScenario: RoleplayScenario?,
+        resolutionMap: Map<String, com.aiassistant.ui.screens.roleplay.ConflictAction>,
+        onComplete: (String) -> Unit
+    ) {
+        val session = _uiState.value.roleplaySession ?: return
+        viewModelScope.launch {
+            try {
+                val roleplayRepo = AiAssistantApp.instance.roleplayRepository
+                val existingAllChars = roleplayRepo.getAllCharacters().first()
+                val currentIds = session.getEffectiveCharacterIds().toMutableList()
+
+                newCharacters.forEach { incoming ->
+                    val existing = existingAllChars.firstOrNull { it.name.trim() == incoming.name.trim() }
+                    val action = resolutionMap[incoming.name.trim()] ?: com.aiassistant.ui.screens.roleplay.ConflictAction.MERGE
+
+                    if (existing != null) {
+                        when (action) {
+                            com.aiassistant.ui.screens.roleplay.ConflictAction.CREATE_COPY -> {
+                                val copyChar = incoming.copy(name = "${incoming.name} (副本)")
+                                val newId = roleplayRepo.insertCharacter(copyChar)
+                                if (newId !in currentIds) currentIds.add(newId)
+                            }
+                            com.aiassistant.ui.screens.roleplay.ConflictAction.OVERWRITE -> {
+                                val updated = incoming.copy(id = existing.id, isFavorite = existing.isFavorite)
+                                roleplayRepo.updateCharacter(updated)
+                                if (existing.id !in currentIds) currentIds.add(existing.id)
+                            }
+                            com.aiassistant.ui.screens.roleplay.ConflictAction.MERGE -> {
+                                val merged = com.aiassistant.utils.RoleplaySmartAnalyzer.mergeCharacters(existing, incoming)
+                                roleplayRepo.updateCharacter(merged)
+                                if (existing.id !in currentIds) currentIds.add(existing.id)
+                            }
+                        }
+                    } else {
+                        val newId = roleplayRepo.insertCharacter(incoming)
+                        if (newId !in currentIds) currentIds.add(newId)
+                    }
+                }
+
+                var finalScenarioId = session.scenarioId
+                if (newScenario != null) {
+                    val currentSc = session.scenarioId?.let { roleplayRepo.getScenarioById(it) }
+                    if (currentSc != null) {
+                        val mergedSc = com.aiassistant.utils.RoleplaySmartAnalyzer.mergeScenarios(currentSc, newScenario)
+                        roleplayRepo.updateScenario(mergedSc)
+                    } else {
+                        finalScenarioId = roleplayRepo.insertScenario(newScenario)
+                    }
+                }
+
+                val updatedCharIdsJson = com.google.gson.Gson().toJson(currentIds)
+                val updatedSession = session.copy(
+                    characterId = currentIds.firstOrNull(),
+                    characterIds = updatedCharIdsJson,
+                    scenarioId = finalScenarioId
+                )
+                roleplayRepo.updateSession(updatedSession)
+
+                val updatedChars = roleplayRepo.getCharactersByIds(currentIds)
+                val updatedSc = finalScenarioId?.let { roleplayRepo.getScenarioById(it) }
+
+                _uiState.update {
+                    it.copy(
+                        roleplaySession = updatedSession,
+                        roleplayCharacter = updatedChars.firstOrNull(),
+                        roleplayCharacters = updatedChars,
+                        roleplayScenario = updatedSc
+                    )
+                }
+
+                onComplete("已成功追加/融合 ${newCharacters.size} 位角色" + (if (newScenario != null) "与世界观设定" else ""))
+            } catch (e: Exception) {
+                onComplete("追加融合失败: ${e.message}")
+            }
+        }
+    }
+
+    fun updateStorySessionContext(
+        characterIds: List<Long>,
+        scenarioId: Long?,
+        narrativeMode: NarrativeMode,
+        plotSummary: String
+    ) {
+        viewModelScope.launch {
+            val roleplayRepo = AiAssistantApp.instance.roleplayRepository
+            val currentSession = _uiState.value.roleplaySession ?: roleplayRepo.getSessionByConversationId(conversationId) ?: return@launch
+            val charIdsJson = com.google.gson.Gson().toJson(characterIds)
+            val updated = currentSession.copy(
+                characterIds = charIdsJson,
+                characterId = characterIds.firstOrNull(),
+                scenarioId = scenarioId,
+                narrativeMode = narrativeMode.value,
+                currentPlotSummary = plotSummary,
+                updatedAt = System.currentTimeMillis()
+            )
+            roleplayRepo.updateSession(updated)
+
+            val rpCharacters = roleplayRepo.getEffectiveCharactersForSession(updated)
+            val rpScenario = roleplayRepo.getEffectiveScenarioForSession(updated)
+            _uiState.update {
+                it.copy(
+                    roleplaySession = updated,
+                    roleplayCharacter = rpCharacters.firstOrNull(),
+                    roleplayCharacters = rpCharacters,
+                    roleplayScenario = rpScenario,
+                    narrativeMode = narrativeMode
+                )
+            }
+        }
+    }
+
+    fun saveLocalCharacterOverride(editedCharacter: CharacterProfile) {
+        viewModelScope.launch {
+            val roleplayRepo = AiAssistantApp.instance.roleplayRepository
+            val currentSession = _uiState.value.roleplaySession ?: roleplayRepo.getSessionByConversationId(conversationId) ?: return@launch
+            val baseCharacters = _uiState.value.roleplayCharacters
+            val currentCustomized = currentSession.getCustomizedCharacters(baseCharacters).toMutableList()
+            val existingIndex = currentCustomized.indexOfFirst { it.id == editedCharacter.id && it.id > 0 || it.name == editedCharacter.name }
+            if (existingIndex >= 0) {
+                currentCustomized[existingIndex] = editedCharacter
+            } else {
+                currentCustomized.add(editedCharacter)
+            }
+            val jsonStr = com.google.gson.Gson().toJson(currentCustomized)
+            val updatedSession = currentSession.copy(
+                customCharacterData = jsonStr,
+                updatedAt = System.currentTimeMillis()
+            )
+            roleplayRepo.updateSession(updatedSession)
+            val effectiveChars = roleplayRepo.getEffectiveCharactersForSession(updatedSession)
+            _uiState.update {
+                it.copy(
+                    roleplaySession = updatedSession,
+                    roleplayCharacter = effectiveChars.firstOrNull(),
+                    roleplayCharacters = effectiveChars
+                )
+            }
+        }
+    }
+
+    fun saveLocalScenarioOverride(editedScenario: RoleplayScenario) {
+        viewModelScope.launch {
+            val roleplayRepo = AiAssistantApp.instance.roleplayRepository
+            val currentSession = _uiState.value.roleplaySession ?: roleplayRepo.getSessionByConversationId(conversationId) ?: return@launch
+            val jsonStr = com.google.gson.Gson().toJson(editedScenario)
+            val updatedSession = currentSession.copy(
+                customScenarioData = jsonStr,
+                updatedAt = System.currentTimeMillis()
+            )
+            roleplayRepo.updateSession(updatedSession)
+            val effectiveScenario = roleplayRepo.getEffectiveScenarioForSession(updatedSession)
+            _uiState.update {
+                it.copy(
+                    roleplaySession = updatedSession,
+                    roleplayScenario = effectiveScenario
+                )
+            }
+        }
+    }
+
+    fun analyzeAndProposeSettingFromInput(
+        text: String,
+        onProgress: (String) -> Unit = {},
+        onNoProposal: () -> Unit = {},
+        onError: (String) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            try {
+                val currentConfig = apiConfig ?: repository.getDefaultApiConfig() ?: return@launch
+                val modelToUse = _currentModel.value ?: currentConfig.modelName
+                withContext(Dispatchers.Main) { onProgress("正在智能识别输入中的角色与世界观设定...") }
+                val bundle = com.aiassistant.utils.RoleplaySmartAnalyzer.analyzeTextOrNovel(
+                    context = AiAssistantApp.instance,
+                    rawText = text,
+                    repository = repository,
+                    preferredConfig = currentConfig,
+                    selectedModel = modelToUse,
+                    onProgress = { msg ->
+                        viewModelScope.launch(Dispatchers.Main) {
+                            onProgress(msg)
+                        }
+                    }
+                )
+                if (bundle.characters.isNotEmpty() || bundle.scenario != null) {
+                    _uiState.update {
+                        it.copy(
+                            suggestedProposal = ProposedSettingBundle(
+                                characters = bundle.characters,
+                                scenario = bundle.scenario,
+                                summary = bundle.summaryReport
+                            )
+                        )
+                    }
+                } else {
+                    withContext(Dispatchers.Main) { onNoProposal() }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) { onError(e.message ?: "识别失败") }
+            }
+        }
+    }
+
+    fun dismissProposedSetting() {
+        _uiState.update { it.copy(suggestedProposal = null) }
+    }
+
+    fun applyProposedSetting(characters: List<CharacterProfile>, scenario: RoleplayScenario?) {
+        viewModelScope.launch {
+            val roleplayRepo = AiAssistantApp.instance.roleplayRepository
+            val currentSession = _uiState.value.roleplaySession ?: roleplayRepo.getSessionByConversationId(conversationId) ?: return@launch
+
+            // 1. 如果有新增/更新角色，存入局部角色列表
+            var updatedSession = currentSession
+            if (characters.isNotEmpty()) {
+                val baseChars = _uiState.value.roleplayCharacters
+                val currentCustomized = currentSession.getCustomizedCharacters(baseChars).toMutableList()
+                characters.forEach { newChar ->
+                    val idx = currentCustomized.indexOfFirst { (it.id > 0 && it.id == newChar.id) || it.name == newChar.name }
+                    if (idx >= 0) {
+                        currentCustomized[idx] = newChar
+                    } else {
+                        currentCustomized.add(newChar)
+                    }
+                }
+                val jsonStr = com.google.gson.Gson().toJson(currentCustomized)
+                updatedSession = updatedSession.copy(
+                    customCharacterData = jsonStr,
+                    updatedAt = System.currentTimeMillis()
+                )
+            }
+
+            // 2. 如果有更新世界观，存入局部世界观
+            if (scenario != null) {
+                val jsonStr = com.google.gson.Gson().toJson(scenario)
+                updatedSession = updatedSession.copy(
+                    customScenarioData = jsonStr,
+                    updatedAt = System.currentTimeMillis()
+                )
+            }
+
+            roleplayRepo.updateSession(updatedSession)
+            val effectiveChars = roleplayRepo.getEffectiveCharactersForSession(updatedSession)
+            val effectiveScenario = roleplayRepo.getEffectiveScenarioForSession(updatedSession)
+            _uiState.update {
+                it.copy(
+                    roleplaySession = updatedSession,
+                    roleplayCharacter = effectiveChars.firstOrNull(),
+                    roleplayCharacters = effectiveChars,
+                    roleplayScenario = effectiveScenario,
+                    suggestedProposal = null
+                )
+            }
+        }
+    }
+
+    fun summarizeAndExtractMemories(onSuccess: (String) -> Unit = {}, onError: (String) -> Unit = {}) {
+        viewModelScope.launch {
+            try {
+                val roleplaySession = _uiState.value.roleplaySession ?: AiAssistantApp.instance.roleplayRepository.getSessionByConversationId(conversationId)
+                if (roleplaySession == null) {
+                    withContext(Dispatchers.Main) { onError("当前不是故事会话") }
+                    return@launch
+                }
+                val allMessages = repository.getMessagesList(conversationId)
+                if (allMessages.isEmpty()) {
+                    withContext(Dispatchers.Main) { onError("暂无剧情记录可提炼") }
+                    return@launch
+                }
+                val transcript = allMessages.takeLast(16).joinToString("\n") { m ->
+                    val role = if (m.role == "user") "【导演/用户】" else "【模型剧情】"
+                    "$role: ${m.content.take(300)}"
+                }
+                val prompt = """
+                    请分析以下故事剧本对白与情节发展：
+                    $transcript
+
+                    请完成两项任务：
+                    1. 生成一段简明扼要、连贯的中文【当前剧情摘要】（不超过 200 字）；
+                    2. 提取 2~4 条不可违背的【关键事实或既定设定】（每条一句话）。
+
+                    请严格输出合法 JSON，格式如下：
+                    {
+                      "plotSummary": "剧情摘要文本...",
+                      "extractedFacts": [
+                        "事实1...",
+                        "事实2..."
+                      ]
+                    }
+                """.trimIndent()
+
+                val config = apiConfig ?: repository.getDefaultApiConfig()
+                if (config == null) {
+                    withContext(Dispatchers.Main) { onError("未找到可用的 API 配置") }
+                    return@launch
+                }
+                val responseText = withContext(Dispatchers.IO) {
+                    repository.executeQuickCompletion(config, prompt, maxTokens = 1024).orEmpty()
+                }
+                val jsonStart = responseText.indexOf('{')
+                val jsonEnd = responseText.lastIndexOf('}')
+                val jsonStr = if (jsonStart >= 0 && jsonEnd > jsonStart) responseText.substring(jsonStart, jsonEnd + 1) else null
+
+                if (jsonStr != null) {
+                    val parsed = com.google.gson.JsonParser.parseString(jsonStr).asJsonObject
+                    val newSummary = parsed.get("plotSummary")?.asString.orEmpty()
+                    val factsArray = parsed.get("extractedFacts")?.asJsonArray
+
+                    if (newSummary.isNotBlank()) {
+                        AiAssistantApp.instance.roleplayRepository.savePlotSummary(roleplaySession.id, newSummary)
+                    }
+                    factsArray?.forEach { el ->
+                        val factStr = el.asString.trim()
+                        if (factStr.isNotBlank()) {
+                            AiAssistantApp.instance.roleplayRepository.addPinnedFact(roleplaySession.id, factStr)
+                        }
+                    }
+                    val updatedSession = AiAssistantApp.instance.roleplayRepository.getSessionById(roleplaySession.id)
+                    _uiState.update { it.copy(roleplaySession = updatedSession) }
+                    withContext(Dispatchers.Main) {
+                        onSuccess("已成功提炼剧情摘要与 ${factsArray?.size() ?: 0} 条关键事实！")
+                    }
+                } else {
+                    AiAssistantApp.instance.roleplayRepository.savePlotSummary(roleplaySession.id, responseText.take(200))
+                    val updatedSession = AiAssistantApp.instance.roleplayRepository.getSessionById(roleplaySession.id)
+                    _uiState.update { it.copy(roleplaySession = updatedSession) }
+                    withContext(Dispatchers.Main) {
+                        onSuccess("已保存剧情摘要")
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    onError(e.message ?: "提炼失败")
+                }
+            }
+        }
+    }
+
     companion object {
+        private val conversationDrafts = java.util.concurrent.ConcurrentHashMap<Long, String>()
+        fun getDraft(conversationId: Long): String = conversationDrafts[conversationId].orEmpty()
+        fun saveDraft(conversationId: Long, text: String) {
+            if (text.isBlank()) conversationDrafts.remove(conversationId)
+            else conversationDrafts[conversationId] = text
+        }
+
         fun factory(conversationId: Long): ViewModelProvider.Factory {
             return object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
@@ -774,12 +1179,25 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
     }
 }
 
+data class ProposedSettingBundle(
+    val characters: List<CharacterProfile> = emptyList(),
+    val scenario: RoleplayScenario? = null,
+    val summary: String = ""
+)
+
 data class ChatUiState(
     val conversationTitle: String = "新对话",
     val modelName: String = "",
     val systemPrompt: String? = null,
     val enableThinking: Boolean = false,
-    val isLoading: Boolean = false
+    val isLoading: Boolean = false,
+    val isRoleplay: Boolean = false,
+    val roleplaySession: RoleplaySession? = null,
+    val roleplayCharacter: CharacterProfile? = null,
+    val roleplayCharacters: List<CharacterProfile> = emptyList(),
+    val roleplayScenario: RoleplayScenario? = null,
+    val narrativeMode: NarrativeMode = NarrativeMode.CHARACTER,
+    val suggestedProposal: ProposedSettingBundle? = null
 )
 
 data class ContextUsageUiState(
@@ -791,9 +1209,9 @@ data class ContextUsageUiState(
 // 临时聊天设置（仅当前对话有效）
 data class TempChatSettings(
     val temperature: Float = 0.95f,
-    val maxTokens: Int = 4096,
+    val maxTokens: Int = 8192,
     val topP: Float = 1.0f,
-    val enableThinking: Boolean = false,
-    val thinkingEffort: String = "medium",
+    val enableThinking: Boolean = true,
+    val thinkingEffort: String = "high",
     val enableWebSearch: Boolean = false
 )

@@ -27,7 +27,7 @@ import com.aiassistant.domain.model.*
         CharacterTag::class,
         CharacterTagCrossRef::class
     ],
-    version = 18,
+    version = 20,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -373,14 +373,29 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        private val LEGACY_REPAIR_MIGRATIONS: Array<Migration> = ((1..16)
+        // 从版本18迁移到版本19 - 添加多角色 characterIds 字段
+        private val MIGRATION_18_19 = object : Migration(18, 19) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                addColumnIfMissing(database, "roleplay_sessions", "characterIds", "TEXT")
+            }
+        }
+
+        // 从版本19迁移到版本20 - 添加当前故事专属角色与世界观覆盖字段
+        private val MIGRATION_19_20 = object : Migration(19, 20) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                addColumnIfMissing(database, "roleplay_sessions", "customCharacterData", "TEXT")
+                addColumnIfMissing(database, "roleplay_sessions", "customScenarioData", "TEXT")
+            }
+        }
+
+        private val LEGACY_REPAIR_MIGRATIONS: Array<Migration> = ((1..19)
             .map { startVersion ->
-                object : Migration(startVersion, 17) {
+                object : Migration(startVersion, 20) {
                     override fun migrate(database: SupportSQLiteDatabase) {
                         repairSchema(database)
                     }
                 }
-            } + MIGRATION_17_18)
+            } + MIGRATION_17_18 + MIGRATION_18_19 + MIGRATION_19_20)
             .toTypedArray()
 
         private fun repairSchema(database: SupportSQLiteDatabase) {
@@ -645,6 +660,9 @@ abstract class AppDatabase : RoomDatabase() {
                     ColumnSpec("currentPlotSummary", "TEXT NOT NULL", "''"),
                     ColumnSpec("pinnedFacts", "TEXT", "NULL", nullable = true),
                     ColumnSpec("lastVersionIndex", "INTEGER NOT NULL", "1"),
+                    ColumnSpec("characterIds", "TEXT", "NULL", nullable = true),
+                    ColumnSpec("customCharacterData", "TEXT", "NULL", nullable = true),
+                    ColumnSpec("customScenarioData", "TEXT", "NULL", nullable = true),
                     ColumnSpec("createdAt", "INTEGER NOT NULL", "0"),
                     ColumnSpec("updatedAt", "INTEGER NOT NULL", "0")
                 ),

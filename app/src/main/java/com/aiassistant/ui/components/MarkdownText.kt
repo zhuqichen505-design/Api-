@@ -168,7 +168,7 @@ fun MarkdownText(
                     }
                     // 分割线
                     line.trim() == "---" || line.trim() == "***" -> {
-                        Divider(
+                        HorizontalDivider(
                             modifier = Modifier.padding(vertical = 8.dp),
                             color = MaterialTheme.colorScheme.outlineVariant
                         )

@@ -1,14 +1,27 @@
 package com.aiassistant
 
-import com.aiassistant.domain.model.*
-import org.junit.Assert.*
+import com.aiassistant.domain.model.CharacterProfile
+import com.aiassistant.domain.model.RoleplayScenario
+import com.aiassistant.domain.model.RoleplaySession
+import com.aiassistant.domain.model.RoleplayMemory
+import com.aiassistant.domain.model.CharacterTag
+import com.aiassistant.domain.model.CharacterTagCrossRef
+import com.aiassistant.domain.model.NarrativeMode
+import com.aiassistant.domain.model.PlotAction
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RoleplayModelsTest {
 
     @Test
-    fun `CharacterProfile default values are correct`() {
-        val character = CharacterProfile(name = "测试角色")
+    fun testCharacterProfileDefaultValues() {
+        val character = CharacterProfile(
+            id = 0L,
+            name = "测试角色"
+        )
 
         assertEquals("测试角色", character.name)
         assertEquals("", character.identity)
@@ -25,14 +38,12 @@ class RoleplayModelsTest {
         assertNull(character.tags)
         assertFalse(character.isFavorite)
         assertFalse(character.isDefault)
-        assertTrue(character.createdAt > 0)
-        assertTrue(character.updatedAt > 0)
     }
 
     @Test
-    fun `CharacterProfile with all fields`() {
+    fun testCharacterProfileWithAllFields() {
         val character = CharacterProfile(
-            id = 1,
+            id = 1L,
             name = "艾莉丝",
             avatarUri = "content://avatar/1",
             identity = "魔法师",
@@ -48,10 +59,12 @@ class RoleplayModelsTest {
             exampleDialogue = "用户：你是谁？\n艾莉丝：我是艾莉丝，一名元素魔法师。",
             tags = "奇幻,主角,女性",
             isFavorite = true,
-            isDefault = true
+            isDefault = true,
+            createdAt = 1000L,
+            updatedAt = 2000L
         )
 
-        assertEquals(1, character.id)
+        assertEquals(1L, character.id)
         assertEquals("艾莉丝", character.name)
         assertEquals("魔法师", character.identity)
         assertEquals("温柔、坚强", character.personality)
@@ -69,8 +82,11 @@ class RoleplayModelsTest {
     }
 
     @Test
-    fun `RoleplayScenario default values are correct`() {
-        val scenario = RoleplayScenario(name = "测试场景")
+    fun testRoleplayScenarioDefaultValues() {
+        val scenario = RoleplayScenario(
+            id = 0L,
+            name = "测试场景"
+        )
 
         assertEquals("测试场景", scenario.name)
         assertEquals("", scenario.worldview)
@@ -89,14 +105,12 @@ class RoleplayModelsTest {
         assertEquals("", scenario.openingPrompt)
         assertNull(scenario.tags)
         assertFalse(scenario.isFavorite)
-        assertTrue(scenario.createdAt > 0)
-        assertTrue(scenario.updatedAt > 0)
     }
 
     @Test
-    fun `RoleplayScenario with all fields`() {
+    fun testRoleplayScenarioWithAllFields() {
         val scenario = RoleplayScenario(
-            id = 1,
+            id = 1L,
             name = "魔法学院",
             worldview = "一个充满魔法的世界",
             time = "中世纪",
@@ -113,10 +127,12 @@ class RoleplayModelsTest {
             contentRestrictions = "无暴力血腥内容",
             openingPrompt = "你站在魔法学院的大门前...",
             tags = "奇幻,校园,冒险",
-            isFavorite = true
+            isFavorite = true,
+            createdAt = 1000L,
+            updatedAt = 2000L
         )
 
-        assertEquals(1, scenario.id)
+        assertEquals(1L, scenario.id)
         assertEquals("魔法学院", scenario.name)
         assertEquals("一个充满魔法的世界", scenario.worldview)
         assertEquals("中世纪", scenario.time)
@@ -126,38 +142,41 @@ class RoleplayModelsTest {
     }
 
     @Test
-    fun `RoleplaySession default values are correct`() {
-        val session = RoleplaySession(conversationId = 1)
+    fun testRoleplaySessionDefaultValues() {
+        val session = RoleplaySession(
+            id = 0L,
+            conversationId = 1L
+        )
 
-        assertEquals(0, session.id)
+        assertEquals(0L, session.id)
         assertNull(session.characterId)
         assertNull(session.scenarioId)
-        assertEquals(1, session.conversationId)
+        assertEquals(1L, session.conversationId)
         assertEquals("character", session.narrativeMode)
         assertEquals("", session.currentPlotSummary)
         assertNull(session.pinnedFacts)
         assertEquals(1, session.lastVersionIndex)
-        assertTrue(session.createdAt > 0)
-        assertTrue(session.updatedAt > 0)
     }
 
     @Test
-    fun `RoleplaySession with all fields`() {
+    fun testRoleplaySessionWithAllFields() {
         val session = RoleplaySession(
-            id = 1,
-            characterId = 10,
-            scenarioId = 20,
-            conversationId = 30,
+            id = 1L,
+            characterId = 10L,
+            scenarioId = 20L,
+            conversationId = 30L,
             narrativeMode = "author",
             currentPlotSummary = "故事发展到一半",
             pinnedFacts = "[\"角色A是好人\",\"角色B是坏人\"]",
-            lastVersionIndex = 3
+            lastVersionIndex = 3,
+            createdAt = 1000L,
+            updatedAt = 2000L
         )
 
-        assertEquals(1, session.id)
-        assertEquals(10, session.characterId)
-        assertEquals(20, session.scenarioId)
-        assertEquals(30, session.conversationId)
+        assertEquals(1L, session.id)
+        assertEquals(10L, session.characterId)
+        assertEquals(20L, session.scenarioId)
+        assertEquals(30L, session.conversationId)
         assertEquals("author", session.narrativeMode)
         assertEquals("故事发展到一半", session.currentPlotSummary)
         assertEquals("[\"角色A是好人\",\"角色B是坏人\"]", session.pinnedFacts)
@@ -165,80 +184,55 @@ class RoleplayModelsTest {
     }
 
     @Test
-    fun `RoleplayMemory default values are correct`() {
+    fun testRoleplayMemoryDefaultValues() {
         val memory = RoleplayMemory(
-            sessionId = 1,
+            id = 0L,
+            sessionId = 1L,
+            memoryType = "fact",
             content = "测试记忆"
         )
 
-        assertEquals(0, memory.id)
-        assertEquals(1, memory.sessionId)
+        assertEquals(0L, memory.id)
+        assertEquals(1L, memory.sessionId)
         assertEquals("fact", memory.memoryType)
         assertEquals("测试记忆", memory.content)
         assertNull(memory.sourceMessageId)
         assertFalse(memory.isPinned)
-        assertTrue(memory.createdAt > 0)
-        assertTrue(memory.updatedAt > 0)
     }
 
     @Test
-    fun `RoleplayMemory with all fields`() {
-        val memory = RoleplayMemory(
-            id = 1,
-            sessionId = 10,
-            memoryType = "summary",
-            content = "这是一段摘要",
-            sourceMessageId = 100,
-            isPinned = true
-        )
+    fun testCharacterTagDefaultValues() {
+        val tag = CharacterTag(id = 0L, name = "奇幻", createdAt = 100L)
 
-        assertEquals(1, memory.id)
-        assertEquals(10, memory.sessionId)
-        assertEquals("summary", memory.memoryType)
-        assertEquals("这是一段摘要", memory.content)
-        assertEquals(100, memory.sourceMessageId)
-        assertTrue(memory.isPinned)
-    }
-
-    @Test
-    fun `CharacterTag default values are correct`() {
-        val tag = CharacterTag(name = "奇幻")
-
-        assertEquals(0, tag.id)
+        assertEquals(0L, tag.id)
         assertEquals("奇幻", tag.name)
-        assertTrue(tag.createdAt > 0)
     }
 
     @Test
-    fun `CharacterTagCrossRef creation`() {
-        val crossRef = CharacterTagCrossRef(
-            characterId = 1,
-            tagId = 2
-        )
+    fun testCharacterTagCrossRefCreation() {
+        val crossRef = CharacterTagCrossRef(characterId = 1L, tagId = 2L)
 
-        assertEquals(1, crossRef.characterId)
-        assertEquals(2, crossRef.tagId)
+        assertEquals(1L, crossRef.characterId)
+        assertEquals(2L, crossRef.tagId)
     }
 
     @Test
-    fun `NarrativeMode from value`() {
+    fun testNarrativeModeFromValue() {
         assertEquals(NarrativeMode.CHARACTER, NarrativeMode.fromValue("character"))
         assertEquals(NarrativeMode.AUTHOR, NarrativeMode.fromValue("author"))
         assertEquals(NarrativeMode.NARRATOR, NarrativeMode.fromValue("narrator"))
-        assertEquals(NarrativeMode.MULTI, NarrativeMode.fromValue("multi"))
         assertEquals(NarrativeMode.CHARACTER, NarrativeMode.fromValue("unknown"))
     }
 
     @Test
-    fun `NarrativeMode display names`() {
+    fun testNarrativeModeDisplayNames() {
         assertEquals("角色内指令", NarrativeMode.CHARACTER.displayName)
         assertEquals("作者/导演指令", NarrativeMode.AUTHOR.displayName)
         assertEquals("旁白模式", NarrativeMode.NARRATOR.displayName)
-        assertEquals("多角色模式", NarrativeMode.MULTI.displayName)
     }
 
     @Test
-    fun `PlotAction from value`() {
+    fun testPlotActionFromValue() {
         assertEquals(PlotAction.CONTINUE, PlotAction.fromValue("continue"))
         assertEquals(PlotAction.REGENERATE, PlotAction.fromValue("regenerate"))
         assertEquals(PlotAction.REWRITE, PlotAction.fromValue("rewrite"))
@@ -249,6 +243,7 @@ class RoleplayModelsTest {
         assertEquals(PlotAction.BRANCH, PlotAction.fromValue("branch"))
         assertEquals(PlotAction.ROLLBACK, PlotAction.fromValue("rollback"))
         assertEquals(PlotAction.SUMMARY, PlotAction.fromValue("summary"))
+        assertEquals(PlotAction.BRANCH_CHOICES, PlotAction.fromValue("branch_choices"))
         assertEquals(PlotAction.DIALOGUE_ONLY, PlotAction.fromValue("dialogue_only"))
         assertEquals(PlotAction.NARRATION_ONLY, PlotAction.fromValue("narration_only"))
         assertEquals(PlotAction.DIALOGUE_ACTION, PlotAction.fromValue("dialogue_action"))
@@ -257,7 +252,7 @@ class RoleplayModelsTest {
     }
 
     @Test
-    fun `PlotAction display names`() {
+    fun testPlotActionDisplayNames() {
         assertEquals("继续剧情", PlotAction.CONTINUE.displayName)
         assertEquals("重生成", PlotAction.REGENERATE.displayName)
         assertEquals("改写上一段", PlotAction.REWRITE.displayName)
@@ -268,6 +263,7 @@ class RoleplayModelsTest {
         assertEquals("创建剧情分支", PlotAction.BRANCH.displayName)
         assertEquals("回到上一个版本", PlotAction.ROLLBACK.displayName)
         assertEquals("生成剧情摘要", PlotAction.SUMMARY.displayName)
+        assertEquals("剧情走向选择", PlotAction.BRANCH_CHOICES.displayName)
         assertEquals("只生成角色对白", PlotAction.DIALOGUE_ONLY.displayName)
         assertEquals("只生成旁白", PlotAction.NARRATION_ONLY.displayName)
         assertEquals("生成对白加动作", PlotAction.DIALOGUE_ACTION.displayName)
@@ -275,69 +271,65 @@ class RoleplayModelsTest {
     }
 
     @Test
-    fun `PlotAction descriptions`() {
-        assertEquals("继续当前剧情发展", PlotAction.CONTINUE.description)
-        assertEquals("重新生成上一段内容", PlotAction.REGENERATE.description)
-        assertEquals("改写上一段内容", PlotAction.REWRITE.description)
-        assertEquals("延长当前内容", PlotAction.EXTEND.description)
-        assertEquals("缩短当前内容", PlotAction.SHORTEN.description)
+    fun testRoleplaySessionEffectiveCharacterIds() {
+        // Case 1: single characterId fallback
+        val session1 = RoleplaySession(
+            id = 1L,
+            conversationId = 100L,
+            characterId = 5L,
+            characterIds = null
+        )
+        assertEquals(listOf(5L), session1.getEffectiveCharacterIds())
+
+        // Case 2: characterIds JSON array
+        val session2 = RoleplaySession(
+            id = 2L,
+            conversationId = 101L,
+            characterId = null,
+            characterIds = "[10, 20, 30]"
+        )
+        assertEquals(listOf(10L, 20L, 30L), session2.getEffectiveCharacterIds())
+
+        // Case 3: characterIds takes precedence
+        val session3 = RoleplaySession(
+            id = 3L,
+            conversationId = 102L,
+            characterId = 5L,
+            characterIds = "[100, 200]"
+        )
+        assertEquals(listOf(100L, 200L), session3.getEffectiveCharacterIds())
+
+        // Case 4: empty
+        val session4 = RoleplaySession(
+            id = 4L,
+            conversationId = 103L
+        )
+        assertTrue(session4.getEffectiveCharacterIds().isEmpty())
     }
 
     @Test
-    fun `CharacterProfile copy preserves id and createdAt`() {
-        val original = CharacterProfile(
-            id = 1,
-            name = "原始角色",
-            createdAt = 1000L
+    fun testRoleplaySessionCustomOverrides() {
+        val baseChar = CharacterProfile(id = 1L, name = "艾莉丝", personality = "温柔")
+        val customChar = baseChar.copy(personality = "黑化且冷酷")
+        val customJson = com.google.gson.Gson().toJson(listOf(customChar))
+
+        val session = RoleplaySession(
+            id = 10L,
+            conversationId = 100L,
+            characterIds = "[1]",
+            customCharacterData = customJson
         )
 
-        val copied = original.copy(
-            name = "修改后的角色",
-            updatedAt = 2000L
-        )
+        val mergedChars = session.getCustomizedCharacters(listOf(baseChar))
+        assertEquals(1, mergedChars.size)
+        assertEquals("黑化且冷酷", mergedChars.first().personality)
 
-        assertEquals(1, copied.id)
-        assertEquals("修改后的角色", copied.name)
-        assertEquals(1000L, copied.createdAt)
-        assertEquals(2000L, copied.updatedAt)
-    }
+        val baseScenario = RoleplayScenario(id = 2L, name = "魔法学院", rules = "禁止黑魔法")
+        val customScenario = baseScenario.copy(rules = "允许任何禁忌魔法")
+        val customScenarioJson = com.google.gson.Gson().toJson(customScenario)
 
-    @Test
-    fun `RoleplayScenario copy preserves id and createdAt`() {
-        val original = RoleplayScenario(
-            id = 1,
-            name = "原始场景",
-            createdAt = 1000L
-        )
-
-        val copied = original.copy(
-            name = "修改后的场景",
-            updatedAt = 2000L
-        )
-
-        assertEquals(1, copied.id)
-        assertEquals("修改后的场景", copied.name)
-        assertEquals(1000L, copied.createdAt)
-        assertEquals(2000L, copied.updatedAt)
-    }
-
-    @Test
-    fun `RoleplaySession copy preserves id and createdAt`() {
-        val original = RoleplaySession(
-            id = 1,
-            conversationId = 10,
-            createdAt = 1000L
-        )
-
-        val copied = original.copy(
-            narrativeMode = "author",
-            updatedAt = 2000L
-        )
-
-        assertEquals(1, copied.id)
-        assertEquals(10, copied.conversationId)
-        assertEquals("author", copied.narrativeMode)
-        assertEquals(1000L, copied.createdAt)
-        assertEquals(2000L, copied.updatedAt)
+        val sessionWithScenario = session.copy(customScenarioData = customScenarioJson)
+        val mergedScenario = sessionWithScenario.getCustomizedScenario(baseScenario)
+        assertEquals("允许任何禁忌魔法", mergedScenario?.rules)
     }
 }

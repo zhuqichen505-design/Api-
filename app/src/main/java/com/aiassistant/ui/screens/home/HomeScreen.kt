@@ -24,13 +24,17 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -49,6 +53,7 @@ import com.aiassistant.R
 import com.aiassistant.domain.model.ApiConfig
 import com.aiassistant.domain.model.Conversation
 import com.aiassistant.domain.model.Folder
+import com.aiassistant.ui.components.EchoGlassCard
 import com.aiassistant.ui.components.EchoGlassDialog
 import com.aiassistant.ui.components.SideAnchorItem
 import com.aiassistant.ui.components.SideAnchorNavigator
@@ -96,7 +101,8 @@ fun HomeScreen(
     onNavigateToSettings: () -> Unit,
     onNavigateToHistory: () -> Unit,
     onNavigateToStats: () -> Unit,
-    onNavigateToFolders: () -> Unit
+    onNavigateToFolders: () -> Unit,
+    onNavigateToRoleplayStudio: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val homeBackgroundBitmap = remember(context) {
@@ -105,6 +111,7 @@ fun HomeScreen(
     val viewModel: HomeViewModel = viewModel()
     val conversations by viewModel.conversations.collectAsState()
     val apiConfigs by viewModel.apiConfigs.collectAsState()
+    val visibleModelOptions by viewModel.visibleModelOptions.collectAsState()
     val selectedConfig by viewModel.selectedConfig.collectAsState()
     val showNewChatDialog by viewModel.showNewChatDialog.collectAsState()
     val folders by viewModel.folders.collectAsState()
@@ -200,7 +207,8 @@ fun HomeScreen(
                 HomeDashboardHeader(
                     hazeState = hazeState,
                     onNavigateToSettings = onNavigateToSettings,
-                    onNavigateToStats = onNavigateToStats
+                    onNavigateToStats = onNavigateToStats,
+                    onNavigateToRoleplayStudio = onNavigateToRoleplayStudio
                 )
 
                 HomeSearchRow(
@@ -270,7 +278,7 @@ fun HomeScreen(
                         modifier = Modifier
                             .fillMaxSize(),
                         state = conversationListState,
-                        contentPadding = PaddingValues(16.dp),
+                        contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 28.dp, bottom = 16.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         // 置顶对话
@@ -394,7 +402,7 @@ fun HomeScreen(
                 hazeState = hazeState,
                 modifier = Modifier
                     .matchParentSize()
-                    .padding(end = 12.dp)
+                    .padding(end = 4.dp)
             )
         }
     }
@@ -443,16 +451,17 @@ fun HomeScreen(
             hazeState = hazeState,
             selectedConfig = selectedConfig,
             configs = apiConfigs,
+            visibleModelOptions = visibleModelOptions,
             folders = folders,
             currentFolderId = selectedFolderId?.takeUnless { it == -2L || it == -1L },
             onDismiss = { viewModel.hideNewChatDialog() },
-            onCreate = { title, prompt, folderId, newFolderName, config, isPrivate ->
+            onCreate = { title, prompt, folderId, newFolderName, config, modelName, isPrivate ->
                 if (newFolderName.isNullOrBlank()) {
-                    viewModel.createNewConversation(title, prompt, folderId, config, isPrivate) { conversationId ->
+                    viewModel.createNewConversation(title, prompt, folderId, config, modelName, isPrivate) { conversationId ->
                         onNavigateToChat(conversationId)
                     }
                 } else {
-                    viewModel.createConversationInNewFolder(title, prompt, newFolderName, config, isPrivate) { conversationId ->
+                    viewModel.createConversationInNewFolder(title, prompt, newFolderName, config, modelName, isPrivate) { conversationId ->
                         onNavigateToChat(conversationId)
                     }
                 }
@@ -511,7 +520,8 @@ private fun anchorTitle(value: String): String {
 fun HomeDashboardHeader(
     hazeState: dev.chrisbanes.haze.HazeState,
     onNavigateToSettings: () -> Unit,
-    onNavigateToStats: () -> Unit
+    onNavigateToStats: () -> Unit,
+    onNavigateToRoleplayStudio: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -523,6 +533,14 @@ fun HomeDashboardHeader(
             verticalAlignment = Alignment.CenterVertically
         ) {
             EchoWordmark(modifier = Modifier.weight(1f))
+            GlassHomeIconButton(
+                hazeState = hazeState,
+                icon = Icons.Default.AutoStories,
+                contentDescription = "角色与创作",
+                onClick = onNavigateToRoleplayStudio,
+                modifier = Modifier.size(42.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
             StatsIconButton(
                 hazeState = hazeState,
                 onClick = onNavigateToStats,
@@ -550,7 +568,7 @@ private fun NewConversationFab(
     NewConversationGlassButton(
         hazeState = hazeState,
         readableBackdrop = readableBackdrop,
-        modifier = Modifier.height(56.dp),
+        modifier = Modifier.height(54.dp),
         onClick = onClick,
         onLongClick = onLongClick,
         onLongClickLabel = "配置新对话"
@@ -566,29 +584,30 @@ private fun NewConversationGlassButton(
     onLongClick: (() -> Unit)? = null,
     onLongClickLabel: String? = null
 ) {
-    val buttonShape = RoundedCornerShape(22.dp)
+    val buttonShape = com.aiassistant.ui.theme.EchoTokens.Radius.shapePill
+    val glass = echoGlassPalette()
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val primary = MaterialTheme.colorScheme.primary
-    val content = readableTextColorFor(
-        background = primary.copy(alpha = 0.22f),
-        fallbackSurface = readableBackdrop
-    )
+    val tint = MaterialTheme.colorScheme.primaryContainer.copy(alpha = if (isDark) 0.92f else 0.95f)
+    val content = MaterialTheme.colorScheme.onPrimaryContainer
 
     Surface(
         modifier = modifier
-            .echoHazePanel(
-                hazeState = hazeState,
+            .shadow(
+                elevation = 4.dp,
                 shape = buttonShape,
-                tint = primary.copy(alpha = 0.22f),
-                blurRadius = 34.dp
+                ambientColor = Color.Black.copy(alpha = 0.08f),
+                spotColor = primary.copy(alpha = 0.15f)
             )
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick,
                 onLongClickLabel = onLongClickLabel
-        ),
+            ),
         shape = buttonShape,
-        color = primary.copy(alpha = 0.14f),
+        color = tint,
         contentColor = content,
+        border = BorderStroke(1.dp, glass.outlineSelected),
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
     ) {
@@ -600,7 +619,8 @@ private fun NewConversationGlassButton(
             Icon(Icons.Default.Add, contentDescription = null)
             Text(
                 text = "新对话",
-                style = MaterialTheme.typography.titleMedium
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
             )
         }
     }
@@ -608,87 +628,26 @@ private fun NewConversationGlassButton(
 
 @Composable
 private fun EchoWordmark(modifier: Modifier = Modifier) {
-    val primary = MaterialTheme.colorScheme.primary
-    val ink = MaterialTheme.colorScheme.onSurface
-    val surface = MaterialTheme.colorScheme.surface
-    val preset = EchoWordmarkPresets.firstOrNull { it.id == EchoWordmarkActiveVariant }
-        ?: EchoWordmarkPresets.first()
-
-    Canvas(
-        modifier = modifier
-            .height(56.dp)
-            .widthIn(min = 132.dp)
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        val textSize = 39.sp.toPx() * preset.textScale
-        val baseline = size.height * 0.68f
-        val startX = 1.dp.toPx()
-
-        val underline = Path().apply {
-            moveTo(startX + 8.dp.toPx(), size.height * 0.78f)
-            cubicTo(
-                size.width * 0.24f,
-                size.height * 0.98f,
-                size.width * 0.64f,
-                size.height * 0.86f,
-                size.width * 0.78f,
-                size.height * 0.72f
-            )
-        }
-        drawPath(
-            path = underline,
-            color = primary.copy(alpha = preset.underlineAlpha),
-            style = Stroke(width = 3.2.dp.toPx())
+        Text(
+            text = "ECHO",
+            style = MaterialTheme.typography.titleLarge.copy(
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 4.sp,
+                fontSize = 20.sp
+            ),
+            color = MaterialTheme.colorScheme.onBackground
         )
-
-        drawIntoCanvas { canvas ->
-            val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = primary.copy(alpha = 0.20f).toArgb()
-                this.textSize = textSize
-                typeface = Typeface.create(Typeface.SERIF, preset.typefaceStyle)
-                letterSpacing = 0.01f
-            }
-            canvas.nativeCanvas.drawText("Echo", startX + 2.2.dp.toPx(), baseline + 2.4.dp.toPx(), shadowPaint)
-
-            val glassBackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = surface.copy(alpha = 0.20f).toArgb()
-                this.textSize = textSize
-                typeface = Typeface.create(Typeface.SERIF, preset.typefaceStyle)
-                letterSpacing = 0.01f
-                style = Paint.Style.STROKE
-                strokeWidth = 4.4.dp.toPx()
-            }
-            canvas.nativeCanvas.drawText("Echo", startX, baseline, glassBackPaint)
-
-            val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                this.textSize = textSize
-                typeface = Typeface.create(Typeface.SERIF, preset.typefaceStyle)
-                letterSpacing = 0.01f
-                shader = LinearGradient(
-                    0f,
-                    0f,
-                    size.width * 0.78f,
-                    size.height,
-                    intArrayOf(ink.toArgb(), surface.toArgb(), primary.toArgb()),
-                    floatArrayOf(0f, 0.48f, 1f),
-                    Shader.TileMode.CLAMP
-                )
-            }
-            canvas.nativeCanvas.drawText("Echo", startX, baseline, fillPaint)
-
-            val accentPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = primary.copy(alpha = preset.accentAlpha).toArgb()
-                style = Paint.Style.STROKE
-                strokeWidth = preset.strokeWidth.dp.toPx()
-                strokeCap = Paint.Cap.ROUND
-            }
-            canvas.nativeCanvas.drawLine(
-                startX + 78.dp.toPx(),
-                size.height * 0.22f,
-                startX + 93.dp.toPx(),
-                size.height * 0.2f,
-                accentPaint
-            )
-        }
+        Spacer(modifier = Modifier.width(5.dp))
+        Box(
+            modifier = Modifier
+                .size(6.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.primary)
+        )
     }
 }
 
@@ -698,18 +657,15 @@ private fun StatsIconButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val buttonTint = MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
+    val glass = echoGlassPalette()
+    val buttonTint = glass.control
     val glassBlue = MaterialTheme.colorScheme.primary
     Surface(
-        modifier = modifier.echoHazePanel(
-            hazeState = hazeState,
-            shape = CircleShape,
-            tint = buttonTint,
-            blurRadius = 18.dp
-        ),
+        modifier = modifier,
         shape = CircleShape,
-        color = Color.Transparent,
+        color = buttonTint,
         contentColor = glassBlue,
+        border = BorderStroke(0.8.dp, glass.outline),
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
     ) {
@@ -755,18 +711,15 @@ private fun GlassHomeIconButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val buttonTint = MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
+    val glass = echoGlassPalette()
+    val buttonTint = glass.control
     val glassBlue = MaterialTheme.colorScheme.primary
     Surface(
-        modifier = modifier.echoHazePanel(
-            hazeState = hazeState,
-            shape = CircleShape,
-            tint = buttonTint,
-            blurRadius = 18.dp
-        ),
+        modifier = modifier,
         shape = CircleShape,
-        color = Color.Transparent,
+        color = buttonTint,
         contentColor = glassBlue,
+        border = BorderStroke(0.8.dp, glass.outline),
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
     ) {
@@ -793,7 +746,8 @@ private fun HomeSearchRow(
     onNavigateToHistory: () -> Unit,
     readableBackdrop: Color
 ) {
-    val searchTint = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+    val glass = echoGlassPalette()
+    val searchTint = glass.input
     val searchTextColor = readableTextColorFor(
         background = searchTint,
         fallbackSurface = readableBackdrop
@@ -807,15 +761,12 @@ private fun HomeSearchRow(
         Surface(
             modifier = Modifier
                 .weight(1f)
-                .height(46.dp)
-                .echoHazePanel(
-                    hazeState = hazeState,
-                    shape = RoundedCornerShape(22.dp),
-                    tint = searchTint
-                ),
+                .height(46.dp),
             shape = RoundedCornerShape(22.dp),
-            color = Color.Transparent,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+            color = searchTint,
+            border = BorderStroke(0.8.dp, glass.outline),
+            tonalElevation = 0.dp,
+            shadowElevation = 0.dp
         ) {
             Row(
                 modifier = Modifier
@@ -1191,7 +1142,7 @@ fun FolderSelector(
         "work" to Icons.Default.Work,
         "school" to Icons.Default.School,
         "code" to Icons.Default.Code,
-        "chat" to Icons.Default.Chat,
+        "chat" to Icons.AutoMirrored.Filled.Chat,
         "favorite" to Icons.Default.Favorite,
         "bookmark" to Icons.Default.Bookmark
     )
@@ -1309,17 +1260,11 @@ private fun HomeGlassChip(
     Surface(
         modifier = Modifier
             .height(38.dp)
-            .echoHazePanel(
-                hazeState = hazeState,
-                shape = chipShape,
-                tint = tint,
-                blurRadius = 18.dp
-            )
             .echoShapeClick(chipShape, onClick = onClick),
         shape = chipShape,
         color = tint,
         contentColor = chipContentColor,
-        border = BorderStroke(if (selected) 1.4.dp else 1.dp, if (selected) glass.outlineSelected else glass.outline),
+        border = BorderStroke(if (selected) 1.2.dp else 0.8.dp, if (selected) glass.outlineSelected else glass.outline),
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
     ) {
@@ -1361,7 +1306,8 @@ fun ConfigSelector(
 
         DropdownMenu(
             expanded = expanded,
-            onDismissRequest = { expanded = false }
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.heightIn(max = 280.dp)
         ) {
             configs.forEach { config ->
                 DropdownMenuItem(
@@ -1404,7 +1350,7 @@ fun ConfigSelector(
             }
 
             if (configs.isNotEmpty()) {
-                Divider()
+                HorizontalDivider()
             }
 
             DropdownMenuItem(
@@ -1483,33 +1429,24 @@ fun ConversationCard(
     var showMoveToFolderDialog by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
 
-    val cardShape = RoundedCornerShape(30.dp)
-    val glass = echoGlassPalette()
-    val cardTint = if (selected) glass.controlSelected else glass.panel
-    Surface(
+    val cardShape = com.aiassistant.ui.theme.EchoTokens.Radius.shapeLg
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val cardTint = if (selected) {
+        MaterialTheme.colorScheme.primaryContainer.copy(alpha = if (isDark) 0.92f else 0.96f)
+    } else {
+        MaterialTheme.colorScheme.surface.copy(alpha = if (isDark) 0.88f else 0.92f)
+    }
+    EchoGlassCard(
         modifier = Modifier
             .fillMaxWidth()
-            .echoHazePanel(
-                hazeState = hazeState,
-                shape = cardShape,
-                tint = cardTint,
-                blurRadius = 16.dp,
-                highlightAlpha = 0.025f
-            )
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick,
                 onLongClickLabel = "多选对话"
             ),
         shape = cardShape,
-        color = cardTint,
-        contentColor = glass.textPrimary,
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp,
-        border = BorderStroke(
-            width = if (selected) 1.5.dp else 1.dp,
-            color = if (selected) glass.outlineSelected else glass.outline
-        )
+        containerColor = cardTint,
+        highlight = selected
     ) {
         Row(
             modifier = Modifier
@@ -1651,7 +1588,7 @@ fun ConversationCard(
                                 showMenu = false
                             },
                             leadingIcon = {
-                                Icon(Icons.Default.DriveFileMove, contentDescription = null)
+                                Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = null)
                             }
                         )
                         DropdownMenuItem(
@@ -1664,7 +1601,7 @@ fun ConversationCard(
                                 Icon(Icons.Default.VisibilityOff, contentDescription = null)
                             }
                         )
-                        Divider()
+                        HorizontalDivider()
                         DropdownMenuItem(
                             text = { Text("删除") },
                             onClick = {
@@ -2014,10 +1951,11 @@ fun NewChatDialog(
     hazeState: dev.chrisbanes.haze.HazeState,
     selectedConfig: ApiConfig?,
     configs: List<ApiConfig>,
+    visibleModelOptions: List<com.aiassistant.domain.model.ChatModelOption>,
     folders: List<Folder>,
     currentFolderId: Long?,
     onDismiss: () -> Unit,
-    onCreate: (String, String?, Long?, String?, ApiConfig?, Boolean) -> Unit
+    onCreate: (String, String?, Long?, String?, ApiConfig?, String?, Boolean) -> Unit
 ) {
     var title by remember { mutableStateOf("") }
     var systemPrompt by remember { mutableStateOf("") }
@@ -2027,8 +1965,33 @@ fun NewChatDialog(
     var selectedApiConfig by remember(selectedConfig, configs) {
         mutableStateOf(selectedConfig ?: configs.firstOrNull())
     }
-    var modelMenuExpanded by remember { mutableStateOf(false) }
+    var selectedModelName by remember(selectedApiConfig) {
+        mutableStateOf(selectedApiConfig?.modelName.orEmpty())
+    }
+    var showModelPickerDialog by remember { mutableStateOf(false) }
     var isPrivate by remember { mutableStateOf(false) }
+
+    val availableModels = remember(selectedApiConfig, visibleModelOptions) {
+        val cfg = selectedApiConfig ?: return@remember emptyList<String>()
+        val options = visibleModelOptions.filter { it.apiConfigId == cfg.id }.map { it.modelName }
+        if (options.isNotEmpty()) {
+            options.filter { it.isNotBlank() }.distinct()
+        } else {
+            val list = mutableListOf<String>()
+            if (cfg.modelName.isNotBlank()) list.add(cfg.modelName.trim())
+            val raw = cfg.availableModels
+            if (!raw.isNullOrBlank()) {
+                try {
+                    val type = object : com.google.gson.reflect.TypeToken<List<String>>() {}.type
+                    val parsed: List<String> = com.google.gson.Gson().fromJson(raw, type) ?: emptyList()
+                    list.addAll(parsed.map { it.trim() })
+                } catch (_: Exception) {
+                    list.addAll(raw.split(',', ';', '\n').map { it.trim() })
+                }
+            }
+            list.filter { it.isNotBlank() }.distinct()
+        }
+    }
 
     EchoGlassDialog(
         hazeState = hazeState,
@@ -2042,70 +2005,35 @@ fun NewChatDialog(
                     text = "新对话",
                     modifier = Modifier.weight(1f)
                 )
-                Box {
-                    AssistChip(
-                        onClick = { modelMenuExpanded = true },
-                        enabled = configs.isNotEmpty(),
-                        leadingIcon = {
-                            Icon(
-                                Icons.Default.SmartToy,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp)
+                AssistChip(
+                    onClick = { showModelPickerDialog = true },
+                    enabled = configs.isNotEmpty(),
+                    leadingIcon = {
+                        Icon(
+                            Icons.Default.SmartToy,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    },
+                    label = {
+                        Column {
+                            Text(
+                                text = selectedApiConfig?.name ?: "选择配置",
+                                style = MaterialTheme.typography.labelMedium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
-                        },
-                        label = {
-                            Column {
-                                Text(
-                                    text = selectedApiConfig?.name ?: "选择模型",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = selectedApiConfig?.modelName.orEmpty(),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-                    )
-                    DropdownMenu(
-                        expanded = modelMenuExpanded,
-                        onDismissRequest = { modelMenuExpanded = false },
-                        modifier = Modifier.clip(RoundedCornerShape(18.dp))
-                    ) {
-                        configs.forEach { config ->
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text(config.name)
-                                        Text(
-                                            text = config.modelName,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                },
-                                onClick = {
-                                    selectedApiConfig = config
-                                    modelMenuExpanded = false
-                                },
-                                leadingIcon = {
-                                    if (config.id == selectedApiConfig?.id) {
-                                        Icon(
-                                            Icons.Default.Check,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary
-                                        )
-                                    }
-                                }
+                            Text(
+                                text = selectedModelName.ifBlank { selectedApiConfig?.modelName.orEmpty() },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
-                }
+                )
             }
         },
         text = {
@@ -2245,6 +2173,7 @@ fun NewChatDialog(
                         if (createNewFolder) null else selectedFolderId,
                         newFolderName.trim().takeIf { createNewFolder && it.isNotBlank() },
                         selectedApiConfig,
+                        selectedModelName.ifBlank { null },
                         isPrivate
                     )
                 },
@@ -2259,4 +2188,149 @@ fun NewChatDialog(
             }
         }
     )
+
+    // 全面模型选择器弹窗
+    if (showModelPickerDialog) {
+        var modelSearchQuery by remember { mutableStateOf("") }
+        var customModelInput by remember { mutableStateOf("") }
+        var showCustomInput by remember { mutableStateOf(false) }
+
+        val filteredModels = remember(availableModels, modelSearchQuery) {
+            if (modelSearchQuery.isBlank()) availableModels
+            else availableModels.filter { it.contains(modelSearchQuery, ignoreCase = true) }
+        }
+
+        AlertDialog(
+            onDismissRequest = { showModelPickerDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.SmartToy, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("选择 API 配置与模型")
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 480.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text("1. 选择 API 配置", style = MaterialTheme.typography.titleSmall)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(configs) { cfg ->
+                            FilterChip(
+                                selected = cfg.id == selectedApiConfig?.id,
+                                onClick = {
+                                    selectedApiConfig = cfg
+                                    selectedModelName = cfg.modelName
+                                },
+                                label = { Text(cfg.name) },
+                                leadingIcon = {
+                                    if (cfg.id == selectedApiConfig?.id) {
+                                        Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    }
+                                }
+                            )
+                        }
+                    }
+
+                    HorizontalDivider()
+
+                    Text("2. 选择或输入模型", style = MaterialTheme.typography.titleSmall)
+
+                    OutlinedTextField(
+                        value = modelSearchQuery,
+                        onValueChange = { modelSearchQuery = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("搜索可用模型...") },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                        singleLine = true
+                    )
+
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f, fill = false)
+                            .heightIn(max = 200.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        items(filteredModels) { model ->
+                            val isSelected = model == selectedModelName
+                            Surface(
+                                onClick = {
+                                    selectedModelName = model
+                                    showModelPickerDialog = false
+                                },
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = model,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    if (isSelected) {
+                                        Icon(
+                                            Icons.Default.Check,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (!showCustomInput) {
+                        TextButton(
+                            onClick = { showCustomInput = true },
+                            modifier = Modifier.align(Alignment.End)
+                        ) {
+                            Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("自定义模型名称")
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedTextField(
+                                value = customModelInput,
+                                onValueChange = { customModelInput = it },
+                                modifier = Modifier.weight(1f),
+                                placeholder = { Text("如: gpt-4.5-preview") },
+                                singleLine = true
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Button(
+                                onClick = {
+                                    if (customModelInput.isNotBlank()) {
+                                        selectedModelName = customModelInput.trim()
+                                        showModelPickerDialog = false
+                                    }
+                                },
+                                enabled = customModelInput.isNotBlank()
+                            ) {
+                                Text("确定")
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showModelPickerDialog = false }) {
+                    Text("完成")
+                }
+            }
+        )
+    }
 }

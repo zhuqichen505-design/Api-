@@ -115,9 +115,61 @@ data class RoleplaySession(
     val currentPlotSummary: String = "",     // 当前剧情摘要
     val pinnedFacts: String? = null,         // 已固定的重要事实，JSON数组
     val lastVersionIndex: Int = 1,           // 当前版本索引
+    val characterIds: String? = null,        // 多角色关联，JSON数组格式 "[1,2,3]" 或逗号分隔 "1,2,3"
+    val customCharacterData: String? = null, // 当前故事专属的角色设定覆盖 (JSON List<CharacterProfile>)
+    val customScenarioData: String? = null,  // 当前故事专属的世界观设定覆盖 (JSON RoleplayScenario)
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
-)
+) {
+    fun getEffectiveCharacterIds(): List<Long> {
+        if (!characterIds.isNullOrBlank()) {
+            try {
+                val trimmed = characterIds.trim()
+                if (trimmed.startsWith("[")) {
+                    val array = com.google.gson.JsonParser.parseString(trimmed).asJsonArray
+                    return array.mapNotNull { kotlin.runCatching { it.asLong }.getOrNull() }
+                } else {
+                    return trimmed.split(",").mapNotNull { it.trim().toLongOrNull() }
+                }
+            } catch (e: Exception) {
+                // fallback
+            }
+        }
+        return characterId?.let { listOf(it) } ?: emptyList()
+    }
+
+    fun getCustomizedCharacters(baseCharacters: List<CharacterProfile>): List<CharacterProfile> {
+        if (customCharacterData.isNullOrBlank()) return baseCharacters
+        return try {
+            val type = com.google.gson.reflect.TypeToken.getParameterized(
+                List::class.java,
+                CharacterProfile::class.java
+            ).type
+            val customList: List<CharacterProfile> = com.google.gson.Gson().fromJson(customCharacterData, type) ?: return baseCharacters
+            val customMap = customList.associateBy { it.id }
+            val merged = baseCharacters.map { base ->
+                customMap[base.id] ?: base
+            }.toMutableList()
+            customList.forEach { custom ->
+                if (merged.none { it.id == custom.id && it.name == custom.name }) {
+                    merged.add(custom)
+                }
+            }
+            merged
+        } catch (e: Exception) {
+            baseCharacters
+        }
+    }
+
+    fun getCustomizedScenario(baseScenario: RoleplayScenario?): RoleplayScenario? {
+        if (customScenarioData.isNullOrBlank()) return baseScenario
+        return try {
+            com.google.gson.Gson().fromJson(customScenarioData, RoleplayScenario::class.java) ?: baseScenario
+        } catch (e: Exception) {
+            baseScenario
+        }
+    }
+}
 
 /**
  * 角色扮演记忆 - 存储角色扮演相关的记忆
@@ -198,11 +250,10 @@ data class CharacterTagCrossRef(
 /**
  * 剧情提示模式
  */
-enum class NarrativeMode(val value: String, val displayName: String) {
-    CHARACTER("character", "角色内指令"),
-    AUTHOR("author", "作者/导演指令"),
-    NARRATOR("narrator", "旁白模式"),
-    MULTI("multi", "多角色模式");
+enum class NarrativeMode(val value: String, val displayName: String, val description: String) {
+    CHARACTER("character", "角色内指令", "模型以登场角色身份互动，沉浸式第一人称对话"),
+    AUTHOR("author", "作者/导演指令", "用户控制剧情大纲与方向，模型负责铺陈与推进故事"),
+    NARRATOR("narrator", "旁白模式", "纯客观环境描写与剧情旁白叙事，不代替用户做决定");
 
     companion object {
         fun fromValue(value: String): NarrativeMode {
@@ -225,6 +276,7 @@ enum class PlotAction(val value: String, val displayName: String, val descriptio
     BRANCH("branch", "创建剧情分支", "从当前点创建分支"),
     ROLLBACK("rollback", "回到上一个版本", "回到上一个版本"),
     SUMMARY("summary", "生成剧情摘要", "生成当前剧情摘要"),
+    BRANCH_CHOICES("branch_choices", "剧情走向选择", "提供3~4个不同发展方向与节奏供选择"),
     DIALOGUE_ONLY("dialogue_only", "只生成角色对白", "只生成角色对白"),
     NARRATION_ONLY("narration_only", "只生成旁白", "只生成旁白"),
     DIALOGUE_ACTION("dialogue_action", "生成对白加动作", "生成对白加动作描述"),

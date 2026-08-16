@@ -1,4 +1,4 @@
-@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 
 package com.aiassistant.ui.screens.chat
 
@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -27,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.takeOrElse
@@ -42,6 +44,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.graphics.asImageBitmap
+import android.graphics.Bitmap
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.isSystemInDarkTheme
 import com.aiassistant.R
 import com.aiassistant.domain.model.Attachment
 import com.aiassistant.domain.model.ChatModelOption
@@ -69,9 +76,25 @@ import com.aiassistant.ui.components.rememberLazyListControlsVisible
 import com.aiassistant.utils.AvatarManager
 import com.aiassistant.utils.BackgroundImageManager
 import com.aiassistant.utils.FileUtils
+import com.aiassistant.utils.RoleplaySmartAnalyzer
+import com.aiassistant.utils.RoleplaySmartParser
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
+import android.widget.Toast
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.text.font.FontWeight
+import com.aiassistant.domain.model.CharacterProfile
+import com.aiassistant.domain.model.NarrativeMode
+import com.aiassistant.domain.model.PlotAction
+import com.aiassistant.domain.model.RoleplayScenario
+import com.aiassistant.domain.model.RoleplaySession
+import com.aiassistant.ui.components.EchoGlassCard
+import com.aiassistant.ui.components.EchoPrimaryButton
+import com.aiassistant.ui.components.EchoGlassButton
+import com.aiassistant.ui.screens.roleplay.ConflictAction
+import com.aiassistant.ui.theme.EchoTokens
 
 private const val ChatGlassTintAlpha = 0.86f
 private val ChatUserGlassTint = Color(0xFFD9ECFF)
@@ -81,7 +104,8 @@ private val ThinkingContentBlue = Color(0xFF2563EB)
 @Composable
 fun ChatScreen(
     conversationId: Long,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    onNavigateToRoleplayMemory: (Long) -> Unit = {}
 ) {
     val context = LocalContext.current
     val chatBackgroundBitmap = remember(context) {
@@ -110,9 +134,17 @@ fun ChatScreen(
     val clipboardManager = LocalClipboardManager.current
     val promptTemplates by viewModel.promptTemplates.collectAsState()
 
-    var inputText by remember { mutableStateOf("") }
+    val roleplayRepo = remember { com.aiassistant.AiAssistantApp.instance.roleplayRepository }
+    val allAvailableCharacters by roleplayRepo.getAllCharacters().collectAsState(initial = emptyList())
+    val allAvailableScenarios by roleplayRepo.getAllScenarios().collectAsState(initial = emptyList())
+
+    var inputText by remember(conversationId) { mutableStateOf(ChatViewModel.getDraft(conversationId)) }
+    var showRenameDialog by remember { mutableStateOf(false) }
+    var renameText by remember(uiState.conversationTitle) { mutableStateOf(uiState.conversationTitle) }
     var showSettingsDialog by remember { mutableStateOf(false) }
     var showContextUsageDialog by remember { mutableStateOf(false) }
+    var showStoryManagerDialog by remember { mutableStateOf(false) }
+    var showStorySmartAnalyzeDialog by remember { mutableStateOf(false) }
     var selectedAttachments by remember { mutableStateOf<List<Attachment>>(emptyList()) }
     var isProcessingAttachments by remember { mutableStateOf(false) }
     var attachmentStatus by remember { mutableStateOf<String?>(null) }
@@ -129,6 +161,12 @@ fun ChatScreen(
     }
     val chatNavItems = remember(displayMessages) {
         buildChatAnchorItems(displayMessages)
+    }
+
+    DisposableEffect(conversationId) {
+        onDispose {
+            ChatViewModel.saveDraft(conversationId, inputText)
+        }
     }
 
     BackHandler {
@@ -209,37 +247,51 @@ fun ChatScreen(
         if (listState.isScrollInProgress) {
             return@LaunchedEffect
         }
-        if (messages.isNotEmpty() || currentResponse.isNotEmpty() || currentThinking.isNotEmpty()) {
+        if (messages.isNotEmpty() || currentResponse.isNotEmpty() || currentThinking.isNotEmpty() || isGenerating) {
             val layoutInfo = listState.layoutInfo
             val lastVisibleIndex = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-            if (layoutInfo.totalItemsCount > 0 && lastVisibleIndex < layoutInfo.totalItemsCount - 2) {
-                autoFollowOutput = false
-                return@LaunchedEffect
+            val isStreaming = currentResponse.isNotEmpty() || currentThinking.isNotEmpty()
+            // 流式输出时仅当页面处于最底端时页面才会跟着流式输出滑动
+            if (isStreaming) {
+                if (layoutInfo.totalItemsCount > 0 && lastVisibleIndex < layoutInfo.totalItemsCount - 2) {
+                    autoFollowOutput = false
+                    return@LaunchedEffect
+                }
+            } else {
+                if (layoutInfo.totalItemsCount > 0 && lastVisibleIndex < layoutInfo.totalItemsCount - 2) {
+                    autoFollowOutput = false
+                    return@LaunchedEffect
+                }
             }
             val now = System.currentTimeMillis()
-            if (currentResponse.isNotEmpty() || currentThinking.isNotEmpty()) {
+            if (isStreaming) {
                 val elapsed = now - lastStreamScrollAt
-                if (elapsed < 90L) {
-                    kotlinx.coroutines.delay(90L - elapsed)
+                if (elapsed < 60L) {
+                    kotlinx.coroutines.delay(60L - elapsed)
                 }
             } else {
                 kotlinx.coroutines.delay(16)
             }
-            val bottomIndex = (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)
-            if (bottomIndex > 0) {
-                listState.animateScrollToItem(bottomIndex)
-                lastStreamScrollAt = System.currentTimeMillis()
+            val totalCount = listState.layoutInfo.totalItemsCount
+            if (totalCount > 0) {
+                val targetIndex = (totalCount - 1).coerceAtLeast(0)
+                try {
+                    listState.scrollToItem(targetIndex)
+                    lastStreamScrollAt = System.currentTimeMillis()
+                } catch (e: Exception) {
+                    // 忽略并发或布局变更时的滚动中断
+                }
             }
         }
     }
 
     Scaffold(
         topBar = {
-            val toolbarShape = RoundedCornerShape(999.dp)
-            val glass = echoGlassPalette()
-            val chatGlassTint = glass.input
+            val toolbarShape = RoundedCornerShape(24.dp)
+            val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+            val topBarBg = MaterialTheme.colorScheme.surface.copy(alpha = if (isDark) 0.92f else 0.96f)
             val toolbarContentColor = readableTextColorFor(
-                background = chatGlassTint,
+                background = topBarBg,
                 fallbackSurface = readableBackdrops.top
             )
 
@@ -247,18 +299,11 @@ fun ChatScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .statusBarsPadding()
-                    .padding(horizontal = 12.dp)
-                    .padding(top = 6.dp, bottom = 6.dp)
-                    .echoHazePanel(
-                        hazeState = hazeState,
-                        shape = toolbarShape,
-                        tint = chatGlassTint,
-                        blurRadius = 24.dp,
-                        highlightAlpha = 0.04f
-                ),
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
                 shape = toolbarShape,
-                color = chatGlassTint,
+                color = topBarBg,
                 contentColor = toolbarContentColor,
+                border = null,
                 tonalElevation = 0.dp,
                 shadowElevation = 0.dp
             ) {
@@ -279,7 +324,11 @@ fun ChatScreen(
                         title = uiState.conversationTitle.ifBlank { "新对话" },
                         modifier = Modifier
                             .weight(1f)
-                            .fillMaxHeight()
+                            .fillMaxHeight(),
+                        onLongClick = {
+                            renameText = uiState.conversationTitle
+                            showRenameDialog = true
+                        }
                     )
                     ContextUsageButton(
                         usage = contextUsage.usage,
@@ -289,24 +338,65 @@ fun ChatScreen(
                             showContextUsageDialog = true
                         }
                     )
-                    IconButton(
-                        onClick = { showSettingsDialog = true },
-                        modifier = Modifier.size(48.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.Tune,
-                            contentDescription = "对话设置",
-                            tint = toolbarContentColor
-                        )
+                    if (uiState.isRoleplay) {
+                        IconButton(
+                            onClick = { showStoryManagerDialog = true },
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.AutoStories,
+                                contentDescription = "故事创作与参数设置",
+                                tint = toolbarContentColor
+                            )
+                        }
+                    } else {
+                        IconButton(
+                            onClick = { showSettingsDialog = true },
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Tune,
+                                contentDescription = "对话设置",
+                                tint = toolbarContentColor
+                            )
+                        }
                     }
                 }
             }
         },
         bottomBar = {
-            ChatInputBar(
-                hazeState = hazeState,
+            Column(modifier = Modifier.fillMaxWidth()) {
+                if (uiState.isRoleplay) {
+                    com.aiassistant.ui.screens.roleplay.PlotActionBar(
+                        onAction = { action, custom ->
+                            viewModel.sendPlotAction(action, custom)
+                        },
+                        onProposeSetting = {
+                            val textToAnalyze = if (inputText.isNotBlank()) inputText else {
+                                messages.takeLast(4).joinToString("\n") { "${it.role}: ${it.content}" }
+                            }
+                            if (textToAnalyze.isNotBlank()) {
+                                Toast.makeText(context, "正在智能识别角色与世界观设定...", Toast.LENGTH_SHORT).show()
+                                viewModel.analyzeAndProposeSettingFromInput(
+                                    text = textToAnalyze,
+                                    onProgress = { msg -> Toast.makeText(context, msg, Toast.LENGTH_SHORT).show() },
+                                    onNoProposal = { Toast.makeText(context, "未能从当前输入中提取到新的角色或世界观设定", Toast.LENGTH_SHORT).show() },
+                                    onError = { err -> Toast.makeText(context, "识别失败: $err", Toast.LENGTH_SHORT).show() }
+                                )
+                            } else {
+                                Toast.makeText(context, "请先在输入框输入设定或剧情文本", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                ChatInputBar(
+                    hazeState = hazeState,
                 inputText = inputText,
-                onInputChange = { inputText = it },
+                onInputChange = {
+                    inputText = it
+                    ChatViewModel.saveDraft(conversationId, it)
+                },
                 onSend = {
                     if (inputText.isNotBlank() || selectedAttachments.isNotEmpty()) {
                         if (!isProcessingAttachments) {
@@ -324,6 +414,7 @@ fun ChatScreen(
                                 viewModel.sendMessage(inputText, selectedAttachments)
                             }
                             inputText = ""
+                            ChatViewModel.saveDraft(conversationId, "")
                             pendingEditSource = null
                             selectedAttachments = emptyList()
                             attachmentStatus = null
@@ -348,10 +439,15 @@ fun ChatScreen(
                 onWebSearchChange = { enabled ->
                     viewModel.updateTempSettings(tempSettings.copy(enableWebSearch = enabled))
                 },
+                enableThinking = tempSettings.enableThinking,
+                onThinkingChange = { enabled ->
+                    viewModel.updateTempSettings(tempSettings.copy(enableThinking = enabled))
+                },
                 readableBackdrop = readableBackdrops.bottom
             )
         }
-    ) { paddingValues ->
+    }
+) { paddingValues ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -372,35 +468,51 @@ fun ChatScreen(
                     )
                 }
             }
-            Column(modifier = Modifier.fillMaxSize()) {
-                // 错误提示
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = paddingValues.calculateTopPadding())
+            ) {
+                // 错误提示 (在顶部导航栏下方显示，避免重合)
                 error?.let { errorMsg ->
-                    AnimatedVisibility(visible = true) {
-                        Card(
+                    AnimatedVisibility(
+                        visible = true,
+                        enter = fadeIn() + expandVertically(),
+                        exit = fadeOut() + shrinkVertically()
+                    ) {
+                        Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.errorContainer
-                            )
+                                .padding(horizontal = 14.dp, vertical = 6.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.96f),
+                            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                            border = null,
+                            tonalElevation = 0.dp,
+                            shadowElevation = 0.dp
                         ) {
                             Row(
-                                modifier = Modifier.padding(12.dp),
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
-                                    Icons.Default.Error,
+                                    Icons.Default.ErrorOutline,
                                     contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.error
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(20.dp)
                                 )
-                                Spacer(modifier = Modifier.width(8.dp))
+                                Spacer(modifier = Modifier.width(10.dp))
                                 Text(
                                     text = errorMsg,
+                                    style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onErrorContainer,
                                     modifier = Modifier.weight(1f)
                                 )
-                                IconButton(onClick = { viewModel.clearError() }) {
-                                    Icon(Icons.Default.Close, contentDescription = "关闭")
+                                IconButton(
+                                    onClick = { viewModel.clearError() },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(Icons.Default.Close, contentDescription = "关闭", modifier = Modifier.size(16.dp))
                                 }
                             }
                         }
@@ -414,7 +526,7 @@ fun ChatScreen(
                     contentPadding = PaddingValues(
                         start = 14.dp,
                         end = 14.dp,
-                        top = paddingValues.calculateTopPadding() + 18.dp,
+                        top = 6.dp,
                         bottom = paddingValues.calculateBottomPadding() + 18.dp
                     ),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -429,7 +541,7 @@ fun ChatScreen(
                     // 消息列表
                     items(
                         items = displayMessages,
-                        key = { item -> item.groupId ?: item.message.id }
+                        key = { item -> item.groupId ?: "${item.message.id}_${item.message.createdAt}_${item.message.role}" }
                     ) { displayItem ->
                         val message = displayItem.message
                         Column(modifier = Modifier.fillMaxWidth()) {
@@ -509,8 +621,8 @@ fun ChatScreen(
                     }
 
                     // 当前正在生成的内容
-                    if (streamingBranchGroupId == null && (currentThinking.isNotEmpty() || currentResponse.isNotEmpty())) {
-                        item {
+                    if (streamingBranchGroupId == null && (currentThinking.isNotEmpty() || currentResponse.isNotEmpty() || isGenerating)) {
+                        item(key = "streaming_assistant_message") {
                             MessageBubble(
                                 message = Message(
                                     conversationId = conversationId,
@@ -554,7 +666,7 @@ fun ChatScreen(
                 hazeState = hazeState,
                 modifier = Modifier
                     .matchParentSize()
-                    .padding(end = 12.dp)
+                    .padding(end = 4.dp)
             )
 
             ChatScrollJumpButtons(
@@ -612,6 +724,118 @@ fun ChatScreen(
             onDismiss = { showContextUsageDialog = false },
             onRefresh = { viewModel.refreshContextUsage() },
             onCompress = { viewModel.compressContextNow() }
+        )
+    }
+
+    if (showStoryManagerDialog && uiState.roleplaySession != null) {
+        StoryUnifiedSettingsDialog(
+            hazeState = hazeState,
+            session = uiState.roleplaySession!!,
+            characters = uiState.roleplayCharacters,
+            allCharacters = allAvailableCharacters,
+            scenario = uiState.roleplayScenario,
+            allScenarios = allAvailableScenarios,
+            narrativeMode = uiState.narrativeMode,
+            currentOption = currentModelOption,
+            fallbackModel = currentModel ?: uiState.modelName,
+            availableOptions = availableModelOptions,
+            tempSettings = tempSettings,
+            currentPrompt = uiState.systemPrompt,
+            templates = promptTemplates,
+            onDismiss = { showStoryManagerDialog = false },
+            onSaveAll = { charIds, scenarioId, mode, plotSummary, settings, prompt ->
+                viewModel.updateStorySessionContext(charIds, scenarioId, mode, plotSummary)
+                viewModel.updateChatSettings(settings, prompt)
+                showStoryManagerDialog = false
+            },
+            onPlotAction = { action, custom ->
+                viewModel.sendPlotAction(action, custom)
+                showStoryManagerDialog = false
+            },
+            onSummarizeMemories = {
+                Toast.makeText(context, "正在提炼剧情摘要与关键事实...", Toast.LENGTH_SHORT).show()
+                viewModel.summarizeAndExtractMemories(
+                    onSuccess = { msg -> Toast.makeText(context, msg, Toast.LENGTH_SHORT).show() },
+                    onError = { err -> Toast.makeText(context, err, Toast.LENGTH_SHORT).show() }
+                )
+            },
+            onNavigateToMemory = {
+                showStoryManagerDialog = false
+                onNavigateToRoleplayMemory(uiState.roleplaySession!!.id)
+            },
+            onOpenSmartAppend = {
+                showStorySmartAnalyzeDialog = true
+            },
+            onSaveLocalCharacter = { updatedChar ->
+                viewModel.saveLocalCharacterOverride(updatedChar)
+                Toast.makeText(context, "已保存「${updatedChar.name}」在当前故事中的专属设定", Toast.LENGTH_SHORT).show()
+            },
+            onSaveLocalScenario = { updatedSc ->
+                viewModel.saveLocalScenarioOverride(updatedSc)
+                Toast.makeText(context, "已保存「${updatedSc.name}」在当前故事中的专属世界观设定", Toast.LENGTH_SHORT).show()
+            },
+            onModelSelected = { viewModel.switchModel(it) },
+            onSavePromptTemplate = { name, content ->
+                viewModel.savePromptTemplate(name, content)
+            },
+            onModelAvatarChanged = { modelAvatarRevision++ }
+        )
+    }
+
+    if (showStorySmartAnalyzeDialog) {
+        SmartAppendStoryDialog(
+            hazeState = hazeState,
+            onDismiss = { showStorySmartAnalyzeDialog = false },
+            onAppendAndMerge = { chars, scenario, resMap ->
+                showStorySmartAnalyzeDialog = false
+                viewModel.appendAndMergeStoryBundle(chars, scenario, resMap) { msg ->
+                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                }
+            }
+        )
+    }
+
+    if (uiState.suggestedProposal != null) {
+        EditableSettingProposalDialog(
+            hazeState = hazeState,
+            proposal = uiState.suggestedProposal!!,
+            onDismiss = { viewModel.dismissProposedSetting() },
+            onApply = { chars, sc ->
+                viewModel.applyProposedSetting(chars, sc)
+                Toast.makeText(context, "已成功添加并融合到当前故事专属设定！", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
+
+    if (showRenameDialog) {
+        AlertDialog(
+            onDismissRequest = { showRenameDialog = false },
+            title = { Text(if (uiState.isRoleplay) "重命名故事" else "重命名对话") },
+            text = {
+                OutlinedTextField(
+                    value = renameText,
+                    onValueChange = { renameText = it },
+                    label = { Text("名称") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.renameConversation(renameText)
+                        showRenameDialog = false
+                    },
+                    enabled = renameText.isNotBlank()
+                ) {
+                    Text("确定")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRenameDialog = false }) {
+                    Text("取消")
+                }
+            }
         )
     }
 }
@@ -1009,24 +1233,39 @@ private fun formatContextTimestamp(timestamp: Long): String {
     return SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(timestamp))
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ChatHeaderTitle(
     title: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onLongClick: () -> Unit = {}
 ) {
+    val scrollState = rememberScrollState()
     Column(
-        modifier = modifier.fillMaxHeight(),
+        modifier = modifier
+            .fillMaxHeight()
+            .combinedClickable(
+                onClick = {},
+                onLongClick = onLongClick
+            ),
         verticalArrangement = Arrangement.Center
     ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleMedium.copy(
-                fontSize = 15.5.sp,
-                lineHeight = 19.sp
-            ),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(scrollState),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontSize = 15.5.sp,
+                    lineHeight = 19.sp
+                ),
+                maxLines = 1,
+                softWrap = false
+            )
+        }
     }
 }
 
@@ -1163,11 +1402,11 @@ private fun MessageBubble(
     fun MessageContent(contentColor: Color) {
         Column(
             modifier = if (isUser) {
-                Modifier.padding(horizontal = 14.dp, vertical = 12.dp)
+                Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
             } else {
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 12.dp)
+                    .padding(horizontal = 4.dp, vertical = 4.dp)
             }
         ) {
             val thinkingBubbleColor = glass.controlSelected
@@ -1310,118 +1549,150 @@ private fun MessageBubble(
     }
 
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-        val bubbleMaxWidth = if (isUser) {
-            (maxWidth - 52.dp).coerceAtLeast(160.dp).coerceAtMost(360.dp)
-        } else {
-            (maxWidth - 46.dp).coerceAtLeast(180.dp)
-        }
+        val bubbleMaxWidth = (maxWidth - 52.dp).coerceAtLeast(160.dp).coerceAtMost(360.dp)
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
-            verticalAlignment = Alignment.Top
-        ) {
-            if (!isUser) {
-                ChatAvatar(
-                    isUser = false,
-                    avatarRevision = assistantAvatarRevision,
-                    apiConfigId = assistantApiConfigId
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-            }
-
-            Column(
-                modifier = Modifier.widthIn(max = bubbleMaxWidth),
-                horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
+        if (isUser) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.Top
             ) {
-                if (attachments.isNotEmpty()) {
-                    AttachmentGroupBubble(
-                        attachments = attachments,
+                Column(
+                    modifier = Modifier.widthIn(max = bubbleMaxWidth),
+                    horizontalAlignment = Alignment.End
+                ) {
+                    if (attachments.isNotEmpty()) {
+                        AttachmentGroupBubble(
+                            attachments = attachments,
+                            modifier = Modifier
+                                .widthIn(max = bubbleMaxWidth)
+                                .padding(bottom = if (message.content.isNotBlank() || isGenerating) 8.dp else 0.dp)
+                        )
+                    }
+
+                    if (message.content.isNotBlank() || isGenerating) {
+                        Surface(
+                            modifier = Modifier,
+                            color = bubbleColor,
+                            contentColor = textColor,
+                            shape = bubbleShape,
+                            tonalElevation = 0.dp,
+                            shadowElevation = 0.dp,
+                            border = BorderStroke(
+                                width = 0.8.dp,
+                                color = glass.outlineSelected.copy(alpha = 0.35f)
+                            )
+                        ) {
+                            MessageContent(textColor)
+                        }
+                    }
+
+                    MessageFooter(
+                        isUser = true,
+                        message = message,
+                        onCopy = onCopy,
+                        onRegenerate = onRegenerate,
+                        onEdit = onEdit,
+                        onDelete = onDelete,
                         modifier = Modifier
                             .widthIn(max = bubbleMaxWidth)
-                            .padding(bottom = if (message.content.isNotBlank() || isGenerating) 8.dp else 0.dp)
-                    )
-                }
-
-                if (isUser && (message.content.isNotBlank() || isGenerating)) {
-                    val userBubbleModifier = if (hazeState != null) {
-                        Modifier.echoHazePanel(
-                            hazeState = hazeState,
-                            shape = bubbleShape,
-                            tint = bubbleColor,
-                            blurRadius = 16.dp,
-                            highlightAlpha = 0.03f
-                        )
-                    } else {
-                        Modifier
-                    }
-                    Surface(
-                        modifier = userBubbleModifier,
-                        color = bubbleColor,
-                        contentColor = textColor,
-                        shape = bubbleShape,
-                        tonalElevation = 0.dp,
-                        shadowElevation = 0.dp,
-                        border = BorderStroke(
-                            width = 1.dp,
-                            color = glass.outlineSelected
-                        )
-                    ) {
-                        MessageContent(textColor)
-                    }
-                } else if (!isUser && (message.content.isNotBlank() || isGenerating || hasThinking)) {
-                    val assistantBubbleModifier = if (hazeState != null) {
-                        Modifier
                             .fillMaxWidth()
-                            .echoHazePanel(
-                                hazeState = hazeState,
-                                shape = bubbleShape,
-                                tint = bubbleColor,
-                                blurRadius = 14.dp,
-                                highlightAlpha = 0.025f
-                            )
-                    } else {
-                        Modifier.fillMaxWidth()
-                    }
-                    Surface(
-                        modifier = assistantBubbleModifier,
-                        color = bubbleColor,
-                        contentColor = textColor,
-                        shape = bubbleShape,
-                        tonalElevation = 0.dp,
-                        shadowElevation = 0.dp,
-                        border = BorderStroke(1.dp, glass.outline)
-                    ) {
-                        MessageContent(textColor)
-                    }
-                } else if (message.content.isNotBlank() || isGenerating) {
-                    MessageContent(textColor)
-                }
-
-                MessageFooter(
-                    isUser = isUser,
-                    message = message,
-                    onCopy = onCopy,
-                    onRegenerate = onRegenerate,
-                    onEdit = onEdit,
-                    onDelete = onDelete,
-                    modifier = Modifier
-                        .widthIn(max = bubbleMaxWidth)
-                        .fillMaxWidth()
-                )
-
-                variantInfo?.let { info ->
-                    VariantSwitcher(
-                        info = info,
-                        onSelect = { index -> onVariantSelected(info.groupId, index) },
-                        modifier = Modifier.padding(top = 2.dp)
                     )
-                }
-            }
 
-            if (isUser) {
+                    variantInfo?.let { info ->
+                        VariantSwitcher(
+                            info = info,
+                            onSelect = { index -> onVariantSelected(info.groupId, index) },
+                            modifier = Modifier.padding(top = 2.dp)
+                        )
+                    }
+                }
+
                 Spacer(modifier = Modifier.width(8.dp))
                 ChatAvatar(isUser = true)
+            }
+        } else {
+            // 模型回复：头像与身份置顶对齐，正文与思考全宽居中展开，左右对称无空白浪费
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                horizontalAlignment = Alignment.Start
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    ChatAvatar(
+                        isUser = false,
+                        avatarRevision = assistantAvatarRevision,
+                        apiConfigId = assistantApiConfigId
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Echo AI",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 2.dp),
+                    horizontalAlignment = Alignment.Start
+                ) {
+                    if (isGenerating && message.content.isBlank() && !hasThinking) {
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            color = glass.controlSelected.copy(alpha = 0.5f),
+                            border = BorderStroke(1.dp, glass.outlineSelected.copy(alpha = 0.4f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    text = "正在连接模型响应中...",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    } else {
+                        MessageContent(textColor)
+                    }
+
+                    MessageFooter(
+                        isUser = false,
+                        message = message,
+                        onCopy = onCopy,
+                        onRegenerate = onRegenerate,
+                        onEdit = onEdit,
+                        onDelete = onDelete,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    variantInfo?.let { info ->
+                        VariantSwitcher(
+                            info = info,
+                            onSelect = { index -> onVariantSelected(info.groupId, index) },
+                            modifier = Modifier.padding(top = 2.dp)
+                        )
+                    }
+                }
             }
         }
     }
@@ -1776,6 +2047,8 @@ fun ChatInputBar(
     onOcrImages: () -> Unit,
     enableWebSearch: Boolean,
     onWebSearchChange: (Boolean) -> Unit,
+    enableThinking: Boolean = false,
+    onThinkingChange: (Boolean) -> Unit = {},
     readableBackdrop: Color = Color.Unspecified
 ) {
     var showToolMenu by remember { mutableStateOf(false) }
@@ -1896,6 +2169,29 @@ fun ChatInputBar(
                                     inputTextColor
                                 },
                                 borderColor = if (enableWebSearch) {
+                                    glass.outlineSelected
+                                } else {
+                                    glass.outline
+                                }
+                            )
+                        }
+
+                        item {
+                            InputPillButton(
+                                text = "深度思考",
+                                selected = enableThinking,
+                                onClick = { onThinkingChange(!enableThinking) },
+                                containerColor = if (enableThinking) {
+                                    glass.controlSelected
+                                } else {
+                                    glass.control
+                                },
+                                contentColor = if (enableThinking) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    inputTextColor
+                                },
+                                borderColor = if (enableThinking) {
                                     glass.outlineSelected
                                 } else {
                                     glass.outline
@@ -2040,7 +2336,8 @@ private fun InputModelSelector(
 
         DropdownMenu(
             expanded = expanded,
-            onDismissRequest = { expanded = false }
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.heightIn(max = 280.dp)
         ) {
             if (options.isEmpty()) {
                 DropdownMenuItem(
@@ -2638,7 +2935,8 @@ fun ModelSelector(
 
         DropdownMenu(
             expanded = expanded,
-            onDismissRequest = { expanded = false }
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.heightIn(max = 280.dp)
         ) {
             if (availableModels.isEmpty()) {
                 DropdownMenuItem(
@@ -2735,7 +3033,8 @@ fun ModelSelector(
 
         DropdownMenu(
             expanded = expanded,
-            onDismissRequest = { expanded = false }
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.heightIn(max = 280.dp)
         ) {
             if (options.isEmpty()) {
                 DropdownMenuItem(
@@ -2871,7 +3170,8 @@ private fun ChatSettingsModelSelector(
 
             DropdownMenu(
                 expanded = expanded,
-                onDismissRequest = { expanded = false }
+                onDismissRequest = { expanded = false },
+                modifier = Modifier.heightIn(max = 280.dp)
             ) {
                 if (availableOptions.isEmpty()) {
                     DropdownMenuItem(
@@ -3116,15 +3416,26 @@ fun ChatSettingsDialog(
                 // 温度
                 item {
                     Column {
-                        Text(
-                            text = if (tuningProfile.temperatureEnabled) {
-                                "温度: ${String.format("%.2f", temperature)}"
-                            } else {
-                                "温度: 思考模式下不可调"
-                            },
-                            style = MaterialTheme.typography.titleSmall,
-                            color = dialogContentColor
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = if (tuningProfile.temperatureEnabled) {
+                                    "温度: ${String.format("%.2f", temperature)}"
+                                } else {
+                                    "温度: 思考模式下不可调"
+                                },
+                                style = MaterialTheme.typography.titleSmall,
+                                color = dialogContentColor
+                            )
+                            Text(
+                                text = "越低严谨，越高富有想象力",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = dialogSecondaryColor
+                            )
+                        }
                         Slider(
                             value = temperature,
                             onValueChange = { newValue ->
@@ -3156,7 +3467,14 @@ fun ChatSettingsDialog(
                 // 最大Token
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("最大 Token 数", style = MaterialTheme.typography.titleSmall, color = dialogContentColor)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("最大 Token 数", style = MaterialTheme.typography.titleSmall, color = dialogContentColor)
+                            Text("限制单次回复的最大生成长度", style = MaterialTheme.typography.labelSmall, color = dialogSecondaryColor)
+                        }
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
@@ -3198,11 +3516,18 @@ fun ChatSettingsDialog(
 
                 item {
                     Column {
-                        Text(
-                            text = "Top P: ${String.format("%.2f", topP)}",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = dialogContentColor
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Top P: ${String.format("%.2f", topP)}",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = dialogContentColor
+                            )
+                            Text("核采样概率阈值，控制用词发散程度", style = MaterialTheme.typography.labelSmall, color = dialogSecondaryColor)
+                        }
                         Slider(
                             value = topP,
                             onValueChange = { newValue ->
@@ -3415,6 +3740,1455 @@ fun ChatSettingsDialog(
             onSave = { name, content ->
                 onSavePromptTemplate(name, content)
                 showSaveDialog = false
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun StoryUnifiedSettingsDialog(
+    hazeState: dev.chrisbanes.haze.HazeState,
+    session: RoleplaySession,
+    characters: List<CharacterProfile>,
+    allCharacters: List<CharacterProfile>,
+    scenario: RoleplayScenario?,
+    allScenarios: List<RoleplayScenario>,
+    narrativeMode: NarrativeMode,
+    currentOption: ChatModelOption?,
+    fallbackModel: String,
+    availableOptions: List<ChatModelOption>,
+    tempSettings: TempChatSettings,
+    currentPrompt: String?,
+    templates: List<PromptTemplate>,
+    onDismiss: () -> Unit,
+    onSaveAll: (
+        selectedCharIds: List<Long>,
+        selectedScenarioId: Long?,
+        mode: NarrativeMode,
+        plotSummary: String,
+        newSettings: TempChatSettings,
+        newPrompt: String?
+    ) -> Unit,
+    onPlotAction: (PlotAction, String?) -> Unit,
+    onSummarizeMemories: () -> Unit,
+    onNavigateToMemory: () -> Unit,
+    onOpenSmartAppend: () -> Unit,
+    onSaveLocalCharacter: (CharacterProfile) -> Unit = {},
+    onSaveLocalScenario: (RoleplayScenario) -> Unit = {},
+    onModelSelected: (ChatModelOption) -> Unit,
+    onSavePromptTemplate: (String, String) -> Unit,
+    onModelAvatarChanged: () -> Unit
+) {
+    val context = LocalContext.current
+    val isDark = isSystemInDarkTheme()
+    val dialogContentColor = if (isDark) Color.White.copy(alpha = 0.95f) else Color.Black.copy(alpha = 0.9f)
+    val dialogSecondaryColor = if (isDark) Color.White.copy(alpha = 0.65f) else Color.Black.copy(alpha = 0.6f)
+
+    var activeTab by remember { mutableIntStateOf(0) }
+    var editingLocalCharacter by remember { mutableStateOf<CharacterProfile?>(null) }
+    var editingLocalScenario by remember { mutableStateOf<RoleplayScenario?>(null) }
+
+    // 故事与角色 Tab 状态
+    val initialCharIds = remember(session, characters) {
+        val ids = session.getEffectiveCharacterIds()
+        if (ids.isNotEmpty()) ids.toSet() else characters.map { it.id }.toSet()
+    }
+    var selectedCharIds by remember { mutableStateOf(initialCharIds) }
+    var selectedScenarioId by remember { mutableStateOf(session.scenarioId) }
+    var selectedNarrativeMode by remember { mutableStateOf(narrativeMode) }
+    var plotSummaryText by remember { mutableStateOf(session.currentPlotSummary) }
+    var showCustomPlotDialog by remember { mutableStateOf(false) }
+    var customInstructionText by remember { mutableStateOf("") }
+
+    // 模型与参数 Tab 状态
+    var temperature by remember { mutableFloatStateOf(tempSettings.temperature) }
+    var maxTokens by remember { mutableStateOf(tempSettings.maxTokens.toString()) }
+    var topP by remember { mutableFloatStateOf(tempSettings.topP) }
+    var enableThinking by remember { mutableStateOf(tempSettings.enableThinking) }
+    var thinkingEffort by remember { mutableStateOf(tempSettings.thinkingEffort) }
+    var enableWebSearch by remember { mutableStateOf(tempSettings.enableWebSearch) }
+    var promptText by remember { mutableStateOf(currentPrompt ?: "") }
+    var showTemplates by remember { mutableStateOf(false) }
+    var showSaveDialog by remember { mutableStateOf(false) }
+
+    var avatarRevision by remember { mutableIntStateOf(0) }
+    val modelAvatarBitmap = remember(context, avatarRevision) {
+        AvatarManager.getModelAvatarBitmap(context)
+    }
+    val modelAvatarPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let {
+            if (AvatarManager.saveModelAvatarFromUri(context, it)) {
+                avatarRevision++
+                onModelAvatarChanged()
+            }
+        }
+    }
+
+    val tuningProfile = remember(currentOption, fallbackModel, enableThinking) {
+        chatTuningProfile(currentOption, fallbackModel, enableThinking)
+    }
+
+    EchoGlassDialog(
+        hazeState = hazeState,
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.AutoStories, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text("故事创作与参数设置", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("世界观、登场角色与模型生成参数一站式管理", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        },
+        content = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                TabRow(
+                    selectedTabIndex = activeTab,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp),
+                    containerColor = Color.Transparent
+                ) {
+                    Tab(
+                        selected = activeTab == 0,
+                        onClick = { activeTab = 0 },
+                        text = { Text("📖 故事与角色", fontWeight = if (activeTab == 0) FontWeight.Bold else FontWeight.Normal) }
+                    )
+                    Tab(
+                        selected = activeTab == 1,
+                        onClick = { activeTab = 1 },
+                        text = { Text("⚙️ 模型与参数", fontWeight = if (activeTab == 1) FontWeight.Bold else FontWeight.Normal) }
+                    )
+                }
+
+                Box(modifier = Modifier.heightIn(max = 440.dp)) {
+                    if (activeTab == 0) {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            // 快捷 AI 追加
+                            item {
+                                EchoGlassCard(
+                                    onClick = {
+                                        onDismiss()
+                                        onOpenSmartAppend()
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = EchoTokens.Radius.shapeMd,
+                                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("AI 智能识别、追加与融合", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                                            Text("粘贴小说章节或人设，实时并入当前故事", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                        Icon(Icons.Default.ChevronRight, contentDescription = null)
+                                    }
+                                }
+                            }
+
+                            // 登场角色勾选列表
+                            item {
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("登场角色 (${selectedCharIds.size}/${(allCharacters + characters).distinctBy { it.id }.size})", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                        Text("长按角色可编辑本故事专属设定", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                    }
+                                    val charListToDisplay = (allCharacters + characters).distinctBy { it.id }
+                                    if (charListToDisplay.isEmpty()) {
+                                        Text("暂无角色卡，可在角色工坊新建", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    } else {
+                                        charListToDisplay.forEach { char ->
+                                            val isChecked = selectedCharIds.contains(char.id)
+                                            EchoGlassCard(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .combinedClickable(
+                                                        onClick = {
+                                                            selectedCharIds = if (isChecked) {
+                                                                selectedCharIds - char.id
+                                                            } else {
+                                                                selectedCharIds + char.id
+                                                            }
+                                                        },
+                                                        onLongClick = {
+                                                            editingLocalCharacter = char
+                                                        }
+                                                    ),
+                                                shape = EchoTokens.Radius.shapeSm,
+                                                containerColor = if (isChecked) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else Color.Unspecified
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Checkbox(
+                                                        checked = isChecked,
+                                                        onCheckedChange = { checked ->
+                                                            selectedCharIds = if (checked) selectedCharIds + char.id else selectedCharIds - char.id
+                                                        }
+                                                    )
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Column(modifier = Modifier.weight(1f)) {
+                                                        Text(char.name + if (char.identity.isNotBlank()) " · ${char.identity}" else "", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+                                                        if (char.personality.isNotBlank()) {
+                                                            Text("性格: ${char.personality}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 世界观与场景设定单选
+                            item {
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("世界观与场景设定", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                        Text("长按世界观可编辑本故事专属设定", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                    }
+                                    EchoGlassCard(
+                                        onClick = { selectedScenarioId = null },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = EchoTokens.Radius.shapeSm,
+                                        containerColor = if (selectedScenarioId == null) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else Color.Unspecified
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            RadioButton(selected = selectedScenarioId == null, onClick = { selectedScenarioId = null })
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("不指定世界观（自由背景）", style = MaterialTheme.typography.bodyMedium)
+                                        }
+                                    }
+                                    val scenarioListToDisplay = (allScenarios + listOfNotNull(scenario)).distinctBy { it.id }
+                                    scenarioListToDisplay.forEach { sc ->
+                                        val isSelected = selectedScenarioId == sc.id
+                                        EchoGlassCard(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .combinedClickable(
+                                                    onClick = { selectedScenarioId = sc.id },
+                                                    onLongClick = { editingLocalScenario = sc }
+                                                ),
+                                            shape = EchoTokens.Radius.shapeSm,
+                                            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else Color.Unspecified
+                                        ) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(8.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                RadioButton(selected = isSelected, onClick = { selectedScenarioId = sc.id })
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Column {
+                                                    Text(sc.name, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+                                                    if (sc.worldview.isNotBlank()) {
+                                                        Text(sc.worldview, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 叙事模式选择
+                            item {
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("当前叙事模式", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                        Text("点击即时切换导演/对话风格", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                    NarrativeMode.values().forEach { mode ->
+                                        val isSelected = selectedNarrativeMode == mode
+                                        EchoGlassCard(
+                                            onClick = { selectedNarrativeMode = mode },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = EchoTokens.Radius.shapeSm,
+                                            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else Color.Unspecified
+                                        ) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(8.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                RadioButton(selected = isSelected, onClick = { selectedNarrativeMode = mode })
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Column {
+                                                    Text(mode.displayName, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+                                                    Text(mode.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 剧情推进快捷指令
+                            item {
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("剧情导演指令", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                        Text("即时引导或改写故事", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                    FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        ActionChip(text = "🎬 剧情走向选择") { onPlotAction(PlotAction.BRANCH_CHOICES, null) }
+                                        ActionChip(text = "⚡ 继续推进") { onPlotAction(PlotAction.CONTINUE, null) }
+                                        ActionChip(text = "🔄 重新生成") { onPlotAction(PlotAction.REGENERATE, null) }
+                                        ActionChip(text = "✏️ 重写上一段") { onPlotAction(PlotAction.REWRITE, null) }
+                                        ActionChip(text = "➕ 扩写细节") { onPlotAction(PlotAction.EXTEND, null) }
+                                        ActionChip(text = "➖ 精简提炼") { onPlotAction(PlotAction.SHORTEN, null) }
+                                        ActionChip(text = "👁️ 切换视角") { onPlotAction(PlotAction.CHANGE_PERSPECTIVE, null) }
+                                        ActionChip(text = "📝 剧情摘要") { onPlotAction(PlotAction.SUMMARY, null) }
+                                        ActionChip(text = "💬 自定义指令") { showCustomPlotDialog = true }
+                                    }
+                                }
+                            }
+
+                            // 一键提炼剧情摘要与记忆
+                            item {
+                                EchoGlassCard(
+                                    onClick = onSummarizeMemories,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = EchoTokens.Radius.shapeSm,
+                                    containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.35f)
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Default.AutoFixHigh, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary)
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("一键提炼剧情摘要与关键事实", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                                            Text("通过AI分析上下文，自动更新故事记忆与事实库", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 剧情备忘录/摘要编辑
+                            item {
+                                OutlinedTextField(
+                                    value = plotSummaryText,
+                                    onValueChange = { plotSummaryText = it },
+                                    label = { Text("当前剧情摘要 / 备忘录") },
+                                    placeholder = { Text("记录当前故事线推进到的关键阶段或核心暗线...") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    minLines = 2,
+                                    maxLines = 4
+                                )
+                            }
+
+                            // 记忆管理
+                            item {
+                                OutlinedButton(
+                                    onClick = onNavigateToMemory,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(Icons.Default.Memory, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("管理长期记忆与关键事实库")
+                                }
+                            }
+                        }
+                    } else {
+                        // activeTab == 1: 模型与参数
+                        LazyColumn(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            item {
+                                ChatSettingsModelSelector(
+                                    currentOption = currentOption,
+                                    fallbackModel = fallbackModel,
+                                    availableOptions = availableOptions,
+                                    contentColor = dialogContentColor,
+                                    secondaryColor = dialogSecondaryColor,
+                                    onModelSelected = onModelSelected
+                                )
+                            }
+
+                            item {
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("系统提示词", style = MaterialTheme.typography.titleSmall, color = dialogContentColor)
+                                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            if (templates.isNotEmpty()) {
+                                                TextButton(onClick = { showTemplates = true }) {
+                                                    Text("使用模板")
+                                                }
+                                            }
+                                            if (promptText.isNotBlank()) {
+                                                TextButton(onClick = { showSaveDialog = true }) {
+                                                    Text("存为模板")
+                                                }
+                                            }
+                                        }
+                                    }
+                                    OutlinedTextField(
+                                        value = promptText,
+                                        onValueChange = { promptText = it },
+                                        placeholder = { Text("为故事或助手设定全局指导规则...") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        minLines = 2,
+                                        maxLines = 4
+                                    )
+                                }
+                            }
+
+                            item {
+                                Column {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text("温度 (Temperature)", style = MaterialTheme.typography.titleSmall, color = dialogContentColor)
+                                        Text(String.format(Locale.getDefault(), "%.2f", temperature), style = MaterialTheme.typography.bodyMedium, color = dialogSecondaryColor)
+                                    }
+                                    Slider(
+                                        value = temperature,
+                                        onValueChange = { temperature = it },
+                                        valueRange = 0f..tuningProfile.temperatureMax,
+                                        steps = 20
+                                    )
+                                }
+                            }
+
+                            item {
+                                Column {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text("最大输出 (Max Tokens)", style = MaterialTheme.typography.titleSmall, color = dialogContentColor)
+                                        Text("默认 8192+", style = MaterialTheme.typography.bodySmall, color = dialogSecondaryColor)
+                                    }
+                                    OutlinedTextField(
+                                        value = maxTokens,
+                                        onValueChange = { maxTokens = it.filter { char -> char.isDigit() } },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true
+                                    )
+                                }
+                            }
+
+                            item {
+                                Column {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text("Top P (核采样)", style = MaterialTheme.typography.titleSmall, color = dialogContentColor)
+                                        Text(String.format(Locale.getDefault(), "%.2f", topP), style = MaterialTheme.typography.bodyMedium, color = dialogSecondaryColor)
+                                    }
+                                    Slider(
+                                        value = topP,
+                                        onValueChange = { topP = it },
+                                        valueRange = 0f..1f,
+                                        steps = 20
+                                    )
+                                }
+                            }
+
+                            item {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                                        Text("深度思考模式", style = MaterialTheme.typography.titleSmall, color = dialogContentColor)
+                                        Text("适合复杂情节构思与严谨逻辑推演", style = MaterialTheme.typography.bodySmall, color = dialogSecondaryColor)
+                                    }
+                                    Switch(
+                                        checked = enableThinking,
+                                        onCheckedChange = { enableThinking = it }
+                                    )
+                                }
+                            }
+
+                            if (enableThinking && tuningProfile.thinkingEfforts.isNotEmpty()) {
+                                item {
+                                    Column {
+                                        Text("思考强度", style = MaterialTheme.typography.titleSmall, color = dialogContentColor)
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            items(tuningProfile.thinkingEfforts) { level ->
+                                                val selected = thinkingEffort == level.value
+                                                FilterChip(
+                                                    selected = selected,
+                                                    onClick = { thinkingEffort = level.value },
+                                                    colors = echoFilterChipColors(),
+                                                    border = echoFilterChipBorder(selected),
+                                                    elevation = echoFilterChipElevation(),
+                                                    label = { Text(level.label) }
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            item {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                                        Text("联网搜索", style = MaterialTheme.typography.titleSmall, color = dialogContentColor)
+                                        Text("仅对支持联网的 API 生效", style = MaterialTheme.typography.bodySmall, color = dialogSecondaryColor)
+                                    }
+                                    Switch(
+                                        checked = enableWebSearch,
+                                        onCheckedChange = { enableWebSearch = it }
+                                    )
+                                }
+                            }
+
+                            item {
+                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Text("模型头像", style = MaterialTheme.typography.titleSmall, color = dialogContentColor)
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(52.dp)
+                                                .clip(CircleShape)
+                                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            if (modelAvatarBitmap != null) {
+                                                Image(
+                                                    bitmap = modelAvatarBitmap.asImageBitmap(),
+                                                    contentDescription = "模型头像",
+                                                    modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                                    contentScale = ContentScale.Crop
+                                                )
+                                            } else {
+                                                Image(
+                                                    painter = painterResource(id = R.drawable.deepseek),
+                                                    contentDescription = "默认模型头像",
+                                                    modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                                    contentScale = ContentScale.Crop
+                                                )
+                                            }
+                                        }
+                                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                OutlinedButton(
+                                                    onClick = { modelAvatarPicker.launch("image/*") },
+                                                    shape = RoundedCornerShape(999.dp)
+                                                ) {
+                                                    Text("更换")
+                                                }
+                                                if (modelAvatarBitmap != null) {
+                                                    TextButton(
+                                                        onClick = {
+                                                            AvatarManager.deleteModelAvatar(context)
+                                                            avatarRevision++
+                                                            onModelAvatarChanged()
+                                                        }
+                                                    ) {
+                                                        Text("恢复默认")
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        buttons = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(onClick = onDismiss) {
+                    Text("取消")
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Button(
+                    onClick = {
+                        val newSettings = TempChatSettings(
+                            temperature = temperature.coerceIn(0f, tuningProfile.temperatureMax),
+                            maxTokens = maxTokens.toIntOrNull() ?: 8192,
+                            topP = topP,
+                            enableThinking = enableThinking,
+                            thinkingEffort = thinkingEffort,
+                            enableWebSearch = enableWebSearch
+                        )
+                        onSaveAll(
+                            selectedCharIds.toList(),
+                            selectedScenarioId,
+                            selectedNarrativeMode,
+                            plotSummaryText,
+                            newSettings,
+                            promptText.ifBlank { null }
+                        )
+                    }
+                ) {
+                    Text("保存")
+                }
+            }
+        }
+    )
+
+    if (showTemplates) {
+        TemplateListDialog(
+            hazeState = hazeState,
+            templates = templates,
+            onDismiss = { showTemplates = false },
+            onSelect = { template ->
+                promptText = template.content
+                showTemplates = false
+            }
+        )
+    }
+
+    if (showSaveDialog) {
+        SaveTemplateDialog(
+            hazeState = hazeState,
+            content = promptText,
+            onDismiss = { showSaveDialog = false },
+            onSave = { name, content ->
+                onSavePromptTemplate(name, content)
+                showSaveDialog = false
+            }
+        )
+    }
+
+    if (showCustomPlotDialog) {
+        AlertDialog(
+            onDismissRequest = { showCustomPlotDialog = false },
+            title = { Text("输入自定义剧情指令") },
+            text = {
+                OutlinedTextField(
+                    value = customInstructionText,
+                    onValueChange = { customInstructionText = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("剧情提示 / 导演要求") },
+                    placeholder = { Text("例如：接下来让他们在雨夜车站再次相遇...") },
+                    maxLines = 4
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (customInstructionText.isNotBlank()) {
+                            onPlotAction(PlotAction.CUSTOM, customInstructionText)
+                            showCustomPlotDialog = false
+                        }
+                    },
+                    enabled = customInstructionText.isNotBlank()
+                ) {
+                    Text("发送指令")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCustomPlotDialog = false }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
+    if (editingLocalCharacter != null) {
+        EditLocalCharacterDialog(
+            hazeState = hazeState,
+            character = editingLocalCharacter!!,
+            onDismiss = { editingLocalCharacter = null },
+            onSave = { updatedChar ->
+                onSaveLocalCharacter(updatedChar)
+                editingLocalCharacter = null
+            }
+        )
+    }
+
+    if (editingLocalScenario != null) {
+        EditLocalScenarioDialog(
+            hazeState = hazeState,
+            scenario = editingLocalScenario!!,
+            onDismiss = { editingLocalScenario = null },
+            onSave = { updatedSc ->
+                onSaveLocalScenario(updatedSc)
+                editingLocalScenario = null
+            }
+        )
+    }
+}
+
+@Composable
+private fun EditLocalCharacterDialog(
+    hazeState: dev.chrisbanes.haze.HazeState,
+    character: CharacterProfile,
+    onDismiss: () -> Unit,
+    onSave: (CharacterProfile) -> Unit
+) {
+    var name by remember { mutableStateOf(character.name) }
+    var identity by remember { mutableStateOf(character.identity) }
+    var personality by remember { mutableStateOf(character.personality) }
+    var background by remember { mutableStateOf(character.background) }
+    var speakingStyle by remember { mutableStateOf(character.speakingStyle) }
+    var goals by remember { mutableStateOf(character.goals) }
+    var relationships by remember { mutableStateOf(character.relationships) }
+    var knowledge by remember { mutableStateOf(character.knowledge) }
+    var constraints by remember { mutableStateOf(character.constraints) }
+    var behaviorRules by remember { mutableStateOf(character.behaviorRules) }
+
+    EchoGlassDialog(
+        hazeState = hazeState,
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.PersonOutline, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text("编辑角色专属设定", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("💡 修改仅对当前故事生效，不影响角色库原始设定", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                }
+            }
+        },
+        content = {
+            Box(modifier = Modifier.heightIn(max = 420.dp)) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    item {
+                        OutlinedTextField(
+                            value = name,
+                            onValueChange = { name = it },
+                            label = { Text("角色名称") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    item {
+                        OutlinedTextField(
+                            value = identity,
+                            onValueChange = { identity = it },
+                            label = { Text("身份 / 职业") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    item {
+                        OutlinedTextField(
+                            value = personality,
+                            onValueChange = { personality = it },
+                            label = { Text("性格特质") },
+                            modifier = Modifier.fillMaxWidth(),
+                            maxLines = 3
+                        )
+                    }
+                    item {
+                        OutlinedTextField(
+                            value = background,
+                            onValueChange = { background = it },
+                            label = { Text("背景故事") },
+                            modifier = Modifier.fillMaxWidth(),
+                            maxLines = 4
+                        )
+                    }
+                    item {
+                        OutlinedTextField(
+                            value = speakingStyle,
+                            onValueChange = { speakingStyle = it },
+                            label = { Text("说话方式与语言风格") },
+                            modifier = Modifier.fillMaxWidth(),
+                            maxLines = 3
+                        )
+                    }
+                    item {
+                        OutlinedTextField(
+                            value = goals,
+                            onValueChange = { goals = it },
+                            label = { Text("目标、动机与当前欲望") },
+                            modifier = Modifier.fillMaxWidth(),
+                            maxLines = 3
+                        )
+                    }
+                    item {
+                        OutlinedTextField(
+                            value = relationships,
+                            onValueChange = { relationships = it },
+                            label = { Text("人际关系状态") },
+                            modifier = Modifier.fillMaxWidth(),
+                            maxLines = 3
+                        )
+                    }
+                    item {
+                        OutlinedTextField(
+                            value = knowledge,
+                            onValueChange = { knowledge = it },
+                            label = { Text("能力与知识边界") },
+                            modifier = Modifier.fillMaxWidth(),
+                            maxLines = 3
+                        )
+                    }
+                    item {
+                        OutlinedTextField(
+                            value = constraints,
+                            onValueChange = { constraints = it },
+                            label = { Text("禁止违背的设定与底线") },
+                            modifier = Modifier.fillMaxWidth(),
+                            maxLines = 3
+                        )
+                    }
+                    item {
+                        OutlinedTextField(
+                            value = behaviorRules,
+                            onValueChange = { behaviorRules = it },
+                            label = { Text("角色行为准则") },
+                            modifier = Modifier.fillMaxWidth(),
+                            maxLines = 3
+                        )
+                    }
+                }
+            }
+        },
+        buttons = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(onClick = onDismiss) {
+                    Text("取消")
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Button(
+                    onClick = {
+                        val updated = character.copy(
+                            name = name.trim().ifBlank { character.name },
+                            identity = identity.trim(),
+                            personality = personality.trim(),
+                            background = background.trim(),
+                            speakingStyle = speakingStyle.trim(),
+                            goals = goals.trim(),
+                            relationships = relationships.trim(),
+                            knowledge = knowledge.trim(),
+                            constraints = constraints.trim(),
+                            behaviorRules = behaviorRules.trim(),
+                            updatedAt = System.currentTimeMillis()
+                        )
+                        onSave(updated)
+                    }
+                ) {
+                    Text("保存本故事设定")
+                }
+            }
+        }
+    )
+}
+
+@Composable
+private fun EditLocalScenarioDialog(
+    hazeState: dev.chrisbanes.haze.HazeState,
+    scenario: RoleplayScenario,
+    onDismiss: () -> Unit,
+    onSave: (RoleplayScenario) -> Unit
+) {
+    var name by remember { mutableStateOf(scenario.name) }
+    var worldview by remember { mutableStateOf(scenario.worldview) }
+    var time by remember { mutableStateOf(scenario.time) }
+    var location by remember { mutableStateOf(scenario.location) }
+    var environment by remember { mutableStateOf(scenario.environment) }
+    var premise by remember { mutableStateOf(scenario.premise) }
+    var rules by remember { mutableStateOf(scenario.rules) }
+    var relationshipState by remember { mutableStateOf(scenario.relationshipState) }
+    var conflict by remember { mutableStateOf(scenario.conflict) }
+    var plotGoal by remember { mutableStateOf(scenario.plotGoal) }
+    var atmosphere by remember { mutableStateOf(scenario.atmosphere) }
+
+    EchoGlassDialog(
+        hazeState = hazeState,
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Landscape, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text("编辑世界观专属设定", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("💡 修改仅对当前故事生效，不影响场景库原始设定", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                }
+            }
+        },
+        content = {
+            Box(modifier = Modifier.heightIn(max = 420.dp)) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    item {
+                        OutlinedTextField(
+                            value = name,
+                            onValueChange = { name = it },
+                            label = { Text("场景/世界观名称") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    item {
+                        OutlinedTextField(
+                            value = worldview,
+                            onValueChange = { worldview = it },
+                            label = { Text("世界观设定与宏观法则") },
+                            modifier = Modifier.fillMaxWidth(),
+                            maxLines = 4
+                        )
+                    }
+                    item {
+                        OutlinedTextField(
+                            value = rules,
+                            onValueChange = { rules = it },
+                            label = { Text("不可违背的法则与限制") },
+                            modifier = Modifier.fillMaxWidth(),
+                            maxLines = 3
+                        )
+                    }
+                    item {
+                        OutlinedTextField(
+                            value = premise,
+                            onValueChange = { premise = it },
+                            label = { Text("当前剧情起点与背景前提") },
+                            modifier = Modifier.fillMaxWidth(),
+                            maxLines = 3
+                        )
+                    }
+                    item {
+                        OutlinedTextField(
+                            value = time,
+                            onValueChange = { time = it },
+                            label = { Text("时代 / 时间点") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    item {
+                        OutlinedTextField(
+                            value = location,
+                            onValueChange = { location = it },
+                            label = { Text("主要发生地点") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    item {
+                        OutlinedTextField(
+                            value = environment,
+                            onValueChange = { environment = it },
+                            label = { Text("现场环境细节与氛围描写") },
+                            modifier = Modifier.fillMaxWidth(),
+                            maxLines = 3
+                        )
+                    }
+                    item {
+                        OutlinedTextField(
+                            value = conflict,
+                            onValueChange = { conflict = it },
+                            label = { Text("当前核心矛盾冲突") },
+                            modifier = Modifier.fillMaxWidth(),
+                            maxLines = 3
+                        )
+                    }
+                    item {
+                        OutlinedTextField(
+                            value = plotGoal,
+                            onValueChange = { plotGoal = it },
+                            label = { Text("互动推进目标") },
+                            modifier = Modifier.fillMaxWidth(),
+                            maxLines = 3
+                        )
+                    }
+                    item {
+                        OutlinedTextField(
+                            value = atmosphere,
+                            onValueChange = { atmosphere = it },
+                            label = { Text("叙事氛围与基调") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            }
+        },
+        buttons = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(onClick = onDismiss) {
+                    Text("取消")
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Button(
+                    onClick = {
+                        val updated = scenario.copy(
+                            name = name.trim().ifBlank { scenario.name },
+                            worldview = worldview.trim(),
+                            time = time.trim(),
+                            location = location.trim(),
+                            environment = environment.trim(),
+                            premise = premise.trim(),
+                            rules = rules.trim(),
+                            relationshipState = relationshipState.trim(),
+                            conflict = conflict.trim(),
+                            plotGoal = plotGoal.trim(),
+                            atmosphere = atmosphere.trim(),
+                            updatedAt = System.currentTimeMillis()
+                        )
+                        onSave(updated)
+                    }
+                ) {
+                    Text("保存本故事设定")
+                }
+            }
+        }
+    )
+}
+
+@Composable
+private fun EditableSettingProposalDialog(
+    hazeState: dev.chrisbanes.haze.HazeState,
+    proposal: ProposedSettingBundle,
+    onDismiss: () -> Unit,
+    onApply: (List<CharacterProfile>, RoleplayScenario?) -> Unit
+) {
+    var editableCharacters by remember(proposal) {
+        mutableStateOf(proposal.characters)
+    }
+    var editableScenario by remember(proposal) {
+        mutableStateOf(proposal.scenario)
+    }
+
+    EchoGlassDialog(
+        hazeState = hazeState,
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text("AI 识别到可补充的故事设定", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("您可以直接在线修改提取设定并决定是否添加", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        },
+        content = {
+            Box(modifier = Modifier.heightIn(max = 440.dp)) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    if (editableCharacters.isNotEmpty()) {
+                        item {
+                            Text("🎭 提炼出的角色设定 (${editableCharacters.size})", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                        }
+                        itemsIndexed(editableCharacters) { index, char ->
+                            EchoGlassCard(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = EchoTokens.Radius.shapeMd
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("角色 #${index + 1}", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+                                        IconButton(
+                                            onClick = {
+                                                editableCharacters = editableCharacters.filterIndexed { i, _ -> i != index }
+                                            },
+                                            modifier = Modifier.size(24.dp)
+                                        ) {
+                                            Icon(Icons.Default.Close, contentDescription = "移除该角色", modifier = Modifier.size(16.dp))
+                                        }
+                                    }
+                                    OutlinedTextField(
+                                        value = char.name,
+                                        onValueChange = { newName ->
+                                            editableCharacters = editableCharacters.toMutableList().also { it[index] = char.copy(name = newName) }
+                                        },
+                                        label = { Text("角色名") },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    OutlinedTextField(
+                                        value = char.identity,
+                                        onValueChange = { newId ->
+                                            editableCharacters = editableCharacters.toMutableList().also { it[index] = char.copy(identity = newId) }
+                                        },
+                                        label = { Text("身份 / 职业") },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    OutlinedTextField(
+                                        value = char.personality,
+                                        onValueChange = { newP ->
+                                            editableCharacters = editableCharacters.toMutableList().also { it[index] = char.copy(personality = newP) }
+                                        },
+                                        label = { Text("性格特质") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        maxLines = 2
+                                    )
+                                    OutlinedTextField(
+                                        value = char.background,
+                                        onValueChange = { newBg ->
+                                            editableCharacters = editableCharacters.toMutableList().also { it[index] = char.copy(background = newBg) }
+                                        },
+                                        label = { Text("背景故事") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        maxLines = 3
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    if (editableScenario != null) {
+                        item {
+                            Text("🌍 提炼出的世界观设定", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                        }
+                        item {
+                            val sc = editableScenario!!
+                            EchoGlassCard(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = EchoTokens.Radius.shapeMd
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    OutlinedTextField(
+                                        value = sc.name,
+                                        onValueChange = { editableScenario = sc.copy(name = it) },
+                                        label = { Text("世界观名称") },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    OutlinedTextField(
+                                        value = sc.worldview,
+                                        onValueChange = { editableScenario = sc.copy(worldview = it) },
+                                        label = { Text("世界观法则与背景") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        maxLines = 3
+                                    )
+                                    OutlinedTextField(
+                                        value = sc.rules,
+                                        onValueChange = { editableScenario = sc.copy(rules = it) },
+                                        label = { Text("不可违背的法则") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        maxLines = 2
+                                    )
+                                    OutlinedTextField(
+                                        value = sc.premise,
+                                        onValueChange = { editableScenario = sc.copy(premise = it) },
+                                        label = { Text("当前剧情前提") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        maxLines = 2
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        buttons = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(onClick = onDismiss) {
+                    Text("放弃")
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Button(
+                    onClick = {
+                        onApply(editableCharacters, editableScenario)
+                    }
+                ) {
+                    Text("决定添加并融合")
+                }
+            }
+        }
+    )
+}
+
+@Composable
+private fun ActionChip(text: String, onClick: () -> Unit) {
+    SuggestionChip(
+        onClick = onClick,
+        label = { Text(text, style = MaterialTheme.typography.labelSmall) }
+    )
+}
+
+@Composable
+private fun SmartAppendStoryDialog(
+    hazeState: dev.chrisbanes.haze.HazeState,
+    onDismiss: () -> Unit,
+    onAppendAndMerge: (List<CharacterProfile>, RoleplayScenario?, Map<String, ConflictAction>) -> Unit
+) {
+    val context = LocalContext.current
+    val repository = remember { com.aiassistant.AiAssistantApp.instance.repository }
+    val scope = rememberCoroutineScope()
+    var inputText by remember { mutableStateOf("") }
+    var isAnalyzing by remember { mutableStateOf(false) }
+    var progressStatus by remember { mutableStateOf("") }
+    var analyzeJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var extractedBundle by remember { mutableStateOf<com.aiassistant.utils.AnalyzedRoleplayBundle?>(null) }
+
+    val apiConfigs by repository.getAllApiConfigs().collectAsState(initial = emptyList())
+    var selectedConfig by remember { mutableStateOf<com.aiassistant.domain.model.ApiConfig?>(null) }
+
+    LaunchedEffect(apiConfigs) {
+        if (selectedConfig == null && apiConfigs.isNotEmpty()) {
+            selectedConfig = apiConfigs.firstOrNull { it.isDefault } ?: apiConfigs.firstOrNull()
+        }
+    }
+
+    if (extractedBundle == null) {
+        EchoGlassDialog(
+            hazeState = hazeState,
+            onDismissRequest = {
+                if (isAnalyzing) {
+                    analyzeJob?.cancel()
+                    isAnalyzing = false
+                }
+                onDismiss()
+            },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("智能识别与实时追加")
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "在此粘贴小说新章节、新角色档案或世界观设定，AI 将自动识别提炼并智能融合到当前故事会话中。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedTextField(
+                        value = inputText,
+                        onValueChange = { inputText = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(180.dp),
+                        label = { Text("粘贴设定/正文文本") },
+                        placeholder = { Text("粘贴内容...") },
+                        enabled = !isAnalyzing
+                    )
+                    if (isAnalyzing) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = progressStatus.ifBlank { "正在分析中..." },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.weight(1f)
+                            )
+                            OutlinedButton(
+                                onClick = {
+                                    analyzeJob?.cancel()
+                                    isAnalyzing = false
+                                    Toast.makeText(context, "已终止分析", Toast.LENGTH_SHORT).show()
+                                },
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                modifier = Modifier.height(28.dp)
+                            ) {
+                                Text("停止", style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                EchoPrimaryButton(
+                    onClick = {
+                        analyzeJob = scope.launch {
+                            isAnalyzing = true
+                            progressStatus = "正在提取人设与世界观..."
+                            try {
+                                val bundle = RoleplaySmartAnalyzer.analyzeTextOrNovel(
+                                    context = context,
+                                    rawText = inputText,
+                                    repository = repository,
+                                    preferredConfig = selectedConfig,
+                                    selectedModel = selectedConfig?.modelName.orEmpty(),
+                                    onProgress = { progressStatus = it }
+                                )
+                                extractedBundle = bundle
+                            } catch (e: kotlinx.coroutines.CancellationException) {
+                                Toast.makeText(context, "解析已取消", Toast.LENGTH_SHORT).show()
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "分析失败: ${e.message}", Toast.LENGTH_LONG).show()
+                            } finally {
+                                isAnalyzing = false
+                            }
+                        }
+                    },
+                    enabled = inputText.isNotBlank() && !isAnalyzing
+                ) {
+                    Text(if (isAnalyzing) "解析中..." else "开始解析")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        if (isAnalyzing) {
+                            analyzeJob?.cancel()
+                            isAnalyzing = false
+                        }
+                        onDismiss()
+                    }
+                ) {
+                    Text(if (isAnalyzing) "终止" else "取消")
+                }
+            }
+        )
+    } else {
+        val bundle = extractedBundle!!
+        val resolutionMap = remember { mutableStateMapOf<String, ConflictAction>() }
+        EchoGlassDialog(
+            hazeState = hazeState,
+            onDismissRequest = { extractedBundle = null },
+            title = { Text("确认追加/融合至本故事") },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("识别到 ${bundle.characters.size} 位角色与 ${if (bundle.scenario != null) 1 else 0} 个世界观设定：", style = MaterialTheme.typography.labelSmall)
+                    bundle.characters.forEach { char ->
+                        EchoGlassCard(modifier = Modifier.fillMaxWidth()) {
+                            Column(modifier = Modifier.padding(8.dp)) {
+                                Text(char.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                                if (char.identity.isNotBlank()) Text("身份: ${char.identity}", style = MaterialTheme.typography.bodySmall)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    ConflictAction.values().forEach { action ->
+                                        val isSelected = (resolutionMap[char.name.trim()] ?: ConflictAction.MERGE) == action
+                                        FilterChip(
+                                            selected = isSelected,
+                                            onClick = { resolutionMap[char.name.trim()] = action },
+                                            label = { Text(action.displayName, style = MaterialTheme.typography.labelSmall) }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    bundle.scenario?.let { sc ->
+                        EchoGlassCard(modifier = Modifier.fillMaxWidth()) {
+                            Column(modifier = Modifier.padding(8.dp)) {
+                                Text("世界观：${sc.name}", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                                if (sc.worldview.isNotBlank()) Text(sc.worldview, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                EchoPrimaryButton(
+                    onClick = {
+                        onAppendAndMerge(bundle.characters, bundle.scenario, resolutionMap.toMap())
+                    }
+                ) {
+                    Text("确认融合并入")
+                }
+            },
+            dismissButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(onClick = onDismiss) {
+                        Text("放弃")
+                    }
+                    TextButton(onClick = { extractedBundle = null }) {
+                        Text("上一步")
+                    }
+                }
             }
         )
     }

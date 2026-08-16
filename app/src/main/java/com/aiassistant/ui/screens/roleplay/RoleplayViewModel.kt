@@ -1,11 +1,15 @@
 package com.aiassistant.ui.screens.roleplay
 
 import android.app.Application
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.aiassistant.data.local.AppDatabase
 import com.aiassistant.data.repository.RoleplayRepository
 import com.aiassistant.domain.model.*
+import com.aiassistant.utils.RoleplaySmartAnalyzer
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -65,6 +69,9 @@ class RoleplayViewModel(application: Application) : AndroidViewModel(application
 
     private val _narrativeMode = MutableStateFlow(NarrativeMode.CHARACTER)
     val narrativeMode: StateFlow<NarrativeMode> = _narrativeMode.asStateFlow()
+
+    // 角色与创作页面选中的 Tab (0: 故事, 1: 角色, 2: 世界观)，返回时保持所在 Tab
+    var studioTab by androidx.compose.runtime.mutableIntStateOf(0)
 
     init {
         loadCharacters()
@@ -283,6 +290,275 @@ class RoleplayViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun createRoleplaySessionAndStart(
+        characterId: Long?,
+        scenarioId: Long?,
+        apiConfigId: Long,
+        narrativeMode: NarrativeMode,
+        onSuccess: (Long) -> Unit
+    ) {
+        viewModelScope.launch {
+            try {
+                _uiState.value = RoleplayUiState.Saving
+                val character = characterId?.let { repository.getCharacterById(it) }
+                val scenario = scenarioId?.let { repository.getScenarioById(it) }
+                val apiConfig = database.apiConfigDao().getConfigById(apiConfigId)
+                    ?: database.apiConfigDao().getDefaultConfig()
+                    ?: throw IllegalStateException("未找到有效的 API 配置")
+
+                val title = when {
+                    character != null && scenario != null -> "${character.name} · ${scenario.name}"
+                    character != null -> "角色：${character.name}"
+                    scenario != null -> "场景：${scenario.name}"
+                    else -> "角色扮演会话"
+                }
+
+                val conversation = Conversation(
+                    title = title,
+                    apiConfigId = apiConfig.id,
+                    modelName = apiConfig.modelName,
+                    temperature = apiConfig.temperature ?: 0.95f,
+                    maxTokens = apiConfig.maxTokens ?: 8192,
+                    topP = apiConfig.topP ?: 1.0f,
+                    enableThinking = apiConfig.enableThinking ?: true,
+                    thinkingEffort = apiConfig.thinkingEffort ?: "high",
+                    enableWebSearch = apiConfig.enableWebSearch ?: false
+                )
+
+                val conversationId = database.conversationDao().insertConversation(conversation)
+
+                val roleplaySession = RoleplaySession(
+                    characterId = characterId,
+                    scenarioId = scenarioId,
+                    conversationId = conversationId,
+                    narrativeMode = narrativeMode.value,
+                    currentPlotSummary = scenario?.premise ?: ""
+                )
+
+                val sessionId = repository.insertSession(roleplaySession)
+                _currentSession.value = repository.getSessionById(sessionId)
+
+                _uiState.value = RoleplayUiState.Idle
+                onSuccess(conversationId)
+            } catch (e: Exception) {
+                _uiState.value = RoleplayUiState.Error("创建会话失败: ${e.message}")
+            }
+        }
+    }
+
+    fun deleteCharacters(ids: List<Long>) {
+        viewModelScope.launch {
+            try {
+                repository.deleteCharactersByIds(ids)
+                _uiState.value = RoleplayUiState.SaveSuccess("已批量删除 ${ids.size} 位角色")
+            } catch (e: Exception) {
+                _uiState.value = RoleplayUiState.Error("删除角色失败: ${e.message}")
+            }
+        }
+    }
+
+    fun deleteScenarios(ids: List<Long>) {
+        viewModelScope.launch {
+            try {
+                repository.deleteScenariosByIds(ids)
+                _uiState.value = RoleplayUiState.SaveSuccess("已批量删除 ${ids.size} 个世界观")
+            } catch (e: Exception) {
+                _uiState.value = RoleplayUiState.Error("删除世界观失败: ${e.message}")
+            }
+        }
+    }
+
+    fun createStorySessionAndStart(
+        characterIds: List<Long>,
+        scenarioId: Long?,
+        apiConfigId: Long,
+        modelName: String? = null,
+        narrativeMode: NarrativeMode,
+        onSuccess: (Long) -> Unit
+    ) {
+        viewModelScope.launch {
+            try {
+                _uiState.value = RoleplayUiState.Saving
+                val characters = repository.getCharactersByIds(characterIds)
+                val scenario = scenarioId?.let { repository.getScenarioById(it) }
+                val apiConfig = database.apiConfigDao().getConfigById(apiConfigId)
+                    ?: database.apiConfigDao().getDefaultConfig()
+                    ?: throw IllegalStateException("未找到有效的 API 配置")
+
+                val title = when {
+                    characters.isNotEmpty() && scenario != null -> {
+                        val names = characters.take(2).joinToString("、") { it.name } + if (characters.size > 2) "等" else ""
+                        "$names · ${scenario.name}"
+                    }
+                    characters.isNotEmpty() -> {
+                        "故事：" + characters.take(3).joinToString("、") { it.name }
+                    }
+                    scenario != null -> "世界观：${scenario.name}"
+                    else -> "故事创作会话"
+                }
+
+                val targetModelName = modelName?.ifBlank { null } ?: apiConfig.modelName
+
+                val conversation = Conversation(
+                    title = title,
+                    apiConfigId = apiConfig.id,
+                    modelName = targetModelName,
+                    temperature = apiConfig.temperature ?: 0.95f,
+                    maxTokens = apiConfig.maxTokens ?: 8192,
+                    topP = apiConfig.topP ?: 1.0f,
+                    enableThinking = apiConfig.enableThinking ?: true,
+                    thinkingEffort = apiConfig.thinkingEffort ?: "high",
+                    enableWebSearch = apiConfig.enableWebSearch ?: false
+                )
+
+                val conversationId = database.conversationDao().insertConversation(conversation)
+
+                val charIdsJson = if (characterIds.isNotEmpty()) {
+                    com.google.gson.Gson().toJson(characterIds)
+                } else null
+
+                val roleplaySession = RoleplaySession(
+                    characterId = characterIds.firstOrNull(),
+                    characterIds = charIdsJson,
+                    scenarioId = scenarioId,
+                    conversationId = conversationId,
+                    narrativeMode = narrativeMode.value,
+                    currentPlotSummary = scenario?.premise ?: ""
+                )
+
+                val sessionId = repository.insertSession(roleplaySession)
+                _currentSession.value = repository.getSessionById(sessionId)
+
+                // 初始问候语不自动插入，由用户在故事中自主发起与掌控
+                _uiState.value = RoleplayUiState.Idle
+                onSuccess(conversationId)
+            } catch (e: Exception) {
+                _uiState.value = RoleplayUiState.Error("创建故事会话失败: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * 在故事列表中直接修改故事绑定的世界观、登场角色与叙事模式
+     */
+    fun updateStorySessionContext(
+        session: RoleplaySession,
+        newCharacterIds: List<Long>,
+        newScenarioId: Long?,
+        newNarrativeMode: NarrativeMode? = null,
+        newPlotSummary: String? = null
+    ) {
+        viewModelScope.launch {
+            try {
+                _uiState.value = RoleplayUiState.Saving
+                val charIdsJson = if (newCharacterIds.isNotEmpty()) {
+                    com.google.gson.Gson().toJson(newCharacterIds)
+                } else null
+
+                val updatedSession = session.copy(
+                    characterId = newCharacterIds.firstOrNull(),
+                    characterIds = charIdsJson,
+                    scenarioId = newScenarioId,
+                    narrativeMode = newNarrativeMode?.value ?: session.narrativeMode,
+                    currentPlotSummary = newPlotSummary ?: session.currentPlotSummary,
+                    updatedAt = System.currentTimeMillis()
+                )
+
+                repository.updateSession(updatedSession)
+                _currentSession.value = updatedSession
+                loadSessions()
+                _uiState.value = RoleplayUiState.SaveSuccess("已成功更新故事设定与登场角色")
+            } catch (e: Exception) {
+                _uiState.value = RoleplayUiState.Error("更新故事设定失败: ${e.message}")
+            }
+        }
+    }
+
+    fun importAnalyzedBundleWithConflictResolution(
+        characters: List<CharacterProfile>,
+        scenario: RoleplayScenario?,
+        resolutionMap: Map<String, ConflictAction>,
+        narrativeMode: NarrativeMode = NarrativeMode.CHARACTER,
+        startSession: Boolean,
+        apiConfigId: Long? = null,
+        onSessionCreated: ((Long) -> Unit)? = null
+    ) {
+        viewModelScope.launch {
+            try {
+                _uiState.value = RoleplayUiState.Saving
+                val currentExistingChars = _characters.value
+                val finalCharacterIds = mutableListOf<Long>()
+
+                characters.forEach { incoming ->
+                    val existing = currentExistingChars.firstOrNull { it.name.trim() == incoming.name.trim() }
+                    val action = resolutionMap[incoming.name.trim()] ?: ConflictAction.CREATE_COPY
+
+                    if (existing != null) {
+                        when (action) {
+                            ConflictAction.CREATE_COPY -> {
+                                val copyChar = incoming.copy(name = "${incoming.name} (副本)")
+                                val newId = repository.insertCharacter(copyChar)
+                                finalCharacterIds.add(newId)
+                            }
+                            ConflictAction.OVERWRITE -> {
+                                val updated = incoming.copy(id = existing.id, isFavorite = existing.isFavorite)
+                                repository.updateCharacter(updated)
+                                finalCharacterIds.add(existing.id)
+                            }
+                            ConflictAction.MERGE -> {
+                                val merged = RoleplaySmartAnalyzer.mergeCharacters(existing, incoming)
+                                repository.updateCharacter(merged)
+                                finalCharacterIds.add(existing.id)
+                            }
+                        }
+                    } else {
+                        val newId = repository.insertCharacter(incoming)
+                        finalCharacterIds.add(newId)
+                    }
+                }
+
+                var scenarioId: Long? = null
+                if (scenario != null) {
+                    val currentScenarios = _scenarios.value
+                    val existingSc = currentScenarios.firstOrNull { it.name.trim() == scenario.name.trim() }
+                    if (existingSc != null) {
+                        val mergedSc = RoleplaySmartAnalyzer.mergeScenarios(existingSc, scenario)
+                        repository.updateScenario(mergedSc)
+                        scenarioId = existingSc.id
+                    } else {
+                        scenarioId = repository.insertScenario(scenario)
+                    }
+                }
+
+                if (startSession && (finalCharacterIds.isNotEmpty() || scenarioId != null)) {
+                    val targetApiId = apiConfigId ?: (database.apiConfigDao().getDefaultConfig()
+                        ?: database.apiConfigDao().getAllConfigs().first().firstOrNull())?.id
+
+                    if (targetApiId != null) {
+                        createStorySessionAndStart(
+                            characterIds = finalCharacterIds,
+                            scenarioId = scenarioId,
+                            apiConfigId = targetApiId,
+                            narrativeMode = narrativeMode,
+                            onSuccess = { conversationId ->
+                                _uiState.value = RoleplayUiState.SaveSuccess("已成功入库并开启故事创作")
+                                onSessionCreated?.invoke(conversationId)
+                            }
+                        )
+                        return@launch
+                    }
+                }
+
+                _uiState.value = RoleplayUiState.SaveSuccess(
+                    "已成功导入/融合 ${characters.size} 位角色" + (if (scenario != null) "与世界观 [${scenario.name}]" else "")
+                )
+                onSessionCreated?.invoke(-1L)
+            } catch (e: Exception) {
+                _uiState.value = RoleplayUiState.Error("导入失败: ${e.message}")
+            }
+        }
+    }
+
     fun loadSession(sessionId: Long) {
         viewModelScope.launch {
             val session = repository.getSessionById(sessionId)
@@ -456,4 +732,10 @@ sealed class RoleplayUiState {
     data class SaveSuccess(val message: String) : RoleplayUiState()
     data class Error(val message: String) : RoleplayUiState()
     data class PlotInstruction(val instruction: String) : RoleplayUiState()
+}
+
+enum class ConflictAction(val displayName: String) {
+    CREATE_COPY("新建副本"),
+    OVERWRITE("覆盖原有"),
+    MERGE("智能融合")
 }

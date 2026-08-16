@@ -99,7 +99,6 @@ fun SideAnchorNavigator(
                 CollapsedAnchorRail(
                     items = items,
                     currentIndex = currentIndex,
-                    hazeState = hazeState,
                     onClick = { expanded = true }
                 )
             }
@@ -131,46 +130,27 @@ fun SideAnchorNavigator(
 private fun CollapsedAnchorRail(
     items: List<SideAnchorItem>,
     currentIndex: Int,
-    hazeState: HazeState?,
     onClick: () -> Unit
 ) {
-    val primary = MaterialTheme.colorScheme.primary.copy(alpha = 0.62f)
-    val inactive = MaterialTheme.colorScheme.outline.copy(alpha = 0.36f)
-    val visibleCount = items.size.coerceAtMost(24)
-    val railHeight = (28 + (visibleCount - 1).coerceAtLeast(0) * 8)
-        .coerceIn(48, 220)
-        .dp
-    val railShape = RoundedCornerShape(999.dp)
-    val railModifier = if (hazeState != null) {
-        Modifier
-            .width(38.dp)
+    val primary = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
+    val inactive = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.28f)
+    // 限制最大显示点数，保持清疏美观
+    val visibleCount = items.size.coerceIn(2, 8)
+    val step = 14.dp
+    val railHeight = (step * (visibleCount - 1) + 20.dp).coerceIn(40.dp, 160.dp)
+    val clickShape = RoundedCornerShape(12.dp)
+
+    Box(
+        modifier = Modifier
+            .width(22.dp)
             .height(railHeight)
-            .echoHazePanel(
-                hazeState = hazeState,
-                shape = railShape,
-                tint = echoGlassPalette().control,
-                blurRadius = 14.dp,
-                highlightAlpha = 0.02f
-            )
-            .echoShapeClick(railShape, onClick = onClick)
-    } else {
-        Modifier
-            .width(38.dp)
-            .height(railHeight)
-            .echoShapeClick(railShape, onClick = onClick)
-    }
-    Surface(
-        modifier = railModifier,
-        color = Color.Transparent,
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        shape = railShape,
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp
+            .echoShapeClick(clickShape, onClick = onClick),
+        contentAlignment = Alignment.CenterEnd
     ) {
         Canvas(
             modifier = Modifier
-                .fillMaxWidth()
-                .height(railHeight)
+                .fillMaxSize()
+                .padding(vertical = 6.dp)
         ) {
             val activePosition = items.indexOfLast { it.itemIndex <= currentIndex }
                 .coerceAtLeast(0)
@@ -179,19 +159,29 @@ private fun CollapsedAnchorRail(
             } else {
                 (activePosition * (visibleCount - 1) / (items.size - 1).coerceAtLeast(1))
             }
-            val step = 8.dp.toPx()
-            val startY = (size.height - step * (visibleCount - 1).coerceAtLeast(0)) / 2f
+            val stepPx = step.toPx()
+            val startY = (size.height - stepPx * (visibleCount - 1).coerceAtLeast(0)) / 2f
+
             repeat(visibleCount) { marker ->
-                val y = if (visibleCount <= 1) size.height / 2f else startY + marker * step
+                val y = if (visibleCount <= 1) size.height / 2f else startY + marker * stepPx
                 val isActive = marker == activeMarker
-                val width = if (isActive) 14.dp.toPx() else 10.dp.toPx()
-                val height = if (isActive) 5.dp.toPx() else 3.dp.toPx()
-                drawRoundRect(
-                    color = if (isActive) primary else inactive,
-                    topLeft = Offset(size.width - width - 7.dp.toPx(), y - height / 2f),
-                    size = Size(width, height),
-                    cornerRadius = CornerRadius(999.dp.toPx(), 999.dp.toPx())
-                )
+                if (isActive) {
+                    val pillWidth = 12.dp.toPx()
+                    val pillHeight = 4.dp.toPx()
+                    drawRoundRect(
+                        color = primary,
+                        topLeft = Offset(size.width - pillWidth - 2.dp.toPx(), y - pillHeight / 2f),
+                        size = Size(pillWidth, pillHeight),
+                        cornerRadius = CornerRadius(999.dp.toPx(), 999.dp.toPx())
+                    )
+                } else {
+                    val dotRadius = 2.dp.toPx()
+                    drawCircle(
+                        color = inactive,
+                        radius = dotRadius,
+                        center = Offset(size.width - dotRadius - 4.dp.toPx(), y)
+                    )
+                }
             }
         }
     }
@@ -205,12 +195,12 @@ private fun ExpandedAnchorPanel(
     onDismiss: () -> Unit,
     onSelected: (SideAnchorItem) -> Unit
 ) {
-    val panelShape = RoundedCornerShape(28.dp)
+    val panelShape = RoundedCornerShape(24.dp)
     val panelModifier = if (hazeState != null) {
         Modifier
-            .padding(end = 4.dp)
-            .widthIn(min = 242.dp, max = 316.dp)
-            .heightIn(max = 470.dp)
+            .padding(end = 6.dp)
+            .widthIn(min = 230.dp, max = 300.dp)
+            .heightIn(max = 440.dp)
             .echoHazePanel(
                 hazeState = hazeState,
                 shape = panelShape,
@@ -221,9 +211,9 @@ private fun ExpandedAnchorPanel(
             .clip(panelShape)
     } else {
         Modifier
-            .padding(end = 4.dp)
-            .widthIn(min = 242.dp, max = 316.dp)
-            .heightIn(max = 470.dp)
+            .padding(end = 6.dp)
+            .widthIn(min = 230.dp, max = 300.dp)
+            .heightIn(max = 440.dp)
             .shadow(
                 elevation = 12.dp,
                 shape = panelShape,
@@ -251,20 +241,20 @@ private fun ExpandedAnchorPanel(
         ) {
             items(items = items, key = { "${it.itemIndex}_${it.title}" }) { item ->
                 val selected = item.itemIndex == currentIndex
-                val itemShape = RoundedCornerShape(16.dp)
+                val itemShape = RoundedCornerShape(14.dp)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(
                             color = if (selected) {
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
                             } else {
                                 Color.Transparent
                             },
                             shape = itemShape
                         )
                         .echoShapeClick(itemShape) { onSelected(item) }
-                        .padding(start = 16.dp, end = 14.dp, top = 9.dp, bottom = 9.dp),
+                        .padding(start = 16.dp, end = 14.dp, top = 8.dp, bottom = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
@@ -280,16 +270,16 @@ private fun ExpandedAnchorPanel(
                             MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.78f)
                         }
                     )
-                    Spacer(modifier = Modifier.width(10.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                     Box(
                         modifier = Modifier
-                            .width(if (selected) 13.dp else 11.dp)
-                            .size(height = 3.dp, width = if (selected) 13.dp else 11.dp)
+                            .width(if (selected) 12.dp else 6.dp)
+                            .height(4.dp)
                             .background(
                                 color = if (selected) {
-                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.62f)
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
                                 } else {
-                                    MaterialTheme.colorScheme.outline.copy(alpha = 0.46f)
+                                    MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
                                 },
                                 shape = RoundedCornerShape(999.dp)
                             )

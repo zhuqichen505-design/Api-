@@ -2,16 +2,14 @@ package com.aiassistant.ui.components
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SelectableChipColors
-import androidx.compose.material3.SelectableChipElevation
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SegmentedButtonColors
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.aiassistant.ui.theme.EchoTokens
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -36,7 +34,7 @@ fun echoFilterChipColors(): SelectableChipColors {
 fun echoFilterChipBorder(selected: Boolean): BorderStroke {
     val glass = echoGlassPalette()
     return BorderStroke(
-        width = if (selected) 1.4.dp else 1.dp,
+        width = if (selected) EchoTokens.Glass.activeBorderWidth else EchoTokens.Glass.borderWidth,
         color = if (selected) glass.outlineSelected else glass.outline
     )
 }
@@ -45,12 +43,12 @@ fun echoFilterChipBorder(selected: Boolean): BorderStroke {
 @Composable
 fun echoFilterChipElevation(): SelectableChipElevation =
     FilterChipDefaults.filterChipElevation(
-        elevation = 0.dp,
-        pressedElevation = 0.dp,
-        focusedElevation = 0.dp,
-        hoveredElevation = 0.dp,
-        draggedElevation = 0.dp,
-        disabledElevation = 0.dp
+        elevation = EchoTokens.Elevation.none,
+        pressedElevation = EchoTokens.Elevation.none,
+        focusedElevation = EchoTokens.Elevation.none,
+        hoveredElevation = EchoTokens.Elevation.none,
+        draggedElevation = EchoTokens.Elevation.none,
+        disabledElevation = EchoTokens.Elevation.none
     )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -73,13 +71,67 @@ fun echoSegmentedButtonColors(): SegmentedButtonColors {
 fun echoSegmentedButtonBorder(selected: Boolean): BorderStroke {
     val glass = echoGlassPalette()
     return BorderStroke(
-        width = if (selected) 1.3.dp else 1.dp,
+        width = if (selected) EchoTokens.Glass.activeBorderWidth else EchoTokens.Glass.borderWidth,
         color = if (selected) glass.outlineSelected else glass.outline
     )
 }
 
-val EchoCompactButtonPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+val EchoCompactButtonPadding = PaddingValues(horizontal = EchoTokens.Spacing.screenHorizontal, vertical = EchoTokens.Spacing.sm)
 
 @Composable
 fun Color.echoReadableOn(fallbackSurface: Color = MaterialTheme.colorScheme.background): Color =
     readableTextColorFor(background = this, fallbackSurface = fallbackSurface)
+
+/**
+ * Echo 主操作按钮 (EchoPrimaryButton)
+ */
+@Composable
+fun EchoPrimaryButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    shape: androidx.compose.ui.graphics.Shape = EchoTokens.Radius.shapeMd,
+    contentPadding: PaddingValues = ButtonDefaults.ContentPadding,
+    content: @Composable RowScope.() -> Unit
+) {
+    Button(
+        onClick = onClick,
+        modifier = modifier,
+        enabled = enabled,
+        shape = shape,
+        contentPadding = contentPadding,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary
+        ),
+        content = content
+    )
+}
+
+/**
+ * Echo 玻璃辅助按钮 (EchoGlassButton)
+ */
+@Composable
+fun EchoGlassButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    shape: androidx.compose.ui.graphics.Shape = EchoTokens.Radius.shapeMd,
+    contentPadding: PaddingValues = ButtonDefaults.ContentPadding,
+    content: @Composable RowScope.() -> Unit
+) {
+    val glass = echoGlassPalette()
+    OutlinedButton(
+        onClick = onClick,
+        modifier = modifier,
+        enabled = enabled,
+        shape = shape,
+        contentPadding = contentPadding,
+        colors = ButtonDefaults.outlinedButtonColors(
+            containerColor = glass.control,
+            contentColor = MaterialTheme.colorScheme.onSurface
+        ),
+        border = BorderStroke(EchoTokens.Glass.borderWidth, glass.outline),
+        content = content
+    )
+}
