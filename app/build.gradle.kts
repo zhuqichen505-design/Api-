@@ -13,8 +13,8 @@ android {
         applicationId = "com.aiassistant"
         minSdk = 26
         targetSdk = 34
-        versionCode = 87
-        versionName = "1.9.7"
+        versionCode = 88
+        versionName = "1.9.8"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -85,31 +85,6 @@ tasks.withType<Test> {
         events("passed", "skipped", "failed", "standardOut", "standardError")
         showExceptions = true
         showStackTraces = true
-    }
-    doFirst {
-        val kotlinTestClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest").get().asFile
-        val javaTestDirs = listOf(
-            layout.buildDirectory.dir("intermediates/javac/debugUnitTest/compileDebugUnitTestJavaWithJavac/classes").get().asFile,
-            layout.buildDirectory.dir("intermediates/javac/debugUnitTest/classes").get().asFile
-        )
-        if (kotlinTestClasses.exists()) {
-            javaTestDirs.forEach { dir ->
-                dir.mkdirs()
-                kotlinTestClasses.copyRecursively(dir, overwrite = true)
-            }
-        }
-
-        val kotlinAppClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debug").get().asFile
-        val javaAppDirs = listOf(
-            layout.buildDirectory.dir("intermediates/javac/debug/compileDebugJavaWithJavac/classes").get().asFile,
-            layout.buildDirectory.dir("intermediates/javac/debug/classes").get().asFile
-        )
-        if (kotlinAppClasses.exists()) {
-            javaAppDirs.forEach { dir ->
-                dir.mkdirs()
-                kotlinAppClasses.copyRecursively(dir, overwrite = true)
-            }
-        }
     }
 }
 

@@ -5,6 +5,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -266,42 +267,62 @@ fun EchoGlassDialog(
 
     Dialog(
         onDismissRequest = onDismissRequest,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
     ) {
-        Surface(
-            modifier = modifier
-                .fillMaxWidth(0.94f)
-                .widthIn(max = 520.dp)
-                .heightIn(max = 680.dp)
-                .padding(horizontal = 8.dp)
-                .echoHazePanel(
-                    hazeState = hazeState,
-                    shape = shape,
-                    tint = resolvedTint,
-                    blurRadius = EchoTokens.Glass.blurRadiusHeavy
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.42f))
+                .clickable(
+                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                    indication = null,
+                    onClick = onDismissRequest
                 ),
-            shape = shape,
-            color = resolvedContainerColor,
-            contentColor = resolvedContentColor,
-            tonalElevation = EchoTokens.Elevation.none,
-            shadowElevation = EchoTokens.Elevation.none
+            contentAlignment = Alignment.Center
         ) {
-            Column(
-                modifier = Modifier.padding(EchoTokens.Spacing.lg)
+            Surface(
+                modifier = modifier
+                    .fillMaxWidth(0.94f)
+                    .widthIn(max = 520.dp)
+                    .heightIn(max = 680.dp)
+                    .padding(horizontal = 8.dp)
+                    .clickable(
+                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                        indication = null,
+                        onClick = {} // 阻止点击弹窗内容冒泡触发关闭
+                    )
+                    .echoHazePanel(
+                        hazeState = hazeState,
+                        shape = shape,
+                        tint = resolvedTint,
+                        blurRadius = EchoTokens.Glass.blurRadiusHeavy
+                    ),
+                shape = shape,
+                color = resolvedContainerColor,
+                contentColor = resolvedContentColor,
+                tonalElevation = EchoTokens.Elevation.none,
+                shadowElevation = EchoTokens.Elevation.none
             ) {
-                title()
-                Spacer(modifier = Modifier.height(EchoTokens.Spacing.sm))
-                Box(
-                    modifier = Modifier
-                        .weight(1f, fill = false)
-                        .fillMaxWidth()
+                Column(
+                    modifier = Modifier.padding(EchoTokens.Spacing.lg)
                 ) {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        content()
+                    title()
+                    Spacer(modifier = Modifier.height(EchoTokens.Spacing.sm))
+                    Box(
+                        modifier = Modifier
+                            .weight(1f, fill = false)
+                            .fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            content()
+                        }
                     }
+                    Spacer(modifier = Modifier.height(EchoTokens.Spacing.md))
+                    buttons()
                 }
-                Spacer(modifier = Modifier.height(EchoTokens.Spacing.md))
-                buttons()
             }
         }
     }

@@ -3,6 +3,7 @@
 package com.aiassistant.ui.screens.settings
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -24,9 +25,12 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.aiassistant.AiAssistantApp
 import com.aiassistant.BuildConfig
 import com.aiassistant.R
@@ -190,13 +194,16 @@ fun SettingsScreen(
                 null -> SettingsMenu(
                     hazeState = hazeState,
                     modifier = Modifier.padding(paddingValues),
-                    themeMode = themeMode,
-                    onThemeModeChange = onThemeModeChange,
                     onSectionSelected = { selectedSection = it }
                 )
                 "api_config" -> ApiConfigTab(hazeState = hazeState, modifier = Modifier.padding(paddingValues))
+                "personalization" -> PersonalizationTab(
+                    hazeState = hazeState,
+                    modifier = Modifier.padding(paddingValues),
+                    themeMode = themeMode,
+                    onThemeModeChange = onThemeModeChange
+                )
                 "web_search" -> WebSearchTab(hazeState = hazeState, modifier = Modifier.padding(paddingValues))
-                "personalization" -> PersonalizationTab(hazeState = hazeState, modifier = Modifier.padding(paddingValues))
                 "hidden_conversations" -> HiddenConversationsTab(
                     hazeState = hazeState,
                     modifier = Modifier.padding(paddingValues),
@@ -216,22 +223,13 @@ fun SettingsScreen(
 fun SettingsMenu(
     hazeState: dev.chrisbanes.haze.HazeState,
     modifier: Modifier = Modifier,
-    themeMode: AppThemeMode,
-    onThemeModeChange: (AppThemeMode) -> Unit,
     onSectionSelected: (String) -> Unit
 ) {
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        item {
-            ThemeModeCard(
-                hazeState = hazeState,
-                selected = themeMode,
-                onSelected = onThemeModeChange
-            )
-        }
         item {
             SettingsMenuItem(
                 hazeState = hazeState,
@@ -244,19 +242,19 @@ fun SettingsMenu(
         item {
             SettingsMenuItem(
                 hazeState = hazeState,
-                icon = Icons.Default.Search,
-                title = "联网搜索",
-                subtitle = "配置 Tavily，让对话中的智能搜索真正联网",
-                onClick = { onSectionSelected("web_search") }
+                icon = Icons.Default.AutoAwesome,
+                title = "个性化与全局设定",
+                subtitle = "应用主题、字体大小、思考胶囊自定义、全局提示词与长记忆",
+                onClick = { onSectionSelected("personalization") }
             )
         }
         item {
             SettingsMenuItem(
                 hazeState = hazeState,
-                icon = Icons.Default.AutoAwesome,
-                title = "个性化与全局设定",
-                subtitle = "全局系统提示词、偏好设定、模型长记忆与界面背景",
-                onClick = { onSectionSelected("personalization") }
+                icon = Icons.Default.Search,
+                title = "联网搜索",
+                subtitle = "配置 Tavily，让对话中的智能搜索真正联网",
+                onClick = { onSectionSelected("web_search") }
             )
         }
         item {
@@ -742,7 +740,9 @@ fun WebSearchTab(
 @Composable
 fun PersonalizationTab(
     hazeState: dev.chrisbanes.haze.HazeState,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    themeMode: AppThemeMode,
+    onThemeModeChange: (AppThemeMode) -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val manager = AiAssistantApp.instance.personalizationManager
@@ -764,6 +764,9 @@ fun PersonalizationTab(
         )
     }
     var autoMemoryEnabled by remember(settings) { mutableStateOf(settings.autoMemoryEnabled) }
+    var thinkingTemplate by remember(settings) { mutableStateOf(settings.thinkingCapsuleTemplate) }
+    var chatFontSize by remember(settings) { mutableIntStateOf(settings.chatFontSize) }
+    var fontSizeScale by remember(settings) { mutableFloatStateOf(settings.fontSizeScale) }
     var savedMessage by remember { mutableStateOf<String?>(null) }
 
     // 背景图片管理
@@ -810,7 +813,110 @@ fun PersonalizationTab(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // 1. 全局系统提示词模块
+        // 1. 应用主题模式
+        item {
+            ThemeModeCard(
+                hazeState = hazeState,
+                selected = themeMode,
+                onSelected = onThemeModeChange
+            )
+        }
+
+        // 2. 界面与对话字体大小设置
+        item {
+            SettingsGlassCard(hazeState = hazeState) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.FormatSize,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("字体大小调节", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "可分别调节对话正文字号与界面缩放比例，适应不同阅读习惯。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("对话正文字号", style = MaterialTheme.typography.bodyMedium)
+                        Text("${chatFontSize} sp", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    }
+                    Slider(
+                        value = chatFontSize.toFloat(),
+                        onValueChange = {
+                            chatFontSize = it.toInt()
+                            savedMessage = null
+                        },
+                        valueRange = 13f..22f,
+                        steps = 8,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text("界面字体缩放", style = MaterialTheme.typography.bodyMedium)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                        val scales = listOf(0.85f to "紧凑", 1.0f to "标准", 1.15f to "大", 1.25f to "特大")
+                        scales.forEachIndexed { index, (scale, label) ->
+                            val selected = kotlin.math.abs(fontSizeScale - scale) < 0.05f
+                            SegmentedButton(
+                                selected = selected,
+                                onClick = {
+                                    fontSizeScale = scale
+                                    savedMessage = null
+                                },
+                                shape = SegmentedButtonDefaults.itemShape(index = index, count = scales.size),
+                                colors = echoSegmentedButtonColors(),
+                                border = echoSegmentedButtonBorder(selected)
+                            ) {
+                                Text(label)
+                            }
+                        }
+                    }
+                }
+
+                // 字体实时预览卡片
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = SettingsInnerShape,
+                    color = glass.control,
+                    border = BorderStroke(1.dp, glass.outline)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            "预览效果：",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "你好！我是 Echo 智能助手，这是一段用于预览对话与排版字体大小的示例文本。",
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                fontSize = chatFontSize.sp,
+                                fontFamily = FontFamily.SansSerif
+                            ),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+            }
+        }
+
+        // 3. 思考胶囊文案自定义
         item {
             SettingsGlassCard(hazeState = hazeState) {
                 Row(
@@ -819,6 +925,131 @@ fun PersonalizationTab(
                 ) {
                     Icon(
                         Icons.Default.Psychology,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("思考胶囊文案自定义", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "自定义模型输出时思考胶囊展示的文案，支持自由组合模型名称、耗时与 Token 消耗。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                OutlinedTextField(
+                    value = thinkingTemplate,
+                    onValueChange = {
+                        thinkingTemplate = it
+                        savedMessage = null
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("胶囊文案模板") },
+                    placeholder = { Text("{model} {status} {time} {tokens}") },
+                    singleLine = true,
+                    shape = SettingsInnerShape
+                )
+
+                // 常用预设快捷填入
+                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("快捷预设模板：", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf(
+                            "默认" to "{model} {status} {time} {tokens}",
+                            "叙述" to "{model} 思考了 {time} 消耗了 {tokens}",
+                            "极简" to "{model} · {time} · {tokens}"
+                        ).forEach { (name, tpl) ->
+                            FilterChip(
+                                selected = thinkingTemplate == tpl,
+                                onClick = {
+                                    thinkingTemplate = tpl
+                                    savedMessage = null
+                                },
+                                label = { Text(name) },
+                                colors = echoFilterChipColors(),
+                                border = echoFilterChipBorder(thinkingTemplate == tpl)
+                            )
+                        }
+                    }
+                }
+
+                // 变量标签
+                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("可点击插入占位变量：", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf(
+                            "{model}" to "模型名",
+                            "{time}" to "耗时",
+                            "{tokens}" to "Token量",
+                            "{status}" to "状态"
+                        ).forEach { (varKey, _) ->
+                            AssistChip(
+                                onClick = {
+                                    if (!thinkingTemplate.contains(varKey)) {
+                                        thinkingTemplate = if (thinkingTemplate.isBlank()) varKey else "$thinkingTemplate $varKey"
+                                        savedMessage = null
+                                    }
+                                },
+                                label = { Text(varKey, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                            )
+                        }
+                    }
+                }
+
+                // 胶囊实时渲染效果预览
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = SettingsInnerShape,
+                    color = glass.controlSelected,
+                    border = BorderStroke(1.dp, glass.outlineSelected)
+                ) {
+                    val previewText = remember(thinkingTemplate) {
+                        var p = thinkingTemplate
+                            .replace("{model}", "gpt-4o")
+                            .replace("{status}", "思考过程")
+                            .replace("{time}", "2.5s")
+                            .replace("{tokens}", "150 token")
+                            .replace("{token}", "150 token")
+                        p = p.replace(Regex("\\s+"), " ").trim()
+                        if (p.isBlank()) "gpt-4o 思考过程" else p
+                    }
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(Icons.Default.Psychology, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                        Text(
+                            text = previewText,
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                fontSize = 12.5.sp,
+                                fontFamily = FontFamily.SansSerif,
+                                fontWeight = FontWeight.SemiBold
+                            ),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+            }
+        }
+
+        // 4. 全局系统提示词模块
+        item {
+            SettingsGlassCard(hazeState = hazeState) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.EditNote,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary
                     )
@@ -850,7 +1081,7 @@ fun PersonalizationTab(
             }
         }
 
-        // 2. 自定义偏好与人设
+        // 5. 自定义偏好与人设
         item {
             SettingsGlassCard(hazeState = hazeState) {
                 Row(
@@ -896,7 +1127,7 @@ fun PersonalizationTab(
             }
         }
 
-        // 3. 模型长期记忆库模块
+        // 6. 模型长期记忆库模块
         item {
             SettingsGlassCard(hazeState = hazeState) {
                 Row(
@@ -1024,7 +1255,7 @@ fun PersonalizationTab(
             }
         }
 
-        // 4. 界面背景设置
+        // 7. 界面背景设置
         item {
             SettingsGlassCard(hazeState = hazeState) {
                 Row(
@@ -1070,7 +1301,7 @@ fun PersonalizationTab(
             }
         }
 
-        // 5. 保存反馈消息
+        // 8. 保存反馈消息
         savedMessage?.let { message ->
             item {
                 Card(
@@ -1087,7 +1318,7 @@ fun PersonalizationTab(
             }
         }
 
-        // 6. 保存按钮
+        // 9. 保存按钮
         item {
             Button(
                 onClick = {
@@ -1098,7 +1329,10 @@ fun PersonalizationTab(
                             responseStyle = "",
                             preferences = "",
                             avoid = "",
-                            autoMemoryEnabled = autoMemoryEnabled
+                            autoMemoryEnabled = autoMemoryEnabled,
+                            thinkingCapsuleTemplate = thinkingTemplate.trim().ifBlank { "{model} {status} {time} {tokens}" },
+                            chatFontSize = chatFontSize,
+                            fontSizeScale = fontSizeScale
                         )
                     )
                     settings = manager.getSettings()

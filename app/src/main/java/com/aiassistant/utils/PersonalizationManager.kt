@@ -9,7 +9,11 @@ data class PersonalizationSettings(
     val responseStyle: String = "",
     val preferences: String = "",
     val avoid: String = "",
-    val autoMemoryEnabled: Boolean = true
+    val autoMemoryEnabled: Boolean = true,
+    val thinkingCapsuleTemplate: String = "{model} {status} {time} {tokens}",
+    val fontSizeScale: Float = 1.0f,
+    val chatFontSize: Int = 16,
+    val appTheme: String = "system"
 )
 
 class PersonalizationManager(private val context: Context) {
@@ -33,7 +37,11 @@ class PersonalizationManager(private val context: Context) {
             responseStyle = prefs.getString(KEY_RESPONSE_STYLE, "").orEmpty(),
             preferences = prefs.getString(KEY_PREFERENCES, "").orEmpty(),
             avoid = prefs.getString(KEY_AVOID, "").orEmpty(),
-            autoMemoryEnabled = prefs.getBoolean(KEY_AUTO_MEMORY_ENABLED, true)
+            autoMemoryEnabled = prefs.getBoolean(KEY_AUTO_MEMORY_ENABLED, true),
+            thinkingCapsuleTemplate = prefs.getString(KEY_THINKING_TEMPLATE, "{model} {status} {time} {tokens}").orEmpty().ifBlank { "{model} {status} {time} {tokens}" },
+            fontSizeScale = prefs.getFloat(KEY_FONT_SIZE_SCALE, 1.0f),
+            chatFontSize = prefs.getInt(KEY_CHAT_FONT_SIZE, 16),
+            appTheme = prefs.getString(KEY_APP_THEME, "system").orEmpty().ifBlank { "system" }
         )
     }
 
@@ -47,6 +55,10 @@ class PersonalizationManager(private val context: Context) {
             .putString(KEY_PREFERENCES, settings.preferences)
             .putString(KEY_AVOID, settings.avoid)
             .putBoolean(KEY_AUTO_MEMORY_ENABLED, settings.autoMemoryEnabled)
+            .putString(KEY_THINKING_TEMPLATE, settings.thinkingCapsuleTemplate)
+            .putFloat(KEY_FONT_SIZE_SCALE, settings.fontSizeScale)
+            .putInt(KEY_CHAT_FONT_SIZE, settings.chatFontSize)
+            .putString(KEY_APP_THEME, settings.appTheme)
             .commit()
     }
 
@@ -78,13 +90,17 @@ class PersonalizationManager(private val context: Context) {
         """.trimIndent()
     }
 
-    private companion object {
-        const val KEY_GLOBAL_PROMPT = "global_system_prompt"
-        const val KEY_ENABLED = "enabled"
-        const val KEY_ABOUT_USER = "about_user"
-        const val KEY_RESPONSE_STYLE = "response_style"
-        const val KEY_PREFERENCES = "preferences"
-        const val KEY_AVOID = "avoid"
-        const val KEY_AUTO_MEMORY_ENABLED = "auto_memory_enabled"
+    companion object {
+        private const val KEY_GLOBAL_PROMPT = "global_prompt"
+        private const val KEY_ENABLED = "enabled"
+        private const val KEY_ABOUT_USER = "about_user"
+        private const val KEY_RESPONSE_STYLE = "response_style"
+        private const val KEY_PREFERENCES = "preferences"
+        private const val KEY_AVOID = "avoid"
+        private const val KEY_AUTO_MEMORY_ENABLED = "auto_memory_enabled"
+        private const val KEY_THINKING_TEMPLATE = "thinking_template"
+        private const val KEY_FONT_SIZE_SCALE = "font_size_scale"
+        private const val KEY_CHAT_FONT_SIZE = "chat_font_size"
+        private const val KEY_APP_THEME = "app_theme"
     }
 }

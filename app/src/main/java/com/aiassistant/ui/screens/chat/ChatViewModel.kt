@@ -603,14 +603,22 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
         generationJob?.cancel(CancellationException("用户暂停生成"))
         _isGenerating.value = false
 
-        if (!isMessageSaved && _currentResponse.value.isNotBlank()) {
+        val responseToSave = _currentResponse.value
+        val thinkingToSave = _currentThinking.value.ifBlank { null }
+
+        if (!isMessageSaved && (responseToSave.isNotBlank() || thinkingToSave != null)) {
             isMessageSaved = true
-            viewModelScope.launch {
+            val finalContent = if (responseToSave.isNotBlank()) {
+                "$responseToSave\n\n[输出已由用户暂停]"
+            } else {
+                "[思考已停止]"
+            }
+            AiAssistantApp.instance.applicationScope.launch {
                 val message = Message(
                     conversationId = conversationId,
                     role = "assistant",
-                    content = _currentResponse.value,
-                    thinkingContent = _currentThinking.value.ifEmpty { null }
+                    content = finalContent,
+                    thinkingContent = thinkingToSave
                 )
                 repository.saveMessage(message)
             }

@@ -32,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
@@ -1429,6 +1430,7 @@ fun ConversationCard(
     var showMoveToFolderDialog by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
 
+    val glass = com.aiassistant.ui.components.echoGlassPalette()
     val cardShape = com.aiassistant.ui.theme.EchoTokens.Radius.shapeLg
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val cardTint = if (selected) {
@@ -1483,7 +1485,11 @@ fun ConversationCard(
                 ) {
                     Text(
                         text = conversation.title,
-                        style = MaterialTheme.typography.bodyLarge,
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontSize = 16.5.sp,
+                            fontFamily = FontFamily.SansSerif,
+                            fontWeight = FontWeight.Bold
+                        ),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false)
@@ -1508,34 +1514,22 @@ fun ConversationCard(
                         modifier = Modifier.height(24.dp),
                         shape = RoundedCornerShape(999.dp),
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.54f),
-                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        tonalElevation = 0.dp,
-                        shadowElevation = 0.dp
+                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant
                     ) {
-                        Box(
-                            modifier = Modifier.padding(horizontal = 9.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                conversation.modelName,
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                        }
+                        Text(
+                            text = conversation.modelName,
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
+
+                    // 消息数量
                     Text(
-                        text = "${conversation.messageCount}条",
+                        text = "${conversation.messageCount} 条消息",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = "·",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = dateFormat.format(Date(conversation.updatedAt)),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
                     )
                 }
             }
@@ -1556,20 +1550,23 @@ fun ConversationCard(
                     DropdownMenu(
                         expanded = showMenu,
                         onDismissRequest = { showMenu = false },
-                        modifier = Modifier.clip(RoundedCornerShape(18.dp))
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(glass.panelStrong)
+                            .border(BorderStroke(1.dp, glass.outline), RoundedCornerShape(18.dp))
                     ) {
                         DropdownMenuItem(
-                            text = { Text("重命名") },
+                            text = { Text("重命名", fontWeight = FontWeight.Medium) },
                             onClick = {
                                 showRenameDialog = true
                                 showMenu = false
                             },
                             leadingIcon = {
-                                Icon(Icons.Default.Edit, contentDescription = null)
+                                Icon(Icons.Default.Edit, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             }
                         )
                         DropdownMenuItem(
-                            text = { Text(if (conversation.isPinned) "取消置顶" else "置顶") },
+                            text = { Text(if (conversation.isPinned) "取消置顶" else "置顶", fontWeight = FontWeight.Medium) },
                             onClick = {
                                 onPin()
                                 showMenu = false
@@ -1577,33 +1574,34 @@ fun ConversationCard(
                             leadingIcon = {
                                 Icon(
                                     Icons.Default.PushPin,
-                                    contentDescription = null
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
                                 )
                             }
                         )
                         DropdownMenuItem(
-                            text = { Text("移动到文件夹") },
+                            text = { Text("移动到文件夹", fontWeight = FontWeight.Medium) },
                             onClick = {
                                 showMoveToFolderDialog = true
                                 showMenu = false
                             },
                             leadingIcon = {
-                                Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = null)
+                                Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             }
                         )
                         DropdownMenuItem(
-                            text = { Text("隐藏") },
+                            text = { Text("隐藏", fontWeight = FontWeight.Medium) },
                             onClick = {
                                 onHide()
                                 showMenu = false
                             },
                             leadingIcon = {
-                                Icon(Icons.Default.VisibilityOff, contentDescription = null)
+                                Icon(Icons.Default.VisibilityOff, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         )
-                        HorizontalDivider()
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = glass.outline.copy(alpha = 0.5f))
                         DropdownMenuItem(
-                            text = { Text("删除") },
+                            text = { Text("删除", fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.error) },
                             onClick = {
                                 showDeleteDialog = true
                                 showMenu = false

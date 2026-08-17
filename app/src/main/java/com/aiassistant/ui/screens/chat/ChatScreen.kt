@@ -49,8 +49,12 @@ import androidx.compose.ui.graphics.asImageBitmap
 import android.graphics.Bitmap
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import com.aiassistant.AiAssistantApp
 import com.aiassistant.R
 import com.aiassistant.domain.model.Attachment
 import com.aiassistant.domain.model.ChatModelOption
@@ -86,7 +90,6 @@ import java.util.*
 import android.widget.Toast
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.ui.text.font.FontWeight
 import com.aiassistant.domain.model.CharacterProfile
 import com.aiassistant.domain.model.NarrativeMode
 import com.aiassistant.domain.model.PlotAction
@@ -1278,8 +1281,10 @@ private fun ChatHeaderTitle(
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleMedium.copy(
-                    fontSize = 15.5.sp,
-                    lineHeight = 19.sp
+                    fontSize = 17.sp,
+                    lineHeight = 21.sp,
+                    fontFamily = FontFamily.SansSerif,
+                    fontWeight = FontWeight.Bold
                 ),
                 maxLines = 1,
                 softWrap = false
@@ -1301,6 +1306,34 @@ private data class ScrollFollowSnapshot(
 ) {
     val isAtBottom: Boolean
         get() = totalItems <= 0 || lastVisibleIndex >= totalItems - 2
+}
+
+private fun formatThinkingCapsuleText(
+    template: String,
+    modelName: String,
+    isThinkingActive: Boolean,
+    responseTimeMs: Long,
+    thinkingTokens: Int,
+    totalTokens: Int
+): String {
+    val model = modelName.ifBlank { "AI" }
+    val status = if (isThinkingActive) "思考中..." else "思考过程"
+    val time = if (responseTimeMs > 0) formatTime(responseTimeMs) else ""
+    val tokens = when {
+        thinkingTokens > 0 -> "${thinkingTokens} token"
+        totalTokens > 0 -> "${totalTokens} token"
+        else -> ""
+    }
+
+    var result = template
+        .replace("{model}", model)
+        .replace("{status}", status)
+        .replace("{time}", time)
+        .replace("{tokens}", tokens)
+        .replace("{token}", tokens)
+
+    result = result.replace(Regex("\\s+"), " ").trim()
+    return if (result.isBlank()) "$model $status" else result
 }
 
 private data class VariantInfo(
@@ -1541,6 +1574,7 @@ private fun MessageBubble(
             ) {
                 val thinkingBubbleColor = glass.controlSelected
                 val thinkingContentColor = MaterialTheme.colorScheme.primary
+
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1553,86 +1587,101 @@ private fun MessageBubble(
                         apiConfigId = assistantApiConfigId
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = assistantModelName.ifBlank { "Echo AI" },
-                        style = MaterialTheme.typography.titleSmall.copy(fontSize = 14.sp),
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false)
-                    )
 
-                    if (hasThinking) {
-                        Spacer(modifier = Modifier.weight(1f))
-                        val capsuleShape = RoundedCornerShape(999.dp)
-                        Surface(
-                            modifier = Modifier
-                                .then(
-                                    if (hasThinkingContent) {
-                                        Modifier.echoShapeClick(capsuleShape) { showThinking = !showThinking }
-                                    } else Modifier
-                                )
-                                .then(
-                                    if (hazeState != null) {
-                                        Modifier.echoHazePanel(
-                                            hazeState = hazeState,
-                                            shape = capsuleShape,
-                                            tint = thinkingBubbleColor,
-                                            blurRadius = 12.dp,
-                                            highlightAlpha = 0.03f
-                                        )
-                                    } else Modifier
-                                ),
-                            color = thinkingBubbleColor,
-                            contentColor = thinkingContentColor,
-                            shape = capsuleShape,
-                            border = BorderStroke(1.dp, glass.outlineSelected.copy(alpha = 0.72f))
+                    val personalizationSettings = remember {
+                        AiAssistantApp.instance.personalizationManager.getSettings()
+                    }
+                    val capsuleText = remember(
+                        assistantModelName,
+                        hasThinking,
+                        isGenerating,
+                        message.content,
+                        message.responseTime,
+                        message.thinkingTokens,
+                        message.tokenCount,
+                        personalizationSettings.thinkingCapsuleTemplate
+                    ) {
+                        val model = assistantModelName.ifBlank { "AI" }
+                        if (hasThinking) {
+                            formatThinkingCapsuleText(
+                                template = personalizationSettings.thinkingCapsuleTemplate,
+                                modelName = model,
+                                isThinkingActive = isGenerating && message.content.isBlank(),
+                                responseTimeMs = message.responseTime,
+                                thinkingTokens = message.thinkingTokens,
+                                totalTokens = message.tokenCount
+                            )
+                        } else {
+                            model
+                        }
+                    }
+
+                    val capsuleShape = RoundedCornerShape(999.dp)
+                    Surface(
+                        modifier = Modifier
+                            .then(
+                                if (hasThinking && hasThinkingContent) {
+                                    Modifier.echoShapeClick(capsuleShape) { showThinking = !showThinking }
+                                } else Modifier
+                            )
+                            .then(
+                                if (hazeState != null) {
+                                    Modifier.echoHazePanel(
+                                        hazeState = hazeState,
+                                        shape = capsuleShape,
+                                        tint = if (hasThinking) thinkingBubbleColor else glass.control,
+                                        blurRadius = 12.dp,
+                                        highlightAlpha = 0.03f
+                                    )
+                                } else Modifier
+                            ),
+                        color = if (hasThinking) thinkingBubbleColor else glass.control,
+                        contentColor = if (hasThinking) thinkingContentColor else MaterialTheme.colorScheme.primary,
+                        shape = capsuleShape,
+                        border = BorderStroke(
+                            1.dp,
+                            if (hasThinking) glass.outlineSelected.copy(alpha = 0.72f) else glass.outline
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(5.dp)
-                            ) {
+                            if (hasThinking) {
                                 Icon(
                                     Icons.Default.Psychology,
                                     contentDescription = null,
                                     modifier = Modifier.size(16.dp),
                                     tint = thinkingContentColor
                                 )
-                                Text(
-                                    text = if (isGenerating && message.content.isBlank()) "思考中..." else "思考过程",
-                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp),
-                                    color = thinkingContentColor,
-                                    maxLines = 1,
-                                    softWrap = false
+                            } else {
+                                Icon(
+                                    Icons.Default.SmartToy,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(15.dp),
+                                    tint = MaterialTheme.colorScheme.primary
                                 )
-                                if (message.responseTime > 0) {
-                                    Text(
-                                        text = formatTime(message.responseTime),
-                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp),
-                                        color = thinkingContentColor.copy(alpha = 0.68f),
-                                        maxLines = 1,
-                                        softWrap = false
-                                    )
-                                }
-                                if (message.thinkingTokens > 0) {
-                                    Text(
-                                        text = "${message.thinkingTokens}t",
-                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp),
-                                        color = thinkingContentColor.copy(alpha = 0.68f),
-                                        maxLines = 1,
-                                        softWrap = false
-                                    )
-                                }
-                                if (hasThinkingContent) {
-                                    Icon(
-                                        if (showThinking) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp),
-                                        tint = thinkingContentColor.copy(alpha = 0.78f)
-                                    )
-                                }
+                            }
+                            Text(
+                                text = capsuleText,
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontSize = 12.5.sp,
+                                    fontFamily = FontFamily.SansSerif,
+                                    fontWeight = FontWeight.SemiBold
+                                ),
+                                color = if (hasThinking) thinkingContentColor else MaterialTheme.colorScheme.primary,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (hasThinking && hasThinkingContent) {
+                                Icon(
+                                    imageVector = if (showThinking) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                    contentDescription = if (showThinking) "收起" else "展开",
+                                    modifier = Modifier.size(16.dp),
+                                    tint = thinkingContentColor.copy(alpha = 0.78f)
+                                )
                             }
                         }
                     }
@@ -2352,31 +2401,53 @@ fun ChatInputBar(
                         }
                         DropdownMenu(
                             expanded = showToolMenu,
-                            onDismissRequest = { showToolMenu = false }
+                            onDismissRequest = { showToolMenu = false },
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(18.dp))
+                                .background(glass.panelStrong)
+                                .border(BorderStroke(1.dp, glass.outline), RoundedCornerShape(18.dp))
                         ) {
                             DropdownMenuItem(
-                                text = { Text("图片") },
+                                text = { Text("上传图片", fontWeight = FontWeight.Medium) },
                                 onClick = {
                                     showToolMenu = false
                                     onPickImage()
                                 },
-                                leadingIcon = { Icon(Icons.Default.Image, contentDescription = null) }
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.Image,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
                             )
                             DropdownMenuItem(
-                                text = { Text("文件") },
+                                text = { Text("选取文件", fontWeight = FontWeight.Medium) },
                                 onClick = {
                                     showToolMenu = false
                                     onPickFile()
                                 },
-                                leadingIcon = { Icon(Icons.Default.AttachFile, contentDescription = null) }
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.AttachFile,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
                             )
                             DropdownMenuItem(
-                                text = { Text("图片 OCR") },
+                                text = { Text("图片 OCR 识别", fontWeight = FontWeight.Medium) },
                                 onClick = {
                                     showToolMenu = false
                                     onOcrImages()
                                 },
-                                leadingIcon = { Icon(Icons.Default.DocumentScanner, contentDescription = null) }
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.DocumentScanner,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
                             )
                         }
                     }

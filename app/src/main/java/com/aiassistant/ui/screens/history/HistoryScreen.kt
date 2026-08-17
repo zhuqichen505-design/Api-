@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import com.aiassistant.AiAssistantApp
 import com.aiassistant.BuildConfig
@@ -388,9 +389,14 @@ fun HistoryConversationCard(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = conversation.title,
-                    style = MaterialTheme.typography.titleSmall,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = 16.sp,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.SansSerif,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                    ),
                     color = content,
-                    maxLines = 1
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Row(
@@ -812,7 +818,11 @@ fun SearchResultCard(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = result.conversation.title,
-                    style = MaterialTheme.typography.titleSmall,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = 16.sp,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.SansSerif,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                    ),
                     color = content,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis

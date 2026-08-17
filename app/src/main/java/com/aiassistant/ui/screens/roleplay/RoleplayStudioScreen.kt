@@ -26,6 +26,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import com.aiassistant.AiAssistantApp
@@ -430,8 +431,11 @@ private fun SessionCard(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = storyTitle,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = 16.5.sp,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.SansSerif,
+                        fontWeight = FontWeight.Bold
+                    )
                 )
                 if (boundCharNames.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(2.dp))

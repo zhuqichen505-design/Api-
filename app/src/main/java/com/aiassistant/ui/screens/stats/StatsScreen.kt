@@ -4,7 +4,10 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -220,12 +223,15 @@ fun StatsScreen(
 @Composable
 private fun StatsHeaderIcon() {
     val glass = echoGlassPalette()
+    val glassBlue = MaterialTheme.colorScheme.primary
     Surface(
         modifier = Modifier.size(36.dp),
         shape = CircleShape,
         color = glass.control,
-        contentColor = MaterialTheme.colorScheme.primary,
-        border = BorderStroke(1.dp, glass.outline)
+        contentColor = glassBlue,
+        border = BorderStroke(0.8.dp, glass.outline),
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp
     ) {
         Box(
             modifier = Modifier.fillMaxSize(),
@@ -233,24 +239,24 @@ private fun StatsHeaderIcon() {
         ) {
             Box(
                 modifier = Modifier
-                    .size(21.dp)
+                    .size(23.dp)
                     .clip(RoundedCornerShape(5.dp))
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)),
+                    .background(glassBlue.copy(alpha = 0.16f)),
                 contentAlignment = Alignment.Center
             ) {
                 Row(
                     modifier = Modifier
-                        .width(13.dp)
-                        .height(13.dp),
+                        .width(15.dp)
+                        .height(15.dp),
                     horizontalArrangement = Arrangement.spacedBy(3.dp),
                     verticalAlignment = Alignment.Bottom
                 ) {
-                    listOf(4.dp, 8.dp, 12.dp).forEach { barHeight ->
+                    listOf(5.dp, 9.dp, 13.dp).forEach { barHeight ->
                         Box(
                             modifier = Modifier
                                 .width(3.dp)
                                 .height(barHeight)
-                                .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(1.dp))
+                                .background(glassBlue, RoundedCornerShape(1.dp))
                         )
                     }
                 }
@@ -356,8 +362,14 @@ private fun SummaryCard(
                 }
             }
 
-            // 核心统计指标 3x2 丰富网格
+            // 核心统计指标 3x2 网格（扁平化无多层 Surface 嵌套，防止快速滑动拖影）
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                val hitRateDisplay = if (summary.cachedTokens > 0L) {
+                    formatPercent(summary.cacheHitRate)
+                } else {
+                    "--"
+                }
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -372,8 +384,8 @@ private fun SummaryCard(
                     )
                     MetricPill(
                         icon = Icons.Default.Speed,
-                        label = "命中率",
-                        value = formatPercent(summary.cacheHitRate),
+                        label = "缓存命中率",
+                        value = hitRateDisplay,
                         contentColor = content,
                         iconTint = MaterialTheme.colorScheme.tertiary,
                         modifier = Modifier.weight(1f)
@@ -431,25 +443,47 @@ private fun MetricPill(
     iconTint: Color = MaterialTheme.colorScheme.primary,
     modifier: Modifier = Modifier
 ) {
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = StatsGlassInnerAlpha),
-        contentColor = contentColor
+    val glass = echoGlassPalette()
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(glass.control.copy(alpha = 0.65f))
+            .border(BorderStroke(0.8.dp, glass.outline.copy(alpha = 0.5f)), RoundedCornerShape(12.dp))
+            .padding(horizontal = 8.dp, vertical = 10.dp)
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Icon(icon, contentDescription = null, modifier = Modifier.size(14.dp), tint = iconTint)
-                Text(label, style = MaterialTheme.typography.labelSmall, color = contentColor.copy(alpha = 0.68f))
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = iconTint,
+                    modifier = Modifier.size(13.dp)
+                )
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                    color = contentColor.copy(alpha = 0.72f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
-            Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = contentColor)
+            Text(
+                text = value,
+                style = MaterialTheme.typography.titleSmall.copy(
+                    fontSize = 13.5.sp,
+                    fontFamily = FontFamily.SansSerif,
+                    fontWeight = FontWeight.Bold
+                ),
+                color = contentColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }
@@ -762,14 +796,12 @@ private fun ModelStatsTable(
                 isHeader = true
             )
             rows.forEachIndexed { index, row ->
-                val rowBackground = if (index % 2 == 0) glass.control.copy(alpha = 0.54f) else Color.Transparent
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    color = rowBackground,
-                    contentColor = content,
-                    tonalElevation = 0.dp,
-                    shadowElevation = 0.dp
+                val rowBackground = if (index % 2 == 0) glass.control.copy(alpha = 0.50f) else Color.Transparent
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(rowBackground)
                 ) {
                     ModelStatsTableRow(
                         model = row.modelName,
@@ -980,6 +1012,7 @@ private fun List<UsageRow>.toSummary(): UsageSummary {
         inputTokens = input,
         outputTokens = output,
         thinkingTokens = thinking,
+        cachedTokens = cached,
         requestCount = size,
         cacheHitRate = if (input > 0) cached.toFloat() / input else 0f,
         successRate = if (isNotEmpty()) successCount.toFloat() / size else 0f
@@ -1091,6 +1124,7 @@ private data class UsageSummary(
     val inputTokens: Int = 0,
     val outputTokens: Int = 0,
     val thinkingTokens: Int = 0,
+    val cachedTokens: Int = 0,
     val requestCount: Int,
     val cacheHitRate: Float,
     val successRate: Float
