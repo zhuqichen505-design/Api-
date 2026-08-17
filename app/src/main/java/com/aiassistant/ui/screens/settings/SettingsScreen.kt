@@ -33,6 +33,7 @@ import com.aiassistant.R
 import com.aiassistant.domain.model.ApiConfig
 import com.aiassistant.domain.model.Conversation
 import com.aiassistant.domain.model.EnvironmentVariable
+import com.aiassistant.domain.model.MemoryItem
 import com.aiassistant.domain.model.PromptTemplate
 import com.aiassistant.ui.components.EchoGlassDialog
 import com.aiassistant.ui.components.echoFilterChipBorder
@@ -60,18 +61,23 @@ import java.util.*
 
 private val CurrentFeatureHighlights = listOf(
     "沉浸式角色扮演工作室与剧情自由创作",
+    "对话与故事长记忆严格隔离与全功能管理",
+    "合并一体化个性化与全局设定管理面板",
     "多角色设定与世界观一站式管理及双向同步",
     "AI 智能识别、提炼追加与已有设定精准融入",
     "剧情动作指令库（推进、改写、分支、摘要等）",
     "多模型 API 与流式对话及深度思考推理",
-    "Token 预算上下文、滚动摘要与长期记忆库",
+    "Token 预算上下文、滚动摘要与长记忆库",
     "上下文使用情况查看与主动压缩",
-    "对话与故事历史、文件夹与置顶管理",
     "全量数据备份与安全加密恢复",
-    "自定义头像与全界面 Echo 液态玻璃设计"
+    "全界面 Echo 液态玻璃设计与暗色主题适配"
 )
 
 private val CurrentVersionUserUpdates = listOf(
+    "长记忆深度隔离：对话页与故事页长记忆彻底分立，防止小说创作被全局记忆干扰或污染新小说",
+    "个性化与全局提示词合并：整合为一站式「个性化与全局设定」页面，操作直观统一",
+    "模型长记忆管理中心：支持在个性化中查看、搜索、添加、编辑、删除与清空模型长记忆",
+    "长记忆自动捕获开关：可一键启闭对话自动记忆，精准控制模型对偏好与背景的提取行为",
     "输入框操作栏重构：交换智能搜索与深度思考位置，故事页专注剧情并移除搜索按钮",
     "故事页输入框新增「剧情操作」按钮，集成继续、重生成、分支、改写与智能提取等完整指令",
     "故事页创作设置与工作室深度对齐：支持直接查看并编辑全字段角色卡与世界观场景卡",
@@ -80,9 +86,7 @@ private val CurrentVersionUserUpdates = listOf(
     "消息气泡美化：深度思考输出胶囊与模型头像精准保持同一水平线并垂直居中对齐",
     "弹窗界面全面优化：修复对话页与故事页设置弹窗底部保存按钮被挤出可视区域的问题",
     "暗色液态玻璃修复：彻底消除添加 API 配置及设置子页面中偶现的白色背景异常",
-    "AI 智能设定提取重构：精准区分已有角色设定更新、新角色发现与世界观扩充，避免粗暴重复创建",
-    "系统提示词模板增强：全面覆盖故事创作、剧情改写与头脑风暴等多场景模板",
-    "关于界面与工程留痕同步更新"
+    "AI 智能设定提取重构：精准区分已有角色设定更新、新角色发现与世界观扩充，避免粗暴重复创建"
 )
 
 private val SettingsPanelShape = com.aiassistant.ui.theme.EchoTokens.Radius.shapeXl
@@ -193,7 +197,6 @@ fun SettingsScreen(
                 "api_config" -> ApiConfigTab(hazeState = hazeState, modifier = Modifier.padding(paddingValues))
                 "web_search" -> WebSearchTab(hazeState = hazeState, modifier = Modifier.padding(paddingValues))
                 "personalization" -> PersonalizationTab(hazeState = hazeState, modifier = Modifier.padding(paddingValues))
-                "global_prompt" -> GlobalPromptTab(hazeState = hazeState, modifier = Modifier.padding(paddingValues))
                 "hidden_conversations" -> HiddenConversationsTab(
                     hazeState = hazeState,
                     modifier = Modifier.padding(paddingValues),
@@ -251,18 +254,9 @@ fun SettingsMenu(
             SettingsMenuItem(
                 hazeState = hazeState,
                 icon = Icons.Default.AutoAwesome,
-                title = "个性化",
-                subtitle = "设置所有对话都会参考的自定义偏好",
+                title = "个性化与全局设定",
+                subtitle = "全局系统提示词、偏好设定、模型长记忆与界面背景",
                 onClick = { onSectionSelected("personalization") }
-            )
-        }
-        item {
-            SettingsMenuItem(
-                hazeState = hazeState,
-                icon = Icons.Default.Psychology,
-                title = "全局提示词",
-                subtitle = "设置适用于所有对话的系统提示词",
-                onClick = { onSectionSelected("global_prompt") }
             )
         }
         item {
@@ -746,83 +740,17 @@ fun WebSearchTab(
 }
 
 @Composable
-fun GlobalPromptTab(
-    hazeState: dev.chrisbanes.haze.HazeState,
-    modifier: Modifier = Modifier
-) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val prefs = remember(context) { context.getSharedPreferences("app_settings", android.content.Context.MODE_PRIVATE) }
-    var globalPrompt by remember { mutableStateOf(prefs.getString("global_system_prompt", "").orEmpty()) }
-    var savedMessage by remember { mutableStateOf<String?>(null) }
-
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        item {
-            SettingsGlassCard(hazeState = hazeState) {
-                Text(
-                    text = "全局系统提示词",
-                    style = MaterialTheme.typography.titleMedium
-                )
-                Text(
-                    text = "设置的提示词将作为默认提示词应用于新对话",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-
-        item {
-            OutlinedTextField(
-                value = globalPrompt,
-                onValueChange = {
-                    globalPrompt = it
-                    savedMessage = null
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 150.dp),
-                placeholder = { Text("输入全局系统提示词...") },
-                maxLines = 20
-            )
-        }
-
-        savedMessage?.let { msg ->
-            item {
-                Text(
-                    text = msg,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
-        }
-
-        item {
-            Button(
-                onClick = {
-                    prefs.edit().putString("global_system_prompt", globalPrompt.trim()).apply()
-                    savedMessage = "已保存全局系统提示词"
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Default.Save, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("保存")
-            }
-        }
-    }
-}
-
-@Composable
 fun PersonalizationTab(
     hazeState: dev.chrisbanes.haze.HazeState,
     modifier: Modifier = Modifier
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val manager = AiAssistantApp.instance.personalizationManager
+    val repository = AiAssistantApp.instance.repository
+    val coroutineScope = rememberCoroutineScope()
+
     var settings by remember { mutableStateOf(manager.getSettings()) }
+    var globalPrompt by remember(settings) { mutableStateOf(settings.globalSystemPrompt) }
     var instruction by remember(settings) {
         mutableStateOf(
             listOf(
@@ -835,7 +763,10 @@ fun PersonalizationTab(
                 .joinToString("\n\n")
         )
     }
+    var autoMemoryEnabled by remember(settings) { mutableStateOf(settings.autoMemoryEnabled) }
     var savedMessage by remember { mutableStateOf<String?>(null) }
+
+    // 背景图片管理
     var backgroundRevision by remember { mutableIntStateOf(0) }
     val hasHomeBackground = remember(backgroundRevision) {
         BackgroundImageManager.hasHomeBackground(context)
@@ -862,98 +793,284 @@ fun PersonalizationTab(
         }
     }
 
+    // 记忆管理状态
+    var memorySearchQuery by remember { mutableStateOf("") }
+    val allMemories by remember(memorySearchQuery) {
+        if (memorySearchQuery.isBlank()) repository.getAllMemories() else repository.searchMemories(memorySearchQuery.trim())
+    }.collectAsState(initial = emptyList())
+
+    var memoryToEdit by remember { mutableStateOf<MemoryItem?>(null) }
+    var isAddingMemory by remember { mutableStateOf(false) }
+    var showClearAllConfirm by remember { mutableStateOf(false) }
+
+    val glass = echoGlassPalette()
+
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
+        // 1. 全局系统提示词模块
         item {
             SettingsGlassCard(hazeState = hazeState) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            Icons.Default.AutoAwesome,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("个性化", style = MaterialTheme.typography.titleMedium)
-                            Text(
-                                "这些偏好会自动应用到所有对话，单个对话的系统提示词仍可覆盖它们。",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Switch(
-                            checked = settings.enabled,
-                            onCheckedChange = { settings = settings.copy(enabled = it) }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Psychology,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("全局系统提示词", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "设置的系统提示词将作为默认提示词应用于普通新对话（角色扮演/故事创作模式使用专属设定）。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+                }
 
+                OutlinedTextField(
+                    value = globalPrompt,
+                    onValueChange = {
+                        globalPrompt = it
+                        savedMessage = null
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 120.dp),
+                    placeholder = { Text("输入默认全局系统提示词...") },
+                    minLines = 4,
+                    maxLines = 14,
+                    shape = SettingsInnerShape
+                )
+            }
+        }
+
+        // 2. 自定义偏好与人设
+        item {
+            SettingsGlassCard(hazeState = hazeState) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.AutoAwesome,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("个性化偏好", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "这些偏好会自动注入普通对话上下文；单个对话的提示词仍可覆盖它们。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = settings.enabled,
+                        onCheckedChange = { settings = settings.copy(enabled = it) }
+                    )
+                }
+
+                OutlinedTextField(
+                    value = instruction,
+                    onValueChange = {
+                        instruction = it
+                        savedMessage = null
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 160.dp),
+                    placeholder = {
+                        Text("例如：默认用中文回答；代码多写注释；少用表格；回答自然一点；复杂问题先给结论。")
+                    },
+                    minLines = 5,
+                    maxLines = 14,
+                    shape = SettingsInnerShape
+                )
+            }
+        }
+
+        // 3. 模型长期记忆库模块
+        item {
+            SettingsGlassCard(hazeState = hazeState) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Memory,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("模型长期记忆库", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "模型在对话中记住的偏好与事实。长记忆与故事页严格隔离，不会干扰新小说创作。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = autoMemoryEnabled,
+                        onCheckedChange = {
+                            autoMemoryEnabled = it
+                            savedMessage = null
+                        }
+                    )
+                }
+
+                Text(
+                    text = if (autoMemoryEnabled) "已开启自动记忆：模型将在对话中智能提炼并记录你的偏好与习惯" else "自动记忆已暂停：模型不再从新对话中自动记录记忆",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (autoMemoryEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                // 搜索栏与操作栏
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     OutlinedTextField(
-                        value = instruction,
-                        onValueChange = { instruction = it },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 220.dp),
-                        placeholder = {
-                            Text("例如：默认用中文回答；少用表格；回答自然一点；复杂问题先给结论。")
+                        value = memorySearchQuery,
+                        onValueChange = { memorySearchQuery = it },
+                        modifier = Modifier.weight(1f),
+                        placeholder = { Text("搜索长期记忆...") },
+                        singleLine = true,
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                        trailingIcon = {
+                            if (memorySearchQuery.isNotBlank()) {
+                                IconButton(onClick = { memorySearchQuery = "" }) {
+                                    Icon(Icons.Default.Close, contentDescription = "清除搜索", modifier = Modifier.size(18.dp))
+                                }
+                            }
                         },
-                        minLines = 8,
-                        maxLines = 18,
                         shape = SettingsInnerShape
                     )
-            }
-        }
 
-        item {
-            SettingsGlassCard(hazeState = hazeState) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
+                    FilledTonalButton(
+                        onClick = { isAddingMemory = true },
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                     ) {
-                        Icon(
-                            Icons.Default.Image,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("界面背景", style = MaterialTheme.typography.titleMedium)
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("添加", style = MaterialTheme.typography.labelMedium)
+                    }
+
+                    if (allMemories.isNotEmpty()) {
+                        IconButton(onClick = { showClearAllConfirm = true }) {
+                            Icon(Icons.Default.DeleteSweep, contentDescription = "清空全部记忆", tint = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+
+                // 记忆列表
+                if (allMemories.isEmpty()) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = SettingsInnerShape,
+                        color = glass.control,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, glass.outline)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(
+                                Icons.Default.BookmarkBorder,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                modifier = Modifier.size(32.dp)
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                "可分别为首页和对话页设置自定义图片背景，未设置时保持原有纯色背景。",
+                                if (memorySearchQuery.isBlank()) "暂无长期记忆条目\n开启自动记忆后模型将自动记录，也可以点击上方「添加」手动写入。" else "未找到与「$memorySearchQuery」匹配的记忆",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
                             )
                         }
                     }
-
-                    BackgroundPickerRow(
-                        title = "首页背景",
-                        hasImage = hasHomeBackground,
-                        onPick = { homeBackgroundPicker.launch("image/*") },
-                        onClear = {
-                            BackgroundImageManager.deleteHomeBackground(context)
-                            backgroundRevision++
-                            savedMessage = "已恢复首页默认背景"
+                } else {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        allMemories.forEach { memory ->
+                            MemoryItemCard(
+                                memory = memory,
+                                onToggleEnabled = { enabled ->
+                                    coroutineScope.launch {
+                                        repository.setMemoryEnabled(memory.id, enabled)
+                                    }
+                                },
+                                onEdit = { memoryToEdit = memory },
+                                onDelete = {
+                                    coroutineScope.launch {
+                                        repository.deleteMemory(memory.id)
+                                    }
+                                }
+                            )
                         }
-                    )
-                    BackgroundPickerRow(
-                        title = "对话页背景",
-                        hasImage = hasChatBackground,
-                        onPick = { chatBackgroundPicker.launch("image/*") },
-                        onClear = {
-                            BackgroundImageManager.deleteChatBackground(context)
-                            backgroundRevision++
-                            savedMessage = "已恢复对话页默认背景"
-                        }
-                    )
+                    }
+                }
             }
         }
 
+        // 4. 界面背景设置
+        item {
+            SettingsGlassCard(hazeState = hazeState) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Image,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("界面背景", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "可分别为首页和对话页设置自定义图片背景，未设置时保持原有纯色背景。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                BackgroundPickerRow(
+                    title = "首页背景",
+                    hasImage = hasHomeBackground,
+                    onPick = { homeBackgroundPicker.launch("image/*") },
+                    onClear = {
+                        BackgroundImageManager.deleteHomeBackground(context)
+                        backgroundRevision++
+                        savedMessage = "已恢复首页默认背景"
+                    }
+                )
+                BackgroundPickerRow(
+                    title = "对话页背景",
+                    hasImage = hasChatBackground,
+                    onPick = { chatBackgroundPicker.launch("image/*") },
+                    onClear = {
+                        BackgroundImageManager.deleteChatBackground(context)
+                        backgroundRevision++
+                        savedMessage = "已恢复对话页默认背景"
+                    }
+                )
+            }
+        }
+
+        // 5. 保存反馈消息
         savedMessage?.let { message ->
             item {
                 Card(
@@ -970,29 +1087,302 @@ fun PersonalizationTab(
             }
         }
 
+        // 6. 保存按钮
         item {
             Button(
                 onClick = {
                     val saved = manager.saveSettings(
                         settings.copy(
+                            globalSystemPrompt = globalPrompt.trim(),
                             aboutUser = instruction.trim(),
                             responseStyle = "",
                             preferences = "",
-                            avoid = ""
+                            avoid = "",
+                            autoMemoryEnabled = autoMemoryEnabled
                         )
                     )
                     settings = manager.getSettings()
-                    savedMessage = if (saved) "已保存个性化设置" else "保存失败，请重试"
+                    savedMessage = if (saved) "已保存个性化与全局设定" else "保存失败，请重试"
                 },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(999.dp)
             ) {
                 Icon(Icons.Default.Save, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("保存")
+                Text("保存全部设定")
             }
         }
     }
+
+    // 添加记忆弹窗
+    if (isAddingMemory) {
+        MemoryEditDialog(
+            hazeState = hazeState,
+            memory = null,
+            onDismiss = { isAddingMemory = false },
+            onConfirm = { newContent, newScope, newKeywords ->
+                coroutineScope.launch {
+                    val item = MemoryItem(
+                        content = newContent.trim(),
+                        scope = newScope,
+                        keywords = newKeywords.trim().takeIf { it.isNotBlank() },
+                        confidence = 1.0f,
+                        isEnabled = true,
+                        createdAt = System.currentTimeMillis(),
+                        updatedAt = System.currentTimeMillis()
+                    )
+                    repository.insertMemory(item)
+                    isAddingMemory = false
+                    savedMessage = "已添加新长期记忆"
+                }
+            }
+        )
+    }
+
+    // 编辑记忆弹窗
+    memoryToEdit?.let { memory ->
+        MemoryEditDialog(
+            hazeState = hazeState,
+            memory = memory,
+            onDismiss = { memoryToEdit = null },
+            onConfirm = { newContent, newScope, newKeywords ->
+                coroutineScope.launch {
+                    repository.updateMemory(
+                        memory.copy(
+                            content = newContent.trim(),
+                            scope = newScope,
+                            keywords = newKeywords.trim().takeIf { it.isNotBlank() },
+                            updatedAt = System.currentTimeMillis()
+                        )
+                    )
+                    memoryToEdit = null
+                    savedMessage = "已更新长期记忆"
+                }
+            }
+        )
+    }
+
+    // 清空全部记忆确认弹窗
+    if (showClearAllConfirm) {
+        EchoGlassDialog(
+            hazeState = hazeState,
+            title = { Text("清空长期记忆库") },
+            text = {
+                Text(
+                    "确定要清空全部长期记忆条目吗？此操作无法撤销，模型将不再参考先前的偏好记忆。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        coroutineScope.launch {
+                            repository.deleteAllMemories()
+                            showClearAllConfirm = false
+                            savedMessage = "已清空全部长期记忆"
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("确认清空")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearAllConfirm = false }) {
+                    Text("取消")
+                }
+            },
+            onDismissRequest = { showClearAllConfirm = false }
+        )
+    }
+}
+
+@Composable
+private fun MemoryItemCard(
+    memory: MemoryItem,
+    onToggleEnabled: (Boolean) -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val glass = echoGlassPalette()
+    val scopeLabel = when (memory.scope) {
+        "user", "global" -> "全局偏好"
+        "conversation" -> "会话专属"
+        else -> memory.scope
+    }
+    val dateFormat = remember { SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()) }
+    val timeText = remember(memory.updatedAt) { dateFormat.format(Date(memory.updatedAt)) }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = SettingsInnerShape,
+        color = if (memory.isEnabled) glass.control else glass.control.copy(alpha = 0.4f),
+        contentColor = if (memory.isEnabled) glass.textPrimary else glass.textPrimary.copy(alpha = 0.5f),
+        border = androidx.compose.foundation.BorderStroke(1.dp, glass.outline)
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                ) {
+                    Text(
+                        text = scopeLabel,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = timeText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Spacer(modifier = Modifier.weight(1f))
+
+                IconButton(
+                    onClick = onEdit,
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Edit,
+                        contentDescription = "编辑记忆",
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                IconButton(
+                    onClick = onDelete,
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        Icons.Default.DeleteOutline,
+                        contentDescription = "删除记忆",
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(4.dp))
+                Switch(
+                    checked = memory.isEnabled,
+                    onCheckedChange = onToggleEnabled,
+                    modifier = Modifier.height(24.dp)
+                )
+            }
+
+            Text(
+                text = memory.content,
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (memory.isEnabled) glass.textPrimary else glass.textPrimary.copy(alpha = 0.6f)
+            )
+
+            if (!memory.keywords.isNullOrBlank()) {
+                Text(
+                    text = "关键词: ${memory.keywords}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MemoryEditDialog(
+    hazeState: dev.chrisbanes.haze.HazeState,
+    memory: MemoryItem?,
+    onDismiss: () -> Unit,
+    onConfirm: (content: String, scope: String, keywords: String) -> Unit
+) {
+    var content by remember { mutableStateOf(memory?.content.orEmpty()) }
+    var scope by remember { mutableStateOf(memory?.scope ?: "user") }
+    var keywords by remember { mutableStateOf(memory?.keywords.orEmpty()) }
+
+    val isUserScope = scope == "user" || scope == "global"
+    val isConvScope = scope == "conversation"
+
+    EchoGlassDialog(
+        hazeState = hazeState,
+        title = { Text(if (memory == null) "添加长期记忆" else "编辑长期记忆") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text("记忆内容", style = MaterialTheme.typography.titleSmall)
+                OutlinedTextField(
+                    value = content,
+                    onValueChange = { content = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 100.dp),
+                    placeholder = { Text("例如：用户习惯用 Kotlin 编写 Android 应用...") },
+                    minLines = 3,
+                    maxLines = 8,
+                    shape = SettingsInnerShape
+                )
+
+                Text("作用域范围", style = MaterialTheme.typography.titleSmall)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = isUserScope,
+                        onClick = { scope = "user" },
+                        label = { Text("全局偏好 (user)") },
+                        colors = echoFilterChipColors(),
+                        border = echoFilterChipBorder(isUserScope)
+                    )
+                    FilterChip(
+                        selected = isConvScope,
+                        onClick = { scope = "conversation" },
+                        label = { Text("会话专属 (conversation)") },
+                        colors = echoFilterChipColors(),
+                        border = echoFilterChipBorder(isConvScope)
+                    )
+                }
+
+                Text("关联关键词 (可选)", style = MaterialTheme.typography.titleSmall)
+                OutlinedTextField(
+                    value = keywords,
+                    onValueChange = { keywords = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("以逗号分隔，例如：kotlin, android, 开发") },
+                    singleLine = true,
+                    shape = SettingsInnerShape
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onConfirm(content, scope, keywords) },
+                enabled = content.isNotBlank()
+            ) {
+                Text("保存")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        },
+        onDismissRequest = onDismiss
+    )
 }
 
 @Composable

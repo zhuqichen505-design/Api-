@@ -358,6 +358,21 @@ interface MemoryDao {
     """)
     suspend fun getCandidateMemories(conversationId: Long, limit: Int = 80): List<MemoryItem>
 
+    @Query("SELECT * FROM memory_items ORDER BY isEnabled DESC, updatedAt DESC")
+    fun getAllMemories(): Flow<List<MemoryItem>>
+
+    @Query("""
+        SELECT * FROM memory_items
+        WHERE content LIKE '%' || :query || '%'
+           OR keywords LIKE '%' || :query || '%'
+           OR scope LIKE '%' || :query || '%'
+        ORDER BY isEnabled DESC, updatedAt DESC
+    """)
+    fun searchMemories(query: String): Flow<List<MemoryItem>>
+
+    @Query("SELECT * FROM memory_items WHERE id = :id")
+    suspend fun getMemoryById(id: Long): MemoryItem?
+
     @Query("SELECT * FROM memory_items WHERE sourceMessageId = :sourceMessageId LIMIT 1")
     suspend fun getBySourceMessage(sourceMessageId: Long): MemoryItem?
 
@@ -369,6 +384,18 @@ interface MemoryDao {
 
     @Update
     suspend fun updateMemory(memory: MemoryItem)
+
+    @Delete
+    suspend fun deleteMemory(memory: MemoryItem)
+
+    @Query("DELETE FROM memory_items WHERE id = :id")
+    suspend fun deleteMemoryById(id: Long)
+
+    @Query("DELETE FROM memory_items")
+    suspend fun deleteAllMemories()
+
+    @Query("UPDATE memory_items SET isEnabled = :isEnabled, updatedAt = :timestamp WHERE id = :id")
+    suspend fun setMemoryEnabled(id: Long, isEnabled: Boolean, timestamp: Long = System.currentTimeMillis())
 
     @Query("UPDATE memory_items SET isEnabled = 0, updatedAt = :timestamp WHERE id = :id")
     suspend fun disableMemory(id: Long, timestamp: Long = System.currentTimeMillis())

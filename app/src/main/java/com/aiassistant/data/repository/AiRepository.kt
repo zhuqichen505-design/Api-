@@ -614,6 +614,24 @@ class AiRepository(
         conversationDao.setPinned(conversationId, isPinned)
     }
 
+    // ============ 模型长记忆相关 ============
+
+    fun getAllMemories(): Flow<List<MemoryItem>> = memoryDao.getAllMemories()
+
+    fun searchMemories(query: String): Flow<List<MemoryItem>> = memoryDao.searchMemories(query)
+
+    suspend fun getMemoryById(id: Long): MemoryItem? = memoryDao.getMemoryById(id)
+
+    suspend fun insertMemory(memory: MemoryItem): Long = memoryDao.insertMemory(memory)
+
+    suspend fun updateMemory(memory: MemoryItem) = memoryDao.updateMemory(memory)
+
+    suspend fun deleteMemory(id: Long) = memoryDao.deleteMemoryById(id)
+
+    suspend fun deleteAllMemories() = memoryDao.deleteAllMemories()
+
+    suspend fun setMemoryEnabled(id: Long, isEnabled: Boolean) = memoryDao.setMemoryEnabled(id, isEnabled)
+
     // ============ 消息相关 ============
 
     fun getMessages(conversationId: Long): Flow<List<Message>> =
@@ -1367,8 +1385,14 @@ class AiRepository(
     ): String? {
         return if (options.overrideSystemPrompt) {
             options.systemPromptOverride
-        } else {
+        } else if (!conversation?.systemPrompt.isNullOrBlank()) {
             conversation?.systemPrompt
+        } else {
+            if (conversation != null && !hasConversationTag(conversation, "roleplay") && !hasConversationTag(conversation, "story")) {
+                personalizationManager.getSettings().globalSystemPrompt.takeIf { it.isNotBlank() }
+            } else {
+                null
+            }
         }
     }
 
@@ -1903,8 +1927,14 @@ class AiRepository(
         if (System.currentTimeMillis() - message.createdAt > MEMORY_CAPTURE_FRESHNESS_MS) return
         if (memoryDao.getBySourceMessage(message.id) != null) return
 
-        val conversation = conversationDao.getConversationById(message.conversationId)
-        if (hasConversationTag(conversation, "private")) return
+        if (!personalizationManager.getSettings().autoMemoryEnabled) return
+
+        val conversation = conversationDao.getConversationById(message.conversationId) ?: return
+        // 严格隔离：私密对话、角色扮演/故事创作会话均不写入全局长期记忆，防止小说情节与角色设定污染全局用户偏好
+        if (hasConversationTag(conversation, "private") ||
+            hasConversationTag(conversation, "roleplay") ||
+            hasConversationTag(conversation, "story")
+        ) return
 
         val memoryContent = extractMemoryContent(message.content) ?: return
         val scope = if (isConversationScopedMemory(memoryContent)) "conversation" else "user"
@@ -1989,7 +2019,11 @@ class AiRepository(
         currentUserMessage: String,
         tokenBudget: Int
     ): String? {
-        if (hasConversationTag(conversation, "private")) return null
+        // 严格隔离：私密对话与故事创作/角色扮演会话均不注入全局长期记忆，防止外部记忆干扰新故事设定
+        if (hasConversationTag(conversation, "private") ||
+            hasConversationTag(conversation, "roleplay") ||
+            hasConversationTag(conversation, "story")
+        ) return null
 
         val candidates = memoryDao.getCandidateMemories(conversation.id)
         if (candidates.isEmpty()) return null

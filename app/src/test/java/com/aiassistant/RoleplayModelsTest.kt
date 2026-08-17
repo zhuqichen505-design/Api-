@@ -332,4 +332,40 @@ class RoleplayModelsTest {
         val mergedScenario = sessionWithScenario.getCustomizedScenario(baseScenario)
         assertEquals("允许任何禁忌魔法", mergedScenario?.rules)
     }
+
+    @Test
+    fun testMemoryItemModel() {
+        val item = com.aiassistant.domain.model.MemoryItem(
+            id = 1L,
+            scope = "user",
+            content = "用户喜欢简洁的回答",
+            keywords = "简洁,回答",
+            confidence = 0.9f,
+            isEnabled = true
+        )
+        assertEquals(1L, item.id)
+        assertEquals("user", item.scope)
+        assertEquals("用户喜欢简洁的回答", item.content)
+        assertEquals("简洁,回答", item.keywords)
+        assertEquals(0.9f, item.confidence, 0.001f)
+        assertTrue(item.isEnabled)
+    }
+
+    @Test
+    fun testPersonalizationSettingsAndMemoryIsolation() {
+        val settings = com.aiassistant.utils.PersonalizationSettings(
+            globalSystemPrompt = "你是一个全能助手",
+            enabled = true,
+            aboutUser = "资深工程师",
+            responseStyle = "简明扼要",
+            preferences = "优先使用 Kotlin",
+            avoid = "避免冗长废话",
+            autoMemoryEnabled = true
+        )
+        assertEquals("你是一个全能助手", settings.globalSystemPrompt)
+        assertTrue(settings.enabled)
+        assertTrue(settings.autoMemoryEnabled)
+        assertEquals("资深工程师", settings.aboutUser)
+        assertEquals("优先使用 Kotlin", settings.preferences)
+    }
 }
