@@ -56,6 +56,7 @@ import com.aiassistant.domain.model.Conversation
 import com.aiassistant.domain.model.Folder
 import com.aiassistant.ui.components.EchoGlassCard
 import com.aiassistant.ui.components.EchoGlassDialog
+import com.aiassistant.ui.components.EchoGlassDropdownMenu
 import com.aiassistant.ui.components.SideAnchorItem
 import com.aiassistant.ui.components.SideAnchorNavigator
 import com.aiassistant.ui.components.TransientLazyListScrollbar
@@ -1305,7 +1306,7 @@ fun ConfigSelector(
             Icon(Icons.Default.ArrowDropDown, contentDescription = null)
         }
 
-        DropdownMenu(
+        EchoGlassDropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
             modifier = Modifier.heightIn(max = 280.dp)
@@ -1547,13 +1548,9 @@ fun ConversationCard(
                         )
                     }
 
-                    DropdownMenu(
+                    EchoGlassDropdownMenu(
                         expanded = showMenu,
-                        onDismissRequest = { showMenu = false },
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(18.dp))
-                            .background(glass.panelStrong)
-                            .border(BorderStroke(1.dp, glass.outline), RoundedCornerShape(18.dp))
+                        onDismissRequest = { showMenu = false }
                     ) {
                         DropdownMenuItem(
                             text = { Text("重命名", fontWeight = FontWeight.Medium) },

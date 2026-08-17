@@ -13,8 +13,8 @@ android {
         applicationId = "com.aiassistant"
         minSdk = 26
         targetSdk = 34
-        versionCode = 88
-        versionName = "1.9.8"
+        versionCode = 90
+        versionName = "1.9.10"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -59,6 +59,17 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+    testOptions {
+        unitTests {
+            isReturnDefaultValues = true
+            all {
+                it.jvmArgs("-Dfile.encoding=UTF-8", "-Dsun.jnu.encoding=UTF-8")
+            }
+        }
+    }
     buildFeatures {
         compose = true
         buildConfig = true
@@ -66,12 +77,6 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
-        }
-    }
-    testOptions {
-        unitTests {
-            isReturnDefaultValues = true
-            isIncludeAndroidResources = true
         }
     }
     lint {
@@ -158,4 +163,17 @@ dependencies {
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+}
+
+tasks.register<JavaExec>("runUnitTestsDirectly") {
+    dependsOn("compileDebugKotlin", "compileDebugUnitTestKotlin")
+    val debugClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debug")
+    val testClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest")
+    classpath = files(testClasses, debugClasses) + configurations.getByName("debugUnitTestRuntimeClasspath")
+    mainClass.set("org.junit.runner.JUnitCore")
+    args(
+        "com.aiassistant.ChatEnhancementsTest",
+        "com.aiassistant.RoleplayModelsTest",
+        "com.aiassistant.RoleplayParserAndStreamingTest"
+    )
 }

@@ -4,7 +4,7 @@
 
 Echo 是一个 Android 原生 AI API 客户端应用，用于调用 mimo、deepseek、OpenAI、Anthropic 等 AI 模型的 API。
 
-**当前版本**: v1.9.8
+**当前版本**: v1.9.10
 **数据库版本**: 20
 **技术栈**: Kotlin + Jetpack Compose + Room + Retrofit
 
@@ -24,7 +24,10 @@ Echo 是一个 Android 原生 AI API 客户端应用，用于调用 mimo、deeps
    - Git 提交号
    - 版本标签
    - 是否已完成网络备份
-5. 不允许提交本机敏感文件或构建产物，包括 `local.properties`、keystore、`.env`、`app/build/`、`.gradle/`、`releases/`、APK 文件等。
+5. **历史版本安装包永久保留准则（最高铁律）**：
+   - 绝对严禁删除、覆盖或清理 `releases/` 目录下的任何历史版本安装包；
+   - 每次发布新版本时只在 `releases/` 目录下增量输出新版本安装包，所有历史安装包必须永久保留。
+6. 不允许提交本机敏感文件或构建产物，包括 `local.properties`、keystore、`.env`、`app/build/`、`.gradle/` 等。
 
 ---
 

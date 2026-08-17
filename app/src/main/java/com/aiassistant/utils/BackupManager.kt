@@ -22,10 +22,8 @@ object BackupManager {
 
     // 获取备份目录
     private fun getBackupDir(context: Context): File {
-        val dir = File(
-            context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS),
-            BACKUP_DIR
-        )
+        val baseDir = context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS) ?: context.filesDir
+        val dir = File(baseDir, BACKUP_DIR)
         if (!dir.exists()) {
             dir.mkdirs()
         }

@@ -1071,7 +1071,10 @@ class AiRepository(
                                     val rawCompletionTokens = usage.completion_tokens ?: outputTokens
                                     thinkingTokens = usage.completion_tokens_details?.reasoning_tokens ?: thinkingTokens
                                     outputTokens = (rawCompletionTokens - thinkingTokens).coerceAtLeast(0)
-                                    cachedTokens = usage.prompt_tokens_details?.cached_tokens ?: cachedTokens
+                                    val parsedCached = extractCachedTokensFromUsage(usage)
+                                    if (parsedCached > 0) {
+                                        cachedTokens = parsedCached
+                                    }
                                     totalTokens = usage.total_tokens ?: (inputTokens + outputTokens + thinkingTokens)
                                 }
                             } catch (e: Exception) {
@@ -2621,5 +2624,17 @@ class AiRepository(
     suspend fun getCachedTokens(days: Int = 30): Int {
         val startTime = System.currentTimeMillis() - days * 24 * 60 * 60 * 1000L
         return usageStatDao.getCachedTokensSince(startTime) ?: 0
+    }
+
+    private fun extractCachedTokensFromUsage(usage: Usage?): Int {
+        if (usage == null) return 0
+        return usage.prompt_tokens_details?.cached_tokens
+            ?: usage.prompt_tokens_details?.cached_content_token_count
+            ?: usage.prompt_tokens_details?.cache_read_input_tokens
+            ?: usage.prompt_cache_hit_tokens
+            ?: usage.cached_tokens
+            ?: usage.cache_read_input_tokens
+            ?: usage.cached_content_token_count
+            ?: 0
     }
 }

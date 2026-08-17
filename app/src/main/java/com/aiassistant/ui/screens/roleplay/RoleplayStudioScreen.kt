@@ -38,6 +38,7 @@ import com.aiassistant.ui.components.EchoGlassCard
 import com.aiassistant.ui.components.EchoGlassDialog
 import com.aiassistant.ui.components.EchoPrimaryButton
 import com.aiassistant.ui.components.EchoGlassButton
+import com.aiassistant.ui.components.EchoGlassDropdownMenu
 import com.aiassistant.ui.components.rememberEchoHazeState
 import com.aiassistant.ui.theme.EchoTokens
 import com.aiassistant.utils.AnalyzedRoleplayBundle
@@ -1515,7 +1516,7 @@ private fun SmartAnalyzeStudioDialog(
                                 Icon(Icons.Default.ArrowDropDown, contentDescription = null)
                             }
                         }
-                        DropdownMenu(
+                        EchoGlassDropdownMenu(
                             expanded = configMenuExpanded,
                             onDismissRequest = { configMenuExpanded = false },
                             modifier = Modifier.heightIn(max = 280.dp)

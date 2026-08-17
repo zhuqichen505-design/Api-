@@ -399,9 +399,11 @@ abstract class AppDatabase : RoomDatabase() {
             .toTypedArray()
 
         private fun repairSchema(database: SupportSQLiteDatabase) {
-            repairTable(
-                database,
-                tableName = "folders",
+            database.execSQL("PRAGMA foreign_keys=OFF;")
+            try {
+                repairTable(
+                    database,
+                    tableName = "folders",
                 columns = listOf(
                     ColumnSpec("id", "INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL", "0"),
                     ColumnSpec("name", "TEXT NOT NULL", "'未命名'"),
@@ -711,7 +713,10 @@ abstract class AppDatabase : RoomDatabase() {
                 ),
                 indices = listOf("CREATE INDEX IF NOT EXISTS `index_character_tag_cross_ref_tagId` ON `character_tag_cross_ref` (`tagId`)")
             )
+        } finally {
+            database.execSQL("PRAGMA foreign_keys=ON;")
         }
+    }
 
         private fun repairTable(
             database: SupportSQLiteDatabase,

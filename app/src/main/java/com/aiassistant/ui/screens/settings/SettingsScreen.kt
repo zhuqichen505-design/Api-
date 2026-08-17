@@ -2,10 +2,12 @@
 
 package com.aiassistant.ui.screens.settings
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -23,12 +25,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.aiassistant.AiAssistantApp
@@ -40,6 +45,7 @@ import com.aiassistant.domain.model.EnvironmentVariable
 import com.aiassistant.domain.model.MemoryItem
 import com.aiassistant.domain.model.PromptTemplate
 import com.aiassistant.ui.components.EchoGlassDialog
+import com.aiassistant.ui.components.EchoGlassDropdownMenu
 import com.aiassistant.ui.components.echoFilterChipBorder
 import com.aiassistant.ui.components.echoFilterChipColors
 import com.aiassistant.ui.components.echoFilterChipElevation
@@ -134,6 +140,49 @@ private fun SettingsGlassCard(
 }
 
 @Composable
+private fun SettingsInputField(
+    title: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    placeholder: String = "",
+    singleLine: Boolean = true,
+    minLines: Int = 1,
+    maxLines: Int = if (singleLine) 1 else Int.MAX_VALUE,
+    visualTransformation: VisualTransformation = VisualTransformation.None,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default
+) {
+    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = if (placeholder.isNotBlank()) {
+                { Text(placeholder, style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp)) }
+            } else null,
+            singleLine = singleLine,
+            minLines = minLines,
+            maxLines = maxLines,
+            shape = SettingsInnerShape,
+            textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
+            visualTransformation = visualTransformation,
+            keyboardOptions = keyboardOptions,
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                focusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.45f),
+                unfocusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.28f)
+            )
+        )
+    }
+}
+
+@Composable
 fun SettingsScreen(
     onNavigateBack: () -> Unit,
     onNavigateToChat: (Long) -> Unit,
@@ -145,7 +194,94 @@ fun SettingsScreen(
         BackgroundImageManager.getHomeBackgroundBitmap(context)
     }
     val hazeState = rememberEchoHazeState()
+    val glass = echoGlassPalette()
     var selectedSection by remember { mutableStateOf<String?>(null) }
+    var hasUnsavedChanges by remember { mutableStateOf(false) }
+    var showUnsavedDialog by remember { mutableStateOf(false) }
+    var pendingBackAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var saveTrigger by remember { mutableStateOf(0) }
+
+    fun executeBack() {
+        if (selectedSection != null) {
+            selectedSection = null
+            hasUnsavedChanges = false
+        } else {
+            onNavigateBack()
+        }
+    }
+
+    fun handleBack() {
+        if (hasUnsavedChanges) {
+            pendingBackAction = { executeBack() }
+            showUnsavedDialog = true
+        } else {
+            executeBack()
+        }
+    }
+
+    BackHandler(enabled = selectedSection != null || hasUnsavedChanges) {
+        handleBack()
+    }
+
+    if (showUnsavedDialog) {
+        EchoGlassDialog(
+            hazeState = hazeState,
+            onDismissRequest = { showUnsavedDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.WarningAmber,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = "未保存的设置更改",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            },
+            content = {
+                Text(
+                    text = "检测到您修改了设置内容但尚未保存，是否保存后再退出？",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            },
+            buttons = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(onClick = {
+                        showUnsavedDialog = false
+                        hasUnsavedChanges = false
+                        pendingBackAction?.invoke()
+                        pendingBackAction = null
+                    }) {
+                        Text("直接放弃", color = MaterialTheme.colorScheme.error)
+                    }
+                    Spacer(modifier = Modifier.width(6.dp))
+                    TextButton(onClick = { showUnsavedDialog = false }) {
+                        Text("取消")
+                    }
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Button(onClick = {
+                        saveTrigger++
+                        showUnsavedDialog = false
+                        hasUnsavedChanges = false
+                        pendingBackAction?.invoke()
+                        pendingBackAction = null
+                    }) {
+                        Text("保存并返回")
+                    }
+                }
+            }
+        )
+    }
 
     Box(
         modifier = Modifier
@@ -170,24 +306,42 @@ fun SettingsScreen(
         Scaffold(
             containerColor = Color.Transparent,
             topBar = {
-                TopAppBar(
-                    title = { Text("设置") },
-                    navigationIcon = {
-                        IconButton(onClick = {
-                            if (selectedSection != null) {
-                                selectedSection = null
-                            } else {
-                                onNavigateBack()
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(glass.panelStrong)
+                        .border(
+                            BorderStroke(0.8.dp, glass.outline.copy(alpha = 0.4f)),
+                            RectangleShape
+                        )
+                ) {
+                    TopAppBar(
+                        title = {
+                            Text(
+                                text = when (selectedSection) {
+                                    null -> "设置"
+                                    "api_config" -> "API配置"
+                                    "personalization" -> "个性化与全局设定"
+                                    "web_search" -> "联网搜索"
+                                    "hidden_conversations" -> "其他对话"
+                                    "backup" -> "数据备份"
+                                    "about" -> "关于"
+                                    else -> "设置"
+                                },
+                                fontWeight = FontWeight.Bold
+                            )
+                        },
+                        navigationIcon = {
+                            IconButton(onClick = { handleBack() }) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                             }
-                        }) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = Color.Transparent,
-                        scrolledContainerColor = Color.Transparent
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = Color.Transparent,
+                            scrolledContainerColor = Color.Transparent
+                        )
                     )
-                )
+                }
             }
         ) { paddingValues ->
             when (selectedSection) {
@@ -201,9 +355,16 @@ fun SettingsScreen(
                     hazeState = hazeState,
                     modifier = Modifier.padding(paddingValues),
                     themeMode = themeMode,
-                    onThemeModeChange = onThemeModeChange
+                    onThemeModeChange = onThemeModeChange,
+                    onUnsavedStateChanged = { hasUnsavedChanges = it },
+                    saveTrigger = saveTrigger
                 )
-                "web_search" -> WebSearchTab(hazeState = hazeState, modifier = Modifier.padding(paddingValues))
+                "web_search" -> WebSearchTab(
+                    hazeState = hazeState,
+                    modifier = Modifier.padding(paddingValues),
+                    onUnsavedStateChanged = { hasUnsavedChanges = it },
+                    saveTrigger = saveTrigger
+                )
                 "hidden_conversations" -> HiddenConversationsTab(
                     hazeState = hazeState,
                     modifier = Modifier.padding(paddingValues),
@@ -357,49 +518,69 @@ fun SettingsMenuItem(
     onClick: () -> Unit
 ) {
     val itemShape = SettingsPanelShape
-    Surface(
+    val glass = echoGlassPalette()
+    Box(
         modifier = Modifier
             .fillMaxWidth()
+            .defaultMinSize(minHeight = 78.dp)
             .echoHazePanel(
                 hazeState = hazeState,
                 shape = itemShape,
-                tint = echoGlassPalette().panel,
+                tint = glass.panel,
                 blurRadius = 18.dp
             )
-            .echoShapeClick(itemShape, onClick = onClick),
-        shape = itemShape,
-        color = echoGlassPalette().panel,
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp
+            .background(glass.panel, itemShape)
+            .border(BorderStroke(1.dp, glass.outline), itemShape)
+            .echoShapeClick(itemShape, onClick = onClick)
     ) {
         Row(
             modifier = Modifier
-                .padding(16.dp)
+                .padding(horizontal = 16.dp, vertical = 14.dp)
                 .fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(32.dp)
-            )
-            Spacer(modifier = Modifier.width(16.dp))
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(14.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.titleMedium
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.SansSerif
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
+                Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontSize = 12.5.sp
+                    ),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
             Icon(
                 Icons.Default.ChevronRight,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                modifier = Modifier.size(20.dp)
             )
         }
     }
@@ -607,7 +788,9 @@ fun ApiConfigCard(
 @Composable
 fun WebSearchTab(
     hazeState: dev.chrisbanes.haze.HazeState,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onUnsavedStateChanged: (Boolean) -> Unit = {},
+    saveTrigger: Int = 0
 ) {
     val manager = AiAssistantApp.instance.tavilySearchManager
     var settings by remember { mutableStateOf(manager.getSettings()) }
@@ -618,6 +801,37 @@ fun WebSearchTab(
     var includeAnswer by remember(settings) { mutableStateOf(settings.includeAnswer) }
     var savedMessage by remember { mutableStateOf<String?>(null) }
 
+    val hasUnsaved = remember(settings, apiKey, enabled, searchDepth, maxResults, includeAnswer) {
+        apiKey != settings.apiKey ||
+        enabled != settings.enabled ||
+        searchDepth != settings.searchDepth ||
+        maxResults != settings.maxResults.toString() ||
+        includeAnswer != settings.includeAnswer
+    }
+
+    LaunchedEffect(hasUnsaved) {
+        onUnsavedStateChanged(hasUnsaved)
+    }
+
+    fun performSave() {
+        val newSettings = TavilySearchSettings(
+            enabled = enabled,
+            apiKey = apiKey,
+            searchDepth = searchDepth,
+            maxResults = maxResults.toIntOrNull()?.coerceIn(1, 20) ?: 8,
+            includeAnswer = includeAnswer
+        )
+        val ok = manager.saveSettings(newSettings)
+        settings = manager.getSettings()
+        savedMessage = if (ok) "联网搜索配置已保存" else "保存失败，请重试"
+    }
+
+    LaunchedEffect(saveTrigger) {
+        if (saveTrigger > 0) {
+            performSave()
+        }
+    }
+
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
@@ -625,98 +839,85 @@ fun WebSearchTab(
     ) {
         item {
             SettingsGlassCard(hazeState = hazeState) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Tavily 联网搜索", style = MaterialTheme.typography.titleMedium)
-                            Text(
-                                "开启后，对话里的智能搜索会先调用 Tavily，再把结果交给当前模型。",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Switch(
-                            checked = enabled,
-                            onCheckedChange = { enabled = it }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Tavily 联网搜索", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text(
+                            "开启后，对话里的智能搜索会先调用 Tavily，再把结果交给当前模型。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-
-                    OutlinedTextField(
-                        value = apiKey,
-                        onValueChange = { apiKey = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Tavily API Key") },
-                        placeholder = { Text("tvly-...") },
-                        singleLine = true
+                    Switch(
+                        checked = enabled,
+                        onCheckedChange = { enabled = it }
                     )
+                }
 
-                    Text(
-                        "Key 只保存在本机应用私有数据中，并使用 Android Keystore 加密；不会写入源码。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                SettingsInputField(
+                    title = "Tavily API Key",
+                    value = apiKey,
+                    onValueChange = { apiKey = it },
+                    placeholder = "tvly-..."
+                )
+
+                Text(
+                    "Key 只保存在本机应用私有数据中，并使用 Android Keystore 加密；不会写入源码。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
 
         item {
             SettingsGlassCard(hazeState = hazeState) {
-                    Text("搜索参数", style = MaterialTheme.typography.titleMedium)
+                Text("搜索参数", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("basic", "advanced").forEach { depth ->
-                            val selected = searchDepth == depth
-                            FilterChip(
-                                selected = selected,
-                                onClick = { searchDepth = depth },
-                                colors = echoFilterChipColors(),
-                                border = echoFilterChipBorder(selected),
-                                elevation = echoFilterChipElevation(),
-                                label = { Text(if (depth == "basic") "基础" else "深入") }
-                            )
-                        }
-                    }
-
-                    OutlinedTextField(
-                        value = maxResults,
-                        onValueChange = { value ->
-                            maxResults = value.filter { it.isDigit() }.take(2)
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("最大结果数 1-20") },
-                        singleLine = true
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("包含 Tavily 自动摘要", style = MaterialTheme.typography.bodyMedium)
-                        Switch(
-                            checked = includeAnswer,
-                            onCheckedChange = { includeAnswer = it }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("basic", "advanced").forEach { depth ->
+                        val selected = searchDepth == depth
+                        FilterChip(
+                            selected = selected,
+                            onClick = { searchDepth = depth },
+                            colors = echoFilterChipColors(),
+                            border = echoFilterChipBorder(selected),
+                            elevation = echoFilterChipElevation(),
+                            label = { Text(if (depth == "basic") "基础" else "深入") }
                         )
                     }
+                }
+
+                SettingsInputField(
+                    title = "最大结果数 (1-20)",
+                    value = maxResults,
+                    onValueChange = { value ->
+                        maxResults = value.filter { it.isDigit() }.take(2)
+                    },
+                    placeholder = "10",
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("包含 Tavily 自动摘要", style = MaterialTheme.typography.bodyMedium)
+                    Switch(
+                        checked = includeAnswer,
+                        onCheckedChange = { includeAnswer = it }
+                    )
+                }
             }
         }
 
         item {
             Button(
-                onClick = {
-                    val newSettings = TavilySearchSettings(
-                        enabled = enabled,
-                        apiKey = apiKey,
-                        searchDepth = searchDepth,
-                        maxResults = maxResults.toIntOrNull()?.coerceIn(1, 20) ?: 8,
-                        includeAnswer = includeAnswer
-                    )
-                    val ok = manager.saveSettings(newSettings)
-                    settings = manager.getSettings()
-                    savedMessage = if (ok) "联网搜索配置已保存" else "保存失败，请重试"
-                },
+                onClick = { performSave() },
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Icon(Icons.Default.Save, contentDescription = null)
@@ -742,12 +943,25 @@ fun PersonalizationTab(
     hazeState: dev.chrisbanes.haze.HazeState,
     modifier: Modifier = Modifier,
     themeMode: AppThemeMode,
-    onThemeModeChange: (AppThemeMode) -> Unit
+    onThemeModeChange: (AppThemeMode) -> Unit,
+    onUnsavedStateChanged: (Boolean) -> Unit = {},
+    saveTrigger: Int = 0
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val manager = AiAssistantApp.instance.personalizationManager
     val repository = AiAssistantApp.instance.repository
     val coroutineScope = rememberCoroutineScope()
+
+    var avatarBase64 by remember { mutableStateOf(AvatarManager.getAvatar(context)) }
+    val imagePickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let {
+            if (AvatarManager.saveAvatarFromUri(context, it)) {
+                avatarBase64 = AvatarManager.getAvatar(context)
+            }
+        }
+    }
 
     var settings by remember { mutableStateOf(manager.getSettings()) }
     var globalPrompt by remember(settings) { mutableStateOf(settings.globalSystemPrompt) }
@@ -768,6 +982,43 @@ fun PersonalizationTab(
     var chatFontSize by remember(settings) { mutableIntStateOf(settings.chatFontSize) }
     var fontSizeScale by remember(settings) { mutableFloatStateOf(settings.fontSizeScale) }
     var savedMessage by remember { mutableStateOf<String?>(null) }
+
+    val hasUnsaved = remember(settings, globalPrompt, instruction, autoMemoryEnabled, thinkingTemplate, chatFontSize, fontSizeScale) {
+        globalPrompt.trim() != settings.globalSystemPrompt.trim() ||
+        instruction.trim() != settings.aboutUser.trim() ||
+        autoMemoryEnabled != settings.autoMemoryEnabled ||
+        thinkingTemplate.trim() != settings.thinkingCapsuleTemplate.trim() ||
+        chatFontSize != settings.chatFontSize ||
+        fontSizeScale != settings.fontSizeScale
+    }
+
+    LaunchedEffect(hasUnsaved) {
+        onUnsavedStateChanged(hasUnsaved)
+    }
+
+    fun performSave() {
+        val saved = manager.saveSettings(
+            settings.copy(
+                globalSystemPrompt = globalPrompt.trim(),
+                aboutUser = instruction.trim(),
+                responseStyle = "",
+                preferences = "",
+                avoid = "",
+                autoMemoryEnabled = autoMemoryEnabled,
+                thinkingCapsuleTemplate = thinkingTemplate.trim().ifBlank { "{model} {status} {time} {tokens}" },
+                chatFontSize = chatFontSize,
+                fontSizeScale = fontSizeScale
+            )
+        )
+        settings = manager.getSettings()
+        savedMessage = if (saved) "已保存个性化与全局设定" else "保存失败，请重试"
+    }
+
+    LaunchedEffect(saveTrigger) {
+        if (saveTrigger > 0) {
+            performSave()
+        }
+    }
 
     // 背景图片管理
     var backgroundRevision by remember { mutableIntStateOf(0) }
@@ -813,6 +1064,109 @@ fun PersonalizationTab(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
+        // 0. 用户头像设置
+        item {
+            SettingsGlassCard(hazeState = hazeState) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.AccountCircle,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("用户头像", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text(
+                            "自定义用户气泡头像，支持选择相册图片",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(68.dp)
+                            .clip(CircleShape)
+                            .border(BorderStroke(1.5.dp, glass.outlineSelected), CircleShape)
+                            .echoShapeClick(CircleShape) {
+                                imagePickerLauncher.launch("image/*")
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (avatarBase64 != null) {
+                            val bitmap = remember(avatarBase64) {
+                                try {
+                                    val byteArray = android.util.Base64.decode(avatarBase64, android.util.Base64.NO_WRAP)
+                                    android.graphics.BitmapFactory.decodeByteArray(byteArray, 0, byteArray.size)
+                                } catch (e: Exception) { null }
+                            }
+                            if (bitmap != null) {
+                                androidx.compose.foundation.Image(
+                                    bitmap = bitmap.asImageBitmap(),
+                                    contentDescription = "用户头像",
+                                    modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                )
+                            }
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(MaterialTheme.colorScheme.primaryContainer),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Default.Person,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(36.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(16.dp))
+
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { imagePickerLauncher.launch("image/*") },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.PhotoCamera, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("上传新头像")
+                        }
+
+                        if (avatarBase64 != null) {
+                            OutlinedButton(
+                                onClick = {
+                                    AvatarManager.deleteAvatar(context)
+                                    avatarBase64 = null
+                                    savedMessage = "已恢复默认头像"
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("恢复默认头像")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // 1. 应用主题模式
         item {
             ThemeModeCard(
@@ -939,17 +1293,14 @@ fun PersonalizationTab(
                     }
                 }
 
-                OutlinedTextField(
+                SettingsInputField(
+                    title = "胶囊文案模板",
                     value = thinkingTemplate,
                     onValueChange = {
                         thinkingTemplate = it
                         savedMessage = null
                     },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("胶囊文案模板") },
-                    placeholder = { Text("{model} {status} {time} {tokens}") },
-                    singleLine = true,
-                    shape = SettingsInnerShape
+                    placeholder = "{model} {status} {time} {tokens}"
                 )
 
                 // 常用预设快捷填入
@@ -1864,12 +2215,11 @@ private fun PinField(
     onValueChange: (String) -> Unit,
     label: String
 ) {
-    OutlinedTextField(
+    SettingsInputField(
+        title = label,
         value = value,
         onValueChange = onValueChange,
-        modifier = Modifier.fillMaxWidth(),
-        label = { Text(label) },
-        singleLine = true,
+        placeholder = "请输入 6 位数字",
         visualTransformation = PasswordVisualTransformation(),
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword)
     )
@@ -2259,87 +2609,11 @@ fun AboutTab(
     hazeState: dev.chrisbanes.haze.HazeState,
     modifier: Modifier = Modifier
 ) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    var avatarBase64 by remember { mutableStateOf(AvatarManager.getAvatar(context)) }
-
-    val imagePickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
-        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
-    ) { uri ->
-        uri?.let {
-            if (AvatarManager.saveAvatarFromUri(context, it)) {
-                avatarBase64 = AvatarManager.getAvatar(context)
-            }
-        }
-    }
-
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // 用户头像设置
-        item {
-            SettingsGlassCard(hazeState = hazeState) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = "用户头像",
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Box(
-                        modifier = Modifier
-                            .size(80.dp)
-                            .echoShapeClick(CircleShape) {
-                                imagePickerLauncher.launch("image/*")
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (avatarBase64 != null) {
-                            val bitmap = remember(avatarBase64) {
-                                try {
-                                    val byteArray = android.util.Base64.decode(avatarBase64, android.util.Base64.NO_WRAP)
-                                    android.graphics.BitmapFactory.decodeByteArray(byteArray, 0, byteArray.size)
-                                } catch (e: Exception) { null }
-                            }
-                            if (bitmap != null) {
-                                androidx.compose.foundation.Image(
-                                    bitmap = bitmap.asImageBitmap(),
-                                    contentDescription = "用户头像",
-                                    modifier = Modifier.fillMaxSize().clip(CircleShape),
-                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                                )
-                            }
-                        } else {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.tertiary),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    Icons.Default.Person,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onTertiary,
-                                    modifier = Modifier.size(40.dp)
-                                )
-                            }
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "点击更换头像",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        }
-
         // 应用信息
         item {
             SettingsGlassCard(hazeState = hazeState) {
@@ -2582,64 +2856,58 @@ fun ApiConfigDialog(
 
                 // 配置名称
                 item {
-                    OutlinedTextField(
+                    SettingsInputField(
+                        title = "配置名称",
                         value = name,
                         onValueChange = { name = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("配置名称") },
-                        singleLine = true
+                        placeholder = "例如: 官方 OpenAI / 自定义中转"
                     )
                 }
 
                 // 提供商
                 item {
-                    OutlinedTextField(
+                    SettingsInputField(
+                        title = "提供商",
                         value = provider,
                         onValueChange = { provider = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("提供商") },
-                        singleLine = true
+                        placeholder = "例如: OpenAI / Anthropic / DeepSeek"
                     )
                 }
 
                 // Base URL
                 item {
-                    OutlinedTextField(
+                    SettingsInputField(
+                        title = "Base URL",
                         value = baseUrl,
                         onValueChange = { baseUrl = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Base URL") },
-                        placeholder = { Text("https://api.example.com/v1") },
-                        singleLine = true
+                        placeholder = "https://api.example.com/v1"
                     )
                 }
 
                 // API Key
                 item {
-                    OutlinedTextField(
+                    SettingsInputField(
+                        title = "API Key",
                         value = apiKey,
                         onValueChange = { apiKey = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("API Key") },
-                        singleLine = true
+                        placeholder = "sk-..."
                     )
                 }
 
                 // 模型选择
                 item {
-                    Column {
-                        OutlinedTextField(
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        SettingsInputField(
+                            title = "此 API 的默认模型",
                             value = modelName,
                             onValueChange = { modelName = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            label = { Text("此 API 的默认模型") },
-                            singleLine = true
+                            placeholder = "例如: deepseek-chat / gpt-4o"
                         )
                         Text(
                             text = "新对话会先使用标记为“新对话默认API”的配置，再使用这里设置的默认模型。",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 4.dp)
+                            modifier = Modifier.padding(top = 2.dp)
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         OutlinedButton(
@@ -2893,7 +3161,7 @@ private fun ModelDisplaySelectionRow(
             IconButton(onClick = { expanded = true }) {
                 Icon(Icons.Default.MoreVert, contentDescription = "模型能力")
             }
-            DropdownMenu(
+            EchoGlassDropdownMenu(
                 expanded = expanded,
                 onDismissRequest = { expanded = false }
             ) {

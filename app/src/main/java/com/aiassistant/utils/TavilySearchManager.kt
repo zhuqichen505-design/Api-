@@ -34,15 +34,18 @@ data class WebSearchBundle(
         }.joinToString("\n\n")
 
         return buildString {
-            append("以下是联网搜索得到的参考资料。回答时优先依据这些资料；如果资料不足，请明确说明不确定。")
+            append("以下是联网搜索得到的实时参考资料。")
             append("\n搜索词：").append(query)
             if (!answer.isNullOrBlank()) {
                 append("\n\n搜索摘要：").append(answer.trim())
             }
             if (sources.isNotBlank()) {
-                append("\n\n来源资料：\n").append(sources)
+                append("\n\n参考来源：\n").append(sources)
             }
-            append("\n\n回答末尾必须添加「资料来源」小节，完整列出上面所有来源，格式使用 Markdown 链接：[标题](链接)。")
+            append("\n\n【回答规范】")
+            append("\n1. 优先依据上述参考资料回答，确保信息客观真实；")
+            append("\n2. 正文引用了哪一部分资料时，必须在对应句子或短语右侧标注序号角标，例如「根据报道[1]」或「[2]」；")
+            append("\n3. 回答末尾可附带简洁的「参考资料」列表。")
         }
     }
 }

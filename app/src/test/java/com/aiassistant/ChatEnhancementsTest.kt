@@ -55,14 +55,53 @@ class ChatEnhancementsTest {
     }
 
     @Test
-    fun testModelDisplayNameResolution() {
-        fun resolveModelName(optionModel: String?, convModel: String?): String {
-            return optionModel?.ifBlank { null } ?: convModel?.ifBlank { null } ?: "AI"
+    fun testThinkingCapsuleTextFormatting() {
+        fun formatCapsule(isThinkingActive: Boolean, modelName: String, timeMs: Long, thinkingTokens: Int, totalTokens: Int): String {
+            return when {
+                isThinkingActive -> "模型正在思考中"
+                thinkingTokens > 0 -> "$modelName 已深度思考 (${timeMs / 1000.0}s, $thinkingTokens tokens)"
+                else -> modelName
+            }
         }
 
-        assertEquals("gpt-4o", resolveModelName("gpt-4o", "gpt-3.5-turbo"))
-        assertEquals("deepseek-chat", resolveModelName(null, "deepseek-chat"))
-        assertEquals("AI", resolveModelName(null, null))
-        assertEquals("AI", resolveModelName("", ""))
+        assertEquals("模型正在思考中", formatCapsule(true, "DeepSeek", 0L, 0, 0))
+        assertEquals("DeepSeek 已深度思考 (2.5s, 350 tokens)", formatCapsule(false, "DeepSeek", 2500L, 350, 500))
+        assertEquals("GPT-4o", formatCapsule(false, "GPT-4o", 1200L, 0, 150))
+    }
+
+    @Test
+    fun testHtmlEntityDecoding() {
+        fun decodeEntities(input: String): String {
+            return input
+                .replace("&nbsp;", " ")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&amp;", "&")
+                .replace("&quot;", "\"")
+                .replace("&apos;", "'")
+        }
+
+        val htmlText = "&lt;div class=&quot;box&quot;&gt;Hello &amp; Welcome&lt;/div&gt;"
+        assertEquals("<div class=\"box\">Hello & Welcome</div>", decodeEntities(htmlText))
+    }
+
+    @Test
+    fun testMarkdownHeadingLevels() {
+        fun parseHeadingLevel(line: String): Int {
+            return when {
+                line.startsWith("###### ") -> 6
+                line.startsWith("##### ") -> 5
+                line.startsWith("#### ") -> 4
+                line.startsWith("### ") -> 3
+                line.startsWith("## ") -> 2
+                line.startsWith("# ") -> 1
+                else -> 0
+            }
+        }
+
+        assertEquals(1, parseHeadingLevel("# 一级标题"))
+        assertEquals(5, parseHeadingLevel("##### 五级标题"))
+        assertEquals(6, parseHeadingLevel("###### 六级标题"))
+        assertEquals(0, parseHeadingLevel("普通文本"))
     }
 }

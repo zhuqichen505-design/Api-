@@ -37,6 +37,7 @@ import androidx.compose.ui.graphics.takeOrElse
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextAlign
@@ -66,6 +67,7 @@ import com.aiassistant.ui.components.SideAnchorItem
 import com.aiassistant.ui.components.SideAnchorNavigator
 import com.aiassistant.ui.components.TransientLazyListScrollbar
 import com.aiassistant.ui.components.EchoGlassDialog
+import com.aiassistant.ui.components.EchoGlassDropdownMenu
 import com.aiassistant.ui.components.echoFilterChipBorder
 import com.aiassistant.ui.components.echoFilterChipColors
 import com.aiassistant.ui.components.echoFilterChipElevation
@@ -131,6 +133,7 @@ fun ChatScreen(
     val currentModelOption by viewModel.currentModelOption.collectAsState()
     val tempSettings by viewModel.tempSettings.collectAsState()
     val contextUsage by viewModel.contextUsage.collectAsState()
+    val messageModelMap by viewModel.messageModelMap.collectAsState()
 
     val hazeState = rememberEchoHazeState()
     val readableBackdrops = rememberReadableBackdropColors(chatBackgroundBitmap)
@@ -225,68 +228,55 @@ fun ChatScreen(
         addAttachments(uris, forceOcr = true)
     }
 
+    var prevMessagesCount by remember { mutableIntStateOf(messages.size) }
+
     LaunchedEffect(listState) {
         snapshotFlow {
-            val info = listState.layoutInfo
-            val lastVisibleIndex = info.visibleItemsInfo.lastOrNull()?.index ?: 0
-            val totalItems = info.totalItemsCount
-            ScrollFollowSnapshot(
-                isScrolling = listState.isScrollInProgress,
-                lastVisibleIndex = lastVisibleIndex,
-                totalItems = totalItems
-            )
-        }.collect { snapshot ->
-            if (snapshot.isScrolling && snapshot.totalItems > 0) {
-                autoFollowOutput = snapshot.isAtBottom
+            val layoutInfo = listState.layoutInfo
+            val visibleItems = layoutInfo.visibleItemsInfo
+            if (layoutInfo.totalItemsCount == 0 || visibleItems.isEmpty()) {
+                true
+            } else {
+                val lastItem = visibleItems.last()
+                val isLastItem = lastItem.index == layoutInfo.totalItemsCount - 1
+                val viewportBottom = layoutInfo.viewportEndOffset - layoutInfo.afterContentPadding
+                isLastItem && (lastItem.offset + lastItem.size <= viewportBottom + 80)
+            }
+        }.collect { atBottom ->
+            if (listState.isScrollInProgress) {
+                autoFollowOutput = atBottom
             }
         }
     }
 
-    // 仅在用户停留底部时跟随流式输出；用户上滑阅读时不抢夺滚动位置。
-    LaunchedEffect(messages.size, currentResponse.length, currentThinking.length, isGenerating) {
-        if (preserveScrollForBranchGeneration) {
+    LaunchedEffect(messages.size) {
+        val prev = prevMessagesCount
+        prevMessagesCount = messages.size
+        if (messages.size <= prev) {
             return@LaunchedEffect
         }
-        if (!autoFollowOutput) {
-            return@LaunchedEffect
-        }
-        if (listState.isScrollInProgress) {
-            return@LaunchedEffect
-        }
-        if (messages.isNotEmpty() || currentResponse.isNotEmpty() || currentThinking.isNotEmpty() || isGenerating) {
-            val layoutInfo = listState.layoutInfo
-            val lastVisibleIndex = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-            val isStreaming = currentResponse.isNotEmpty() || currentThinking.isNotEmpty()
-            // 流式输出时仅当页面处于最底端时页面才会跟着流式输出滑动
-            if (isStreaming) {
-                if (layoutInfo.totalItemsCount > 0 && lastVisibleIndex < layoutInfo.totalItemsCount - 2) {
-                    autoFollowOutput = false
-                    return@LaunchedEffect
-                }
-            } else {
-                if (layoutInfo.totalItemsCount > 0 && lastVisibleIndex < layoutInfo.totalItemsCount - 2) {
-                    autoFollowOutput = false
-                    return@LaunchedEffect
-                }
+        if (autoFollowOutput && !preserveScrollForBranchGeneration && !listState.isScrollInProgress) {
+            val totalCount = listState.layoutInfo.totalItemsCount
+            if (totalCount > 0) {
+                try {
+                    listState.animateScrollToItem((totalCount - 1).coerceAtLeast(0))
+                } catch (_: Exception) {}
             }
-            val now = System.currentTimeMillis()
-            if (isStreaming) {
-                val elapsed = now - lastStreamScrollAt
-                if (elapsed < 60L) {
-                    kotlinx.coroutines.delay(60L - elapsed)
-                }
-            } else {
-                kotlinx.coroutines.delay(16)
-            }
+        }
+    }
+
+    LaunchedEffect(currentResponse.length, currentThinking.length, isGenerating) {
+        if (preserveScrollForBranchGeneration || !autoFollowOutput || listState.isScrollInProgress) {
+            return@LaunchedEffect
+        }
+        val isStreaming = isGenerating && (currentResponse.isNotEmpty() || currentThinking.isNotEmpty())
+        if (isStreaming) {
             val totalCount = listState.layoutInfo.totalItemsCount
             if (totalCount > 0) {
                 val targetIndex = (totalCount - 1).coerceAtLeast(0)
                 try {
                     listState.scrollToItem(targetIndex)
-                    lastStreamScrollAt = System.currentTimeMillis()
-                } catch (e: Exception) {
-                    // 忽略并发或布局变更时的滚动中断
-                }
+                } catch (_: Exception) {}
             }
         }
     }
@@ -529,6 +519,9 @@ fun ChatScreen(
                         key = { item -> item.groupId ?: "${item.message.id}_${item.message.createdAt}_${item.message.role}" }
                     ) { displayItem ->
                         val message = displayItem.message
+                        val resolvedAssistantModelName = messageModelMap[message.id]
+                            ?: messageModelMap[message.createdAt]
+                            ?: currentAssistantModelName
                         Column(modifier = Modifier.fillMaxWidth()) {
                             MessageBubble(
                                 message = message,
@@ -536,7 +529,7 @@ fun ChatScreen(
                                 readableBackdrop = readableBackdrops.content,
                                 assistantAvatarRevision = modelAvatarRevision,
                                 assistantApiConfigId = currentModelOption?.apiConfigId,
-                                assistantModelName = currentAssistantModelName,
+                                assistantModelName = resolvedAssistantModelName,
                                 variantInfo = displayItem.variantInfo,
                                 onVariantSelected = { groupId, index ->
                                     variantSelections[groupId] = index
@@ -1460,6 +1453,18 @@ private fun MessageBubble(
         }
     }
 
+    var activeCitation by remember { mutableStateOf<CitationInfo?>(null) }
+    val citations = remember(message.content) {
+        if (!isUser) extractCitationsFromContent(message.content) else emptyList()
+    }
+
+    if (activeCitation != null) {
+        CitationDetailDialog(
+            citation = activeCitation!!,
+            onDismiss = { activeCitation = null }
+        )
+    }
+
     @Composable
     fun MessageContent(contentColor: Color) {
         Column(
@@ -1481,8 +1486,19 @@ private fun MessageBubble(
                 } else {
                     MarkdownText(
                         content = message.content,
-                        color = contentColor
+                        color = contentColor,
+                        onCitationClick = { id ->
+                            activeCitation = citations.find { it.index == id }
+                                ?: CitationInfo(id, "参考资料 $id", "https://www.google.com/search?q=$id")
+                        }
                     )
+                    if (citations.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        CitationsCardsRow(
+                            citations = citations,
+                            onCitationClick = { activeCitation = it }
+                        )
+                    }
                 }
             } else if (!isGenerating && !hasThinking && attachments.isEmpty()) {
                 Text(
@@ -1591,10 +1607,14 @@ private fun MessageBubble(
                     val personalizationSettings = remember {
                         AiAssistantApp.instance.personalizationManager.getSettings()
                     }
+                    val isConnecting = isGenerating && message.content.isBlank() && !hasThinking
+                    val isThinkingActive = isGenerating && hasThinking && message.content.isBlank()
                     val capsuleText = remember(
                         assistantModelName,
                         hasThinking,
                         isGenerating,
+                        isConnecting,
+                        isThinkingActive,
                         message.content,
                         message.responseTime,
                         message.thinkingTokens,
@@ -1602,23 +1622,26 @@ private fun MessageBubble(
                         personalizationSettings.thinkingCapsuleTemplate
                     ) {
                         val model = assistantModelName.ifBlank { "AI" }
-                        if (hasThinking) {
-                            formatThinkingCapsuleText(
+                        when {
+                            isConnecting -> "正在连接 $model..."
+                            isThinkingActive -> "模型正在思考中"
+                            hasThinking -> formatThinkingCapsuleText(
                                 template = personalizationSettings.thinkingCapsuleTemplate,
                                 modelName = model,
-                                isThinkingActive = isGenerating && message.content.isBlank(),
+                                isThinkingActive = false,
                                 responseTimeMs = message.responseTime,
                                 thinkingTokens = message.thinkingTokens,
                                 totalTokens = message.tokenCount
                             )
-                        } else {
-                            model
+                            else -> model
                         }
                     }
 
+                    val isBlueCapsule = hasThinking || isConnecting
                     val capsuleShape = RoundedCornerShape(999.dp)
                     Surface(
                         modifier = Modifier
+                            .defaultMinSize(minHeight = 34.dp)
                             .then(
                                 if (hasThinking && hasThinkingContent) {
                                     Modifier.echoShapeClick(capsuleShape) { showThinking = !showThinking }
@@ -1629,26 +1652,32 @@ private fun MessageBubble(
                                     Modifier.echoHazePanel(
                                         hazeState = hazeState,
                                         shape = capsuleShape,
-                                        tint = if (hasThinking) thinkingBubbleColor else glass.control,
+                                        tint = if (isBlueCapsule) thinkingBubbleColor else glass.control,
                                         blurRadius = 12.dp,
                                         highlightAlpha = 0.03f
                                     )
                                 } else Modifier
                             ),
-                        color = if (hasThinking) thinkingBubbleColor else glass.control,
-                        contentColor = if (hasThinking) thinkingContentColor else MaterialTheme.colorScheme.primary,
+                        color = if (isBlueCapsule) thinkingBubbleColor else glass.control,
+                        contentColor = if (isBlueCapsule) thinkingContentColor else MaterialTheme.colorScheme.primary,
                         shape = capsuleShape,
                         border = BorderStroke(
                             1.dp,
-                            if (hasThinking) glass.outlineSelected.copy(alpha = 0.72f) else glass.outline
+                            if (isBlueCapsule) glass.outlineSelected.copy(alpha = 0.72f) else glass.outline
                         )
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            if (hasThinking) {
+                            if (isConnecting || isThinkingActive) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(13.dp),
+                                    strokeWidth = 1.8.dp,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            } else if (hasThinking) {
                                 Icon(
                                     Icons.Default.Psychology,
                                     contentDescription = null,
@@ -1768,32 +1797,6 @@ private fun MessageBubble(
                                         color = MaterialTheme.colorScheme.onErrorContainer
                                     )
                                 }
-                            }
-                        }
-                    } else if (isGenerating && message.content.isBlank() && !hasThinking) {
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                            shape = RoundedCornerShape(14.dp),
-                            color = glass.controlSelected.copy(alpha = 0.5f),
-                            border = BorderStroke(1.dp, glass.outlineSelected.copy(alpha = 0.4f))
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(16.dp),
-                                    strokeWidth = 2.dp,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                                Text(
-                                    text = "正在连接模型响应中...",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
                             }
                         }
                     } else {
@@ -2399,13 +2402,9 @@ fun ChatInputBar(
                         ) {
                             Icon(Icons.Default.Add, contentDescription = "添加内容", modifier = Modifier.size(20.dp))
                         }
-                        DropdownMenu(
+                        EchoGlassDropdownMenu(
                             expanded = showToolMenu,
-                            onDismissRequest = { showToolMenu = false },
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(18.dp))
-                                .background(glass.panelStrong)
-                                .border(BorderStroke(1.dp, glass.outline), RoundedCornerShape(18.dp))
+                            onDismissRequest = { showToolMenu = false }
                         ) {
                             DropdownMenuItem(
                                 text = { Text("上传图片", fontWeight = FontWeight.Medium) },
@@ -2510,7 +2509,7 @@ private fun InputModelSelector(
             onClick = { expanded = true }
         )
 
-        DropdownMenu(
+        EchoGlassDropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
             modifier = Modifier.heightIn(max = 280.dp)
@@ -3123,7 +3122,7 @@ fun ModelSelector(
             }
         }
 
-        DropdownMenu(
+        EchoGlassDropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
             modifier = Modifier.heightIn(max = 280.dp)
@@ -3221,7 +3220,7 @@ fun ModelSelector(
             }
         }
 
-        DropdownMenu(
+        EchoGlassDropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
             modifier = Modifier.heightIn(max = 280.dp)
@@ -3358,7 +3357,7 @@ private fun ChatSettingsModelSelector(
                 Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = secondaryColor)
             }
 
-            DropdownMenu(
+            EchoGlassDropdownMenu(
                 expanded = expanded,
                 onDismissRequest = { expanded = false },
                 modifier = Modifier.heightIn(max = 280.dp)
@@ -3995,7 +3994,10 @@ private fun StoryUnifiedSettingsDialog(
 
     // 模型与参数 Tab 状态
     var temperature by remember { mutableFloatStateOf(tempSettings.temperature) }
-    var maxTokens by remember { mutableStateOf(tempSettings.maxTokens.toString()) }
+    var maxTokens by remember {
+        val currentMax = tempSettings.maxTokens.takeIf { it > 4096 } ?: 8192
+        mutableStateOf(currentMax.toString())
+    }
     var topP by remember { mutableFloatStateOf(tempSettings.topP) }
     var enableThinking by remember { mutableStateOf(tempSettings.enableThinking) }
     var thinkingEffort by remember { mutableStateOf(tempSettings.thinkingEffort) }
@@ -4883,12 +4885,11 @@ private fun EditableSettingProposalDialog(
                 }
 
                 // 3. 世界观更新
-                if (scenario != null) {
+                scenario?.let { sc ->
                     item {
                         Text("🌍 世界观与规则设定更新", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
                     }
                     item {
-                        val sc = scenario!!
                         val summaryText = proposal.scenarioUpdate?.summaryOfChanges ?: "世界观完善"
                         EchoGlassCard(
                             modifier = Modifier.fillMaxWidth(),
@@ -4913,28 +4914,28 @@ private fun EditableSettingProposalDialog(
                                 }
                                 OutlinedTextField(
                                     value = sc.name,
-                                    onValueChange = { scenario = sc.copy(name = it) },
+                                    onValueChange = { newName -> scenario = sc.copy(name = newName) },
                                     label = { Text("世界观名称") },
                                     singleLine = true,
                                     modifier = Modifier.fillMaxWidth()
                                 )
                                 OutlinedTextField(
                                     value = sc.worldview,
-                                    onValueChange = { scenario = sc.copy(worldview = it) },
+                                    onValueChange = { newWv -> scenario = sc.copy(worldview = newWv) },
                                     label = { Text("世界观法则与背景") },
                                     modifier = Modifier.fillMaxWidth(),
                                     maxLines = 3
                                 )
                                 OutlinedTextField(
                                     value = sc.rules,
-                                    onValueChange = { scenario = sc.copy(rules = it) },
+                                    onValueChange = { newRules -> scenario = sc.copy(rules = newRules) },
                                     label = { Text("不可违背的法则") },
                                     modifier = Modifier.fillMaxWidth(),
                                     maxLines = 2
                                 )
                                 OutlinedTextField(
                                     value = sc.premise,
-                                    onValueChange = { scenario = sc.copy(premise = it) },
+                                    onValueChange = { newPremise -> scenario = sc.copy(premise = newPremise) },
                                     label = { Text("当前剧情前提") },
                                     modifier = Modifier.fillMaxWidth(),
                                     maxLines = 2
@@ -5176,5 +5177,230 @@ private fun SmartAppendStoryDialog(
                 }
             }
         )
+    }
+}
+
+data class CitationInfo(
+    val index: Int,
+    val title: String,
+    val url: String,
+    val snippet: String = ""
+)
+
+fun extractCitationsFromContent(content: String): List<CitationInfo> {
+    val list = mutableListOf<CitationInfo>()
+    val regex = Regex("""\[(\d+)\]\s*\[(.*?)\]\((https?://[^\s)]+)\)""")
+    regex.findAll(content).forEach { match ->
+        val id = match.groupValues[1].toIntOrNull() ?: (list.size + 1)
+        val title = match.groupValues[2].ifBlank { "参考网页 $id" }
+        val url = match.groupValues[3].trim()
+        if (list.none { it.url == url || it.index == id }) {
+            list.add(CitationInfo(id, title, url))
+        }
+    }
+    if (list.isEmpty()) {
+        val generalRegex = Regex("""\[(.*?)\]\((https?://[^\s)]+)\)""")
+        generalRegex.findAll(content).forEachIndexed { idx, match ->
+            val title = match.groupValues[1].ifBlank { "参考网页 ${idx + 1}" }
+            val url = match.groupValues[2].trim()
+            if (list.none { it.url == url }) {
+                list.add(CitationInfo(idx + 1, title, url))
+            }
+        }
+    }
+    return list
+}
+
+@Composable
+fun CitationsCardsRow(
+    citations: List<CitationInfo>,
+    onCitationClick: (CitationInfo) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val glass = echoGlassPalette()
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Icon(
+                Icons.Default.Language,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(14.dp)
+            )
+            Text(
+                text = "参考资料来源 (${citations.size})",
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.Bold
+                ),
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            citations.forEach { citation ->
+                val cardShape = RoundedCornerShape(10.dp)
+                Box(
+                    modifier = Modifier
+                        .clip(cardShape)
+                        .background(glass.control.copy(alpha = 0.65f))
+                        .border(BorderStroke(0.8.dp, glass.outline.copy(alpha = 0.5f)), cardShape)
+                        .echoShapeClick(cardShape) { onCitationClick(citation) }
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = "[${citation.index}]",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = citation.title,
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.5.sp),
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.widthIn(max = 140.dp)
+                        )
+                        Icon(
+                            Icons.Default.OpenInNew,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            modifier = Modifier.size(12.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun CitationDetailDialog(
+    citation: CitationInfo,
+    onDismiss: () -> Unit
+) {
+    val uriHandler = LocalUriHandler.current
+    val clipboardManager = LocalClipboardManager.current
+    val glass = echoGlassPalette()
+    var copied by remember { mutableStateOf(false) }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .wrapContentHeight(),
+            shape = RoundedCornerShape(22.dp),
+            color = glass.panelStrong,
+            border = BorderStroke(1.dp, glass.outline)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "[${citation.index}]",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    Text(
+                        text = citation.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = "参考网址来源 (可长按文本选中)：",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    androidx.compose.foundation.text.selection.SelectionContainer {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color.Black.copy(alpha = 0.08f))
+                                .padding(10.dp)
+                        ) {
+                            Text(
+                                text = citation.url,
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    fontFamily = FontFamily.Monospace,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            )
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text("关闭")
+                    }
+                    Spacer(modifier = Modifier.width(6.dp))
+                    OutlinedButton(
+                        onClick = {
+                            clipboardManager.setText(AnnotatedString(citation.url))
+                            copied = true
+                        }
+                    ) {
+                        Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(if (copied) "已复制网址" else "复制网址")
+                    }
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Button(
+                        onClick = {
+                            runCatching<Unit> { uriHandler.openUri(citation.url) }
+                            onDismiss()
+                        }
+                    ) {
+                        Icon(Icons.Default.OpenInBrowser, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("打开网页")
+                    }
+                }
+            }
+        }
     }
 }

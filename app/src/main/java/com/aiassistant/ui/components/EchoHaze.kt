@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -272,6 +273,16 @@ fun EchoGlassDialog(
             decorFitsSystemWindows = false
         )
     ) {
+        val view = androidx.compose.ui.platform.LocalView.current
+        androidx.compose.runtime.DisposableEffect(view) {
+            val dialogWindow = (view.parent as? androidx.compose.ui.window.DialogWindowProvider)?.window
+            dialogWindow?.let { win ->
+                win.setBackgroundDrawableResource(android.R.color.transparent)
+                win.setDimAmount(0f)
+            }
+            onDispose {}
+        }
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -368,4 +379,39 @@ fun EchoGlassDialog(
             }
         }
     )
+}
+
+@Composable
+fun EchoGlassDropdownMenu(
+    expanded: Boolean,
+    onDismissRequest: () -> Unit,
+    modifier: Modifier = Modifier,
+    offset: androidx.compose.ui.unit.DpOffset = androidx.compose.ui.unit.DpOffset(0.dp, 0.dp),
+    properties: androidx.compose.ui.window.PopupProperties = androidx.compose.ui.window.PopupProperties(focusable = true),
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val glass = echoGlassPalette()
+    val menuShape = RoundedCornerShape(18.dp)
+    MaterialTheme(
+        colorScheme = MaterialTheme.colorScheme.copy(
+            surface = glass.panelStrong,
+            surfaceContainer = glass.panelStrong,
+            surfaceContainerHigh = glass.panelStrong,
+            surfaceContainerHighest = glass.panelStrong
+        ),
+        shapes = MaterialTheme.shapes.copy(
+            extraSmall = menuShape,
+            small = menuShape,
+            medium = menuShape
+        )
+    ) {
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = onDismissRequest,
+            modifier = modifier.border(BorderStroke(1.dp, glass.outline), menuShape),
+            offset = offset,
+            properties = properties,
+            content = content
+        )
+    }
 }

@@ -366,11 +366,19 @@ data class Usage(
     val completion_tokens: Int?,
     val total_tokens: Int?,
     val prompt_tokens_details: PromptTokensDetails? = null,
-    val completion_tokens_details: CompletionTokensDetails? = null
+    val completion_tokens_details: CompletionTokensDetails? = null,
+    val prompt_cache_hit_tokens: Int? = null,
+    val prompt_cache_miss_tokens: Int? = null,
+    val cached_tokens: Int? = null,
+    val cache_read_input_tokens: Int? = null,
+    val cache_creation_input_tokens: Int? = null,
+    val cached_content_token_count: Int? = null
 )
 
 data class PromptTokensDetails(
-    val cached_tokens: Int? = null
+    val cached_tokens: Int? = null,
+    val cached_content_token_count: Int? = null,
+    val cache_read_input_tokens: Int? = null
 )
 
 data class CompletionTokensDetails(

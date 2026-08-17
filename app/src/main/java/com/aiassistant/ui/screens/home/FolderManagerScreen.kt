@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import com.aiassistant.AiAssistantApp
 import com.aiassistant.domain.model.Folder
 import com.aiassistant.ui.components.EchoGlassDialog
+import com.aiassistant.ui.components.EchoGlassDropdownMenu
 import com.aiassistant.ui.components.EchoGlassPagePanelShape
 import com.aiassistant.ui.components.EchoWallpaperBackground
 import com.aiassistant.ui.components.echoGlassPalette
@@ -275,7 +276,7 @@ fun FolderItem(
                     IconButton(onClick = { showMenu = true }) {
                         Icon(Icons.Default.MoreVert, contentDescription = "更多")
                     }
-                    DropdownMenu(
+                    EchoGlassDropdownMenu(
                         expanded = showMenu,
                         onDismissRequest = { showMenu = false }
                     ) {

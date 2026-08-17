@@ -61,6 +61,10 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
     private val _contextUsage = MutableStateFlow(ContextUsageUiState())
     val contextUsage: StateFlow<ContextUsageUiState> = _contextUsage.asStateFlow()
 
+    private val _messageModelMap = MutableStateFlow<Map<Long, String>>(emptyMap())
+    val messageModelMap: StateFlow<Map<Long, String>> = _messageModelMap.asStateFlow()
+    private val runtimeMessageModelMap = java.util.concurrent.ConcurrentHashMap<Long, String>()
+
     private var conversation: Conversation? = null
     private var apiConfig: ApiConfig? = null
     private var generationJob: Job? = null
@@ -72,6 +76,15 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
     init {
         loadConversation()
         loadPromptTemplates()
+        observeUsageStatsForModels()
+    }
+
+    private fun observeUsageStatsForModels() {
+        viewModelScope.launch {
+            repository.getAllUsageStats().collect {
+                updateMessageModelMap(_messages.value)
+            }
+        }
     }
 
     private fun loadConversation() {
@@ -131,6 +144,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
             repository.getMessages(conversationId).collect { messageList ->
                 _messages.value = messageList
                 refreshContextUsage()
+                updateMessageModelMap(messageList)
             }
         }
     }
@@ -481,6 +495,9 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
             _currentResponse.value = ""
             _currentThinking.value = ""
             _error.value = null
+            val currentCallingModel = selectedOption.modelName
+            val requestStartTime = System.currentTimeMillis()
+            runtimeMessageModelMap[requestStartTime] = currentCallingModel
 
             try {
                 if (saveUserMessage) {
@@ -1358,6 +1375,37 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                 withContext(Dispatchers.Main) {
                     onError(e.message ?: "提炼失败")
                 }
+            }
+        }
+    }
+
+    private fun updateMessageModelMap(messageList: List<Message>) {
+        viewModelScope.launch {
+            val stats = repository.getUsageStatsListByTimeRange(0, System.currentTimeMillis())
+            val defaultModel = conversation?.modelName.orEmpty()
+            val currentMap = _messageModelMap.value.toMutableMap()
+            var changed = false
+
+            messageList.filter { it.role == "assistant" }.forEach { msg ->
+                if (!currentMap.containsKey(msg.id)) {
+                    val matchingStat = stats.filter {
+                        Math.abs(it.timestamp - msg.createdAt) < 15000L ||
+                        (it.responseTime > 0 && it.responseTime == msg.responseTime)
+                    }.minByOrNull { Math.abs(it.timestamp - msg.createdAt) }
+
+                    val model = matchingStat?.modelName?.ifBlank { null }
+                        ?: runtimeMessageModelMap[msg.createdAt]
+                        ?: defaultModel.ifBlank { null }
+
+                    if (!model.isNullOrBlank()) {
+                        currentMap[msg.id] = model
+                        currentMap[msg.createdAt] = model
+                        changed = true
+                    }
+                }
+            }
+            if (changed) {
+                _messageModelMap.value = currentMap
             }
         }
     }

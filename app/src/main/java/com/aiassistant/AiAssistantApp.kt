@@ -123,6 +123,38 @@ class AiAssistantApp : Application() {
         } catch (e: Exception) {
             Log.e("AiAssistantApp", "Backup restore failed", e)
         }
+
+        // 最终兜底：如果依然未初始化成功，确保 repository 被安全创建，杜绝闪退
+        if (!isDatabaseInitialized) {
+            try {
+                database = AppDatabase.getDatabase(this)
+                repository = AiRepository(
+                    folderDao = database.folderDao(),
+                    apiConfigDao = database.apiConfigDao(),
+                    conversationDao = database.conversationDao(),
+                    messageDao = database.messageDao(),
+                    usageStatDao = database.usageStatDao(),
+                    environmentVariableDao = database.environmentVariableDao(),
+                    promptTemplateDao = database.promptTemplateDao(),
+                    memoryDao = database.memoryDao(),
+                    conversationBranchDao = database.conversationBranchDao(),
+                    selectedModelDao = database.selectedModelDao(),
+                    cryptoManager = cryptoManager,
+                    personalizationManager = personalizationManager,
+                    tavilySearchManager = tavilySearchManager
+                )
+                roleplayRepository = com.aiassistant.data.repository.RoleplayRepository(
+                    characterProfileDao = database.characterProfileDao(),
+                    roleplayScenarioDao = database.roleplayScenarioDao(),
+                    roleplaySessionDao = database.roleplaySessionDao(),
+                    roleplayMemoryDao = database.roleplayMemoryDao(),
+                    characterTagDao = database.characterTagDao()
+                )
+                isDatabaseInitialized = true
+            } catch (fatalEx: Exception) {
+                Log.e("AiAssistantApp", "Fatal fallback init failed", fatalEx)
+            }
+        }
     }
 
     companion object {

@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.aiassistant.domain.model.CharacterProfile
+import com.aiassistant.ui.components.EchoGlassDropdownMenu
 import com.aiassistant.utils.RoleplaySmartParser
 import kotlinx.coroutines.launch
 
@@ -433,7 +434,7 @@ private fun SmartReadCharacterDialog(
                                 Icon(Icons.Default.ArrowDropDown, contentDescription = null)
                             }
                         }
-                        DropdownMenu(
+                        EchoGlassDropdownMenu(
                             expanded = configMenuExpanded,
                             onDismissRequest = { configMenuExpanded = false }
                         ) {

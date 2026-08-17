@@ -6,59 +6,40 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.aiassistant.ui.components.EchoGlassPagePanelShape
 import com.aiassistant.ui.components.EchoWallpaperBackground
+import com.aiassistant.ui.components.echoFilterChipBorder
+import com.aiassistant.ui.components.echoFilterChipColors
+import com.aiassistant.ui.components.echoFilterChipElevation
 import com.aiassistant.ui.components.echoGlassPalette
 import com.aiassistant.ui.components.echoHazePanel
 import com.aiassistant.ui.components.echoShapeClick
@@ -73,8 +54,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private const val StatsGlassInnerAlpha = 0.58f
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StatsScreen(
@@ -88,6 +67,7 @@ fun StatsScreen(
     val hazeState = rememberEchoHazeState()
     val readableBackdrop = rememberReadableBackdropColor(statsBackgroundBitmap)
     var selectedPeriod by remember { mutableStateOf(StatsPeriod.Day) }
+    var selectedModelFilter by remember { mutableStateOf<String?>(null) }
     var refreshKey by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var stats by remember { mutableStateOf<List<UsageRow>>(emptyList()) }
     var statusText by remember { mutableStateOf("正在读取统计") }
@@ -100,11 +80,19 @@ fun StatsScreen(
         statusText = result.message
     }
 
-    val summary = remember(stats) { stats.toSummary() }
-    val buckets = remember(stats, selectedPeriod, refreshKey) {
-        buildBuckets(stats, selectedPeriod, System.currentTimeMillis())
+    val availableModels = remember(stats) {
+        stats.map { it.modelName }.distinct().sorted()
     }
-    val modelRows = remember(stats) { stats.toModelRows() }
+
+    val filteredStats = remember(stats, selectedModelFilter) {
+        if (selectedModelFilter == null) stats else stats.filter { it.modelName == selectedModelFilter }
+    }
+
+    val summary = remember(filteredStats) { filteredStats.toSummary() }
+    val buckets = remember(filteredStats, selectedPeriod, refreshKey) {
+        buildBuckets(filteredStats, selectedPeriod, System.currentTimeMillis())
+    }
+    val modelRows = remember(filteredStats) { filteredStats.toModelRows() }
 
     EchoWallpaperBackground(
         backgroundBitmap = statsBackgroundBitmap,
@@ -121,7 +109,7 @@ fun StatsScreen(
                             Text(
                                 text = "使用统计",
                                 style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.SemiBold
+                                fontWeight = FontWeight.Bold
                             )
                         }
                     },
@@ -149,6 +137,7 @@ fun StatsScreen(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
+                // 1. 时间跨度选择
                 item {
                     PeriodTabs(
                         hazeState = hazeState,
@@ -161,19 +150,38 @@ fun StatsScreen(
                     )
                 }
 
+                // 2. 模型维度筛选器（横向滑动芯片栏）
+                if (availableModels.isNotEmpty()) {
+                    item {
+                        ModelFilterChips(
+                            models = availableModels,
+                            selectedModel = selectedModelFilter,
+                            onModelSelected = { selectedModelFilter = it }
+                        )
+                    }
+                }
+
+                // 3. 统计核心概览卡片
                 item {
                     SummaryCard(
                         hazeState = hazeState,
                         summary = summary,
                         period = selectedPeriod,
+                        selectedModel = selectedModelFilter,
                         statusText = statusText,
                         readableBackdrop = readableBackdrop
                     )
                 }
 
+                // 4. Token 消耗可视化堆叠条形图
                 item {
-                    ChartCard(hazeState = hazeState, title = "Token 消耗", readableBackdrop = readableBackdrop) { chartContentColor ->
-                        TokenBars(
+                    ChartCard(
+                        hazeState = hazeState,
+                        title = if (selectedModelFilter != null) "$selectedModelFilter · Token 消耗趋势" else "Token 消耗趋势",
+                        subtitle = "按时间分段统计输入、输出与思考 Token 分布",
+                        readableBackdrop = readableBackdrop
+                    ) { chartContentColor ->
+                        ModernTokenBars(
                             buckets = buckets,
                             maxToken = niceAxisMax(buckets.maxOfOrNull { it.totalTokens } ?: 0),
                             labelColor = chartContentColor.copy(alpha = 0.72f)
@@ -181,20 +189,27 @@ fun StatsScreen(
                     }
                 }
 
+                // 5. 成功率走势曲线图
                 item {
-                    ChartCard(hazeState = hazeState, title = "命中率趋势", readableBackdrop = readableBackdrop) { chartContentColor ->
-                        RateLines(
+                    ChartCard(
+                        hazeState = hazeState,
+                        title = "调用成功率走势",
+                        subtitle = "按时间分段统计 API 调用的成功率变化曲线",
+                        readableBackdrop = readableBackdrop
+                    ) { chartContentColor ->
+                        ModernTrendChart(
                             buckets = buckets,
                             labelColor = chartContentColor.copy(alpha = 0.72f)
                         )
                     }
                 }
 
+                // 6. 模型明细表格
                 item {
                     Text(
-                        text = "模型明细",
+                        text = "模型统计明细",
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.Bold
                     )
                 }
 
@@ -202,13 +217,13 @@ fun StatsScreen(
                     item {
                         EmptyCard(
                             hazeState = hazeState,
-                            text = "暂无统计记录。之后的新请求会在这里显示。",
+                            text = "当前筛选条件下暂无统计记录",
                             readableBackdrop = readableBackdrop
                         )
                     }
                 } else {
                     item {
-                        ModelStatsTable(
+                        ModernModelStatsTable(
                             hazeState = hazeState,
                             rows = modelRows,
                             readableBackdrop = readableBackdrop
@@ -239,22 +254,22 @@ private fun StatsHeaderIcon() {
         ) {
             Box(
                 modifier = Modifier
-                    .size(23.dp)
+                    .size(22.dp)
                     .clip(RoundedCornerShape(5.dp))
                     .background(glassBlue.copy(alpha = 0.16f)),
                 contentAlignment = Alignment.Center
             ) {
                 Row(
                     modifier = Modifier
-                        .width(15.dp)
-                        .height(15.dp),
-                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                        .width(14.dp)
+                        .height(14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(2.5.dp),
                     verticalAlignment = Alignment.Bottom
                 ) {
-                    listOf(5.dp, 9.dp, 13.dp).forEach { barHeight ->
+                    listOf(4.5.dp, 8.5.dp, 12.5.dp).forEach { barHeight ->
                         Box(
                             modifier = Modifier
-                                .width(3.dp)
+                                .width(2.8.dp)
                                 .height(barHeight)
                                 .background(glassBlue, RoundedCornerShape(1.dp))
                         )
@@ -273,7 +288,12 @@ private fun PeriodTabs(
     onSelected: (StatsPeriod) -> Unit
 ) {
     val glass = echoGlassPalette()
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
         StatsPeriod.entries.forEach { period ->
             val shape = RoundedCornerShape(999.dp)
             val isSelected = period == selected
@@ -282,7 +302,7 @@ private fun PeriodTabs(
                 background = tint,
                 fallbackSurface = readableBackdrop
             )
-            Surface(
+            Box(
                 modifier = Modifier
                     .echoHazePanel(
                         hazeState = hazeState,
@@ -290,22 +310,59 @@ private fun PeriodTabs(
                         tint = tint,
                         blurRadius = 16.dp
                     )
-                    .echoShapeClick(shape) { onSelected(period) },
-                shape = shape,
-                color = tint,
-                contentColor = if (isSelected) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    content
-                },
-                border = BorderStroke(if (isSelected) 1.4.dp else 1.dp, if (isSelected) glass.outlineSelected else glass.outline)
+                    .background(tint, shape)
+                    .border(
+                        BorderStroke(
+                            if (isSelected) 1.5.dp else 0.8.dp,
+                            if (isSelected) glass.outlineSelected else glass.outline
+                        ),
+                        shape
+                    )
+                    .echoShapeClick(shape) { onSelected(period) }
             ) {
                 Text(
                     text = period.label,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                    style = MaterialTheme.typography.labelLarge
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (isSelected) MaterialTheme.colorScheme.primary else content,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun ModelFilterChips(
+    models: List<String>,
+    selectedModel: String?,
+    onModelSelected: (String?) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        FilterChip(
+            selected = selectedModel == null,
+            onClick = { onModelSelected(null) },
+            colors = echoFilterChipColors(),
+            border = echoFilterChipBorder(selectedModel == null),
+            elevation = echoFilterChipElevation(),
+            label = { Text("全部模型") }
+        )
+        models.forEach { model ->
+            val isSelected = selectedModel == model
+            FilterChip(
+                selected = isSelected,
+                onClick = { onModelSelected(if (isSelected) null else model) },
+                colors = echoFilterChipColors(),
+                border = echoFilterChipBorder(isSelected),
+                elevation = echoFilterChipElevation(),
+                label = { Text(model) }
+            )
         }
     }
 }
@@ -315,15 +372,17 @@ private fun SummaryCard(
     hazeState: dev.chrisbanes.haze.HazeState,
     summary: UsageSummary,
     period: StatsPeriod,
+    selectedModel: String?,
     statusText: String,
     readableBackdrop: Color
 ) {
-    val tint = echoGlassPalette().panelStrong
+    val glass = echoGlassPalette()
+    val tint = glass.panelStrong
     val content = readableTextColorFor(
         background = tint,
         fallbackSurface = readableBackdrop
     )
-    Surface(
+    Box(
         modifier = Modifier
             .fillMaxWidth()
             .echoHazePanel(
@@ -331,12 +390,9 @@ private fun SummaryCard(
                 shape = EchoGlassPagePanelShape,
                 tint = tint,
                 blurRadius = 20.dp
-            ),
-        shape = EchoGlassPagePanelShape,
-        color = tint,
-        contentColor = content,
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp
+            )
+            .background(tint, EchoGlassPagePanelShape)
+            .border(BorderStroke(1.dp, glass.outline), EchoGlassPagePanelShape)
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -349,8 +405,8 @@ private fun SummaryCard(
             ) {
                 Column {
                     Text(
-                        text = "${period.label} · ${formatNumber(summary.totalTokens)} Token",
-                        style = MaterialTheme.typography.headlineSmall,
+                        text = "${period.label}${if (selectedModel != null) " · $selectedModel" else ""} · ${formatNumber(summary.totalTokens)} Tokens",
+                        style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = content
                     )
@@ -362,14 +418,8 @@ private fun SummaryCard(
                 }
             }
 
-            // 核心统计指标 3x2 网格（扁平化无多层 Surface 嵌套，防止快速滑动拖影）
+            // 核心统计指标网格（扁平化渲染，杜绝滚动白影）
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                val hitRateDisplay = if (summary.cachedTokens > 0L) {
-                    formatPercent(summary.cacheHitRate)
-                } else {
-                    "--"
-                }
-
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -383,16 +433,8 @@ private fun SummaryCard(
                         modifier = Modifier.weight(1f)
                     )
                     MetricPill(
-                        icon = Icons.Default.Speed,
-                        label = "缓存命中率",
-                        value = hitRateDisplay,
-                        contentColor = content,
-                        iconTint = MaterialTheme.colorScheme.tertiary,
-                        modifier = Modifier.weight(1f)
-                    )
-                    MetricPill(
                         icon = Icons.Default.CheckCircle,
-                        label = "成功率",
+                        label = "调用成功率",
                         value = formatPercent(summary.successRate),
                         contentColor = content,
                         iconTint = MaterialTheme.colorScheme.secondary,
@@ -476,7 +518,7 @@ private fun MetricPill(
             Text(
                 text = value,
                 style = MaterialTheme.typography.titleSmall.copy(
-                    fontSize = 13.5.sp,
+                    fontSize = 13.sp,
                     fontFamily = FontFamily.SansSerif,
                     fontWeight = FontWeight.Bold
                 ),
@@ -492,15 +534,17 @@ private fun MetricPill(
 private fun ChartCard(
     hazeState: dev.chrisbanes.haze.HazeState,
     title: String,
+    subtitle: String,
     readableBackdrop: Color,
     content: @Composable (Color) -> Unit
 ) {
-    val tint = echoGlassPalette().panelStrong
+    val glass = echoGlassPalette()
+    val tint = glass.panelStrong
     val contentColor = readableTextColorFor(
         background = tint,
         fallbackSurface = readableBackdrop
     )
-    Surface(
+    Box(
         modifier = Modifier
             .fillMaxWidth()
             .echoHazePanel(
@@ -508,29 +552,38 @@ private fun ChartCard(
                 shape = EchoGlassPagePanelShape,
                 tint = tint,
                 blurRadius = 18.dp
-        ),
-        shape = EchoGlassPagePanelShape,
-        color = tint,
-        contentColor = contentColor,
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp
+            )
+            .background(tint, EchoGlassPagePanelShape)
+            .border(BorderStroke(1.dp, glass.outline), EchoGlassPagePanelShape)
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text(
-                title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = contentColor
-            )
+            Column {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = contentColor
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = contentColor.copy(alpha = 0.70f)
+                )
+            }
+
             content(contentColor)
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                LegendDot("输入", MaterialTheme.colorScheme.primary, contentColor.copy(alpha = 0.72f))
-                LegendDot("输出", MaterialTheme.colorScheme.secondary, contentColor.copy(alpha = 0.72f))
-                LegendDot("思考", MaterialTheme.colorScheme.tertiary, contentColor.copy(alpha = 0.72f))
-                LegendDot("其他", MaterialTheme.colorScheme.outline, contentColor.copy(alpha = 0.72f))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                LegendDot("输入 Token", MaterialTheme.colorScheme.primary, contentColor.copy(alpha = 0.80f))
+                LegendDot("输出 Token", MaterialTheme.colorScheme.secondary, contentColor.copy(alpha = 0.80f))
+                LegendDot("思考 Token", MaterialTheme.colorScheme.tertiary, contentColor.copy(alpha = 0.80f))
             }
         }
     }
@@ -541,7 +594,7 @@ private fun LegendDot(text: String, color: Color, textColor: Color) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(
             modifier = Modifier
-                .size(8.dp)
+                .size(9.dp)
                 .clip(CircleShape)
                 .background(color)
         )
@@ -551,68 +604,64 @@ private fun LegendDot(text: String, color: Color, textColor: Color) {
 }
 
 @Composable
-private fun TokenBars(buckets: List<Bucket>) {
-    TokenBars(
-        buckets = buckets,
-        maxToken = buckets.maxOfOrNull { it.totalTokens }?.coerceAtLeast(1) ?: 1,
-        labelColor = MaterialTheme.colorScheme.onSurfaceVariant
-    )
-}
-
-@Composable
-private fun TokenBars(buckets: List<Bucket>, maxToken: Int, labelColor: Color) {
-    val input = MaterialTheme.colorScheme.primary
-    val output = MaterialTheme.colorScheme.secondary
-    val thinking = MaterialTheme.colorScheme.tertiary
-    val unclassified = MaterialTheme.colorScheme.outline
-    val grid = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.32f)
-    val plot = MaterialTheme.colorScheme.surface.copy(alpha = 0.66f)
+private fun ModernTokenBars(buckets: List<Bucket>, maxToken: Int, labelColor: Color) {
+    val inputColor = MaterialTheme.colorScheme.primary
+    val outputColor = MaterialTheme.colorScheme.secondary
+    val thinkingColor = MaterialTheme.colorScheme.tertiary
+    val otherColor = MaterialTheme.colorScheme.outline
+    val gridColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+    val plotBackground = MaterialTheme.colorScheme.surface.copy(alpha = 0.45f)
 
     Column {
-        Row {
+        Row(modifier = Modifier.fillMaxWidth()) {
             AxisLabels(
                 labels = listOf(formatNumber(maxToken), formatNumber(maxToken / 2), "0"),
-                height = 170.dp,
+                height = 180.dp,
                 color = labelColor
             )
             Canvas(
                 modifier = Modifier
                     .weight(1f)
-                    .height(170.dp)
+                    .height(180.dp)
             ) {
                 drawRoundRect(
-                    color = plot,
+                    color = plotBackground,
                     topLeft = Offset.Zero,
                     size = size,
                     cornerRadius = CornerRadius(14.dp.toPx(), 14.dp.toPx())
                 )
                 repeat(4) { line ->
                     val y = size.height * line / 3f
-                    drawLine(grid, Offset(0f, y), Offset(size.width, y), strokeWidth = 1.dp.toPx())
+                    drawLine(gridColor, Offset(0f, y), Offset(size.width, y), strokeWidth = 1.dp.toPx())
                 }
+
+                if (buckets.isEmpty()) return@Canvas
                 val slot = size.width / buckets.size.coerceAtLeast(1)
-                val barWidth = (slot * 0.62f).coerceIn(5.dp.toPx(), 22.dp.toPx())
+                val barWidth = (slot * 0.58f).coerceIn(6.dp.toPx(), 26.dp.toPx())
+
                 buckets.forEachIndexed { index, bucket ->
                     val left = slot * index + (slot - barWidth) / 2f
                     val total = bucket.totalTokens.coerceAtLeast(0)
                     if (total <= 0) return@forEachIndexed
-                    val fullHeight = size.height * total / maxToken
+                    val fullHeight = size.height * total / maxToken.coerceAtLeast(1)
                     var bottom = size.height
-                    fun segment(value: Int, color: Color) {
+
+                    fun drawBarSegment(value: Int, color: Color) {
                         if (value <= 0) return
-                        val height = (fullHeight * value / total.toFloat()).coerceAtLeast(1.dp.toPx())
+                        val height = (fullHeight * value / total.toFloat()).coerceAtLeast(1.5.dp.toPx())
                         drawRoundRect(
                             color = color,
                             topLeft = Offset(left, bottom - height),
                             size = Size(barWidth, height),
-                            cornerRadius = CornerRadius(6.dp.toPx(), 6.dp.toPx())
+                            cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx())
                         )
                         bottom -= height
                     }
-                    segment(bucket.otherTokens, unclassified)
-                    segment(bucket.thinkingTokens, thinking)
-                    segment(bucket.outputTokens, output)
-                    segment(bucket.inputTokens, input)
+
+                    drawBarSegment(bucket.otherTokens, otherColor)
+                    drawBarSegment(bucket.thinkingTokens, thinkingColor)
+                    drawBarSegment(bucket.outputTokens, outputColor)
+                    drawBarSegment(bucket.inputTokens, inputColor)
                 }
             }
         }
@@ -621,51 +670,83 @@ private fun TokenBars(buckets: List<Bucket>, maxToken: Int, labelColor: Color) {
 }
 
 @Composable
-private fun RateLines(buckets: List<Bucket>, labelColor: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
-    val cache = MaterialTheme.colorScheme.tertiary
-    val success = MaterialTheme.colorScheme.secondary
-    val grid = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.32f)
-    val plot = MaterialTheme.colorScheme.surface.copy(alpha = 0.66f)
-    val pointHalo = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f)
+private fun ModernTrendChart(
+    buckets: List<Bucket>,
+    labelColor: Color = MaterialTheme.colorScheme.onSurfaceVariant
+) {
+    val successColor = MaterialTheme.colorScheme.secondary
+    val gridColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+    val plotBackground = MaterialTheme.colorScheme.surface.copy(alpha = 0.45f)
+    val haloColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
 
     Column {
-        Row {
-            AxisLabels(labels = listOf("100%", "50%", "0%"), height = 170.dp, color = labelColor)
+        Row(modifier = Modifier.fillMaxWidth()) {
+            AxisLabels(labels = listOf("100%", "50%", "0%"), height = 180.dp, color = labelColor)
             Canvas(
                 modifier = Modifier
                     .weight(1f)
-                    .height(170.dp)
+                    .height(180.dp)
             ) {
                 drawRoundRect(
-                    color = plot,
+                    color = plotBackground,
                     topLeft = Offset.Zero,
                     size = size,
                     cornerRadius = CornerRadius(14.dp.toPx(), 14.dp.toPx())
                 )
                 repeat(5) { line ->
                     val y = size.height * line / 4f
-                    drawLine(grid, Offset(0f, y), Offset(size.width, y), strokeWidth = 1.dp.toPx())
+                    drawLine(gridColor, Offset(0f, y), Offset(size.width, y), strokeWidth = 1.dp.toPx())
                 }
 
-                fun drawLineFor(values: List<Float>, color: Color) {
+                fun drawSmoothCurve(values: List<Float>, color: Color) {
                     if (values.isEmpty()) return
                     val path = Path()
-                    values.forEachIndexed { index, value ->
+                    val areaPath = Path()
+                    val points = values.mapIndexed { index, value ->
                         val x = if (values.size == 1) size.width / 2f else size.width * index / (values.size - 1)
                         val y = size.height * (1f - value.coerceIn(0f, 1f))
-                        if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                        Offset(x, y)
                     }
-                    drawPath(path, color, style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round))
-                    values.forEachIndexed { index, value ->
-                        val x = if (values.size == 1) size.width / 2f else size.width * index / (values.size - 1)
-                        val y = size.height * (1f - value.coerceIn(0f, 1f))
-                        drawCircle(color = pointHalo, radius = 4.5.dp.toPx(), center = Offset(x, y))
-                        drawCircle(color = color, radius = 3.dp.toPx(), center = Offset(x, y))
+
+                    points.forEachIndexed { index, point ->
+                        if (index == 0) {
+                            path.moveTo(point.x, point.y)
+                            areaPath.moveTo(point.x, size.height)
+                            areaPath.lineTo(point.x, point.y)
+                        } else {
+                            val prev = points[index - 1]
+                            val midX = (prev.x + point.x) / 2f
+                            path.cubicTo(midX, prev.y, midX, point.y, point.x, point.y)
+                            areaPath.cubicTo(midX, prev.y, midX, point.y, point.x, point.y)
+                        }
+                    }
+
+                    if (points.isNotEmpty()) {
+                        areaPath.lineTo(points.last().x, size.height)
+                        areaPath.close()
+                        drawPath(
+                            path = areaPath,
+                            brush = Brush.verticalGradient(
+                                colors = listOf(color.copy(alpha = 0.28f), Color.Transparent),
+                                startY = 0f,
+                                endY = size.height
+                            )
+                        )
+                    }
+
+                    drawPath(
+                        path = path,
+                        color = color,
+                        style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
+                    )
+
+                    points.forEach { point ->
+                        drawCircle(color = haloColor, radius = 5.dp.toPx(), center = point)
+                        drawCircle(color = color, radius = 3.2.dp.toPx(), center = point)
                     }
                 }
 
-                drawLineFor(buckets.map { it.cacheHitRate }, cache)
-                drawLineFor(buckets.map { it.successRate }, success)
+                drawSmoothCurve(buckets.map { it.successRate }, successColor)
             }
         }
         XAxisLabels(buckets = buckets)
@@ -676,7 +757,7 @@ private fun RateLines(buckets: List<Bucket>, labelColor: Color = MaterialTheme.c
 private fun AxisLabels(labels: List<String>, height: androidx.compose.ui.unit.Dp, color: Color) {
     Column(
         modifier = Modifier
-            .width(42.dp)
+            .width(44.dp)
             .height(height)
             .padding(end = 6.dp),
         verticalArrangement = Arrangement.SpaceBetween,
@@ -685,7 +766,7 @@ private fun AxisLabels(labels: List<String>, height: androidx.compose.ui.unit.Dp
         labels.forEach { label ->
             Text(
                 text = label,
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.5.sp),
                 color = color,
                 maxLines = 1
             )
@@ -699,65 +780,21 @@ private fun XAxisLabels(buckets: List<Bucket>) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 42.dp, top = 6.dp),
+            .padding(start = 44.dp, top = 6.dp),
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         labels.forEach { label ->
             Text(
                 text = label,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.5.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
             )
         }
     }
 }
 
 @Composable
-private fun ModelRowCard(
-    hazeState: dev.chrisbanes.haze.HazeState,
-    row: ModelRow,
-    readableBackdrop: Color
-) {
-    val tint = echoGlassPalette().panelStrong
-    val content = readableTextColorFor(
-        background = tint,
-        fallbackSurface = readableBackdrop
-    )
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .echoHazePanel(
-                hazeState = hazeState,
-                shape = RoundedCornerShape(22.dp),
-                tint = tint,
-                blurRadius = 16.dp
-        ),
-        shape = RoundedCornerShape(22.dp),
-        color = tint,
-        contentColor = content,
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp
-    ) {
-        Row(
-            modifier = Modifier.padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(row.modelName, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = content)
-                Text(row.provider, style = MaterialTheme.typography.bodySmall, color = content.copy(alpha = 0.70f))
-            }
-            Column(horizontalAlignment = Alignment.End) {
-                Text(formatNumber(row.totalTokens), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
-                Text("${row.requestCount} 次 · 成功率 ${formatPercent(row.successRate)}", style = MaterialTheme.typography.labelSmall, color = content.copy(alpha = 0.70f))
-            }
-        }
-    }
-}
-
-@Composable
-private fun ModelStatsTable(
+private fun ModernModelStatsTable(
     hazeState: dev.chrisbanes.haze.HazeState,
     rows: List<ModelRow>,
     readableBackdrop: Color
@@ -768,50 +805,235 @@ private fun ModelStatsTable(
         background = tint,
         fallbackSurface = readableBackdrop
     )
-    Surface(
+    var sortMode by remember { mutableIntStateOf(0) } // 0: Tokens, 1: 请求数, 2: 成功率, 3: 平均耗时
+
+    val sortedRows = remember(rows, sortMode) {
+        when (sortMode) {
+            0 -> rows.sortedByDescending { it.totalTokens }
+            1 -> rows.sortedByDescending { it.requestCount }
+            2 -> rows.sortedByDescending { it.successRate }
+            3 -> rows.sortedBy { if (it.avgResponseTime <= 0) Long.MAX_VALUE else it.avgResponseTime }
+            else -> rows
+        }
+    }
+
+    Box(
         modifier = Modifier
             .fillMaxWidth()
             .echoHazePanel(
                 hazeState = hazeState,
                 shape = EchoGlassPagePanelShape,
                 tint = tint,
-                blurRadius = 16.dp,
-                highlightAlpha = 0.025f
-            ),
-        shape = EchoGlassPagePanelShape,
-        color = tint,
-        contentColor = content,
-        border = BorderStroke(1.dp, glass.outline),
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp
-    ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            ModelStatsTableRow(
-                model = "模型",
-                provider = "服务商",
-                tokens = "Token",
-                requests = "请求",
-                success = "成功率",
-                textColor = content,
-                isHeader = true
+                blurRadius = 18.dp
             )
-            rows.forEachIndexed { index, row ->
-                val rowBackground = if (index % 2 == 0) glass.control.copy(alpha = 0.50f) else Color.Transparent
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(rowBackground)
+            .background(tint, EchoGlassPagePanelShape)
+            .border(BorderStroke(1.dp, glass.outline), EchoGlassPagePanelShape)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // 表头与排序切换栏
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    ModelStatsTableRow(
-                        model = row.modelName,
-                        provider = row.provider,
-                        tokens = formatNumber(row.totalTokens),
-                        requests = row.requestCount.toString(),
-                        success = formatPercent(row.successRate),
-                        textColor = content,
-                        isHeader = false
+                    Text(
+                        text = "模型统计明细",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                        color = content
                     )
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "${rows.size}",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            ),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    listOf("Tokens", "请求数", "成功率", "耗时").forEachIndexed { idx, title ->
+                        val isSelected = sortMode == idx
+                        val chipShape = RoundedCornerShape(8.dp)
+                        Box(
+                            modifier = Modifier
+                                .clip(chipShape)
+                                .background(if (isSelected) glass.controlSelected else glass.control.copy(alpha = 0.6f))
+                                .border(
+                                    BorderStroke(
+                                        if (isSelected) 1.dp else 0.6.dp,
+                                        if (isSelected) glass.outlineSelected else glass.outline.copy(alpha = 0.6f)
+                                    ),
+                                    chipShape
+                                )
+                                .echoShapeClick(chipShape) { sortMode = idx }
+                                .padding(horizontal = 7.dp, vertical = 3.5.dp)
+                        ) {
+                            Text(
+                                text = title,
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                ),
+                                color = if (isSelected) MaterialTheme.colorScheme.primary else content.copy(alpha = 0.72f)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 极简精致模型列表卡片
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                sortedRows.forEach { row ->
+                    val rowShape = RoundedCornerShape(14.dp)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(rowShape)
+                            .background(glass.control.copy(alpha = 0.52f))
+                            .border(BorderStroke(0.8.dp, glass.outline.copy(alpha = 0.45f)), rowShape)
+                            .padding(12.dp)
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            // 第一行：模型名称 + 供应商标签 + 总 Token
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    modifier = Modifier.weight(1f, fill = false),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = row.modelName,
+                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                            fontFamily = FontFamily.SansSerif,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.5.sp
+                                        ),
+                                        color = content,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    if (row.provider.isNotBlank() && row.provider != "unknown") {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(glass.control.copy(alpha = 0.8f))
+                                                .border(BorderStroke(0.5.dp, glass.outline.copy(alpha = 0.5f)), RoundedCornerShape(4.dp))
+                                                .padding(horizontal = 4.dp, vertical = 1.dp)
+                                        ) {
+                                            Text(
+                                                text = row.provider,
+                                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                                color = content.copy(alpha = 0.65f)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Text(
+                                    text = "${formatNumber(row.totalTokens)} Tokens",
+                                    style = MaterialTheme.typography.titleSmall.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.5.sp
+                                    ),
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+
+                            // 第二行：比例横条（输入/输出/思考可视化分布）
+                            if (row.totalTokens > 0) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(4.dp)
+                                        .clip(RoundedCornerShape(2.dp))
+                                        .background(glass.control.copy(alpha = 0.8f))
+                                ) {
+                                    val inputRatio = (row.inputTokens.toFloat() / row.totalTokens).coerceIn(0f, 1f)
+                                    val outputRatio = (row.outputTokens.toFloat() / row.totalTokens).coerceIn(0f, 1f)
+                                    val thinkingRatio = (row.thinkingTokens.toFloat() / row.totalTokens).coerceIn(0f, 1f)
+
+                                    if (inputRatio > 0f) {
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(inputRatio)
+                                                .fillMaxHeight()
+                                                .background(MaterialTheme.colorScheme.primary)
+                                        )
+                                    }
+                                    if (outputRatio > 0f) {
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(outputRatio)
+                                                .fillMaxHeight()
+                                                .background(MaterialTheme.colorScheme.secondary)
+                                        )
+                                    }
+                                    if (thinkingRatio > 0f) {
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(thinkingRatio)
+                                                .fillMaxHeight()
+                                                .background(MaterialTheme.colorScheme.tertiary)
+                                        )
+                                    }
+                                }
+                            }
+
+                            // 第三行：多维度紧凑数据标签
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                MiniStatsChip(
+                                    icon = Icons.Default.Send,
+                                    label = "${row.requestCount}次请求",
+                                    tint = content.copy(alpha = 0.78f)
+                                )
+                                MiniStatsChip(
+                                    icon = Icons.Default.CheckCircle,
+                                    label = "成功率 ${formatPercent(row.successRate)}",
+                                    tint = MaterialTheme.colorScheme.secondary
+                                )
+                                if (row.avgResponseTime > 0) {
+                                    MiniStatsChip(
+                                        icon = Icons.Default.Timer,
+                                        label = "${row.avgResponseTime}ms",
+                                        tint = content.copy(alpha = 0.78f)
+                                    )
+                                }
+                                if (row.thinkingTokens > 0) {
+                                    MiniStatsChip(
+                                        icon = Icons.Default.Psychology,
+                                        label = "思考 ${formatNumber(row.thinkingTokens)}",
+                                        tint = MaterialTheme.colorScheme.tertiary
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -819,71 +1041,32 @@ private fun ModelStatsTable(
 }
 
 @Composable
-private fun ModelStatsTableRow(
-    model: String,
-    provider: String,
-    tokens: String,
-    requests: String,
-    success: String,
-    textColor: Color,
-    isHeader: Boolean
+private fun MiniStatsChip(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    tint: Color
 ) {
-    val headerColor = if (isHeader) MaterialTheme.colorScheme.primary else textColor
-    val secondaryColor = textColor.copy(alpha = if (isHeader) 0.78f else 0.70f)
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 10.dp, vertical = if (isHeader) 9.dp else 10.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(Color.Black.copy(alpha = 0.10f))
+            .padding(horizontal = 6.dp, vertical = 2.5.dp)
     ) {
-        Column(modifier = Modifier.weight(1.55f)) {
-            Text(
-                text = model,
-                style = if (isHeader) MaterialTheme.typography.labelLarge else MaterialTheme.typography.titleSmall,
-                color = headerColor,
-                fontWeight = if (isHeader) FontWeight.Bold else FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            if (!isHeader) {
-                Text(
-                    text = provider,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = secondaryColor,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-        Text(
-            text = if (isHeader) provider else "",
-            modifier = Modifier.weight(0.75f),
-            style = MaterialTheme.typography.labelSmall,
-            color = secondaryColor,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(11.dp)
         )
         Text(
-            text = tokens,
-            modifier = Modifier.weight(0.78f),
-            style = if (isHeader) MaterialTheme.typography.labelLarge else MaterialTheme.typography.titleSmall,
-            color = headerColor,
-            fontWeight = if (isHeader) FontWeight.Bold else FontWeight.SemiBold,
-            maxLines = 1
-        )
-        Text(
-            text = requests,
-            modifier = Modifier.weight(0.58f),
-            style = MaterialTheme.typography.labelMedium,
-            color = secondaryColor,
-            maxLines = 1
-        )
-        Text(
-            text = success,
-            modifier = Modifier.weight(0.70f),
-            style = MaterialTheme.typography.labelMedium,
-            color = if (!isHeader && success == "100%") MaterialTheme.colorScheme.primary else secondaryColor,
+            text = label,
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontSize = 10.5.sp,
+                fontFamily = FontFamily.SansSerif
+            ),
+            color = tint,
             maxLines = 1
         )
     }
@@ -909,14 +1092,10 @@ private fun EmptyCard(
                 shape = EchoGlassPagePanelShape,
                 tint = tint,
                 blurRadius = 16.dp
-            ),
+            )
+            .background(tint, EchoGlassPagePanelShape),
         contentAlignment = Alignment.Center
     ) {
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .background(tint, EchoGlassPagePanelShape)
-        )
         Text(text, color = content.copy(alpha = 0.70f))
     }
 }
@@ -934,7 +1113,7 @@ private suspend fun readUsageRows(
     try {
         SQLiteDatabase.openDatabase(dbFile.path, null, SQLiteDatabase.OPEN_READONLY).use { db ->
             if (!hasUsableStatsTable(db)) {
-                return@withContext StatsReadResult(emptyList(), "统计表不存在或不可用，之后会重新记录")
+                return@withContext StatsReadResult(emptyList(), "统计表不可读，之后会重新记录")
             }
             StatsReadResult(queryUsageRows(db, startTime, endTime), "读取完成")
         }
@@ -1022,11 +1201,19 @@ private fun List<UsageRow>.toSummary(): UsageSummary {
 private fun List<UsageRow>.toModelRows(): List<ModelRow> {
     return groupBy { it.provider to it.modelName }
         .map { (key, rows) ->
+            val input = rows.sumOf { it.inputTokens }
+            val cached = rows.sumOf { it.cachedTokens }
             ModelRow(
                 provider = key.first,
                 modelName = key.second,
+                inputTokens = input,
+                outputTokens = rows.sumOf { it.outputTokens },
+                thinkingTokens = rows.sumOf { it.thinkingTokens },
+                cachedTokens = cached,
                 totalTokens = rows.sumOf { it.totalTokens },
                 requestCount = rows.size,
+                avgResponseTime = if (rows.isNotEmpty()) rows.map { it.responseTime }.average().toLong() else 0L,
+                cacheHitRate = if (input > 0) cached.toFloat() / input else 0f,
                 successRate = if (rows.isNotEmpty()) rows.count { it.success }.toFloat() / rows.size else 0f
             )
         }
@@ -1144,7 +1331,13 @@ private data class Bucket(
 private data class ModelRow(
     val provider: String,
     val modelName: String,
+    val inputTokens: Int,
+    val outputTokens: Int,
+    val thinkingTokens: Int,
+    val cachedTokens: Int,
     val totalTokens: Int,
     val requestCount: Int,
+    val avgResponseTime: Long,
+    val cacheHitRate: Float,
     val successRate: Float
 )

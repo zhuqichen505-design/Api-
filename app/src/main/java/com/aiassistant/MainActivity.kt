@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+
 package com.aiassistant
 
 import android.graphics.Color
@@ -65,14 +67,18 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    AiAssistantNavigation(
-                        themeMode = themeMode,
-                        onThemeModeChange = { mode ->
-                            if (themeManager.saveThemeMode(mode)) {
-                                themeMode = mode
+                    androidx.compose.runtime.CompositionLocalProvider(
+                        androidx.compose.foundation.LocalOverscrollConfiguration provides null
+                    ) {
+                        AiAssistantNavigation(
+                            themeMode = themeMode,
+                            onThemeModeChange = { mode ->
+                                if (themeManager.saveThemeMode(mode)) {
+                                    themeMode = mode
+                                }
                             }
-                        }
-                    )
+                        )
+                    }
                 }
             }
         }

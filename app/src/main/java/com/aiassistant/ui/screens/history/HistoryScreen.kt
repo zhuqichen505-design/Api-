@@ -25,6 +25,7 @@ import com.aiassistant.BuildConfig
 import com.aiassistant.domain.model.Conversation
 import com.aiassistant.domain.model.Message
 import com.aiassistant.ui.components.EchoGlassDialog
+import com.aiassistant.ui.components.EchoGlassDropdownMenu
 import com.aiassistant.ui.components.EchoGlassPagePanelShape
 import com.aiassistant.ui.components.EchoWallpaperBackground
 import com.aiassistant.ui.components.echoFilterChipBorder
@@ -434,7 +435,7 @@ fun HistoryConversationCard(
                     Icon(Icons.Default.MoreVert, contentDescription = "更多")
                 }
 
-                DropdownMenu(
+                EchoGlassDropdownMenu(
                     expanded = showMenu,
                     onDismissRequest = { showMenu = false }
                 ) {
