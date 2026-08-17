@@ -597,7 +597,7 @@ object RoleplaySmartAnalyzer {
         val requestPayload = JsonObject().apply {
             addProperty("model", modelToUse)
             addProperty("temperature", 0.3)
-            addProperty("max_tokens", 4096)
+            addProperty("max_tokens", 8192)
             addProperty("stream", false)
             val messages = JsonArray().apply {
                 add(JsonObject().apply {

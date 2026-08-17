@@ -520,6 +520,7 @@ fun ChatScreen(
                     }
 
                     // 消息列表
+                    val currentAssistantModelName = currentModelOption?.modelName ?: currentModel ?: uiState.modelName ?: "AI"
                     items(
                         items = displayMessages,
                         key = { item -> item.groupId ?: "${item.message.id}_${item.message.createdAt}_${item.message.role}" }
@@ -532,6 +533,7 @@ fun ChatScreen(
                                 readableBackdrop = readableBackdrops.content,
                                 assistantAvatarRevision = modelAvatarRevision,
                                 assistantApiConfigId = currentModelOption?.apiConfigId,
+                                assistantModelName = currentAssistantModelName,
                                 variantInfo = displayItem.variantInfo,
                                 onVariantSelected = { groupId, index ->
                                     variantSelections[groupId] = index
@@ -590,6 +592,7 @@ fun ChatScreen(
                                     isGenerating = true,
                                     assistantAvatarRevision = modelAvatarRevision,
                                     assistantApiConfigId = currentModelOption?.apiConfigId,
+                                    assistantModelName = currentAssistantModelName,
                                     onCopy = {
                                         clipboardManager.setText(AnnotatedString(currentResponse))
                                     },
@@ -616,6 +619,7 @@ fun ChatScreen(
                                 isGenerating = true,
                                 assistantAvatarRevision = modelAvatarRevision,
                                 assistantApiConfigId = currentModelOption?.apiConfigId,
+                                assistantModelName = currentAssistantModelName,
                                 onCopy = {
                                     clipboardManager.setText(AnnotatedString(currentResponse))
                                 },
@@ -1357,6 +1361,15 @@ private fun pairedVariantGroupId(groupId: String): String? {
     }
 }
 
+private fun isErrorMessage(content: String): Boolean {
+    val trimmed = content.trim()
+    return trimmed.startsWith("请求失败") ||
+           trimmed.startsWith("[请求失败]") ||
+           trimmed.startsWith("Error:") ||
+           trimmed.startsWith("error:") ||
+           trimmed.contains("[输出已被中断:")
+}
+
 @Composable
 private fun MessageBubble(
     message: Message,
@@ -1365,6 +1378,7 @@ private fun MessageBubble(
     isGenerating: Boolean = false,
     assistantAvatarRevision: Int = 0,
     assistantApiConfigId: Long? = null,
+    assistantModelName: String = "AI",
     variantInfo: VariantInfo? = null,
     onVariantSelected: (String, Int) -> Unit = { _, _ -> },
     onCopy: () -> Unit,
@@ -1540,14 +1554,17 @@ private fun MessageBubble(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Echo AI",
-                        style = MaterialTheme.typography.labelMedium,
+                        text = assistantModelName.ifBlank { "Echo AI" },
+                        style = MaterialTheme.typography.titleSmall.copy(fontSize = 14.sp),
                         fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
                     )
 
                     if (hasThinking) {
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.weight(1f))
                         val capsuleShape = RoundedCornerShape(999.dp)
                         Surface(
                             modifier = Modifier
@@ -1573,40 +1590,46 @@ private fun MessageBubble(
                             border = BorderStroke(1.dp, glass.outlineSelected.copy(alpha = 0.72f))
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                horizontalArrangement = Arrangement.spacedBy(5.dp)
                             ) {
                                 Icon(
                                     Icons.Default.Psychology,
                                     contentDescription = null,
-                                    modifier = Modifier.size(14.dp),
+                                    modifier = Modifier.size(16.dp),
                                     tint = thinkingContentColor
                                 )
                                 Text(
                                     text = if (isGenerating && message.content.isBlank()) "思考中..." else "思考过程",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = thinkingContentColor
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp),
+                                    color = thinkingContentColor,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                                 if (message.responseTime > 0) {
                                     Text(
                                         text = formatTime(message.responseTime),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = thinkingContentColor.copy(alpha = 0.68f)
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp),
+                                        color = thinkingContentColor.copy(alpha = 0.68f),
+                                        maxLines = 1,
+                                        softWrap = false
                                     )
                                 }
                                 if (message.thinkingTokens > 0) {
                                     Text(
                                         text = "${message.thinkingTokens}t",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = thinkingContentColor.copy(alpha = 0.68f)
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp),
+                                        color = thinkingContentColor.copy(alpha = 0.68f),
+                                        maxLines = 1,
+                                        softWrap = false
                                     )
                                 }
                                 if (hasThinkingContent) {
                                     Icon(
                                         if (showThinking) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                                         contentDescription = null,
-                                        modifier = Modifier.size(14.dp),
+                                        modifier = Modifier.size(16.dp),
                                         tint = thinkingContentColor.copy(alpha = 0.78f)
                                     )
                                 }
@@ -1666,7 +1689,39 @@ private fun MessageBubble(
                         .padding(horizontal = 2.dp),
                     horizontalAlignment = Alignment.Start
                 ) {
-                    if (isGenerating && message.content.isBlank() && !hasThinking) {
+                    val isErrorOutput = !isUser && isErrorMessage(message.content)
+
+                    if (isErrorOutput) {
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.28f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.45f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.Top,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.ErrorOutline,
+                                    contentDescription = "错误",
+                                    modifier = Modifier
+                                        .size(20.dp)
+                                        .padding(top = 2.dp),
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                                Column(modifier = Modifier.weight(1f)) {
+                                    MarkdownText(
+                                        content = message.content,
+                                        color = MaterialTheme.colorScheme.onErrorContainer
+                                    )
+                                }
+                            }
+                        }
+                    } else if (isGenerating && message.content.isBlank() && !hasThinking) {
                         Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1761,6 +1816,17 @@ private fun MessageFooter(
                     text = "${message.tokenCount} tokens",
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.70f)
                 )
+
+                if (message.responseTime > 0) {
+                    val seconds = message.responseTime / 1000.0
+                    if (seconds > 0.05) {
+                        val speed = message.tokenCount / seconds
+                        MessageMetaText(
+                            text = String.format(Locale.US, "%.1f tokens/s", speed),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.70f)
+                        )
+                    }
+                }
             }
 
             if (message.thinkingTokens > 0 && !thinkingTokensInThinkingBubble) {
@@ -3537,7 +3603,7 @@ fun ChatSettingsDialog(
                                 value = maxTokens,
                                 onValueChange = { value -> maxTokens = value.filter { it.isDigit() }.take(6) },
                                 modifier = Modifier.weight(1f),
-                                placeholder = { Text("例如 4096") },
+                                placeholder = { Text("例如 8192") },
                                 singleLine = true,
                                 shape = RoundedCornerShape(14.dp),
                                 colors = glassTextFieldColors(dialogContentColor, dialogSecondaryColor, dialogContainerColor)
@@ -3758,7 +3824,7 @@ fun ChatSettingsDialog(
                     onClick = {
                         val settings = TempChatSettings(
                             temperature = temperature.coerceIn(0f, tuningProfile.temperatureMax),
-                            maxTokens = maxTokens.toIntOrNull() ?: 4096,
+                            maxTokens = maxTokens.toIntOrNull() ?: 8192,
                             topP = topP,
                             enableThinking = enableThinking,
                             thinkingEffort = thinkingEffort,

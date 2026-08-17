@@ -2593,7 +2593,7 @@ fun ApiConfigDialog(
                         modelName = cleanedCurrentModel,
                         availableModels = modelNames.takeIf { it.isNotEmpty() }?.let { gson.toJson(it) },
                         temperature = 0.95f,
-                        maxTokens = 4096,
+                        maxTokens = 8192,
                         topP = 1.0f,
                         enableThinking = false,
                         thinkingEffort = "medium",

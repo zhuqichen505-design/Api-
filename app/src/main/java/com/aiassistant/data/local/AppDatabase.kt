@@ -426,7 +426,7 @@ abstract class AppDatabase : RoomDatabase() {
                     ColumnSpec("apiType", "TEXT NOT NULL", "'openai'"),
                     ColumnSpec("modelName", "TEXT NOT NULL", "'gpt-4o-mini'"),
                     ColumnSpec("availableModels", "TEXT", "NULL", nullable = true),
-                    ColumnSpec("maxTokens", "INTEGER NOT NULL", "4096"),
+                    ColumnSpec("maxTokens", "INTEGER NOT NULL", "8192"),
                     ColumnSpec("temperature", "REAL NOT NULL", "0.95"),
                     ColumnSpec("topP", "REAL NOT NULL", "1.0"),
                     ColumnSpec("topK", "INTEGER NOT NULL", "50"),

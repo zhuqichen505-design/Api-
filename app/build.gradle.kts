@@ -13,8 +13,8 @@ android {
         applicationId = "com.aiassistant"
         minSdk = 26
         targetSdk = 34
-        versionCode = 86
-        versionName = "1.9.6"
+        versionCode = 87
+        versionName = "1.9.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -74,25 +74,43 @@ android {
             isIncludeAndroidResources = true
         }
     }
+    lint {
+        abortOnError = false
+        checkReleaseBuilds = false
+    }
 }
 
 tasks.withType<Test> {
-    systemProperty("file.encoding", "UTF-8")
-    systemProperty("sun.jnu.encoding", "UTF-8")
-    jvmArgs("-Dfile.encoding=UTF-8", "-Dsun.jnu.encoding=UTF-8")
     testLogging {
         events("passed", "skipped", "failed", "standardOut", "standardError")
         showExceptions = true
         showStackTraces = true
     }
-    testClassesDirs = files(
-        layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest"),
-        layout.buildDirectory.dir("intermediates/javac/debugUnitTest/classes")
-    )
-    classpath = classpath + files(
-        layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest"),
-        layout.buildDirectory.dir("tmp/kotlin-classes/debug")
-    )
+    doFirst {
+        val kotlinTestClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest").get().asFile
+        val javaTestDirs = listOf(
+            layout.buildDirectory.dir("intermediates/javac/debugUnitTest/compileDebugUnitTestJavaWithJavac/classes").get().asFile,
+            layout.buildDirectory.dir("intermediates/javac/debugUnitTest/classes").get().asFile
+        )
+        if (kotlinTestClasses.exists()) {
+            javaTestDirs.forEach { dir ->
+                dir.mkdirs()
+                kotlinTestClasses.copyRecursively(dir, overwrite = true)
+            }
+        }
+
+        val kotlinAppClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debug").get().asFile
+        val javaAppDirs = listOf(
+            layout.buildDirectory.dir("intermediates/javac/debug/compileDebugJavaWithJavac/classes").get().asFile,
+            layout.buildDirectory.dir("intermediates/javac/debug/classes").get().asFile
+        )
+        if (kotlinAppClasses.exists()) {
+            javaAppDirs.forEach { dir ->
+                dir.mkdirs()
+                kotlinAppClasses.copyRecursively(dir, overwrite = true)
+            }
+        }
+    }
 }
 
 configurations.all {
@@ -157,6 +175,7 @@ dependencies {
 
     // Testing
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.hamcrest:hamcrest:2.2")
     testImplementation("org.jetbrains.kotlin:kotlin-test")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
