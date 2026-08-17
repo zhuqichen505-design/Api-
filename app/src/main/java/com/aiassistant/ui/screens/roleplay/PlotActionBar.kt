@@ -1,6 +1,9 @@
+@file:OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
+
 package com.aiassistant.ui.screens.roleplay
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -8,9 +11,14 @@ import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.aiassistant.domain.model.PlotAction
+import com.aiassistant.ui.components.EchoGlassCard
+import com.aiassistant.ui.components.EchoGlassDialog
+import com.aiassistant.ui.theme.EchoTokens
 
 @Composable
 fun PlotActionBar(
@@ -113,6 +121,152 @@ fun PlotActionBar(
 }
 
 @Composable
+fun PlotActionDialog(
+    hazeState: dev.chrisbanes.haze.HazeState,
+    onAction: (PlotAction, String?) -> Unit,
+    onProposeSetting: (() -> Unit)? = null,
+    onDismiss: () -> Unit
+) {
+    var showCustomDialog by remember { mutableStateOf(false) }
+
+    EchoGlassDialog(
+        hazeState = hazeState,
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.AutoMirrored.Filled.AltRoute,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text(
+                        text = "剧情导演操作",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "选择剧情指令，引导模型生成下文",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        },
+        content = {
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                if (onProposeSetting != null) {
+                    item {
+                        EchoGlassCard(
+                            onClick = {
+                                onDismiss()
+                                onProposeSetting()
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = EchoTokens.Radius.shapeSm,
+                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.AutoAwesome,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("💡 AI 智能提取与设定融入", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                                    Text("从近期剧情精准提取人设与世界观更新", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                item {
+                    Text("🚀 推进与改写", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        ActionChip(action = PlotAction.CONTINUE) { onDismiss(); onAction(PlotAction.CONTINUE, null) }
+                        ActionChip(action = PlotAction.REGENERATE) { onDismiss(); onAction(PlotAction.REGENERATE, null) }
+                        ActionChip(action = PlotAction.REWRITE) { onDismiss(); onAction(PlotAction.REWRITE, null) }
+                        ActionChip(action = PlotAction.EXTEND) { onDismiss(); onAction(PlotAction.EXTEND, null) }
+                        ActionChip(action = PlotAction.SHORTEN) { onDismiss(); onAction(PlotAction.SHORTEN, null) }
+                    }
+                }
+
+                item {
+                    Text("🎭 模式与对白", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        ActionChip(action = PlotAction.DIALOGUE_ONLY) { onDismiss(); onAction(PlotAction.DIALOGUE_ONLY, null) }
+                        ActionChip(action = PlotAction.NARRATION_ONLY) { onDismiss(); onAction(PlotAction.NARRATION_ONLY, null) }
+                        ActionChip(action = PlotAction.DIALOGUE_ACTION) { onDismiss(); onAction(PlotAction.DIALOGUE_ACTION, null) }
+                        ActionChip(action = PlotAction.CHANGE_PERSPECTIVE) { onDismiss(); onAction(PlotAction.CHANGE_PERSPECTIVE, null) }
+                        ActionChip(action = PlotAction.CHANGE_TONE) { onDismiss(); onAction(PlotAction.CHANGE_TONE, null) }
+                    }
+                }
+
+                item {
+                    Text("🌿 分支与记忆", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        ActionChip(action = PlotAction.BRANCH_CHOICES) { onDismiss(); onAction(PlotAction.BRANCH_CHOICES, null) }
+                        ActionChip(action = PlotAction.BRANCH) { onDismiss(); onAction(PlotAction.BRANCH, null) }
+                        ActionChip(action = PlotAction.SUMMARY) { onDismiss(); onAction(PlotAction.SUMMARY, null) }
+                        ActionChip(action = PlotAction.ROLLBACK) { onDismiss(); onAction(PlotAction.ROLLBACK, null) }
+                    }
+                }
+
+                item {
+                    Text("✍️ 自定义指令", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    ActionChip(action = PlotAction.CUSTOM) { showCustomDialog = true }
+                }
+            }
+        },
+        buttons = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                TextButton(onClick = onDismiss) {
+                    Text("关闭")
+                }
+            }
+        }
+    )
+
+    if (showCustomDialog) {
+        CustomInstructionDialog(
+            onDismiss = { showCustomDialog = false },
+            onConfirm = { instruction ->
+                showCustomDialog = false
+                onDismiss()
+                onAction(PlotAction.CUSTOM, instruction)
+            }
+        )
+    }
+}
+
+@Composable
 private fun ActionChip(
     action: PlotAction,
     onClick: () -> Unit
@@ -129,6 +283,10 @@ private fun ActionChip(
         PlotAction.NARRATION_ONLY -> Icons.AutoMirrored.Filled.MenuBook
         PlotAction.DIALOGUE_ACTION -> Icons.Default.RecordVoiceOver
         PlotAction.CUSTOM -> Icons.Default.MoreHoriz
+        PlotAction.CHANGE_PERSPECTIVE -> Icons.Default.Visibility
+        PlotAction.CHANGE_TONE -> Icons.Default.Tune
+        PlotAction.BRANCH -> Icons.Default.CallSplit
+        PlotAction.ROLLBACK -> Icons.Default.History
         else -> Icons.Default.MoreHoriz
     }
 

@@ -13,8 +13,8 @@ android {
         applicationId = "com.aiassistant"
         minSdk = 26
         targetSdk = 34
-        versionCode = 84
-        versionName = "1.9.4"
+        versionCode = 85
+        versionName = "1.9.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -85,6 +85,14 @@ tasks.withType<Test> {
         showExceptions = true
         showStackTraces = true
     }
+    testClassesDirs = files(
+        layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest"),
+        layout.buildDirectory.dir("intermediates/javac/debugUnitTest/classes")
+    )
+    classpath = classpath + files(
+        layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest"),
+        layout.buildDirectory.dir("tmp/kotlin-classes/debug")
+    )
 }
 
 configurations.all {

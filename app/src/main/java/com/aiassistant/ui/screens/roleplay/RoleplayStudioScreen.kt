@@ -154,6 +154,18 @@ fun RoleplayStudioScreen(
                     onUpdateSessionContext = { session, cIds, scId, mode, summary ->
                         viewModel.updateStorySessionContext(session, cIds, scId, mode, summary)
                     },
+                    onSyncCharacterToDb = { char ->
+                        viewModel.syncCharacterToDatabase(char) { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
+                    },
+                    onSyncScenarioToDb = { sc ->
+                        viewModel.syncScenarioToDatabase(sc) { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
+                    },
+                    onSyncCharacterFromDb = { session, charId ->
+                        viewModel.syncCharacterFromDatabase(session, charId) { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
+                    },
+                    onSyncScenarioFromDb = { session, scId ->
+                        viewModel.syncScenarioFromDatabase(session, scId) { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
+                    },
                     onCreateNewSession = onCreateNewSession,
                     onSmartAnalyze = { showSmartAnalyzeDialog = true }
                 )
@@ -319,6 +331,10 @@ private fun SessionsTab(
     onSessionClick: (RoleplaySession) -> Unit,
     onDeleteSession: (RoleplaySession) -> Unit,
     onUpdateSessionContext: (RoleplaySession, List<Long>, Long?, NarrativeMode?, String?) -> Unit,
+    onSyncCharacterToDb: (CharacterProfile) -> Unit,
+    onSyncScenarioToDb: (RoleplayScenario) -> Unit,
+    onSyncCharacterFromDb: (RoleplaySession, Long) -> Unit,
+    onSyncScenarioFromDb: (RoleplaySession, Long) -> Unit,
     onCreateNewSession: () -> Unit,
     onSmartAnalyze: () -> Unit
 ) {
@@ -347,7 +363,11 @@ private fun SessionsTab(
                     onDelete = { onDeleteSession(session) },
                     onUpdateContext = { cIds, scId, mode, summary ->
                         onUpdateSessionContext(session, cIds, scId, mode, summary)
-                    }
+                    },
+                    onSyncCharacterToDb = onSyncCharacterToDb,
+                    onSyncScenarioToDb = onSyncScenarioToDb,
+                    onSyncCharacterFromDb = { charId -> onSyncCharacterFromDb(session, charId) },
+                    onSyncScenarioFromDb = { scId -> onSyncScenarioFromDb(session, scId) }
                 )
             }
         }
@@ -362,11 +382,17 @@ private fun SessionCard(
     scenarios: List<RoleplayScenario>,
     onClick: () -> Unit,
     onDelete: () -> Unit,
-    onUpdateContext: (List<Long>, Long?, NarrativeMode?, String?) -> Unit
+    onUpdateContext: (List<Long>, Long?, NarrativeMode?, String?) -> Unit,
+    onSyncCharacterToDb: (CharacterProfile) -> Unit,
+    onSyncScenarioToDb: (RoleplayScenario) -> Unit,
+    onSyncCharacterFromDb: (Long) -> Unit,
+    onSyncScenarioFromDb: (Long) -> Unit
 ) {
     val hazeState = rememberEchoHazeState()
+    var showActionMenu by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showEditContextDialog by remember { mutableStateOf(false) }
+    var showSyncDialog by remember { mutableStateOf(false) }
 
     val boundCharNames = remember(session.characterIds, session.characterId, characters) {
         val ids = session.getEffectiveCharacterIds()
@@ -390,7 +416,7 @@ private fun SessionCard(
             .fillMaxWidth()
             .combinedClickable(
                 onClick = onClick,
-                onLongClick = { showEditContextDialog = true }
+                onLongClick = { showActionMenu = true }
             ),
         shape = EchoTokens.Radius.shapeLg
     ) {
@@ -434,16 +460,121 @@ private fun SessionCard(
                         modifier = Modifier.height(26.dp)
                     )
                     Text(
-                        text = "长按可修改世界观与角色",
+                        text = "长按故事可同步或修改设定",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                     )
                 }
             }
-            IconButton(onClick = { showDeleteDialog = true }) {
-                Icon(Icons.Default.Delete, contentDescription = "删除", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            IconButton(onClick = { showActionMenu = true }) {
+                Icon(Icons.Default.MoreVert, contentDescription = "操作", tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
+    }
+
+    if (showActionMenu) {
+        EchoGlassDialog(
+            hazeState = hazeState,
+            onDismissRequest = { showActionMenu = false },
+            title = {
+                Text(storyTitle, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            },
+            content = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    EchoGlassCard(
+                        onClick = {
+                            showActionMenu = false
+                            showSyncDialog = true
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = EchoTokens.Radius.shapeSm,
+                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Sync, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text("🔄 双向设定同步 (Sync)", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                                Text("按故事更新主库，或从主库拉取最新设定", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+
+                    EchoGlassCard(
+                        onClick = {
+                            showActionMenu = false
+                            showEditContextDialog = true
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = EchoTokens.Radius.shapeSm
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Edit, contentDescription = null)
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text("✏️ 修改故事设定与模式", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                                Text("调整绑定世界观、登场角色与叙事模式", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+
+                    EchoGlassCard(
+                        onClick = {
+                            showActionMenu = false
+                            showDeleteDialog = true
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = EchoTokens.Radius.shapeSm,
+                        containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.25f)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text("🗑️ 删除故事会话", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+                                Text("删除本故事及其对话历史", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+            },
+            buttons = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = { showActionMenu = false }) {
+                        Text("取消")
+                    }
+                }
+            }
+        )
+    }
+
+    if (showSyncDialog) {
+        StorySyncDialog(
+            hazeState = hazeState,
+            session = session,
+            allCharacters = characters,
+            allScenarios = scenarios,
+            onDismiss = { showSyncDialog = false },
+            onSyncCharacterToDb = onSyncCharacterToDb,
+            onSyncScenarioToDb = onSyncScenarioToDb,
+            onSyncCharacterFromDb = onSyncCharacterFromDb,
+            onSyncScenarioFromDb = onSyncScenarioFromDb
+        )
     }
 
     if (showEditContextDialog) {
@@ -482,6 +613,210 @@ private fun SessionCard(
             }
         )
     }
+}
+
+@Composable
+fun StorySyncDialog(
+    hazeState: dev.chrisbanes.haze.HazeState,
+    session: RoleplaySession,
+    allCharacters: List<CharacterProfile>,
+    allScenarios: List<RoleplayScenario>,
+    onDismiss: () -> Unit,
+    onSyncCharacterToDb: (CharacterProfile) -> Unit,
+    onSyncScenarioToDb: (RoleplayScenario) -> Unit,
+    onSyncCharacterFromDb: (Long) -> Unit,
+    onSyncScenarioFromDb: (Long) -> Unit
+) {
+    val boundChars = remember(session, allCharacters) {
+        session.getCustomizedCharacters(allCharacters.filter { it.id in session.getEffectiveCharacterIds() })
+    }
+    val boundScenario = remember(session, allScenarios) {
+        val base = allScenarios.firstOrNull { it.id == session.scenarioId }
+        session.getCustomizedScenario(base)
+    }
+
+    EchoGlassDialog(
+        hazeState = hazeState,
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Sync, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text("故事设定双向同步", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("支持将故事专属设定写入全局库，或拉取主库最新设定", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        },
+        content = {
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                item {
+                    Text("🎭 本故事包含的角色 (${boundChars.size})", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                }
+                if (boundChars.isEmpty()) {
+                    item {
+                        Text("当前故事暂无登场角色", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                } else {
+                    items(boundChars) { char ->
+                        EchoGlassCard(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = EchoTokens.Radius.shapeMd
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = char.name + if (char.identity.isNotBlank()) " · ${char.identity}" else "",
+                                        fontWeight = FontWeight.Bold,
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                    val isCustomized = session.customCharacterData?.contains(char.name) == true
+                                    SuggestionChip(
+                                        onClick = {},
+                                        label = { Text(if (isCustomized) "故事内定制" else "主库关联") },
+                                        modifier = Modifier.height(24.dp)
+                                    )
+                                }
+                                if (char.background.isNotBlank()) {
+                                    Text(
+                                        text = char.background.take(80) + if (char.background.length > 80) "..." else "",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            onSyncCharacterToDb(char)
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
+                                    ) {
+                                        Icon(Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("按故事更新库", style = MaterialTheme.typography.labelMedium)
+                                    }
+                                    if (char.id > 0) {
+                                        OutlinedButton(
+                                            onClick = {
+                                                onSyncCharacterFromDb(char.id)
+                                            },
+                                            modifier = Modifier.weight(1f),
+                                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
+                                        ) {
+                                            Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("按主库更新故事", style = MaterialTheme.typography.labelMedium)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                item {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text("🌍 本故事的世界观设定", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                }
+                if (boundScenario == null) {
+                    item {
+                        Text("当前故事未绑定世界观（自由背景）", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                } else {
+                    item {
+                        val sc = boundScenario
+                        EchoGlassCard(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = EchoTokens.Radius.shapeMd
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(sc.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                                    val isCustomized = session.customScenarioData != null
+                                    SuggestionChip(
+                                        onClick = {},
+                                        label = { Text(if (isCustomized) "故事内定制" else "主库关联") },
+                                        modifier = Modifier.height(24.dp)
+                                    )
+                                }
+                                if (sc.worldview.isNotBlank()) {
+                                    Text(
+                                        text = sc.worldview.take(80) + if (sc.worldview.length > 80) "..." else "",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            onSyncScenarioToDb(sc)
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
+                                    ) {
+                                        Icon(Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("按故事更新库", style = MaterialTheme.typography.labelMedium)
+                                    }
+                                    if (sc.id > 0) {
+                                        OutlinedButton(
+                                            onClick = {
+                                                onSyncScenarioFromDb(sc.id)
+                                            },
+                                            modifier = Modifier.weight(1f),
+                                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
+                                        ) {
+                                            Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("按主库更新故事", style = MaterialTheme.typography.labelMedium)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        buttons = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                Button(onClick = onDismiss) {
+                    Text("完成")
+                }
+            }
+        }
+    )
 }
 
 @OptIn(ExperimentalFoundationApi::class)

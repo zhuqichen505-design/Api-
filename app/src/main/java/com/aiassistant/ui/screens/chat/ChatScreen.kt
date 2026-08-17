@@ -24,6 +24,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -145,6 +147,7 @@ fun ChatScreen(
     var showContextUsageDialog by remember { mutableStateOf(false) }
     var showStoryManagerDialog by remember { mutableStateOf(false) }
     var showStorySmartAnalyzeDialog by remember { mutableStateOf(false) }
+    var showPlotActionDialog by remember { mutableStateOf(false) }
     var selectedAttachments by remember { mutableStateOf<List<Attachment>>(emptyList()) }
     var isProcessingAttachments by remember { mutableStateOf(false) }
     var attachmentStatus by remember { mutableStateOf<String?>(null) }
@@ -366,87 +369,65 @@ fun ChatScreen(
         },
         bottomBar = {
             Column(modifier = Modifier.fillMaxWidth()) {
-                if (uiState.isRoleplay) {
-                    com.aiassistant.ui.screens.roleplay.PlotActionBar(
-                        onAction = { action, custom ->
-                            viewModel.sendPlotAction(action, custom)
-                        },
-                        onProposeSetting = {
-                            val textToAnalyze = if (inputText.isNotBlank()) inputText else {
-                                messages.takeLast(4).joinToString("\n") { "${it.role}: ${it.content}" }
-                            }
-                            if (textToAnalyze.isNotBlank()) {
-                                Toast.makeText(context, "正在智能识别角色与世界观设定...", Toast.LENGTH_SHORT).show()
-                                viewModel.analyzeAndProposeSettingFromInput(
-                                    text = textToAnalyze,
-                                    onProgress = { msg -> Toast.makeText(context, msg, Toast.LENGTH_SHORT).show() },
-                                    onNoProposal = { Toast.makeText(context, "未能从当前输入中提取到新的角色或世界观设定", Toast.LENGTH_SHORT).show() },
-                                    onError = { err -> Toast.makeText(context, "识别失败: $err", Toast.LENGTH_SHORT).show() }
-                                )
-                            } else {
-                                Toast.makeText(context, "请先在输入框输入设定或剧情文本", Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
                 ChatInputBar(
                     hazeState = hazeState,
-                inputText = inputText,
-                onInputChange = {
-                    inputText = it
-                    ChatViewModel.saveDraft(conversationId, it)
-                },
-                onSend = {
-                    if (inputText.isNotBlank() || selectedAttachments.isNotEmpty()) {
-                        if (!isProcessingAttachments) {
-                            val editSource = pendingEditSource
-                            if (editSource != null) {
-                                preserveScrollForBranchGeneration = true
-                                streamingBranchGroupId = editSource.variantGroupId
-                                    ?.let { pairedVariantGroupId(it) }
-                                    ?: "turn_${editSource.id}_assistant"
-                                viewModel.sendEditedMessage(editSource, inputText, selectedAttachments)
-                            } else {
-                                preserveScrollForBranchGeneration = false
-                                streamingBranchGroupId = null
-                                autoFollowOutput = true
-                                viewModel.sendMessage(inputText, selectedAttachments)
+                    inputText = inputText,
+                    onInputChange = {
+                        inputText = it
+                        ChatViewModel.saveDraft(conversationId, it)
+                    },
+                    onSend = {
+                        if (inputText.isNotBlank() || selectedAttachments.isNotEmpty()) {
+                            if (!isProcessingAttachments) {
+                                val editSource = pendingEditSource
+                                if (editSource != null) {
+                                    preserveScrollForBranchGeneration = true
+                                    streamingBranchGroupId = editSource.variantGroupId
+                                        ?.let { pairedVariantGroupId(it) }
+                                        ?: "turn_${editSource.id}_assistant"
+                                    viewModel.sendEditedMessage(editSource, inputText, selectedAttachments)
+                                } else {
+                                    preserveScrollForBranchGeneration = false
+                                    streamingBranchGroupId = null
+                                    autoFollowOutput = true
+                                    viewModel.sendMessage(inputText, selectedAttachments)
+                                }
+                                inputText = ""
+                                ChatViewModel.saveDraft(conversationId, "")
+                                pendingEditSource = null
+                                selectedAttachments = emptyList()
+                                attachmentStatus = null
                             }
-                            inputText = ""
-                            ChatViewModel.saveDraft(conversationId, "")
-                            pendingEditSource = null
-                            selectedAttachments = emptyList()
-                            attachmentStatus = null
                         }
-                    }
-                },
-                isGenerating = isGenerating,
-                onStopGeneration = { viewModel.stopGeneration() },
-                attachments = selectedAttachments,
-                onRemoveAttachment = { attachment ->
-                    selectedAttachments = selectedAttachments.filter { it != attachment }
-                },
-                isProcessingAttachments = isProcessingAttachments,
-                attachmentStatus = attachmentStatus,
-                onPickFile = { filePickerLauncher.launch(arrayOf("*/*")) },
-                onPickImage = { imagePickerLauncher.launch(arrayOf("image/*")) },
-                onOcrImages = {
-                    attachmentStatus = "请选择需要OCR的图片"
-                    ocrImagePickerLauncher.launch(arrayOf("image/*"))
-                },
-                enableWebSearch = tempSettings.enableWebSearch,
-                onWebSearchChange = { enabled ->
-                    viewModel.updateTempSettings(tempSettings.copy(enableWebSearch = enabled))
-                },
-                enableThinking = tempSettings.enableThinking,
-                onThinkingChange = { enabled ->
-                    viewModel.updateTempSettings(tempSettings.copy(enableThinking = enabled))
-                },
-                readableBackdrop = readableBackdrops.bottom
-            )
+                    },
+                    isGenerating = isGenerating,
+                    onStopGeneration = { viewModel.stopGeneration() },
+                    attachments = selectedAttachments,
+                    onRemoveAttachment = { attachment ->
+                        selectedAttachments = selectedAttachments.filter { it != attachment }
+                    },
+                    isProcessingAttachments = isProcessingAttachments,
+                    attachmentStatus = attachmentStatus,
+                    onPickFile = { filePickerLauncher.launch(arrayOf("*/*")) },
+                    onPickImage = { imagePickerLauncher.launch(arrayOf("image/*")) },
+                    onOcrImages = {
+                        attachmentStatus = "请选择需要OCR的图片"
+                        ocrImagePickerLauncher.launch(arrayOf("image/*"))
+                    },
+                    enableWebSearch = tempSettings.enableWebSearch,
+                    onWebSearchChange = { enabled ->
+                        viewModel.updateTempSettings(tempSettings.copy(enableWebSearch = enabled))
+                    },
+                    enableThinking = tempSettings.enableThinking,
+                    onThinkingChange = { enabled ->
+                        viewModel.updateTempSettings(tempSettings.copy(enableThinking = enabled))
+                    },
+                    isRoleplay = uiState.isRoleplay,
+                    onPlotActionClick = { showPlotActionDialog = true },
+                    readableBackdrop = readableBackdrops.bottom
+                )
+            }
         }
-    }
 ) { paddingValues ->
         Box(
             modifier = Modifier
@@ -767,12 +748,20 @@ fun ChatScreen(
                 showStorySmartAnalyzeDialog = true
             },
             onSaveLocalCharacter = { updatedChar ->
-                viewModel.saveLocalCharacterOverride(updatedChar)
-                Toast.makeText(context, "已保存「${updatedChar.name}」在当前故事中的专属设定", Toast.LENGTH_SHORT).show()
+                viewModel.addNewLocalCharacter(updatedChar)
+                Toast.makeText(context, "已保存「${updatedChar.name}」故事设定", Toast.LENGTH_SHORT).show()
+            },
+            onDeleteLocalCharacter = { char ->
+                viewModel.deleteLocalCharacter(char)
+                Toast.makeText(context, "已从故事中移除角色「${char.name}」", Toast.LENGTH_SHORT).show()
             },
             onSaveLocalScenario = { updatedSc ->
-                viewModel.saveLocalScenarioOverride(updatedSc)
-                Toast.makeText(context, "已保存「${updatedSc.name}」在当前故事中的专属世界观设定", Toast.LENGTH_SHORT).show()
+                viewModel.saveLocalScenario(updatedSc)
+                Toast.makeText(context, "已保存「${updatedSc.name}」故事世界观设定", Toast.LENGTH_SHORT).show()
+            },
+            onDeleteLocalScenario = {
+                viewModel.deleteLocalScenario()
+                Toast.makeText(context, "已从故事中移除世界观设定", Toast.LENGTH_SHORT).show()
             },
             onModelSelected = { viewModel.switchModel(it) },
             onSavePromptTemplate = { name, content ->
@@ -804,6 +793,32 @@ fun ChatScreen(
                 viewModel.applyProposedSetting(chars, sc)
                 Toast.makeText(context, "已成功添加并融合到当前故事专属设定！", Toast.LENGTH_SHORT).show()
             }
+        )
+    }
+
+    if (showPlotActionDialog) {
+        com.aiassistant.ui.screens.roleplay.PlotActionDialog(
+            hazeState = hazeState,
+            onAction = { action, custom ->
+                viewModel.sendPlotAction(action, custom)
+            },
+            onProposeSetting = {
+                val textToAnalyze = if (inputText.isNotBlank()) inputText else {
+                    messages.takeLast(4).joinToString("\n") { "${it.role}: ${it.content}" }
+                }
+                if (textToAnalyze.isNotBlank()) {
+                    Toast.makeText(context, "正在结合故事已有设定进行精准分析...", Toast.LENGTH_SHORT).show()
+                    viewModel.analyzeAndProposeSettingFromInput(
+                        text = textToAnalyze,
+                        onProgress = { msg -> Toast.makeText(context, msg, Toast.LENGTH_SHORT).show() },
+                        onNoProposal = { Toast.makeText(context, "未能从当前输入中提取到实质性设定变动", Toast.LENGTH_SHORT).show() },
+                        onError = { err -> Toast.makeText(context, "识别失败: $err", Toast.LENGTH_SHORT).show() }
+                    )
+                } else {
+                    Toast.makeText(context, "请先在输入框输入设定或剧情文本", Toast.LENGTH_SHORT).show()
+                }
+            },
+            onDismiss = { showPlotActionDialog = false }
         )
     }
 
@@ -1409,115 +1424,6 @@ private fun MessageBubble(
                     .padding(horizontal = 4.dp, vertical = 4.dp)
             }
         ) {
-            val thinkingBubbleColor = glass.controlSelected
-            val thinkingContentColor = MaterialTheme.colorScheme.primary
-            if (hasThinking) {
-                val thinkingShape = RoundedCornerShape(18.dp)
-                val headerShape = RoundedCornerShape(14.dp)
-                val headerModifier = if (hasThinkingContent) {
-                    Modifier
-                        .fillMaxWidth()
-                        .echoShapeClick(headerShape) { showThinking = !showThinking }
-                } else {
-                    Modifier.fillMaxWidth()
-                }
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .then(
-                            if (hazeState != null) {
-                                Modifier.echoHazePanel(
-                                    hazeState = hazeState,
-                                    shape = thinkingShape,
-                                    tint = thinkingBubbleColor,
-                                    blurRadius = 16.dp,
-                                    highlightAlpha = 0.03f
-                                )
-                            } else {
-                                Modifier
-                            }
-                        ),
-                    color = thinkingBubbleColor,
-                    contentColor = thinkingContentColor,
-                    shape = thinkingShape,
-                    border = BorderStroke(1.dp, glass.outlineSelected.copy(alpha = 0.72f))
-                ) {
-                    Column(modifier = Modifier.padding(10.dp)) {
-                        Row(
-                            modifier = headerModifier,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                Icons.Default.Psychology,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                                tint = thinkingContentColor
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Row(
-                                modifier = Modifier.weight(1f),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Text(
-                                    text = if (isGenerating) "正在努力思考" else "思考过程",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = thinkingContentColor
-                                )
-                                if (message.responseTime > 0) {
-                                    Text(
-                                        text = formatTime(message.responseTime),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = thinkingContentColor.copy(alpha = 0.68f),
-                                        maxLines = 1
-                                    )
-                                }
-                                if (message.thinkingTokens > 0) {
-                                    Text(
-                                        text = "思考: ${message.thinkingTokens} tokens",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = thinkingContentColor.copy(alpha = 0.68f),
-                                        maxLines = 1
-                                    )
-                                }
-                            }
-                            if (hasThinkingContent) {
-                                IconButton(
-                                    onClick = onCopyThinking,
-                                    modifier = Modifier.size(24.dp),
-                                    colors = IconButtonDefaults.iconButtonColors(
-                                        contentColor = thinkingContentColor.copy(alpha = 0.78f)
-                                    )
-                                ) {
-                                    Icon(
-                                        Icons.Default.ContentCopy,
-                                        contentDescription = "复制思考",
-                                        modifier = Modifier.size(14.dp),
-                                        tint = thinkingContentColor.copy(alpha = 0.78f)
-                                    )
-                                }
-                                Icon(
-                                    if (showThinking) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(20.dp),
-                                    tint = thinkingContentColor.copy(alpha = 0.78f)
-                                )
-                            }
-                        }
-
-                        AnimatedVisibility(visible = showThinking && hasThinkingContent) {
-                            Text(
-                                text = message.thinkingContent ?: "",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = thinkingContentColor,
-                                modifier = Modifier.padding(top = 8.dp)
-                            )
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(10.dp))
-            }
-
             if (message.content.isNotBlank()) {
                 if (isUser) {
                     Text(
@@ -1540,7 +1446,7 @@ private fun MessageBubble(
             }
 
             if (isGenerating) {
-                if (message.content.isNotBlank() || hasThinking) {
+                if (message.content.isNotBlank()) {
                     Spacer(modifier = Modifier.height(6.dp))
                 }
                 TypingIndicator(textColor = contentColor)
@@ -1619,6 +1525,8 @@ private fun MessageBubble(
                     .padding(horizontal = 4.dp, vertical = 2.dp),
                 horizontalAlignment = Alignment.Start
             ) {
+                val thinkingBubbleColor = glass.controlSelected
+                val thinkingContentColor = MaterialTheme.colorScheme.primary
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1637,6 +1545,119 @@ private fun MessageBubble(
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.primary
                     )
+
+                    if (hasThinking) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        val capsuleShape = RoundedCornerShape(999.dp)
+                        Surface(
+                            modifier = Modifier
+                                .then(
+                                    if (hasThinkingContent) {
+                                        Modifier.echoShapeClick(capsuleShape) { showThinking = !showThinking }
+                                    } else Modifier
+                                )
+                                .then(
+                                    if (hazeState != null) {
+                                        Modifier.echoHazePanel(
+                                            hazeState = hazeState,
+                                            shape = capsuleShape,
+                                            tint = thinkingBubbleColor,
+                                            blurRadius = 12.dp,
+                                            highlightAlpha = 0.03f
+                                        )
+                                    } else Modifier
+                                ),
+                            color = thinkingBubbleColor,
+                            contentColor = thinkingContentColor,
+                            shape = capsuleShape,
+                            border = BorderStroke(1.dp, glass.outlineSelected.copy(alpha = 0.72f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Psychology,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp),
+                                    tint = thinkingContentColor
+                                )
+                                Text(
+                                    text = if (isGenerating && message.content.isBlank()) "思考中..." else "思考过程",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = thinkingContentColor
+                                )
+                                if (message.responseTime > 0) {
+                                    Text(
+                                        text = formatTime(message.responseTime),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = thinkingContentColor.copy(alpha = 0.68f)
+                                    )
+                                }
+                                if (message.thinkingTokens > 0) {
+                                    Text(
+                                        text = "${message.thinkingTokens}t",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = thinkingContentColor.copy(alpha = 0.68f)
+                                    )
+                                }
+                                if (hasThinkingContent) {
+                                    Icon(
+                                        if (showThinking) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp),
+                                        tint = thinkingContentColor.copy(alpha = 0.78f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (hasThinking) {
+                    AnimatedVisibility(visible = showThinking && hasThinkingContent) {
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 2.dp, vertical = 4.dp),
+                            color = glass.controlSelected.copy(alpha = 0.6f),
+                            contentColor = MaterialTheme.colorScheme.primary,
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, glass.outlineSelected.copy(alpha = 0.5f))
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        "思考内容详情",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    IconButton(
+                                        onClick = onCopyThinking,
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.ContentCopy,
+                                            contentDescription = "复制思考",
+                                            modifier = Modifier.size(14.dp),
+                                            tint = thinkingContentColor.copy(alpha = 0.78f)
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = message.thinkingContent ?: "",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = thinkingContentColor
+                                )
+                            }
+                        }
+                    }
                 }
 
                 Column(
@@ -2049,6 +2070,8 @@ fun ChatInputBar(
     onWebSearchChange: (Boolean) -> Unit,
     enableThinking: Boolean = false,
     onThinkingChange: (Boolean) -> Unit = {},
+    isRoleplay: Boolean = false,
+    onPlotActionClick: () -> Unit = {},
     readableBackdrop: Color = Color.Unspecified
 ) {
     var showToolMenu by remember { mutableStateOf(false) }
@@ -2131,7 +2154,7 @@ fun ChatInputBar(
                         ) {
                             if (inputText.isBlank()) {
                                 Text(
-                                    text = "给 Echo 发送消息",
+                                    text = if (isRoleplay) "输入剧情提示、行动或指令..." else "给 Echo 发送消息",
                                     color = inputTextColor.copy(alpha = 0.62f),
                                     style = MaterialTheme.typography.bodyLarge
                                 )
@@ -2153,29 +2176,7 @@ fun ChatInputBar(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        item {
-                            InputPillButton(
-                                text = "智能搜索",
-                                selected = enableWebSearch,
-                                onClick = { onWebSearchChange(!enableWebSearch) },
-                                containerColor = if (enableWebSearch) {
-                                    glass.controlSelected
-                                } else {
-                                    glass.control
-                                },
-                                contentColor = if (enableWebSearch) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    inputTextColor
-                                },
-                                borderColor = if (enableWebSearch) {
-                                    glass.outlineSelected
-                                } else {
-                                    glass.outline
-                                }
-                            )
-                        }
-
+                        // 1. 深度思考 按钮（排在第1位）
                         item {
                             InputPillButton(
                                 text = "深度思考",
@@ -2197,6 +2198,44 @@ fun ChatInputBar(
                                     glass.outline
                                 }
                             )
+                        }
+
+                        // 2. 故事模式：剧情操作；非故事模式：智能搜索
+                        if (isRoleplay) {
+                            item {
+                                InputPillButton(
+                                    text = "剧情操作",
+                                    icon = Icons.Default.AltRoute,
+                                    selected = false,
+                                    onClick = onPlotActionClick,
+                                    containerColor = glass.control,
+                                    contentColor = MaterialTheme.colorScheme.primary,
+                                    borderColor = glass.outline
+                                )
+                            }
+                        } else {
+                            item {
+                                InputPillButton(
+                                    text = "智能搜索",
+                                    selected = enableWebSearch,
+                                    onClick = { onWebSearchChange(!enableWebSearch) },
+                                    containerColor = if (enableWebSearch) {
+                                        glass.controlSelected
+                                    } else {
+                                        glass.control
+                                    },
+                                    contentColor = if (enableWebSearch) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        inputTextColor
+                                    },
+                                    borderColor = if (enableWebSearch) {
+                                        glass.outlineSelected
+                                    } else {
+                                        glass.outline
+                                    }
+                                )
+                            }
                         }
 
                         attachmentStatus?.let { status ->
@@ -2397,11 +2436,12 @@ private fun InputPillButton(
     text: String,
     selected: Boolean,
     onClick: () -> Unit,
+    icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
     containerColor: Color? = null,
     contentColor: Color? = null,
     borderColor: Color? = null
-    ) {
-        val pillShape = RoundedCornerShape(999.dp)
+) {
+    val pillShape = RoundedCornerShape(999.dp)
     val glass = echoGlassPalette()
     val resolvedContainerColor = containerColor ?: if (selected) {
         glass.controlSelected
@@ -2425,13 +2465,26 @@ private fun InputPillButton(
         contentColor = resolvedContentColor,
         border = BorderStroke(if (selected) 1.3.dp else 1.dp, borderColor ?: if (selected) glass.outlineSelected else glass.outline)
     ) {
-        Text(
-            text = text,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-            style = MaterialTheme.typography.labelLarge,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            if (icon != null) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(15.dp),
+                    tint = resolvedContentColor
+                )
+            }
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 
@@ -3775,7 +3828,9 @@ private fun StoryUnifiedSettingsDialog(
     onNavigateToMemory: () -> Unit,
     onOpenSmartAppend: () -> Unit,
     onSaveLocalCharacter: (CharacterProfile) -> Unit = {},
+    onDeleteLocalCharacter: (CharacterProfile) -> Unit = {},
     onSaveLocalScenario: (RoleplayScenario) -> Unit = {},
+    onDeleteLocalScenario: () -> Unit = {},
     onModelSelected: (ChatModelOption) -> Unit,
     onSavePromptTemplate: (String, String) -> Unit,
     onModelAvatarChanged: () -> Unit
@@ -3908,11 +3963,21 @@ private fun StoryUnifiedSettingsDialog(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text("登场角色 (${selectedCharIds.size}/${(allCharacters + characters).distinctBy { it.id }.size})", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                                        Text("长按角色可编辑本故事专属设定", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                        OutlinedButton(
+                                            onClick = {
+                                                editingLocalCharacter = CharacterProfile(id = 0, name = "")
+                                            },
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                            modifier = Modifier.height(28.dp)
+                                        ) {
+                                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("添加新角色", style = MaterialTheme.typography.labelSmall)
+                                        }
                                     }
                                     val charListToDisplay = (allCharacters + characters).distinctBy { it.id }
                                     if (charListToDisplay.isEmpty()) {
-                                        Text("暂无角色卡，可在角色工坊新建", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text("暂无角色卡，可点击上方「添加新角色」", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     } else {
                                         charListToDisplay.forEach { char ->
                                             val isChecked = selectedCharIds.contains(char.id)
@@ -3953,6 +4018,18 @@ private fun StoryUnifiedSettingsDialog(
                                                             Text("性格: ${char.personality}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                                                         }
                                                     }
+                                                    IconButton(
+                                                        onClick = { editingLocalCharacter = char },
+                                                        modifier = Modifier.size(32.dp)
+                                                    ) {
+                                                        Icon(Icons.Default.Edit, contentDescription = "编辑角色", modifier = Modifier.size(16.dp))
+                                                    }
+                                                    IconButton(
+                                                        onClick = { onDeleteLocalCharacter(char) },
+                                                        modifier = Modifier.size(32.dp)
+                                                    ) {
+                                                        Icon(Icons.Default.DeleteOutline, contentDescription = "从故事移除", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                                                    }
                                                 }
                                             }
                                         }
@@ -3969,7 +4046,17 @@ private fun StoryUnifiedSettingsDialog(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text("世界观与场景设定", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                                        Text("长按世界观可编辑本故事专属设定", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                        OutlinedButton(
+                                            onClick = {
+                                                editingLocalScenario = RoleplayScenario(id = 0, name = "")
+                                            },
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                            modifier = Modifier.height(28.dp)
+                                        ) {
+                                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("添加新世界观", style = MaterialTheme.typography.labelSmall)
+                                        }
                                     }
                                     EchoGlassCard(
                                         onClick = { selectedScenarioId = null },
@@ -4009,11 +4096,23 @@ private fun StoryUnifiedSettingsDialog(
                                             ) {
                                                 RadioButton(selected = isSelected, onClick = { selectedScenarioId = sc.id })
                                                 Spacer(modifier = Modifier.width(6.dp))
-                                                Column {
+                                                Column(modifier = Modifier.weight(1f)) {
                                                     Text(sc.name, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
                                                     if (sc.worldview.isNotBlank()) {
                                                         Text(sc.worldview, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
                                                     }
+                                                }
+                                                IconButton(
+                                                    onClick = { editingLocalScenario = sc },
+                                                    modifier = Modifier.size(32.dp)
+                                                ) {
+                                                    Icon(Icons.Default.Edit, contentDescription = "编辑世界观", modifier = Modifier.size(16.dp))
+                                                }
+                                                IconButton(
+                                                    onClick = { onDeleteLocalScenario() },
+                                                    modifier = Modifier.size(32.dp)
+                                                ) {
+                                                    Icon(Icons.Default.DeleteOutline, contentDescription = "从故事移除", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
                                                 }
                                             }
                                         }
@@ -4450,360 +4549,50 @@ private fun StoryUnifiedSettingsDialog(
     }
 
     if (editingLocalCharacter != null) {
-        EditLocalCharacterDialog(
-            hazeState = hazeState,
-            character = editingLocalCharacter!!,
-            onDismiss = { editingLocalCharacter = null },
-            onSave = { updatedChar ->
-                onSaveLocalCharacter(updatedChar)
-                editingLocalCharacter = null
+        Dialog(
+            onDismissRequest = { editingLocalCharacter = null },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(modifier = Modifier.fillMaxSize()) {
+                com.aiassistant.ui.screens.roleplay.CharacterEditorScreen(
+                    character = if (editingLocalCharacter?.name?.isNotBlank() == true) editingLocalCharacter else null,
+                    onSave = { updatedChar ->
+                        onSaveLocalCharacter(updatedChar)
+                        editingLocalCharacter = null
+                    },
+                    onDelete = {
+                        if (editingLocalCharacter != null && editingLocalCharacter!!.name.isNotBlank()) {
+                            onDeleteLocalCharacter(editingLocalCharacter!!)
+                        }
+                        editingLocalCharacter = null
+                    },
+                    onBack = { editingLocalCharacter = null }
+                )
             }
-        )
+        }
     }
 
     if (editingLocalScenario != null) {
-        EditLocalScenarioDialog(
-            hazeState = hazeState,
-            scenario = editingLocalScenario!!,
-            onDismiss = { editingLocalScenario = null },
-            onSave = { updatedSc ->
-                onSaveLocalScenario(updatedSc)
-                editingLocalScenario = null
+        Dialog(
+            onDismissRequest = { editingLocalScenario = null },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(modifier = Modifier.fillMaxSize()) {
+                com.aiassistant.ui.screens.roleplay.ScenarioEditorScreen(
+                    scenario = if (editingLocalScenario?.name?.isNotBlank() == true) editingLocalScenario else null,
+                    onSave = { updatedSc ->
+                        onSaveLocalScenario(updatedSc)
+                        editingLocalScenario = null
+                    },
+                    onDelete = {
+                        onDeleteLocalScenario()
+                        editingLocalScenario = null
+                    },
+                    onBack = { editingLocalScenario = null }
+                )
             }
-        )
+        }
     }
-}
-
-@Composable
-private fun EditLocalCharacterDialog(
-    hazeState: dev.chrisbanes.haze.HazeState,
-    character: CharacterProfile,
-    onDismiss: () -> Unit,
-    onSave: (CharacterProfile) -> Unit
-) {
-    var name by remember { mutableStateOf(character.name) }
-    var identity by remember { mutableStateOf(character.identity) }
-    var personality by remember { mutableStateOf(character.personality) }
-    var background by remember { mutableStateOf(character.background) }
-    var speakingStyle by remember { mutableStateOf(character.speakingStyle) }
-    var goals by remember { mutableStateOf(character.goals) }
-    var relationships by remember { mutableStateOf(character.relationships) }
-    var knowledge by remember { mutableStateOf(character.knowledge) }
-    var constraints by remember { mutableStateOf(character.constraints) }
-    var behaviorRules by remember { mutableStateOf(character.behaviorRules) }
-
-    EchoGlassDialog(
-        hazeState = hazeState,
-        onDismissRequest = onDismiss,
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.PersonOutline, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                Spacer(modifier = Modifier.width(8.dp))
-                Column {
-                    Text("编辑角色专属设定", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text("💡 修改仅对当前故事生效，不影响角色库原始设定", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                }
-            }
-        },
-        content = {
-            Box(modifier = Modifier.heightIn(max = 420.dp)) {
-                LazyColumn(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    item {
-                        OutlinedTextField(
-                            value = name,
-                            onValueChange = { name = it },
-                            label = { Text("角色名称") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                    item {
-                        OutlinedTextField(
-                            value = identity,
-                            onValueChange = { identity = it },
-                            label = { Text("身份 / 职业") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                    item {
-                        OutlinedTextField(
-                            value = personality,
-                            onValueChange = { personality = it },
-                            label = { Text("性格特质") },
-                            modifier = Modifier.fillMaxWidth(),
-                            maxLines = 3
-                        )
-                    }
-                    item {
-                        OutlinedTextField(
-                            value = background,
-                            onValueChange = { background = it },
-                            label = { Text("背景故事") },
-                            modifier = Modifier.fillMaxWidth(),
-                            maxLines = 4
-                        )
-                    }
-                    item {
-                        OutlinedTextField(
-                            value = speakingStyle,
-                            onValueChange = { speakingStyle = it },
-                            label = { Text("说话方式与语言风格") },
-                            modifier = Modifier.fillMaxWidth(),
-                            maxLines = 3
-                        )
-                    }
-                    item {
-                        OutlinedTextField(
-                            value = goals,
-                            onValueChange = { goals = it },
-                            label = { Text("目标、动机与当前欲望") },
-                            modifier = Modifier.fillMaxWidth(),
-                            maxLines = 3
-                        )
-                    }
-                    item {
-                        OutlinedTextField(
-                            value = relationships,
-                            onValueChange = { relationships = it },
-                            label = { Text("人际关系状态") },
-                            modifier = Modifier.fillMaxWidth(),
-                            maxLines = 3
-                        )
-                    }
-                    item {
-                        OutlinedTextField(
-                            value = knowledge,
-                            onValueChange = { knowledge = it },
-                            label = { Text("能力与知识边界") },
-                            modifier = Modifier.fillMaxWidth(),
-                            maxLines = 3
-                        )
-                    }
-                    item {
-                        OutlinedTextField(
-                            value = constraints,
-                            onValueChange = { constraints = it },
-                            label = { Text("禁止违背的设定与底线") },
-                            modifier = Modifier.fillMaxWidth(),
-                            maxLines = 3
-                        )
-                    }
-                    item {
-                        OutlinedTextField(
-                            value = behaviorRules,
-                            onValueChange = { behaviorRules = it },
-                            label = { Text("角色行为准则") },
-                            modifier = Modifier.fillMaxWidth(),
-                            maxLines = 3
-                        )
-                    }
-                }
-            }
-        },
-        buttons = {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                TextButton(onClick = onDismiss) {
-                    Text("取消")
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                Button(
-                    onClick = {
-                        val updated = character.copy(
-                            name = name.trim().ifBlank { character.name },
-                            identity = identity.trim(),
-                            personality = personality.trim(),
-                            background = background.trim(),
-                            speakingStyle = speakingStyle.trim(),
-                            goals = goals.trim(),
-                            relationships = relationships.trim(),
-                            knowledge = knowledge.trim(),
-                            constraints = constraints.trim(),
-                            behaviorRules = behaviorRules.trim(),
-                            updatedAt = System.currentTimeMillis()
-                        )
-                        onSave(updated)
-                    }
-                ) {
-                    Text("保存本故事设定")
-                }
-            }
-        }
-    )
-}
-
-@Composable
-private fun EditLocalScenarioDialog(
-    hazeState: dev.chrisbanes.haze.HazeState,
-    scenario: RoleplayScenario,
-    onDismiss: () -> Unit,
-    onSave: (RoleplayScenario) -> Unit
-) {
-    var name by remember { mutableStateOf(scenario.name) }
-    var worldview by remember { mutableStateOf(scenario.worldview) }
-    var time by remember { mutableStateOf(scenario.time) }
-    var location by remember { mutableStateOf(scenario.location) }
-    var environment by remember { mutableStateOf(scenario.environment) }
-    var premise by remember { mutableStateOf(scenario.premise) }
-    var rules by remember { mutableStateOf(scenario.rules) }
-    var relationshipState by remember { mutableStateOf(scenario.relationshipState) }
-    var conflict by remember { mutableStateOf(scenario.conflict) }
-    var plotGoal by remember { mutableStateOf(scenario.plotGoal) }
-    var atmosphere by remember { mutableStateOf(scenario.atmosphere) }
-
-    EchoGlassDialog(
-        hazeState = hazeState,
-        onDismissRequest = onDismiss,
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Landscape, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                Spacer(modifier = Modifier.width(8.dp))
-                Column {
-                    Text("编辑世界观专属设定", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text("💡 修改仅对当前故事生效，不影响场景库原始设定", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                }
-            }
-        },
-        content = {
-            Box(modifier = Modifier.heightIn(max = 420.dp)) {
-                LazyColumn(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    item {
-                        OutlinedTextField(
-                            value = name,
-                            onValueChange = { name = it },
-                            label = { Text("场景/世界观名称") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                    item {
-                        OutlinedTextField(
-                            value = worldview,
-                            onValueChange = { worldview = it },
-                            label = { Text("世界观设定与宏观法则") },
-                            modifier = Modifier.fillMaxWidth(),
-                            maxLines = 4
-                        )
-                    }
-                    item {
-                        OutlinedTextField(
-                            value = rules,
-                            onValueChange = { rules = it },
-                            label = { Text("不可违背的法则与限制") },
-                            modifier = Modifier.fillMaxWidth(),
-                            maxLines = 3
-                        )
-                    }
-                    item {
-                        OutlinedTextField(
-                            value = premise,
-                            onValueChange = { premise = it },
-                            label = { Text("当前剧情起点与背景前提") },
-                            modifier = Modifier.fillMaxWidth(),
-                            maxLines = 3
-                        )
-                    }
-                    item {
-                        OutlinedTextField(
-                            value = time,
-                            onValueChange = { time = it },
-                            label = { Text("时代 / 时间点") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                    item {
-                        OutlinedTextField(
-                            value = location,
-                            onValueChange = { location = it },
-                            label = { Text("主要发生地点") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                    item {
-                        OutlinedTextField(
-                            value = environment,
-                            onValueChange = { environment = it },
-                            label = { Text("现场环境细节与氛围描写") },
-                            modifier = Modifier.fillMaxWidth(),
-                            maxLines = 3
-                        )
-                    }
-                    item {
-                        OutlinedTextField(
-                            value = conflict,
-                            onValueChange = { conflict = it },
-                            label = { Text("当前核心矛盾冲突") },
-                            modifier = Modifier.fillMaxWidth(),
-                            maxLines = 3
-                        )
-                    }
-                    item {
-                        OutlinedTextField(
-                            value = plotGoal,
-                            onValueChange = { plotGoal = it },
-                            label = { Text("互动推进目标") },
-                            modifier = Modifier.fillMaxWidth(),
-                            maxLines = 3
-                        )
-                    }
-                    item {
-                        OutlinedTextField(
-                            value = atmosphere,
-                            onValueChange = { atmosphere = it },
-                            label = { Text("叙事氛围与基调") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                }
-            }
-        },
-        buttons = {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                TextButton(onClick = onDismiss) {
-                    Text("取消")
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                Button(
-                    onClick = {
-                        val updated = scenario.copy(
-                            name = name.trim().ifBlank { scenario.name },
-                            worldview = worldview.trim(),
-                            time = time.trim(),
-                            location = location.trim(),
-                            environment = environment.trim(),
-                            premise = premise.trim(),
-                            rules = rules.trim(),
-                            relationshipState = relationshipState.trim(),
-                            conflict = conflict.trim(),
-                            plotGoal = plotGoal.trim(),
-                            atmosphere = atmosphere.trim(),
-                            updatedAt = System.currentTimeMillis()
-                        )
-                        onSave(updated)
-                    }
-                ) {
-                    Text("保存本故事设定")
-                }
-            }
-        }
-    )
 }
 
 @Composable
@@ -4813,10 +4602,13 @@ private fun EditableSettingProposalDialog(
     onDismiss: () -> Unit,
     onApply: (List<CharacterProfile>, RoleplayScenario?) -> Unit
 ) {
-    var editableCharacters by remember(proposal) {
-        mutableStateOf(proposal.characters)
+    var updatedChars by remember(proposal) {
+        mutableStateOf(proposal.updatedCharacters.map { it.character })
     }
-    var editableScenario by remember(proposal) {
+    var newChars by remember(proposal) {
+        mutableStateOf(proposal.newCharacters.map { it.character })
+    }
+    var scenario by remember(proposal) {
         mutableStateOf(proposal.scenario)
     }
 
@@ -4828,133 +4620,188 @@ private fun EditableSettingProposalDialog(
                 Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                 Spacer(modifier = Modifier.width(8.dp))
                 Column {
-                    Text("AI 识别到可补充的故事设定", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text("您可以直接在线修改提取设定并决定是否添加", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("AI 精准识别到设定融入与更新", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(proposal.summary.ifBlank { "已结合已知设定智能分类更新与新角色" }, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         },
         content = {
-            Box(modifier = Modifier.heightIn(max = 440.dp)) {
-                LazyColumn(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    if (editableCharacters.isNotEmpty()) {
-                        item {
-                            Text("🎭 提炼出的角色设定 (${editableCharacters.size})", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
-                        }
-                        itemsIndexed(editableCharacters) { index, char ->
-                            EchoGlassCard(
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = EchoTokens.Radius.shapeMd
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // 1. 更新已有角色
+                if (updatedChars.isNotEmpty()) {
+                    item {
+                        Text("🔄 更新已有角色设定 (${updatedChars.size})", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                    }
+                    itemsIndexed(updatedChars) { index, char ->
+                        val summaryText = proposal.updatedCharacters.getOrNull(index)?.summaryOfChanges ?: "设定变动"
+                        EchoGlassCard(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = EchoTokens.Radius.shapeMd
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth().padding(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(10.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
+                                    Text("【${char.name}】 $summaryText", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium)
+                                    IconButton(
+                                        onClick = { updatedChars = updatedChars.filterIndexed { i, _ -> i != index } },
+                                        modifier = Modifier.size(24.dp)
                                     ) {
-                                        Text("角色 #${index + 1}", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
-                                        IconButton(
-                                            onClick = {
-                                                editableCharacters = editableCharacters.filterIndexed { i, _ -> i != index }
-                                            },
-                                            modifier = Modifier.size(24.dp)
-                                        ) {
-                                            Icon(Icons.Default.Close, contentDescription = "移除该角色", modifier = Modifier.size(16.dp))
-                                        }
+                                        Icon(Icons.Default.Close, contentDescription = "忽略此更新", modifier = Modifier.size(16.dp))
                                     }
-                                    OutlinedTextField(
-                                        value = char.name,
-                                        onValueChange = { newName ->
-                                            editableCharacters = editableCharacters.toMutableList().also { it[index] = char.copy(name = newName) }
-                                        },
-                                        label = { Text("角色名") },
-                                        singleLine = true,
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                    OutlinedTextField(
-                                        value = char.identity,
-                                        onValueChange = { newId ->
-                                            editableCharacters = editableCharacters.toMutableList().also { it[index] = char.copy(identity = newId) }
-                                        },
-                                        label = { Text("身份 / 职业") },
-                                        singleLine = true,
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                    OutlinedTextField(
-                                        value = char.personality,
-                                        onValueChange = { newP ->
-                                            editableCharacters = editableCharacters.toMutableList().also { it[index] = char.copy(personality = newP) }
-                                        },
-                                        label = { Text("性格特质") },
-                                        modifier = Modifier.fillMaxWidth(),
-                                        maxLines = 2
-                                    )
-                                    OutlinedTextField(
-                                        value = char.background,
-                                        onValueChange = { newBg ->
-                                            editableCharacters = editableCharacters.toMutableList().also { it[index] = char.copy(background = newBg) }
-                                        },
-                                        label = { Text("背景故事") },
-                                        modifier = Modifier.fillMaxWidth(),
-                                        maxLines = 3
-                                    )
                                 }
+                                OutlinedTextField(
+                                    value = char.identity,
+                                    onValueChange = { newId -> updatedChars = updatedChars.toMutableList().also { it[index] = char.copy(identity = newId) } },
+                                    label = { Text("身份 / 职业") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                OutlinedTextField(
+                                    value = char.personality,
+                                    onValueChange = { newP -> updatedChars = updatedChars.toMutableList().also { it[index] = char.copy(personality = newP) } },
+                                    label = { Text("性格特质") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    maxLines = 2
+                                )
+                                OutlinedTextField(
+                                    value = char.background,
+                                    onValueChange = { newBg -> updatedChars = updatedChars.toMutableList().also { it[index] = char.copy(background = newBg) } },
+                                    label = { Text("背景与补充经历") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    maxLines = 3
+                                )
                             }
                         }
                     }
+                }
 
-                    if (editableScenario != null) {
-                        item {
-                            Text("🌍 提炼出的世界观设定", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
-                        }
-                        item {
-                            val sc = editableScenario!!
-                            EchoGlassCard(
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = EchoTokens.Radius.shapeMd
+                // 2. 发现新登场角色
+                if (newChars.isNotEmpty()) {
+                    item {
+                        Text("➕ 发现新登场角色 (${newChars.size})", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.tertiary)
+                    }
+                    itemsIndexed(newChars) { index, char ->
+                        val summaryText = proposal.newCharacters.getOrNull(index)?.summaryOfChanges ?: "新角色"
+                        EchoGlassCard(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = EchoTokens.Radius.shapeMd
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth().padding(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(10.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    OutlinedTextField(
-                                        value = sc.name,
-                                        onValueChange = { editableScenario = sc.copy(name = it) },
-                                        label = { Text("世界观名称") },
-                                        singleLine = true,
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                    OutlinedTextField(
-                                        value = sc.worldview,
-                                        onValueChange = { editableScenario = sc.copy(worldview = it) },
-                                        label = { Text("世界观法则与背景") },
-                                        modifier = Modifier.fillMaxWidth(),
-                                        maxLines = 3
-                                    )
-                                    OutlinedTextField(
-                                        value = sc.rules,
-                                        onValueChange = { editableScenario = sc.copy(rules = it) },
-                                        label = { Text("不可违背的法则") },
-                                        modifier = Modifier.fillMaxWidth(),
-                                        maxLines = 2
-                                    )
-                                    OutlinedTextField(
-                                        value = sc.premise,
-                                        onValueChange = { editableScenario = sc.copy(premise = it) },
-                                        label = { Text("当前剧情前提") },
-                                        modifier = Modifier.fillMaxWidth(),
-                                        maxLines = 2
-                                    )
+                                    Text("新角色：【${char.name}】", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodyMedium)
+                                    IconButton(
+                                        onClick = { newChars = newChars.filterIndexed { i, _ -> i != index } },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(Icons.Default.Close, contentDescription = "不添加此角色", modifier = Modifier.size(16.dp))
+                                    }
                                 }
+                                OutlinedTextField(
+                                    value = char.name,
+                                    onValueChange = { newName -> newChars = newChars.toMutableList().also { it[index] = char.copy(name = newName) } },
+                                    label = { Text("姓名") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                OutlinedTextField(
+                                    value = char.identity,
+                                    onValueChange = { newId -> newChars = newChars.toMutableList().also { it[index] = char.copy(identity = newId) } },
+                                    label = { Text("身份 / 职业") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                OutlinedTextField(
+                                    value = char.personality,
+                                    onValueChange = { newP -> newChars = newChars.toMutableList().also { it[index] = char.copy(personality = newP) } },
+                                    label = { Text("性格特质") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    maxLines = 2
+                                )
+                                OutlinedTextField(
+                                    value = char.background,
+                                    onValueChange = { newBg -> newChars = newChars.toMutableList().also { it[index] = char.copy(background = newBg) } },
+                                    label = { Text("背景经历") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    maxLines = 3
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // 3. 世界观更新
+                if (scenario != null) {
+                    item {
+                        Text("🌍 世界观与规则设定更新", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                    }
+                    item {
+                        val sc = scenario!!
+                        val summaryText = proposal.scenarioUpdate?.summaryOfChanges ?: "世界观完善"
+                        EchoGlassCard(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = EchoTokens.Radius.shapeMd
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth().padding(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(summaryText, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium)
+                                    IconButton(
+                                        onClick = { scenario = null },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(Icons.Default.Close, contentDescription = "忽略世界观更新", modifier = Modifier.size(16.dp))
+                                    }
+                                }
+                                OutlinedTextField(
+                                    value = sc.name,
+                                    onValueChange = { scenario = sc.copy(name = it) },
+                                    label = { Text("世界观名称") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                OutlinedTextField(
+                                    value = sc.worldview,
+                                    onValueChange = { scenario = sc.copy(worldview = it) },
+                                    label = { Text("世界观法则与背景") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    maxLines = 3
+                                )
+                                OutlinedTextField(
+                                    value = sc.rules,
+                                    onValueChange = { scenario = sc.copy(rules = it) },
+                                    label = { Text("不可违背的法则") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    maxLines = 2
+                                )
+                                OutlinedTextField(
+                                    value = sc.premise,
+                                    onValueChange = { scenario = sc.copy(premise = it) },
+                                    label = { Text("当前剧情前提") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    maxLines = 2
+                                )
                             }
                         }
                     }
@@ -4973,7 +4820,8 @@ private fun EditableSettingProposalDialog(
                 Spacer(modifier = Modifier.width(8.dp))
                 Button(
                     onClick = {
-                        onApply(editableCharacters, editableScenario)
+                        val finalChars = updatedChars + newChars
+                        onApply(finalChars, scenario)
                     }
                 ) {
                     Text("决定添加并融合")

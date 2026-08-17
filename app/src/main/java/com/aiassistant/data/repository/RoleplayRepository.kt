@@ -4,6 +4,7 @@ import com.aiassistant.data.local.*
 import com.aiassistant.domain.model.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.firstOrNull
 
 /**
  * 角色扮演仓库 - 处理角色扮演相关的业务逻辑
@@ -42,6 +43,10 @@ class RoleplayRepository(
         characterProfileDao.setDefaultCharacter(id)
     }
 
+    suspend fun clearDefaultCharacter() = characterProfileDao.clearDefaultCharacters()
+
+    suspend fun getCharacterCount(): Int = characterProfileDao.getCharacterCount()
+
     suspend fun deleteCharactersByIds(ids: List<Long>) {
         ids.forEach { characterProfileDao.deleteCharacterById(it) }
     }
@@ -73,6 +78,8 @@ class RoleplayRepository(
     suspend fun deleteScenarioById(id: Long) = roleplayScenarioDao.deleteScenarioById(id)
 
     suspend fun setScenarioFavorite(id: Long, isFavorite: Boolean) = roleplayScenarioDao.setFavorite(id, isFavorite)
+
+    suspend fun getScenarioCount(): Int = roleplayScenarioDao.getScenarioCount()
 
     // ============ 角色扮演会话操作 ============
 
@@ -111,6 +118,88 @@ class RoleplayRepository(
     suspend fun getEffectiveScenarioForSession(session: RoleplaySession): RoleplayScenario? {
         val baseScenario = session.scenarioId?.let { roleplayScenarioDao.getScenarioById(it) }
         return session.getCustomizedScenario(baseScenario)
+    }
+
+    /**
+     * 将故事中的角色定制设定同步写回全局数据库 (Story -> DB)
+     */
+    suspend fun syncCharacterToDatabase(character: CharacterProfile): CharacterProfile {
+        val existing = if (character.id > 0) {
+            characterProfileDao.getCharacterById(character.id)
+        } else {
+            characterProfileDao.searchCharacters(character.name).firstOrNull()?.firstOrNull { it.name == character.name }
+        }
+
+        return if (existing != null) {
+            val updated = character.copy(id = existing.id, updatedAt = System.currentTimeMillis())
+            characterProfileDao.updateCharacter(updated)
+            updated
+        } else {
+            val newId = characterProfileDao.insertCharacter(character.copy(id = 0, createdAt = System.currentTimeMillis(), updatedAt = System.currentTimeMillis()))
+            character.copy(id = newId)
+        }
+    }
+
+    /**
+     * 将故事中的世界观定制设定同步写回全局数据库 (Story -> DB)
+     */
+    suspend fun syncScenarioToDatabase(scenario: RoleplayScenario): RoleplayScenario {
+        val existing = if (scenario.id > 0) {
+            roleplayScenarioDao.getScenarioById(scenario.id)
+        } else {
+            roleplayScenarioDao.searchScenarios(scenario.name).firstOrNull()?.firstOrNull { it.name == scenario.name }
+        }
+
+        return if (existing != null) {
+            val updated = scenario.copy(id = existing.id, updatedAt = System.currentTimeMillis())
+            roleplayScenarioDao.updateScenario(updated)
+            updated
+        } else {
+            val newId = roleplayScenarioDao.insertScenario(scenario.copy(id = 0, createdAt = System.currentTimeMillis(), updatedAt = System.currentTimeMillis()))
+            scenario.copy(id = newId)
+        }
+    }
+
+    /**
+     * 从全局数据库拉取最新角色设定覆盖故事中的本地定制 (DB -> Story)
+     */
+    suspend fun syncCharacterFromDatabase(session: RoleplaySession, characterId: Long): RoleplaySession {
+        val targetChar = characterProfileDao.getCharacterById(characterId) ?: return session
+
+        // 从 customCharacterData 中移除该角色的局部定制，使其恢复为数据库原始值
+        val currentCustomized = session.getCustomizedCharacters(emptyList()).filterNot {
+            (it.id > 0 && it.id == characterId) || it.name == targetChar.name
+        }
+        val newCustomJson = if (currentCustomized.isNotEmpty()) {
+            com.google.gson.Gson().toJson(currentCustomized)
+        } else null
+
+        // 确保 characterIds 中包含该角色
+        val charIds = session.getEffectiveCharacterIds().toMutableList()
+        if (!charIds.contains(characterId)) {
+            charIds.add(characterId)
+        }
+        val updatedSession = session.copy(
+            characterIds = com.google.gson.Gson().toJson(charIds),
+            customCharacterData = newCustomJson,
+            updatedAt = System.currentTimeMillis()
+        )
+        roleplaySessionDao.updateSession(updatedSession)
+        return updatedSession
+    }
+
+    /**
+     * 从全局数据库拉取最新世界观设定覆盖故事中的本地定制 (DB -> Story)
+     */
+    suspend fun syncScenarioFromDatabase(session: RoleplaySession, scenarioId: Long): RoleplayScenario? {
+        val targetScenario = roleplayScenarioDao.getScenarioById(scenarioId) ?: return null
+        val updatedSession = session.copy(
+            scenarioId = targetScenario.id,
+            customScenarioData = null,
+            updatedAt = System.currentTimeMillis()
+        )
+        roleplaySessionDao.updateSession(updatedSession)
+        return targetScenario
     }
 
     // ============ 角色扮演记忆操作 ============

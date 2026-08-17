@@ -474,6 +474,66 @@ class RoleplayViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    /**
+     * 将故事中角色的定制设定同步保存至全局角色库 (Story -> DB)
+     */
+    fun syncCharacterToDatabase(character: CharacterProfile, onComplete: (String) -> Unit = {}) {
+        viewModelScope.launch {
+            try {
+                val saved = repository.syncCharacterToDatabase(character)
+                loadCharacters()
+                onComplete("已将【${saved.name}】同步保存至全局角色库")
+            } catch (e: Exception) {
+                onComplete("同步失败: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * 将故事中世界观的定制设定同步保存至全局世界观库 (Story -> DB)
+     */
+    fun syncScenarioToDatabase(scenario: RoleplayScenario, onComplete: (String) -> Unit = {}) {
+        viewModelScope.launch {
+            try {
+                val saved = repository.syncScenarioToDatabase(scenario)
+                loadScenarios()
+                onComplete("已将【${saved.name}】同步保存至全局世界观库")
+            } catch (e: Exception) {
+                onComplete("同步失败: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * 从全局角色库拉取最新设定，覆盖故事中的本地定制 (DB -> Story)
+     */
+    fun syncCharacterFromDatabase(session: RoleplaySession, characterId: Long, onComplete: (String) -> Unit = {}) {
+        viewModelScope.launch {
+            try {
+                repository.syncCharacterFromDatabase(session, characterId)
+                loadSessions()
+                onComplete("已从全局角色库重新拉取最新设定")
+            } catch (e: Exception) {
+                onComplete("同步失败: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * 从全局世界观库拉取最新设定，覆盖故事中的本地定制 (DB -> Story)
+     */
+    fun syncScenarioFromDatabase(session: RoleplaySession, scenarioId: Long, onComplete: (String) -> Unit = {}) {
+        viewModelScope.launch {
+            try {
+                repository.syncScenarioFromDatabase(session, scenarioId)
+                loadSessions()
+                onComplete("已从全局世界观库重新拉取最新设定")
+            } catch (e: Exception) {
+                onComplete("同步失败: ${e.message}")
+            }
+        }
+    }
+
     fun importAnalyzedBundleWithConflictResolution(
         characters: List<CharacterProfile>,
         scenario: RoleplayScenario?,

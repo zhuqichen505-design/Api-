@@ -10,18 +10,22 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
@@ -248,13 +252,18 @@ fun EchoGlassDialog(
     onDismissRequest: () -> Unit,
     modifier: Modifier = Modifier,
     shape: Shape = EchoTokens.Radius.shapeXl,
-    tint: Color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-    contentColor: Color = MaterialTheme.colorScheme.onSurface,
-    containerColor: Color = MaterialTheme.colorScheme.surface.copy(alpha = 0.80f),
+    tint: Color = Color.Unspecified,
+    contentColor: Color = Color.Unspecified,
+    containerColor: Color = Color.Unspecified,
     title: @Composable ColumnScope.() -> Unit,
     content: @Composable ColumnScope.() -> Unit,
     buttons: @Composable ColumnScope.() -> Unit
 ) {
+    val glass = echoGlassPalette()
+    val resolvedTint = if (tint != Color.Unspecified) tint else glass.panel
+    val resolvedContainerColor = if (containerColor != Color.Unspecified) containerColor else glass.panelStrong
+    val resolvedContentColor = if (contentColor != Color.Unspecified) contentColor else glass.textPrimary
+
     Dialog(
         onDismissRequest = onDismissRequest,
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -262,27 +271,36 @@ fun EchoGlassDialog(
         Surface(
             modifier = modifier
                 .fillMaxWidth(0.94f)
-                .widthIn(max = 420.dp)
-                .heightIn(max = 580.dp)
+                .widthIn(max = 520.dp)
+                .heightIn(max = 680.dp)
                 .padding(horizontal = 8.dp)
                 .echoHazePanel(
                     hazeState = hazeState,
                     shape = shape,
-                    tint = tint,
+                    tint = resolvedTint,
                     blurRadius = EchoTokens.Glass.blurRadiusHeavy
                 ),
             shape = shape,
-            color = containerColor,
-            contentColor = contentColor,
+            color = resolvedContainerColor,
+            contentColor = resolvedContentColor,
             tonalElevation = EchoTokens.Elevation.none,
             shadowElevation = EchoTokens.Elevation.none
         ) {
             Column(
-                modifier = Modifier.padding(EchoTokens.Spacing.lg),
-                verticalArrangement = Arrangement.spacedBy(EchoTokens.Spacing.md)
+                modifier = Modifier.padding(EchoTokens.Spacing.lg)
             ) {
                 title()
-                content()
+                Spacer(modifier = Modifier.height(EchoTokens.Spacing.sm))
+                Box(
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        content()
+                    }
+                }
+                Spacer(modifier = Modifier.height(EchoTokens.Spacing.md))
                 buttons()
             }
         }
@@ -295,9 +313,9 @@ fun EchoGlassDialog(
     onDismissRequest: () -> Unit,
     modifier: Modifier = Modifier,
     shape: Shape = EchoTokens.Radius.shapeXl,
-    tint: Color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-    contentColor: Color = MaterialTheme.colorScheme.onSurface,
-    containerColor: Color = MaterialTheme.colorScheme.surface.copy(alpha = 0.80f),
+    tint: Color = Color.Unspecified,
+    contentColor: Color = Color.Unspecified,
+    containerColor: Color = Color.Unspecified,
     icon: (@Composable ColumnScope.() -> Unit)? = null,
     title: @Composable ColumnScope.() -> Unit,
     text: @Composable ColumnScope.() -> Unit,
@@ -320,9 +338,11 @@ fun EchoGlassDialog(
         buttons = {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 dismissButton?.invoke(this)
+                Spacer(modifier = Modifier.width(8.dp))
                 confirmButton()
             }
         }

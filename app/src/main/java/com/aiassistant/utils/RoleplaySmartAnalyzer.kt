@@ -20,6 +20,31 @@ data class AnalyzedRoleplayBundle(
     val summaryReport: String
 )
 
+data class ProposedCharacterUpdate(
+    val character: CharacterProfile,
+    val isNew: Boolean,
+    val summaryOfChanges: String
+)
+
+data class ProposedScenarioUpdate(
+    val scenario: RoleplayScenario,
+    val summaryOfChanges: String
+)
+
+data class StorySettingProposalBundle(
+    val updatedCharacters: List<ProposedCharacterUpdate>,
+    val newCharacters: List<ProposedCharacterUpdate>,
+    val scenarioUpdate: ProposedScenarioUpdate?,
+    val isAiAnalyzed: Boolean,
+    val summaryReport: String
+) {
+    val hasAnyUpdates: Boolean
+        get() = updatedCharacters.isNotEmpty() || newCharacters.isNotEmpty() || scenarioUpdate != null
+
+    val totalCount: Int
+        get() = updatedCharacters.size + newCharacters.size + (if (scenarioUpdate != null) 1 else 0)
+}
+
 object RoleplaySmartAnalyzer {
 
     private const val TAG = "RoleplaySmartAnalyzer"
@@ -242,6 +267,316 @@ object RoleplaySmartAnalyzer {
         }
 
         fallbackLocalAnalysis(trimmed)
+    }
+
+    /**
+     * AI 深度情境分析与精准设定融入：
+     * 结合故事中已有角色和世界观，精准辨别“更新已有角色”、“发现新角色”、“扩展世界观”或“无设定变动”，
+     * 拒绝粗暴粗放的一刀切重复创建。
+     */
+    suspend fun analyzeStoryInputForProposal(
+        context: Context,
+        rawText: String,
+        existingCharacters: List<CharacterProfile>,
+        existingScenario: RoleplayScenario?,
+        repository: AiRepository,
+        preferredConfig: ApiConfig? = null,
+        selectedModel: String? = null,
+        onProgress: (String) -> Unit = {}
+    ): StorySettingProposalBundle = withContext(Dispatchers.IO) {
+        val trimmed = rawText.trim()
+        if (trimmed.isBlank()) {
+            return@withContext StorySettingProposalBundle(
+                updatedCharacters = emptyList(),
+                newCharacters = emptyList(),
+                scenarioUpdate = null,
+                isAiAnalyzed = false,
+                summaryReport = "未提供有效文本"
+            )
+        }
+
+        val config = preferredConfig ?: repository.getDefaultApiConfig()
+        if (config != null && config.apiKey.isNotBlank() && config.baseUrl.isNotBlank()) {
+            try {
+                val modelToUse = selectedModel?.ifBlank { null } ?: config.modelName
+                safeProgress(onProgress, "正在结合故事已有设定进行精准分析 [${config.name.ifBlank { config.provider }}]...")
+
+                val knownCharsDesc = if (existingCharacters.isNotEmpty()) {
+                    existingCharacters.joinToString("\n") {
+                        "- 【${it.name}】（ID: ${it.id}）身份: ${it.identity.ifBlank { "未定" }}，性格: ${it.personality.ifBlank { "未定" }}，背景: ${it.background.take(60)}"
+                    }
+                } else {
+                    "（暂无已知角色）"
+                }
+
+                val knownScenarioDesc = if (existingScenario != null) {
+                    "剧本名: 【${existingScenario.name}】，世界观: ${existingScenario.worldview.take(80)}，地点: ${existingScenario.location}，规则: ${existingScenario.rules}"
+                } else {
+                    "（暂无世界观设定）"
+                }
+
+                val systemPrompt = """
+                    你是一个顶级故事设定与人物档案提炼专家。
+                    你的任务是深度分析用户提供的【输入文本或最近剧情片段】，并结合当前故事已有的【已知角色列表】和【已有世界观设定】，精准提取并分类以下设定：
+
+                    【当前故事已知角色列表】：
+                    $knownCharsDesc
+
+                    【当前故事已有世界观与场景】：
+                    $knownScenarioDesc
+
+                    【任务指引与分类规则】：
+                    1. 严格区分“更新已有角色”与“新增角色”：
+                       - 如果文本是在描述已有角色的新能力、新经历、心理转变、人际关系变化或新目标，请归类为【更新已有角色】（updatedCharacters），并给出变动摘要与合并后的完整人设；
+                       - 只有当文本明确出现全新姓名或独立新人物且不属于已知角色时，才归类为【新登场角色】（newCharacters）；
+                       - 如果只是普通对白或动作，没有人物属性/状态/背景的变化，不要修改已有角色。
+                    2. 严格区分“世界观/场景设定更新”与“无需更新世界观”：
+                       - 只有当文本涉及新的世界法则、地理环境、势力格局、环境氛围或主线危机冲突变动时，才更新世界观（scenarioUpdate）；
+                       - 如果只是角色之间的日常对话或局部动作，世界观未发生任何改变，scenarioUpdate 必须为 null！切勿强行捏造新世界观或把角色对话当成世界观！
+                    3. 输出严格合法 JSON，禁止输出任何其他解释说明：
+                    {
+                      "hasSettingUpdates": true,
+                      "updatedCharacters": [
+                        {
+                          "name": "已有角色的姓名",
+                          "summaryOfChanges": "变动摘要，如：领悟惊雷剑法，突破至金丹期",
+                          "profile": {
+                            "name": "已有角色姓名",
+                            "identity": "身份/职业",
+                            "personality": "性格特质",
+                            "background": "背景故事（包含新补充经历）",
+                            "speakingStyle": "语言风格",
+                            "goals": "核心目标",
+                            "relationships": "人际关系",
+                            "knowledge": "技能能力",
+                            "constraints": "禁忌约束",
+                            "behaviorRules": "行为习惯",
+                            "greeting": "开场白",
+                            "exampleDialogue": "经典台词",
+                            "tags": "标签"
+                          }
+                        }
+                      ],
+                      "newCharacters": [
+                        {
+                          "name": "新角色姓名",
+                          "summaryOfChanges": "新角色身份说明",
+                          "profile": {
+                            "name": "新角色姓名",
+                            "identity": "身份/职业",
+                            "personality": "性格特质",
+                            "background": "背景故事",
+                            "speakingStyle": "语言风格",
+                            "goals": "核心目标",
+                            "relationships": "人际关系",
+                            "knowledge": "技能能力",
+                            "constraints": "禁忌约束",
+                            "behaviorRules": "行为习惯",
+                            "greeting": "开场白",
+                            "exampleDialogue": "经典台词",
+                            "tags": "标签"
+                          }
+                        }
+                      ],
+                      "scenarioUpdate": {
+                        "summaryOfChanges": "世界观/场景变动说明",
+                        "scenario": {
+                          "name": "世界观/场景名称",
+                          "worldview": "世界观设定",
+                          "time": "时间",
+                          "location": "地点",
+                          "environment": "环境描写",
+                          "premise": "剧情前提",
+                          "rules": "不可违背规则",
+                          "relationshipState": "关系状态",
+                          "conflict": "当前矛盾冲突",
+                          "plotGoal": "剧情目标",
+                          "atmosphere": "氛围",
+                          "narrativePerspective": "叙事视角",
+                          "outputFormat": "输出格式",
+                          "contentRestrictions": "内容限制",
+                          "openingPrompt": "开场提示",
+                          "tags": "标签"
+                        }
+                      }
+                    }
+                """.trimIndent()
+
+                val jsonResponse = executeAiPrompt(config, systemPrompt, trimmed, modelToUse, onProgress)
+                val jsonStr = extractJsonBlock(jsonResponse)
+                val proposal = parseStorySettingProposalJson(jsonStr, existingCharacters, existingScenario, isAi = true)
+                if (proposal.hasAnyUpdates) {
+                    safeProgress(onProgress, "识别到可补充/更新的故事设定！")
+                    return@withContext proposal
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "AI 设定融合识别失败，使用本地规则解析", e)
+                safeProgress(onProgress, "AI 分析异常 (${e.message})，使用本地规则解析...")
+            }
+        }
+
+        fallbackLocalStoryProposal(trimmed, existingCharacters, existingScenario)
+    }
+
+    private fun parseStorySettingProposalJson(
+        jsonStr: String,
+        existingCharacters: List<CharacterProfile>,
+        existingScenario: RoleplayScenario?,
+        isAi: Boolean
+    ): StorySettingProposalBundle {
+        return try {
+            val root = gson.fromJson(jsonStr, JsonObject::class.java) ?: return StorySettingProposalBundle(emptyList(), emptyList(), null, isAi, "解析为空")
+            val updatedList = mutableListOf<ProposedCharacterUpdate>()
+            val newList = mutableListOf<ProposedCharacterUpdate>()
+
+            root.getAsJsonArray("updatedCharacters")?.forEach { elem ->
+                if (elem.isJsonObject) {
+                    val obj = elem.asJsonObject
+                    val summary = obj.get("summaryOfChanges")?.asString.orEmpty().ifBlank { "设定发生更新" }
+                    val charObj = obj.getAsJsonObject("profile") ?: obj
+                    val parsedChar = parseSingleCharacterJson(gson.toJson(charObj))
+                    if (parsedChar != null) {
+                        val existingMatch = existingCharacters.find { it.name.trim().equals(parsedChar.name.trim(), ignoreCase = true) }
+                        val finalChar = if (existingMatch != null) {
+                            mergeCharacters(existingMatch, parsedChar)
+                        } else {
+                            parsedChar
+                        }
+                        updatedList.add(
+                            ProposedCharacterUpdate(
+                                character = finalChar,
+                                isNew = false,
+                                summaryOfChanges = summary
+                            )
+                        )
+                    }
+                }
+            }
+
+            root.getAsJsonArray("newCharacters")?.forEach { elem ->
+                if (elem.isJsonObject) {
+                    val obj = elem.asJsonObject
+                    val summary = obj.get("summaryOfChanges")?.asString.orEmpty().ifBlank { "新登场角色" }
+                    val charObj = obj.getAsJsonObject("profile") ?: obj
+                    val parsedChar = parseSingleCharacterJson(gson.toJson(charObj))
+                    if (parsedChar != null && parsedChar.name.isNotBlank() && parsedChar.name != "未命名角色") {
+                        newList.add(
+                            ProposedCharacterUpdate(
+                                character = parsedChar,
+                                isNew = true,
+                                summaryOfChanges = summary
+                            )
+                        )
+                    }
+                }
+            }
+
+            var scenarioUpdate: ProposedScenarioUpdate? = null
+            if (root.has("scenarioUpdate") && !root.get("scenarioUpdate").isJsonNull && root.get("scenarioUpdate").isJsonObject) {
+                val scObj = root.getAsJsonObject("scenarioUpdate")
+                val summary = scObj.get("summaryOfChanges")?.asString.orEmpty().ifBlank { "世界观/场景设定更新" }
+                val rawSc = scObj.getAsJsonObject("scenario") ?: scObj
+                val parsedSc = parseSingleScenarioJson(gson.toJson(rawSc))
+                if (parsedSc != null) {
+                    val finalScenario = if (existingScenario != null) {
+                        mergeScenarios(existingScenario, parsedSc)
+                    } else {
+                        parsedSc
+                    }
+                    scenarioUpdate = ProposedScenarioUpdate(
+                        scenario = finalScenario,
+                        summaryOfChanges = summary
+                    )
+                }
+            }
+
+            val summaryBuilder = StringBuilder()
+            if (updatedList.isNotEmpty()) {
+                summaryBuilder.append("更新已有角色: ${updatedList.joinToString { it.character.name }}；")
+            }
+            if (newList.isNotEmpty()) {
+                summaryBuilder.append("发现新角色: ${newList.joinToString { it.character.name }}；")
+            }
+            if (scenarioUpdate != null) {
+                summaryBuilder.append("更新世界观: ${scenarioUpdate.scenario.name}；")
+            }
+            if (summaryBuilder.isEmpty()) {
+                summaryBuilder.append("未识别到实质设定变动")
+            }
+
+            StorySettingProposalBundle(
+                updatedCharacters = updatedList,
+                newCharacters = newList,
+                scenarioUpdate = scenarioUpdate,
+                isAiAnalyzed = isAi,
+                summaryReport = summaryBuilder.toString()
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "解析 Proposal JSON 失败", e)
+            StorySettingProposalBundle(emptyList(), emptyList(), null, isAi, "解析失败: ${e.message}")
+        }
+    }
+
+    private fun fallbackLocalStoryProposal(
+        text: String,
+        existingCharacters: List<CharacterProfile>,
+        existingScenario: RoleplayScenario?
+    ): StorySettingProposalBundle {
+        val parsedChar = RoleplaySmartParser.parseCharacter(text)
+        val parsedSc = RoleplaySmartParser.parseScenario(text)
+
+        val updatedList = mutableListOf<ProposedCharacterUpdate>()
+        val newList = mutableListOf<ProposedCharacterUpdate>()
+
+        if (parsedChar.name.isNotBlank() && parsedChar.name != "未命名角色") {
+            val existing = existingCharacters.find { it.name.trim().equals(parsedChar.name.trim(), ignoreCase = true) }
+            if (existing != null) {
+                updatedList.add(
+                    ProposedCharacterUpdate(
+                        character = mergeCharacters(existing, parsedChar),
+                        isNew = false,
+                        summaryOfChanges = "补充【${existing.name}】的设定与经历"
+                    )
+                )
+            } else {
+                newList.add(
+                    ProposedCharacterUpdate(
+                        character = parsedChar,
+                        isNew = true,
+                        summaryOfChanges = "新提取角色【${parsedChar.name}】"
+                    )
+                )
+            }
+        }
+
+        var scenarioUpdate: ProposedScenarioUpdate? = null
+        if (parsedSc.worldview.isNotBlank() || parsedSc.rules.isNotBlank() || parsedSc.location.isNotBlank()) {
+            if (existingScenario != null) {
+                scenarioUpdate = ProposedScenarioUpdate(
+                    scenario = mergeScenarios(existingScenario, parsedSc),
+                    summaryOfChanges = "扩充世界观与场景设定"
+                )
+            } else if (parsedSc.name.isNotBlank() && parsedSc.name != "未命名场景") {
+                scenarioUpdate = ProposedScenarioUpdate(
+                    scenario = parsedSc,
+                    summaryOfChanges = "提取全新世界观【${parsedSc.name}】"
+                )
+            }
+        }
+
+        val summary = if (updatedList.isNotEmpty() || newList.isNotEmpty() || scenarioUpdate != null) {
+            "本地规则提取: 角色(${updatedList.size + newList.size}), 世界观(${if (scenarioUpdate != null) 1 else 0})"
+        } else {
+            "未检测到符合格式的设定变动"
+        }
+
+        return StorySettingProposalBundle(
+            updatedCharacters = updatedList,
+            newCharacters = newList,
+            scenarioUpdate = scenarioUpdate,
+            isAiAnalyzed = false,
+            summaryReport = summary
+        )
     }
 
     private suspend fun executeAiPrompt(

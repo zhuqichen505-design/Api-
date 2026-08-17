@@ -103,4 +103,56 @@ class RoleplayParserAndStreamingTest {
         assertNotNull(reasoning)
         assertEquals("正在思考剧情发展...", reasoning)
     }
+
+    @Test
+    fun testStorySettingProposalBundle() {
+        val existingChar = com.aiassistant.domain.model.CharacterProfile(
+            id = 1,
+            name = "林凡",
+            identity = "落魄剑圣",
+            personality = "沉默寡言",
+            background = "曾是天下第一剑客"
+        )
+        val update = com.aiassistant.utils.ProposedCharacterUpdate(
+            character = existingChar.copy(personality = "冷静从容", background = "曾是天下第一剑客；在荒原上习得断浪剑诀"),
+            isNew = false,
+            summaryOfChanges = "性格调整，追加断浪剑诀经历"
+        )
+        val newChar = com.aiassistant.utils.ProposedCharacterUpdate(
+            character = com.aiassistant.domain.model.CharacterProfile(
+                id = 0,
+                name = "苏璃",
+                identity = "神机阁阁主",
+                personality = "机智狡黠"
+            ),
+            isNew = true,
+            summaryOfChanges = "新登场神秘阁主"
+        )
+        val scenarioUpdate = com.aiassistant.utils.ProposedScenarioUpdate(
+            scenario = com.aiassistant.domain.model.RoleplayScenario(
+                id = 10,
+                name = "断魂崖",
+                worldview = "高武玄幻",
+                rules = "崖顶禁空飞行"
+            ),
+            summaryOfChanges = "追加禁空法则"
+        )
+
+        val bundle = com.aiassistant.utils.StorySettingProposalBundle(
+            updatedCharacters = listOf(update),
+            newCharacters = listOf(newChar),
+            scenarioUpdate = scenarioUpdate,
+            isAiAnalyzed = true,
+            summaryReport = "识别到林凡设定更新、新角色苏璃与世界观法则扩充"
+        )
+
+        assertTrue(bundle.hasAnyUpdates)
+        assertEquals(3, bundle.totalCount)
+        assertEquals(1, bundle.updatedCharacters.size)
+        assertEquals(1, bundle.newCharacters.size)
+        assertNotNull(bundle.scenarioUpdate)
+        assertEquals("林凡", bundle.updatedCharacters[0].character.name)
+        assertEquals("苏璃", bundle.newCharacters[0].character.name)
+        assertTrue(bundle.updatedCharacters[0].character.background.contains("断浪剑诀"))
+    }
 }
