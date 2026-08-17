@@ -105,7 +105,7 @@ import com.aiassistant.ui.theme.EchoTokens
 
 private const val ChatGlassTintAlpha = 0.86f
 private val ChatUserGlassTint = Color(0xFFD9ECFF)
-private val ThinkingContentBlue = Color(0xFF2563EB)
+private val ThinkingContentBlue = Color(0xFF6BA4F8)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

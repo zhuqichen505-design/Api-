@@ -42,90 +42,106 @@ fun MarkdownText(
     color: Color = MaterialTheme.colorScheme.onSurface,
     onCitationClick: ((Int) -> Unit)? = null
 ) {
-    SelectionContainer {
-        Column(modifier = modifier) {
-            val lines = content.split("\n")
-            var index = 0
+    Column(modifier = modifier) {
+        val lines = remember(content) { content.split("\n") }
+        var index = 0
 
-            while (index < lines.size) {
-                val line = lines[index]
-                val trimmed = line.trim()
+        while (index < lines.size) {
+            val line = lines[index]
+            val trimmed = line.trim()
 
-                when {
-                    // 代码块开始 ```lang
-                    line.trimStart().startsWith("```") -> {
-                        val codeBlockLanguage = line.trimStart().removePrefix("```").trim()
-                        val codeBlockContent = StringBuilder()
+            when {
+                // 代码块开始 ```lang
+                line.trimStart().startsWith("```") -> {
+                    val codeBlockLanguage = line.trimStart().removePrefix("```").trim()
+                    val codeBlockContent = StringBuilder()
+                    index++
+                    while (index < lines.size && !lines[index].trimStart().startsWith("```")) {
+                        codeBlockContent.appendLine(lines[index])
                         index++
-                        while (index < lines.size && !lines[index].trimStart().startsWith("```")) {
-                            codeBlockContent.appendLine(lines[index])
+                    }
+                    CodeBlock(
+                        code = codeBlockContent.toString().trimEnd(),
+                        language = codeBlockLanguage
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    if (index < lines.size) index++
+                }
+
+                // 独立 LaTeX 数学块 $$...$$ 或 \[...\] 或 \begin{...}
+                trimmed.startsWith("$$") || trimmed.startsWith("\\[") || trimmed.startsWith("\\begin{") -> {
+                    val mathContent = StringBuilder()
+                    if (trimmed.startsWith("\\begin{")) {
+                        val envName = trimmed.substringAfter("\\begin{").substringBefore("}")
+                        val endTag = "\\end{$envName}"
+                        if (trimmed.contains(endTag)) {
+                            mathContent.append(trimmed)
                             index++
-                        }
-                        CodeBlock(
-                            code = codeBlockContent.toString().trimEnd(),
-                            language = codeBlockLanguage
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        if (index < lines.size) index++
-                    }
-
-                    // 独立 LaTeX 数学块 $$...$$ 或 \[...\]
-                    trimmed.startsWith("$$") || trimmed.startsWith("\\[") -> {
-                        val isBracketStyle = trimmed.startsWith("\\[")
-                        val mathContent = StringBuilder()
-                        if (isBracketStyle) {
-                            if (trimmed.endsWith("\\]") && trimmed.length > 4) {
-                                mathContent.append(trimmed.removePrefix("\\[").removeSuffix("\\]").trim())
-                                index++
-                            } else {
-                                mathContent.appendLine(trimmed.removePrefix("\\[").trim())
-                                index++
-                                while (index < lines.size && !lines[index].trim().endsWith("\\]")) {
-                                    mathContent.appendLine(lines[index])
-                                    index++
-                                }
-                                if (index < lines.size) {
-                                    mathContent.append(lines[index].trim().removeSuffix("\\]").trim())
-                                    index++
-                                }
-                            }
                         } else {
-                            if (trimmed.endsWith("$$") && trimmed.length > 4) {
-                                mathContent.append(trimmed.removePrefix("$$").removeSuffix("$$").trim())
+                            mathContent.appendLine(trimmed)
+                            index++
+                            while (index < lines.size && !lines[index].contains(endTag)) {
+                                mathContent.appendLine(lines[index])
                                 index++
-                            } else {
-                                mathContent.appendLine(trimmed.removePrefix("$$").trim())
+                            }
+                            if (index < lines.size) {
+                                mathContent.append(lines[index])
                                 index++
-                                while (index < lines.size && !lines[index].trim().endsWith("$$")) {
-                                    mathContent.appendLine(lines[index])
-                                    index++
-                                }
-                                if (index < lines.size) {
-                                    mathContent.append(lines[index].trim().removeSuffix("$$").trim())
-                                    index++
-                                }
                             }
                         }
-                        MathBlock(formula = mathContent.toString().trim())
-                        Spacer(modifier = Modifier.height(8.dp))
+                    } else if (trimmed.startsWith("\\[")) {
+                        if (trimmed.endsWith("\\]") && trimmed.length > 4) {
+                            mathContent.append(trimmed.removePrefix("\\[").removeSuffix("\\]").trim())
+                            index++
+                        } else {
+                            mathContent.appendLine(trimmed.removePrefix("\\[").trim())
+                            index++
+                            while (index < lines.size && !lines[index].trim().endsWith("\\]")) {
+                                mathContent.appendLine(lines[index])
+                                index++
+                            }
+                            if (index < lines.size) {
+                                mathContent.append(lines[index].trim().removeSuffix("\\]").trim())
+                                index++
+                            }
+                        }
+                    } else {
+                        if (trimmed.endsWith("$$") && trimmed.length > 4) {
+                            mathContent.append(trimmed.removePrefix("$$").removeSuffix("$$").trim())
+                            index++
+                        } else {
+                            mathContent.appendLine(trimmed.removePrefix("$$").trim())
+                            index++
+                            while (index < lines.size && !lines[index].trim().endsWith("$$")) {
+                                mathContent.appendLine(lines[index])
+                                index++
+                            }
+                            if (index < lines.size) {
+                                mathContent.append(lines[index].trim().removeSuffix("$$").trim())
+                                index++
+                            }
+                        }
                     }
+                    MathBlock(formula = mathContent.toString().trim())
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
 
-                    // 标题 1-6 级（含特定关键词加粗、加大字号、斜体强化）
-                    line.startsWith("# ") -> {
-                        val text = line.removePrefix("# ")
-                        renderHeadingText(text = text, defaultStyle = MaterialTheme.typography.titleLarge, color = color, topPad = 8.dp, bottomPad = 4.dp)
-                        index++
-                    }
-                    line.startsWith("## ") -> {
-                        val text = line.removePrefix("## ")
-                        renderHeadingText(text = text, defaultStyle = MaterialTheme.typography.titleMedium, color = color, topPad = 6.dp, bottomPad = 3.dp)
-                        index++
-                    }
-                    line.startsWith("### ") -> {
-                        val text = line.removePrefix("### ")
-                        renderHeadingText(text = text, defaultStyle = MaterialTheme.typography.titleSmall, color = color, topPad = 5.dp, bottomPad = 3.dp)
-                        index++
-                    }
+                // 标题 1-6 级（含特定关键词加粗、加大字号、斜体强化）
+                line.startsWith("# ") -> {
+                    val text = line.removePrefix("# ")
+                    renderHeadingText(text = text, defaultStyle = MaterialTheme.typography.titleLarge, color = color, topPad = 8.dp, bottomPad = 4.dp)
+                    index++
+                }
+                line.startsWith("## ") -> {
+                    val text = line.removePrefix("## ")
+                    renderHeadingText(text = text, defaultStyle = MaterialTheme.typography.titleMedium, color = color, topPad = 6.dp, bottomPad = 3.dp)
+                    index++
+                }
+                line.startsWith("### ") -> {
+                    val text = line.removePrefix("### ")
+                    renderHeadingText(text = text, defaultStyle = MaterialTheme.typography.titleSmall, color = color, topPad = 5.dp, bottomPad = 3.dp)
+                    index++
+                }
                     line.startsWith("#### ") -> {
                         val text = line.removePrefix("#### ")
                         renderHeadingText(text = text, defaultStyle = MaterialTheme.typography.labelLarge, color = color, topPad = 4.dp, bottomPad = 2.dp)
@@ -276,7 +292,6 @@ fun MarkdownText(
             }
         }
     }
-}
 
 /**
  * 判断是否为特定关键词标题（加粗、加大字号、斜体）
@@ -411,55 +426,274 @@ private fun MathBlock(
  */
 fun parseLaTeXToUnicode(raw: String): String {
     var text = raw.trim()
+    if (text.isBlank()) return ""
 
-    // 替换分数 \frac{a}{b} -> (a)/(b)
-    val fracRegex = Regex("""\\frac\{([^{}]+)\}\{([^{}]+)\}""")
-    while (fracRegex.containsMatchIn(text)) {
-        text = text.replace(fracRegex) { match ->
-            val num = match.groupValues[1].trim()
-            val den = match.groupValues[2].trim()
-            if (num.length <= 3 && den.length <= 3) "$num/$den" else "($num)/($den)"
+    // 1. 解析多行环境（pmatrix, bmatrix, cases, aligned等）
+    text = parseEnvironments(text)
+
+    // 2. 解析分数 \frac{a}{b} 与 \dfrac, \tfrac
+    text = text.replace("\\dfrac", "\\frac").replace("\\tfrac", "\\frac")
+    text = parseFractions(text)
+
+    // 3. 解析根号 \sqrt[n]{x} 与 \sqrt{x}
+    text = parseRoots(text)
+
+    // 4. 清理格式化指令如 \mathbf{x} -> x, \text{abc} -> abc
+    val fontCmds = listOf("\\mathbf", "\\mathit", "\\mathrm", "\\text", "\\textbf", "\\textit", "\\operatorname", "\\bm", "\\boldsymbol", "\\pmb", "\\underline", "\\overline")
+    for (cmd in fontCmds) {
+        var idx = text.indexOf(cmd)
+        var guard = 0
+        while (idx != -1 && guard < 50) {
+            guard++
+            val braceStart = text.indexOf('{', idx + cmd.length)
+            if (braceStart != -1 && text.substring(idx + cmd.length, braceStart).trim().isEmpty()) {
+                val braceEnd = findMatchingBrace(text, braceStart)
+                if (braceEnd != -1) {
+                    val inner = text.substring(braceStart + 1, braceEnd)
+                    text = text.substring(0, idx) + inner + text.substring(braceEnd + 1)
+                    idx = text.indexOf(cmd)
+                    continue
+                }
+            }
+            break
         }
     }
 
-    // 替换根号 \sqrt{x} -> √(x)
-    text = text.replace(Regex("""\\sqrt\{([^{}]+)\}"""), "√($1)")
-    text = text.replace(Regex("""\\sqrt\[([^{}]+)\]\{([^{}]+)\}"""), "$1√($2)")
-
-    // 希腊字母与常用数学常数
-    val symbolMap = listOf(
-        "\\alpha" to "α", "\\beta" to "β", "\\gamma" to "γ", "\\delta" to "δ",
-        "\\epsilon" to "ε", "\\zeta" to "ζ", "\\eta" to "η", "\\theta" to "θ",
-        "\\iota" to "ι", "\\kappa" to "κ", "\\lambda" to "λ", "\\mu" to "μ",
-        "\\nu" to "ν", "\\xi" to "ξ", "\\pi" to "π", "\\rho" to "ρ",
-        "\\sigma" to "σ", "\\tau" to "τ", "\\upsilon" to "υ", "\\phi" to "φ",
-        "\\chi" to "χ", "\\psi" to "ψ", "\\omega" to "ω",
-        "\\Gamma" to "Γ", "\\Delta" to "Δ", "\\Theta" to "Θ", "\\Lambda" to "Λ",
-        "\\Xi" to "Ξ", "\\Pi" to "Π", "\\Sigma" to "Σ", "\\Upsilon" to "Υ",
-        "\\Phi" to "Φ", "\\Psi" to "Ψ", "\\Omega" to "Ω",
-        "\\times" to " × ", "\\cdot" to " · ", "\\div" to " ÷ ", "\\pm" to " ± ",
-        "\\mp" to " ∓ ", "\\leq" to " ≤ ", "\\le" to " ≤ ", "\\geq" to " ≥ ",
-        "\\ge" to " ≥ ", "\\neq" to " ≠ ", "\\ne" to " ≠ ", "\\approx" to " ≈ ",
-        "\\equiv" to " ≡ ", "\\infty" to "∞", "\\propto" to " ∝ ",
-        "\\sum" to "∑", "\\prod" to "∏", "\\int" to "∫", "\\iint" to "∬",
-        "\\iiint" to "∭", "\\oint" to "∮", "\\nabla" to "∇", "\\partial" to "∂",
-        "\\forall" to "∀", "\\exists" to "∃", "\\in" to " ∈ ", "\\notin" to " ∉ ",
-        "\\subset" to " ⊂ ", "\\supset" to " ⊃ ", "\\cup" to " ∪ ", "\\cap" to " ∩ ",
-        "\\rightarrow" to " → ", "\\to" to " → ", "\\leftarrow" to " ← ",
-        "\\Rightarrow" to " ⇒ ", "\\Leftarrow" to " ⇐ ", "\\Leftrightarrow" to " ⇔ ",
-        "\\quad" to "   ", "\\qquad" to "      ", "\\," to " ", "\\;" to " ",
-        "\\left" to "", "\\right" to "", "\\mathbf" to "", "\\mathit" to "",
-        "\\mathrm" to "", "\\text" to ""
+    // 5. 黑体集合 \mathbb{R} -> ℝ 等
+    val mathbbMap = mapOf(
+        "\\mathbb{R}" to "ℝ", "\\mathbb{N}" to "ℕ", "\\mathbb{Z}" to "ℤ",
+        "\\mathbb{Q}" to "ℚ", "\\mathbb{C}" to "ℂ", "\\mathbb{H}" to "ℍ",
+        "\\mathbb{P}" to "ℙ", "\\mathbb{E}" to "𝔼"
     )
-
-    for ((latex, unicode) in symbolMap) {
+    for ((latex, unicode) in mathbbMap) {
         text = text.replace(latex, unicode)
     }
 
-    // 上标转换 ^2 -> ², ^{12} -> ¹²
+    // 6. 符号与函数映射表
+    val symbolMap = listOf(
+        // 三角/对数/极限/分析函数
+        "\\arcsin" to "arcsin", "\\arccos" to "arccos", "\\arctan" to "arctan",
+        "\\sinh" to "sinh", "\\cosh" to "cosh", "\\tanh" to "tanh",
+        "\\sin" to "sin", "\\cos" to "cos", "\\tan" to "tan", "\\cot" to "cot",
+        "\\sec" to "sec", "\\csc" to "csc", "\\ln" to "ln", "\\log" to "log",
+        "\\lg" to "lg", "\\exp" to "exp", "\\lim" to "lim", "\\max" to "max",
+        "\\min" to "min", "\\sup" to "sup", "\\inf" to "inf", "\\det" to "det",
+        "\\gcd" to "gcd", "\\arg" to "arg", "\\deg" to "deg", "\\dim" to "dim",
+        "\\ker" to "ker", "\\hom" to "hom", "\\Pr" to "Pr", "\\bmod" to " mod ",
+        "\\pmod" to " mod ",
+
+        // 希腊字母（小写）
+        "\\alpha" to "α", "\\beta" to "β", "\\gamma" to "γ", "\\delta" to "δ",
+        "\\epsilon" to "ε", "\\varepsilon" to "ε", "\\zeta" to "ζ", "\\eta" to "η",
+        "\\theta" to "θ", "\\vartheta" to "ϑ", "\\iota" to "ι", "\\kappa" to "κ",
+        "\\lambda" to "λ", "\\mu" to "μ", "\\nu" to "ν", "\\xi" to "ξ",
+        "\\pi" to "π", "\\varpi" to "ϖ", "\\rho" to "ρ", "\\varrho" to "ϱ",
+        "\\sigma" to "σ", "\\varsigma" to "ς", "\\tau" to "τ", "\\upsilon" to "υ",
+        "\\phi" to "φ", "\\varphi" to "ϕ", "\\chi" to "χ", "\\psi" to "ψ",
+        "\\omega" to "ω",
+
+        // 希腊字母（大写）
+        "\\Gamma" to "Γ", "\\Delta" to "Δ", "\\Theta" to "Θ", "\\Lambda" to "Λ",
+        "\\Xi" to "Ξ", "\\Pi" to "Π", "\\Sigma" to "Σ", "\\Upsilon" to "Υ",
+        "\\Phi" to "Φ", "\\Psi" to "Ψ", "\\Omega" to "Ω",
+
+        // 关系与运算符
+        "\\times" to " × ", "\\cdot" to " · ", "\\div" to " ÷ ", "\\pm" to " ± ",
+        "\\mp" to " ∓ ", "\\ast" to " * ", "\\star" to " ★ ", "\\circ" to " ∘ ",
+        "\\bullet" to " • ", "\\oplus" to " ⊕ ", "\\otimes" to " ⊗ ", "\\odot" to " ⊙ ",
+        "\\leq" to " ≤ ", "\\le" to " ≤ ", "\\geq" to " ≥ ", "\\ge" to " ≥ ",
+        "\\neq" to " ≠ ", "\\ne" to " ≠ ", "\\approx" to " ≈ ", "\\equiv" to " ≡ ",
+        "\\sim" to " ∼ ", "\\simeq" to " ≃ ", "\\cong" to " ≅ ", "\\propto" to " ∝ ",
+        "\\ll" to " ≪ ", "\\gg" to " ≫ ", "\\mid" to " | ", "\\nmid" to " ∤ ",
+        "\\parallel" to " ∥ ", "\\perp" to " ⊥ ",
+
+        // 逻辑与集合
+        "\\forall" to "∀", "\\exists" to "∃", "\\nexists" to "∄", "\\in" to " ∈ ",
+        "\\notin" to " ∉ ", "\\ni" to " ∋ ", "\\subset" to " ⊂ ", "\\supset" to " ⊃ ",
+        "\\subseteq" to " ⊆ ", "\\supseteq" to " ⊇ ", "\\cup" to " ∪ ", "\\cap" to " ∩ ",
+        "\\setminus" to " \\ ", "\\emptyset" to "∅", "\\varnothing" to "∅",
+        "\\land" to " ∧ ", "\\lor" to " ∨ ", "\\neg" to "¬", "\\lnot" to "¬",
+
+        // 箭头
+        "\\rightarrow" to " → ", "\\to" to " → ", "\\leftarrow" to " ← ",
+        "\\Rightarrow" to " ⇒ ", "\\Leftarrow" to " ⇐ ", "\\Leftrightarrow" to " ⇔ ",
+        "\\iff" to " ⇔ ", "\\implies" to " ⇒ ", "\\mapsto" to " ↦ ",
+        "\\uparrow" to " ↑ ", "\\downarrow" to " ↓ ", "\\updownarrow" to " ↕ ",
+        "\\nearrow" to " ↗ ", "\\searrow" to " ↘ ",
+
+        // 微积分与特殊算子
+        "\\sum" to "∑", "\\prod" to "∏", "\\coprod" to "∐",
+        "\\int" to "∫", "\\iint" to "∬", "\\iiint" to "∭", "\\oint" to "∮",
+        "\\nabla" to "∇", "\\partial" to "∂", "\\infty" to "∞",
+
+        // 省略号与点
+        "\\cdots" to "⋯", "\\ldots" to "…", "\\dots" to "…",
+        "\\vdots" to "⋮", "\\ddots" to "⋱",
+
+        // 装饰重音
+        "\\vec" to "", "\\hat" to "", "\\bar" to "", "\\tilde" to "", "\\dot" to "", "\\ddot" to "",
+
+        // 空格与括号界定符
+        "\\quad" to "   ", "\\qquad" to "      ", "\\," to " ", "\\;" to " ",
+        "\\:" to " ", "\\!" to "",
+        "\\left(" to "(", "\\right)" to ")",
+        "\\left[" to "[", "\\right]" to "]",
+        "\\left\\{" to "{", "\\right\\}" to "}",
+        "\\left|" to "|", "\\right|" to "|",
+        "\\left." to "", "\\right." to "",
+        "\\left" to "", "\\right" to "",
+        "\\{" to "{", "\\}" to "}", "\\%" to "%", "\\_" to "_", "\\&" to "&"
+    )
+
+    for ((latex, unicode) in symbolMap.sortedByDescending { it.first.length }) {
+        text = text.replace(latex, unicode)
+    }
+
+    // 7. 转换上下标
     text = convertSuperSubScripts(text)
 
-    return text.replace(Regex("""\s+"""), " ").trim()
+    // 8. 规整多余空格
+    return text.replace(Regex("""[ \t]+"""), " ").trim()
+}
+
+private fun findMatchingBrace(text: String, openBraceIndex: Int): Int {
+    if (openBraceIndex < 0 || openBraceIndex >= text.length || text[openBraceIndex] != '{') return -1
+    var depth = 0
+    for (i in openBraceIndex until text.length) {
+        when (text[i]) {
+            '{' -> depth++
+            '}' -> {
+                depth--
+                if (depth == 0) return i
+            }
+        }
+    }
+    return -1
+}
+
+private fun parseEnvironments(input: String): String {
+    var text = input
+    val envRegex = Regex("""\\begin\{([a-zA-Z*]+)\}([\s\S]*?)\\end\{\1\}""")
+    text = envRegex.replace(text) { matchResult ->
+        val env = matchResult.groupValues[1]
+        val body = matchResult.groupValues[2].trim()
+        when (env) {
+            "matrix" -> formatMatrix(body, "", "")
+            "pmatrix" -> formatMatrix(body, "(", ")")
+            "bmatrix" -> formatMatrix(body, "[", "]")
+            "Bmatrix" -> formatMatrix(body, "{", "}")
+            "vmatrix" -> formatMatrix(body, "|", "|")
+            "Vmatrix" -> formatMatrix(body, "‖", "‖")
+            "cases" -> formatCases(body)
+            "aligned", "align", "equation", "gather", "split" -> {
+                body.replace("\\\\", "\n").replace("&", " ")
+            }
+            else -> body.replace("\\\\", "\n").replace("&", " ")
+        }
+    }
+    return text
+}
+
+private fun formatMatrix(body: String, leftDelim: String, rightDelim: String): String {
+    val rows = body.split("\\\\").map { it.trim() }.filter { it.isNotEmpty() }
+    if (rows.isEmpty()) return "$leftDelim $rightDelim"
+    val parsedRows = rows.map { row ->
+        row.split("&").map { it.trim() }.joinToString(" ")
+    }
+    return "$leftDelim " + parsedRows.joinToString(" ; ") + " $rightDelim"
+}
+
+private fun formatCases(body: String): String {
+    val rows = body.split("\\\\").map { it.trim() }.filter { it.isNotEmpty() }
+    if (rows.isEmpty()) return "{ "
+    val parsedRows = rows.map { row ->
+        row.split("&").map { it.trim() }.joinToString(", if ")
+    }
+    return "{ " + parsedRows.joinToString(" ; ")
+}
+
+private fun parseFractions(input: String): String {
+    var text = input
+    var idx = text.indexOf("\\frac")
+    var guard = 0
+    while (idx != -1 && guard < 50) {
+        guard++
+        val firstBrace = text.indexOf('{', idx)
+        if (firstBrace == -1) break
+        val firstEnd = findMatchingBrace(text, firstBrace)
+        if (firstEnd == -1) break
+        val secondBrace = text.indexOf('{', firstEnd + 1)
+        if (secondBrace == -1) break
+        if (text.substring(firstEnd + 1, secondBrace).trim().isNotEmpty()) break
+        val secondEnd = findMatchingBrace(text, secondBrace)
+        if (secondEnd == -1) break
+
+        val numerator = text.substring(firstBrace + 1, firstEnd).trim()
+        val denominator = text.substring(secondBrace + 1, secondEnd).trim()
+
+        val parsedNum = parseFractions(numerator)
+        val parsedDen = parseFractions(denominator)
+
+        val formatted = if (!parsedNum.contains('/') && !parsedDen.contains('/') &&
+            parsedNum.length <= 4 && parsedDen.length <= 4 &&
+            !parsedNum.contains(' ') && !parsedDen.contains(' ')) {
+            "$parsedNum/$parsedDen"
+        } else {
+            "($parsedNum) / ($parsedDen)"
+        }
+        text = text.substring(0, idx) + formatted + text.substring(secondEnd + 1)
+        idx = text.indexOf("\\frac")
+    }
+    return text
+}
+
+private fun parseRoots(input: String): String {
+    var text = input
+    var idx = text.indexOf("\\sqrt")
+    var guard = 0
+    while (idx != -1 && guard < 50) {
+        guard++
+        val afterSqrt = idx + 5
+        if (afterSqrt < text.length && text[afterSqrt] == '[') {
+            val bracketEnd = text.indexOf(']', afterSqrt)
+            if (bracketEnd != -1) {
+                val degree = text.substring(afterSqrt + 1, bracketEnd).trim()
+                val braceStart = text.indexOf('{', bracketEnd)
+                if (braceStart != -1) {
+                    val braceEnd = findMatchingBrace(text, braceStart)
+                    if (braceEnd != -1) {
+                        val body = text.substring(braceStart + 1, braceEnd).trim()
+                        val degSuper = convertToSuperscript(degree)
+                        text = text.substring(0, idx) + "${degSuper}√($body)" + text.substring(braceEnd + 1)
+                        idx = text.indexOf("\\sqrt")
+                        continue
+                    }
+                }
+            }
+        }
+        val braceStart = text.indexOf('{', afterSqrt)
+        if (braceStart != -1) {
+            val braceEnd = findMatchingBrace(text, braceStart)
+            if (braceEnd != -1) {
+                val body = text.substring(braceStart + 1, braceEnd).trim()
+                text = text.substring(0, idx) + "√($body)" + text.substring(braceEnd + 1)
+                idx = text.indexOf("\\sqrt")
+                continue
+            }
+        }
+        break
+    }
+    return text
+}
+
+private fun convertToSuperscript(input: String): String {
+    val supers = mapOf(
+        '0' to '⁰', '1' to '¹', '2' to '²', '3' to '³', '4' to '⁴',
+        '5' to '⁵', '6' to '⁶', '7' to '⁷', '8' to '⁸', '9' to '⁹',
+        '+' to '⁺', '-' to '⁻', '=' to '⁼', '(' to '⁽', ')' to '⁾',
+        'n' to 'ⁿ', 'i' to 'ⁱ', 'x' to 'ˣ', 'y' to 'ʸ'
+    )
+    return input.map { supers[it] ?: it }.joinToString("")
 }
 
 private fun convertSuperSubScripts(input: String): String {
@@ -467,21 +701,31 @@ private fun convertSuperSubScripts(input: String): String {
         '0' to '⁰', '1' to '¹', '2' to '²', '3' to '³', '4' to '⁴',
         '5' to '⁵', '6' to '⁶', '7' to '⁷', '8' to '⁸', '9' to '⁹',
         '+' to '⁺', '-' to '⁻', '=' to '⁼', '(' to '⁽', ')' to '⁾',
-        'n' to 'ⁿ', 'i' to 'ⁱ', 'x' to 'ˣ', 'y' to 'ʸ'
+        'a' to 'ᵃ', 'b' to 'ᵇ', 'c' to 'ᶜ', 'd' to 'ᵈ', 'e' to 'ᵉ',
+        'f' to 'ᶠ', 'g' to 'ᵍ', 'h' to 'ʰ', 'i' to 'ⁱ', 'j' to 'ʲ',
+        'k' to 'ᵏ', 'l' to 'ˡ', 'm' to 'ᵐ', 'n' to 'ⁿ', 'o' to 'ᵒ',
+        'p' to 'ᵖ', 'r' to 'ʳ', 's' to 'ˢ', 't' to 'ᵗ', 'u' to 'ᵘ',
+        'v' to 'ᵛ', 'w' to 'ʷ', 'x' to 'ˣ', 'y' to 'ʸ', 'z' to 'ᶻ'
     )
     val subs = mapOf(
         '0' to '₀', '1' to '₁', '2' to '₂', '3' to '₃', '4' to '₄',
         '5' to '₅', '6' to '₆', '7' to '₇', '8' to '₈', '9' to '₉',
         '+' to '₊', '-' to '₋', '=' to '₌', '(' to '₍', ')' to '₎',
-        'a' to 'ₐ', 'e' to 'ₑ', 'i' to 'ᵢ', 'j' to 'ⱼ', 'k' to 'ₖ',
-        'm' to 'ₘ', 'n' to 'ₙ', 'o' to 'ₒ', 'p' to 'ₚ', 'r' to 'ᵣ',
-        's' to 'ₛ', 't' to 'ₜ', 'u' to 'ᵤ', 'v' to 'ᵥ', 'x' to 'ₓ'
+        'a' to 'ₐ', 'e' to 'ₑ', 'h' to 'ₕ', 'i' to 'ᵢ', 'j' to 'ⱼ',
+        'k' to 'ₖ', 'l' to 'ₗ', 'm' to 'ₘ', 'n' to 'ₙ', 'o' to 'ₒ',
+        'p' to 'ₚ', 'r' to 'ᵣ', 's' to 'ₛ', 't' to 'ₜ', 'u' to 'ᵤ',
+        'v' to 'ᵥ', 'x' to 'ₓ'
     )
 
     var res = input
     // ^{...}
-    res = Regex("""\^\{([0-9a-zA-Z+\-=()]+)\}""").replace(res) { m ->
-        m.groupValues[1].map { supers[it] ?: it }.joinToString("")
+    res = Regex("""\^\{([^}]+)\}""").replace(res) { m ->
+        val inner = m.groupValues[1]
+        if (inner.all { supers.containsKey(it) || it.isWhitespace() }) {
+            inner.map { supers[it] ?: it }.joinToString("")
+        } else {
+            "^($inner)"
+        }
     }
     // ^x
     res = Regex("""\^([0-9a-zA-Z+\-=])""").replace(res) { m ->
@@ -489,8 +733,13 @@ private fun convertSuperSubScripts(input: String): String {
         supers[c]?.toString() ?: "^$c"
     }
     // _{...}
-    res = Regex("""_\{([0-9a-zA-Z+\-=()]+)\}""").replace(res) { m ->
-        m.groupValues[1].map { subs[it] ?: it }.joinToString("")
+    res = Regex("""_\{([^}]+)\}""").replace(res) { m ->
+        val inner = m.groupValues[1]
+        if (inner.all { subs.containsKey(it) || it.isWhitespace() }) {
+            inner.map { subs[it] ?: it }.joinToString("")
+        } else {
+            "₍$inner₎"
+        }
     }
     // _x
     res = Regex("""_([0-9a-zA-Z+\-=])""").replace(res) { m ->
@@ -770,24 +1019,35 @@ private fun InlineMarkdownText(
     onCitationClick: ((Int) -> Unit)? = null
 ) {
     val uriHandler = LocalUriHandler.current
-    ClickableText(
-        text = text,
-        style = style.copy(color = color),
-        modifier = modifier,
-        onClick = { offset ->
-            text.getStringAnnotations(tag = "CITATION", start = offset, end = offset)
-                .firstOrNull()
-                ?.let { annotation ->
-                    val id = annotation.item.toIntOrNull() ?: 1
-                    onCitationClick?.invoke(id)
-                }
-            text.getStringAnnotations(tag = "URL", start = offset, end = offset)
-                .firstOrNull()
-                ?.let { annotation ->
-                    runCatching { uriHandler.openUri(annotation.item) }
-                }
-        }
-    )
+    val hasCitations = remember(text) { text.getStringAnnotations(tag = "CITATION", start = 0, end = text.length).isNotEmpty() }
+    val hasUrls = remember(text) { text.getStringAnnotations(tag = "URL", start = 0, end = text.length).isNotEmpty() }
+
+    if (!hasCitations && !hasUrls) {
+        Text(
+            text = text,
+            style = style.copy(color = color),
+            modifier = modifier
+        )
+    } else {
+        ClickableText(
+            text = text,
+            style = style.copy(color = color),
+            modifier = modifier,
+            onClick = { offset ->
+                text.getStringAnnotations(tag = "CITATION", start = offset, end = offset)
+                    .firstOrNull()
+                    ?.let { annotation ->
+                        val id = annotation.item.toIntOrNull() ?: 1
+                        onCitationClick?.invoke(id)
+                    }
+                text.getStringAnnotations(tag = "URL", start = offset, end = offset)
+                    .firstOrNull()
+                    ?.let { annotation ->
+                        runCatching { uriHandler.openUri(annotation.item) }
+                    }
+            }
+        )
+    }
 }
 
 /**
@@ -1149,6 +1409,50 @@ fun parseInlineMarkdown(
                     i += if (decoded.startsWith("<br/>", i, ignoreCase = true)) 5 else 4
                 }
 
+                // LaTeX 行内数学块 $$...$$
+                decoded.startsWith("$$", i) -> {
+                    val end = decoded.indexOf("$$", i + 2)
+                    if (end != -1 && end > i + 2) {
+                        val math = decoded.substring(i + 2, end)
+                        withStyle(
+                            SpanStyle(
+                                fontFamily = FontFamily.Serif,
+                                fontStyle = FontStyle.Italic,
+                                color = Color(0xFF6BA4F8),
+                                fontWeight = FontWeight.Medium
+                            )
+                        ) {
+                            append(parseLaTeXToUnicode(math))
+                        }
+                        i = end + 2
+                    } else {
+                        append(decoded[i])
+                        i++
+                    }
+                }
+
+                // LaTeX 行内数学块 \[...\]
+                decoded.startsWith("\\[", i) -> {
+                    val end = decoded.indexOf("\\]", i + 2)
+                    if (end != -1 && end > i + 2) {
+                        val math = decoded.substring(i + 2, end)
+                        withStyle(
+                            SpanStyle(
+                                fontFamily = FontFamily.Serif,
+                                fontStyle = FontStyle.Italic,
+                                color = Color(0xFF6BA4F8),
+                                fontWeight = FontWeight.Medium
+                            )
+                        ) {
+                            append(parseLaTeXToUnicode(math))
+                        }
+                        i = end + 2
+                    } else {
+                        append(decoded[i])
+                        i++
+                    }
+                }
+
                 // LaTeX 行内数学公式 \(...\)
                 decoded.startsWith("\\(", i) -> {
                     val end = decoded.indexOf("\\)", i + 2)
@@ -1158,7 +1462,7 @@ fun parseInlineMarkdown(
                             SpanStyle(
                                 fontFamily = FontFamily.Serif,
                                 fontStyle = FontStyle.Italic,
-                                color = Color(0xFF2563EB),
+                                color = Color(0xFF6BA4F8),
                                 fontWeight = FontWeight.Medium
                             )
                         ) {
@@ -1172,7 +1476,7 @@ fun parseInlineMarkdown(
                 }
 
                 // LaTeX 行内数学公式 $...$
-                decoded.startsWith("$", i) && !decoded.startsWith("$$", i) && isInlineMathStart(decoded, i) -> {
+                decoded.startsWith("$", i) && isInlineMathStart(decoded, i) -> {
                     val end = decoded.indexOf('$', i + 1)
                     if (end != -1 && end > i + 1 && !decoded.substring(i + 1, end).contains('\n')) {
                         val math = decoded.substring(i + 1, end)
@@ -1180,7 +1484,7 @@ fun parseInlineMarkdown(
                             SpanStyle(
                                 fontFamily = FontFamily.Serif,
                                 fontStyle = FontStyle.Italic,
-                                color = Color(0xFF2563EB),
+                                color = Color(0xFF6BA4F8),
                                 fontWeight = FontWeight.Medium
                             )
                         ) {
@@ -1317,7 +1621,7 @@ fun parseInlineMarkdown(
                             // 末尾参考资料列表展示为正常大小，不使用上标
                             withStyle(
                                 SpanStyle(
-                                    color = Color(0xFF2563EB),
+                                    color = Color(0xFF6BA4F8),
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 14.sp
                                 )
@@ -1328,7 +1632,7 @@ fun parseInlineMarkdown(
                             // 正文内引用角标使用微型上标
                             withStyle(
                                 SpanStyle(
-                                    color = Color(0xFF2563EB),
+                                    color = Color(0xFF6BA4F8),
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 11.5.sp,
                                     baselineShift = BaselineShift.Superscript
@@ -1356,7 +1660,7 @@ fun parseInlineMarkdown(
                             pushStringAnnotation(tag = "URL", annotation = url)
                             withStyle(
                                 SpanStyle(
-                                    color = Color(0xFF2563EB),
+                                    color = Color(0xFF6BA4F8),
                                     fontWeight = FontWeight.Medium,
                                     textDecoration = TextDecoration.Underline
                                 )
@@ -1385,7 +1689,7 @@ fun parseInlineMarkdown(
                     pushStringAnnotation(tag = "URL", annotation = url)
                     withStyle(
                         SpanStyle(
-                            color = Color(0xFF2563EB),
+                            color = Color(0xFF6BA4F8),
                             textDecoration = TextDecoration.Underline
                         )
                     ) {

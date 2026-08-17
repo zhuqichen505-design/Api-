@@ -581,9 +581,9 @@ private fun ChartCard(
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                LegendDot("输入 Token", MaterialTheme.colorScheme.primary, contentColor.copy(alpha = 0.80f))
-                LegendDot("输出 Token", MaterialTheme.colorScheme.secondary, contentColor.copy(alpha = 0.80f))
-                LegendDot("思考 Token", MaterialTheme.colorScheme.tertiary, contentColor.copy(alpha = 0.80f))
+                LegendDot("输入 Token", Color(0xFF6BA4F8), contentColor.copy(alpha = 0.85f))
+                LegendDot("输出 Token", Color(0xFF38BDF8), contentColor.copy(alpha = 0.85f))
+                LegendDot("思考 Token", Color(0xFFFB7185), contentColor.copy(alpha = 0.85f))
             }
         }
     }
@@ -605,12 +605,13 @@ private fun LegendDot(text: String, color: Color, textColor: Color) {
 
 @Composable
 private fun ModernTokenBars(buckets: List<Bucket>, maxToken: Int, labelColor: Color) {
-    val inputColor = MaterialTheme.colorScheme.primary
-    val outputColor = MaterialTheme.colorScheme.secondary
-    val thinkingColor = MaterialTheme.colorScheme.tertiary
-    val otherColor = MaterialTheme.colorScheme.outline
-    val gridColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
-    val plotBackground = MaterialTheme.colorScheme.surface.copy(alpha = 0.45f)
+    val inputColor = Color(0xFF6BA4F8) // 淡天蓝
+    val outputColor = Color(0xFF38BDF8) // 淡青蓝
+    val thinkingColor = Color(0xFFFB7185) // 淡珊瑚粉
+    val otherColor = Color(0xFFA5B4FC) // 淡紫
+    val gridColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+    val plotBackground = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+    val emptyBarColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.20f)
 
     Column {
         Row(modifier = Modifier.fillMaxWidth()) {
@@ -624,44 +625,67 @@ private fun ModernTokenBars(buckets: List<Bucket>, maxToken: Int, labelColor: Co
                     .weight(1f)
                     .height(180.dp)
             ) {
+                // 背景区域
                 drawRoundRect(
                     color = plotBackground,
                     topLeft = Offset.Zero,
                     size = size,
                     cornerRadius = CornerRadius(14.dp.toPx(), 14.dp.toPx())
                 )
+                // 横向刻度网格线
                 repeat(4) { line ->
                     val y = size.height * line / 3f
-                    drawLine(gridColor, Offset(0f, y), Offset(size.width, y), strokeWidth = 1.dp.toPx())
+                    drawLine(gridColor, Offset(0f, y), Offset(size.width, y), strokeWidth = 0.8.dp.toPx())
                 }
 
                 if (buckets.isEmpty()) return@Canvas
                 val slot = size.width / buckets.size.coerceAtLeast(1)
-                val barWidth = (slot * 0.58f).coerceIn(6.dp.toPx(), 26.dp.toPx())
+                val barWidth = (slot * 0.60f).coerceIn(8.dp.toPx(), 28.dp.toPx())
 
                 buckets.forEachIndexed { index, bucket ->
                     val left = slot * index + (slot - barWidth) / 2f
                     val total = bucket.totalTokens.coerceAtLeast(0)
-                    if (total <= 0) return@forEachIndexed
-                    val fullHeight = size.height * total / maxToken.coerceAtLeast(1)
-                    var bottom = size.height
 
-                    fun drawBarSegment(value: Int, color: Color) {
-                        if (value <= 0) return
-                        val height = (fullHeight * value / total.toFloat()).coerceAtLeast(1.5.dp.toPx())
+                    // 空数据绘制微型基准胶囊
+                    if (total <= 0) {
                         drawRoundRect(
-                            color = color,
-                            topLeft = Offset(left, bottom - height),
-                            size = Size(barWidth, height),
-                            cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx())
+                            color = emptyBarColor,
+                            topLeft = Offset(left, size.height - 3.dp.toPx()),
+                            size = Size(barWidth, 3.dp.toPx()),
+                            cornerRadius = CornerRadius(1.5.dp.toPx(), 1.5.dp.toPx())
                         )
-                        bottom -= height
+                        return@forEachIndexed
                     }
 
-                    drawBarSegment(bucket.otherTokens, otherColor)
-                    drawBarSegment(bucket.thinkingTokens, thinkingColor)
-                    drawBarSegment(bucket.outputTokens, outputColor)
-                    drawBarSegment(bucket.inputTokens, inputColor)
+                    val fullHeight = (size.height * total / maxToken.coerceAtLeast(1).toFloat())
+                        .coerceIn(4.dp.toPx(), size.height)
+                    var bottom = size.height
+
+                    // 依次堆叠绘制柱体段（带圆角和分层阴影）
+                    fun drawBarSegment(value: Int, color: Color, isTopSegment: Boolean) {
+                        if (value <= 0) return
+                        val segmentHeight = (fullHeight * value / total.toFloat()).coerceAtLeast(2.dp.toPx())
+                        val top = bottom - segmentHeight
+                        val corner = if (isTopSegment) CornerRadius(4.dp.toPx(), 4.dp.toPx()) else CornerRadius.Zero
+
+                        drawRoundRect(
+                            color = color,
+                            topLeft = Offset(left, top),
+                            size = Size(barWidth, segmentHeight),
+                            cornerRadius = corner
+                        )
+                        bottom -= segmentHeight
+                    }
+
+                    val hasInput = bucket.inputTokens > 0
+                    val hasOutput = bucket.outputTokens > 0
+                    val hasThinking = bucket.thinkingTokens > 0
+                    val hasOther = bucket.otherTokens > 0
+
+                    drawBarSegment(bucket.otherTokens, otherColor, isTopSegment = !hasInput && !hasOutput && !hasThinking)
+                    drawBarSegment(bucket.thinkingTokens, thinkingColor, isTopSegment = !hasInput && !hasOutput)
+                    drawBarSegment(bucket.outputTokens, outputColor, isTopSegment = !hasInput)
+                    drawBarSegment(bucket.inputTokens, inputColor, isTopSegment = true)
                 }
             }
         }
@@ -674,9 +698,9 @@ private fun ModernTrendChart(
     buckets: List<Bucket>,
     labelColor: Color = MaterialTheme.colorScheme.onSurfaceVariant
 ) {
-    val successColor = MaterialTheme.colorScheme.secondary
-    val gridColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
-    val plotBackground = MaterialTheme.colorScheme.surface.copy(alpha = 0.45f)
+    val successColor = Color(0xFF38BDF8) // 淡青蓝
+    val gridColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+    val plotBackground = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
     val haloColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
 
     Column {
@@ -979,7 +1003,7 @@ private fun ModernModelStatsTable(
                                             modifier = Modifier
                                                 .weight(inputRatio)
                                                 .fillMaxHeight()
-                                                .background(MaterialTheme.colorScheme.primary)
+                                                .background(Color(0xFF6BA4F8))
                                         )
                                     }
                                     if (outputRatio > 0f) {
@@ -987,7 +1011,7 @@ private fun ModernModelStatsTable(
                                             modifier = Modifier
                                                 .weight(outputRatio)
                                                 .fillMaxHeight()
-                                                .background(MaterialTheme.colorScheme.secondary)
+                                                .background(Color(0xFF38BDF8))
                                         )
                                     }
                                     if (thinkingRatio > 0f) {
@@ -995,7 +1019,7 @@ private fun ModernModelStatsTable(
                                             modifier = Modifier
                                                 .weight(thinkingRatio)
                                                 .fillMaxHeight()
-                                                .background(MaterialTheme.colorScheme.tertiary)
+                                                .background(Color(0xFFFB7185))
                                         )
                                     }
                                 }
@@ -1015,7 +1039,7 @@ private fun ModernModelStatsTable(
                                 MiniStatsChip(
                                     icon = Icons.Default.CheckCircle,
                                     label = "成功率 ${formatPercent(row.successRate)}",
-                                    tint = MaterialTheme.colorScheme.secondary
+                                    tint = Color(0xFF38BDF8)
                                 )
                                 if (row.avgResponseTime > 0) {
                                     MiniStatsChip(
@@ -1028,7 +1052,7 @@ private fun ModernModelStatsTable(
                                     MiniStatsChip(
                                         icon = Icons.Default.Psychology,
                                         label = "思考 ${formatNumber(row.thinkingTokens)}",
-                                        tint = MaterialTheme.colorScheme.tertiary
+                                        tint = Color(0xFFFB7185)
                                     )
                                 }
                             }
@@ -1051,7 +1075,7 @@ private fun MiniStatsChip(
         horizontalArrangement = Arrangement.spacedBy(3.dp),
         modifier = Modifier
             .clip(RoundedCornerShape(6.dp))
-            .background(Color.Black.copy(alpha = 0.10f))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f))
             .padding(horizontal = 6.dp, vertical = 2.5.dp)
     ) {
         Icon(

@@ -600,6 +600,11 @@ fun ApiConfigTab(
     var editingConfig by remember { mutableStateOf<ApiConfig?>(null) }
     var isSaving by remember { mutableStateOf(false) }
 
+    BackHandler(enabled = showAddDialog || editingConfig != null) {
+        showAddDialog = false
+        editingConfig = null
+    }
+
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),

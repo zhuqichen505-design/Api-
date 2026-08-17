@@ -1,5 +1,55 @@
 # Echo AI 助手更新日志 (Update Log)
 
+## [v1.9.11] - 2026-08-18
+
+### 1. 本次更新概述
+本次更新重点攻坚了三项核心体验优化与视觉体系升级：
+1. **LaTeX 数学公式解析增强与对话滑动卡死彻底消除**；
+2. **设置界面「添加 API 配置」弹窗返回退出时白色底板残留彻底消除**；
+3. **使用统计界面 Token 消耗趋势升级为高质感柱状图（Bar Chart），全量调色板升级为柔和淡色系（Pastel Colors）并彻底移除纯黑色硬块**。
+
+### 2. 需求实现与落地详情
+1. **LaTeX 数学公式解析增强与对话滑动卡死彻底消除**：
+   - **根因分析**：
+     - 原 `fracRegex` 的 while 循环在流式响应遇到嵌套花括号或半截公式时存在死循环隐患，导致主线程 ANR 阻塞触摸分发；
+     - 原 `InlineMarkdownText` 对所有普通文本行无差别挂载了 `ClickableText`，内部 `pointerInput` 拦截了 `LazyColumn` 的纵向触摸手势与滑动分发。
+   - **全面重构与解决**：
+     - `MarkdownText.kt` 深度重构：实现基于栈平衡与括号深度解析的 `parseFractions`（支持多层嵌套分数 `\frac{1}{\frac{2}{3}}` 智能括号化）与 `parseRoots`（支持 `\sqrt[n]{x}`）；
+     - 新增多行数学环境解析（`pmatrix`、`bmatrix`、`cases`、`aligned`、`equation` 等）；
+     - 扩展全量微积分（`∫/∬/∭/∮`）、希腊字母（大小写全覆盖）、逻辑算子、黑体集合（`ℝ/ℕ/ℤ/ℚ/ℂ`）与上下标转换；按长度倒序匹配避免词缀冲突（如 `\infty` 优先于 `\inf`）；
+     - `InlineMarkdownText` 增加注解检测：无 URL 和引用角标时直接使用普通 `Text` 渲染，彻底消除触摸事件拦截，保障列表丝滑滑动。
+2. **设置界面添加配置返回后白窗残留修复**：
+   - **根因分析**：Compose `Dialog` 原生 DecorView 默认带有白色背景；当在 `DisposableEffect` 初始帧阶段 `view.parent` 尚未挂载为 `DialogWindowProvider` 时会导致 Window 透明度设置失效；同时缺少对话框层面的系统返回键拦截。
+   - **全面重构与解决**：
+     - 在 `EchoGlassDialog` 中采用 `SideEffect` 递归向上遍历视图树获取 `DialogWindowProvider`，确保 `win.setBackgroundDrawableResource(android.R.color.transparent)` 与 `win.setDimAmount(0f)` 100% 成功生效；
+     - 弹窗外层遮罩更新为柔和淡雅半透明底色；
+     - 在 `SettingsScreen.kt` 的 `ApiConfigTab` 中增加 `BackHandler(enabled = showAddDialog || editingConfig != null)`，按下系统返回键即刻关闭弹窗且不会出现白窗残留。
+3. **使用统计 Token 趋势柱状图 & 淡色系调色板升级**：
+   - **柱状图升级**：`StatsScreen.kt` 中的 `ModernTokenBars` 全面重构为高质感圆角柱状图（Bar Chart），支持分段堆叠（输入/输出/思考/其它）、空数据微型基准柱体、网格刻度线与底部时间轴；
+   - **淡色系调色板全面应用**：
+     - 输入 Token / 主色：柔和淡天蓝 `#6BA4F8`；
+     - 输出 Token / 成功色：柔和淡青蓝 `#38BDF8`；
+     - 思考 Token / 强调色：柔和淡珊瑚粉红 `#FB7185`；
+     - 其它 Token：淡薰衣草紫 `#A5B4FC`；
+     - 纯黑色硬底与阴影全部替换为淡雅微透明 `surfaceVariant`（`Color(0xFF1E293B)` / 柔灰淡色系）。
+
+### 3. 修改文件列表
+- `app/build.gradle.kts`
+- `app/src/main/java/com/aiassistant/ui/theme/Color.kt`
+- `app/src/main/java/com/aiassistant/ui/components/EchoHaze.kt`
+- `app/src/main/java/com/aiassistant/ui/components/MarkdownText.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/settings/SettingsScreen.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/stats/StatsScreen.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatScreen.kt`
+- `app/src/test/java/com/aiassistant/LatexAndStatsTest.kt`
+- `UPDATE_LOG.md`
+- `WORKFLOW_GUIDELINES.md`
+- `CHANGELOG.md`
+- `PROJECT.md`
+- `README.md`
+
+---
+
 ## [v1.9.10] - 2026-08-17
 
 ### 1. 本次更新概述

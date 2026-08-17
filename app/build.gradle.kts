@@ -13,8 +13,8 @@ android {
         applicationId = "com.aiassistant"
         minSdk = 26
         targetSdk = 34
-        versionCode = 90
-        versionName = "1.9.10"
+        versionCode = 91
+        versionName = "1.9.11"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -174,6 +174,7 @@ tasks.register<JavaExec>("runUnitTestsDirectly") {
     args(
         "com.aiassistant.ChatEnhancementsTest",
         "com.aiassistant.RoleplayModelsTest",
-        "com.aiassistant.RoleplayParserAndStreamingTest"
+        "com.aiassistant.RoleplayParserAndStreamingTest",
+        "com.aiassistant.LatexAndStatsTest"
     )
 }

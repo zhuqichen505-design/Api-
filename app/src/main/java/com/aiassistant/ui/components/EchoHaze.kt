@@ -274,19 +274,22 @@ fun EchoGlassDialog(
         )
     ) {
         val view = androidx.compose.ui.platform.LocalView.current
-        androidx.compose.runtime.DisposableEffect(view) {
-            val dialogWindow = (view.parent as? androidx.compose.ui.window.DialogWindowProvider)?.window
-            dialogWindow?.let { win ->
-                win.setBackgroundDrawableResource(android.R.color.transparent)
-                win.setDimAmount(0f)
+        androidx.compose.runtime.SideEffect {
+            var parent = view.parent
+            while (parent != null) {
+                if (parent is androidx.compose.ui.window.DialogWindowProvider) {
+                    parent.window.setBackgroundDrawableResource(android.R.color.transparent)
+                    parent.window.setDimAmount(0f)
+                    break
+                }
+                parent = parent.parent
             }
-            onDispose {}
         }
 
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.42f))
+                .background(Color(0xFF1E293B).copy(alpha = 0.26f))
                 .clickable(
                     interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                     indication = null,
