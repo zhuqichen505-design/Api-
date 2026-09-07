@@ -15,7 +15,7 @@
 - `versionCode`: 98
 - `versionName`: 1.9.18
 - ABI：arm64-v8a
-- 发布产物：`D:\Agent\APP-烧\releases\Echo-v1.9.18-arm64-v8a.apk` & `D:\Agent\APP-烧\app\releases\Echo-v1.9.18-arm64-v8a.apk`
+- 发布产物：`D:\Agent\APP-烧\app\releases\Echo-v1.9.18-arm64-v8a.apk`
 - SHA-256: `465718F8530442D12D0ED4BCAA472DB6F862AD478DD951638D47275632242149`
 
 ## v1.9.17 (2026-09-07) - 自定义联网搜索结果数、模型列表选择自动命名、华为健康传感器主动刷新、提示词与记忆机制/优先级透明化、故事设置三栏重构、会话与故事无损双向转换、设置手风琴折叠、模型全维度能力解析、深蓝黑极客UI与WCAG AAA高对比度
