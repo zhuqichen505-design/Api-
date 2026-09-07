@@ -299,8 +299,8 @@ fun EchoGlassDialog(
         ) {
             Surface(
                 modifier = modifier
-                    .fillMaxWidth(0.94f)
-                    .widthIn(max = 520.dp)
+                    .fillMaxWidth(0.90f)
+                    .widthIn(max = 440.dp)
                     .heightIn(max = 680.dp)
                     .padding(horizontal = 8.dp)
                     .clickable(

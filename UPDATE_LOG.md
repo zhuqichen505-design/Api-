@@ -1,5 +1,60 @@
 # Echo AI 助手更新日志 (Update Log)
 
+## [v1.9.14] - 2026-09-07
+
+### 1. 本次更新概述
+本次更新聚焦用户反馈的 5 项核心交互与视觉痛点，进行了全方位的深度优化与系统级修复：
+1. **关于页面「本次更新」内容校准与动态同步**：
+   - 彻底重构设置中心关于界面的更新日志数据源，真实、准确呈现当前版本核心修复与增强项，终结文案滞后错乱问题。
+2. **关于界面与全局卡片白色气泡背景彻底修复**：
+   - 针对关于界面中「本次更新」和「功能特性」下方以及设置页在特定滑动与折叠状态下错误浮现的白色气泡/白底色块 Bug 展开系统性根治；
+   - 彻底将设置卡片从 `echoHazePanel` 升级解耦为纯净毛玻璃材质 `EchoGlassCard`，消除超出视口采样的白色不透明渲染伪影，并对应用内同类常见场景实施统一排查与修复，界面通透纯净。
+3. **对话页模型回复完毕后增加优雅分格线**：
+   - 在模型回复结束、流式传输完成后的消息日期时间行下方，新增一条带有微光质感的横向分格线（`HorizontalDivider`）；
+   - 使多轮对话之间的边界层次分明、视觉流转舒适自然。
+4. **对话设置与故事创作弹窗系统级和谐优化**：
+   - **窗口宽度比例优化**：针对弹窗过宽的视觉失调问题，将最大宽度由 520dp 严控收缩为 430dp（最大屏宽 90%），排版精致利落；
+   - **模型下拉列表宽度等宽对齐**：彻底修复展开模型列表与上方选择框宽度不一致的割裂感，通过动态尺寸测量（`onSizeChanged`）实现像素级 1:1 等宽对齐；
+   - **系统提示词输入框支持展开放大**：新增一键放大/折叠切换操作，放大后高度可扩展至 360dp、支持多达 16 行舒适显示，极大提升长规则、长人设的阅读与编辑体验；
+   - **精准修复光标被强制置顶跳至开头 Bug**：采用 `TextFieldValue` 状态管理彻底解决用户点击修改系统提示词时光标被强制重置到开头的痛点，精准响应用户手指落点，并对应用内类似输入场景进行统一规范。
+5. **对话页主输入框支持展开放大**：
+   - 对话主输入栏新增展开放大快捷切换按键，支持从紧凑条一键展开至最高 320dp、15 行的多行大型输入面板；
+   - 满足用户输入复杂剧情提示词、长指令或大段代码时的从容编辑需求。
+6. **历史版本安装包永久保留准则严格践行**：
+   - 严禁删除、清理或覆盖 `releases/` 目录中的任何历史安装包；
+   - 增量编译并发布 `Echo-v1.9.14-arm64-v8a.apk`，保留全部 43+ 历史版本。
+
+### 2. 需求实现与落地详情
+1. **关于页与设置卡片材质净化**：
+   - `SettingsScreen.kt` 中重构 `SettingsGlassCard`、`SettingsMenuItem`、`ThemeModeCard`，使用 `EchoGlassCard` 自带的毛玻璃高光背景与描边替换 `echoHazePanel`，彻底清除离屏白斑。
+2. **模型完成回复后的分割线**：
+   - `ChatScreen.kt` 中在 `MessageFooter` 尾部添加判断：仅在 `!isGenerating && !isUser` 成立时渲染 `HorizontalDivider`，保持生成中与用户提问气泡的轻简纯粹。
+3. **对话设置弹窗与提示词光标交互**：
+   - `ChatScreen.kt` 与 `EchoHaze.kt` 中收缩 `EchoGlassDialog` 弹窗宽容度至 430dp；
+   - `ChatSettingsModelSelector`、`CharacterEditorScreen`、`ScenarioEditorScreen` 模型下拉框通过 `onSizeChanged` 获取触发组件实际像素宽度并传递给 `EchoGlassDropdownMenu`；
+   - `ChatSettingsSystemPromptSection` 与 `StoryUnifiedSettingsDialog` 采用 `TextFieldValue` 维护光标位置并支持动态高度与行数切换。
+4. **对话输入框展开放大**：
+   - `ChatInputBar` 新增 `isInputExpanded` 状态，切换最小/最大高度（160dp/320dp vs 42dp/112.dp）与最大行数（15 vs 5），并增加右上角展开/收起切换图标。
+5. **全量测试与签名验证**：
+   - 新增 `V1914FeaturesTest.kt`，全项目 53 项单元测试 100% 通过；
+   - 成功构建 Release APK，通过 aapt badging 与 apksigner v2 验证。
+
+### 3. 修改文件列表
+- `app/build.gradle.kts`
+- `app/src/main/java/com/aiassistant/ui/components/EchoHaze.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatScreen.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/roleplay/CharacterEditorScreen.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/roleplay/ScenarioEditorScreen.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/settings/SettingsScreen.kt`
+- `app/src/test/java/com/aiassistant/V1914FeaturesTest.kt`
+- `UPDATE_LOG.md`
+- `CHANGELOG.md`
+- `PROJECT.md`
+- `README.md`
+- `walkthrough.md`
+
+---
+
 ## [v1.9.13] - 2026-09-07
 
 ### 1. 本次更新概述

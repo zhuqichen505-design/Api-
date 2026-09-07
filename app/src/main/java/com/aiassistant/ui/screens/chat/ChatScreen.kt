@@ -38,9 +38,13 @@ import androidx.compose.ui.graphics.takeOrElse
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -1855,6 +1859,17 @@ private fun MessageBubble(
                             modifier = Modifier.padding(top = 2.dp)
                         )
                     }
+
+                    if (!isGenerating) {
+                        val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
+                        HorizontalDivider(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 10.dp, bottom = 4.dp),
+                            thickness = 1.dp,
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDarkTheme) 0.35f else 0.50f)
+                        )
+                    }
                 }
             }
         }
@@ -2228,7 +2243,8 @@ fun ChatInputBar(
     readableBackdrop: Color = Color.Unspecified
 ) {
     var showToolMenu by remember { mutableStateOf(false) }
-    val inputShape = RoundedCornerShape(30.dp)
+    var isInputExpanded by remember { mutableStateOf(false) }
+    val inputShape = if (isInputExpanded) RoundedCornerShape(22.dp) else RoundedCornerShape(30.dp)
     val resolvedReadableBackdrop = readableBackdrop.takeOrElse {
         MaterialTheme.colorScheme.background
     }
@@ -2288,31 +2304,49 @@ fun ChatInputBar(
                     onValueChange = onInputChange,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 42.dp, max = 112.dp)
+                        .heightIn(
+                            min = if (isInputExpanded) 160.dp else 42.dp,
+                            max = if (isInputExpanded) 320.dp else 112.dp
+                        )
                         .background(Color.Transparent),
                     textStyle = MaterialTheme.typography.bodyLarge.copy(
                         color = inputTextColor,
                         background = Color.Transparent
                     ),
                     cursorBrush = SolidColor(inputTextColor),
-                    maxLines = 5,
+                    maxLines = if (isInputExpanded) 15 else 5,
                     decorationBox = { innerTextField ->
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(min = 42.dp)
+                                .heightIn(min = if (isInputExpanded) 160.dp else 42.dp)
                                 .background(Color.Transparent)
-                                .padding(horizontal = 4.dp, vertical = 4.dp),
-                            contentAlignment = Alignment.CenterStart
+                                .padding(horizontal = 4.dp, vertical = 4.dp)
                         ) {
                             if (inputText.isBlank()) {
                                 Text(
                                     text = if (isRoleplay) "输入剧情提示、行动或指令..." else "给 Echo 发送消息",
                                     color = inputTextColor.copy(alpha = 0.62f),
-                                    style = MaterialTheme.typography.bodyLarge
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    modifier = Modifier.padding(end = 28.dp)
                                 )
                             }
-                            innerTextField()
+                            Box(modifier = Modifier.fillMaxWidth().padding(end = 28.dp)) {
+                                innerTextField()
+                            }
+                            IconButton(
+                                onClick = { isInputExpanded = !isInputExpanded },
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .size(24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (isInputExpanded) Icons.Default.CloseFullscreen else Icons.Default.OpenInFull,
+                                    contentDescription = if (isInputExpanded) "收起输入框" else "放大输入框",
+                                    tint = inputTextColor.copy(alpha = 0.65f),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
                         }
                     }
                 )
@@ -3369,11 +3403,19 @@ private fun ChatSettingsModelSelector(
     onModelSelected: (ChatModelOption) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
+    var selectorWidth by remember { mutableStateOf(0.dp) }
+    val density = LocalDensity.current
     val currentLabel = currentOption?.modelName ?: fallbackModel
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("模型", style = MaterialTheme.typography.titleSmall, color = contentColor)
-        Box {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .onSizeChanged { size ->
+                    selectorWidth = with(density) { size.width.toDp() }
+                }
+        ) {
             OutlinedButton(
                 onClick = { expanded = true },
                 modifier = Modifier.fillMaxWidth(),
@@ -3392,10 +3434,20 @@ private fun ChatSettingsModelSelector(
                 Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = secondaryColor)
             }
 
+            val menuModifier = if (selectorWidth > 0.dp) {
+                Modifier
+                    .width(selectorWidth)
+                    .heightIn(max = 280.dp)
+            } else {
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 280.dp)
+            }
+
             EchoGlassDropdownMenu(
                 expanded = expanded,
                 onDismissRequest = { expanded = false },
-                modifier = Modifier.heightIn(max = 280.dp)
+                modifier = menuModifier
             ) {
                 if (availableOptions.isEmpty()) {
                     DropdownMenuItem(
@@ -3430,47 +3482,71 @@ private fun ChatSettingsModelSelector(
 
 @Composable
 private fun ChatSettingsSystemPromptSection(
-    promptText: String,
-    onPromptChange: (String) -> Unit,
+    promptTextFieldValue: TextFieldValue,
+    onPromptChange: (TextFieldValue) -> Unit,
     hasTemplates: Boolean,
     contentColor: Color,
     secondaryColor: Color,
     onChooseTemplate: () -> Unit,
     onSaveTemplate: () -> Unit
 ) {
+    var isExpanded by remember { mutableStateOf(false) }
+
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("系统提示词", style = MaterialTheme.typography.titleSmall, color = contentColor)
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            OutlinedButton(
-                onClick = onChooseTemplate,
-                enabled = hasTemplates,
-                modifier = Modifier.weight(1f)
-            ) {
-                Icon(Icons.AutoMirrored.Filled.List, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("选择模板")
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("系统提示词", style = MaterialTheme.typography.titleSmall, color = contentColor)
+                Spacer(modifier = Modifier.width(6.dp))
+                IconButton(
+                    onClick = { isExpanded = !isExpanded },
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isExpanded) Icons.Default.CloseFullscreen else Icons.Default.OpenInFull,
+                        contentDescription = if (isExpanded) "缩小输入框" else "放大输入框",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
             }
-            OutlinedButton(
-                onClick = onSaveTemplate,
-                enabled = promptText.isNotBlank(),
-                modifier = Modifier.weight(1f)
-            ) {
-                Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("保存模板")
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (hasTemplates) {
+                    TextButton(
+                        onClick = onChooseTemplate,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.List, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("模板", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+                if (promptTextFieldValue.text.isNotBlank()) {
+                    TextButton(
+                        onClick = onSaveTemplate,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("存为模板", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
             }
         }
         OutlinedTextField(
-            value = promptText,
+            value = promptTextFieldValue,
             onValueChange = onPromptChange,
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 118.dp),
+                .heightIn(
+                    min = if (isExpanded) 220.dp else 118.dp,
+                    max = if (isExpanded) 360.dp else 160.dp
+                ),
             placeholder = { Text("例如：你是一个专业、简洁、可靠的助手。") },
-            maxLines = 8,
+            maxLines = if (isExpanded) 16 else 8,
             shape = RoundedCornerShape(14.dp),
             colors = glassTextFieldColors(
                 contentColor = contentColor,
@@ -3528,7 +3604,14 @@ fun ChatSettingsDialog(
     var enableThinking by remember { mutableStateOf(tempSettings.enableThinking) }
     var thinkingEffort by remember { mutableStateOf(tempSettings.thinkingEffort) }
     var enableWebSearch by remember { mutableStateOf(tempSettings.enableWebSearch) }
-    var promptText by remember(currentPrompt) { mutableStateOf(currentPrompt.orEmpty()) }
+    var promptTextFieldValue by remember(currentPrompt) {
+        mutableStateOf(
+            TextFieldValue(
+                text = currentPrompt.orEmpty(),
+                selection = TextRange(currentPrompt?.length ?: 0)
+            )
+        )
+    }
     var showTemplates by remember { mutableStateOf(false) }
     var showSaveDialog by remember { mutableStateOf(false) }
     var avatarRevision by remember { mutableIntStateOf(0) }
@@ -3577,8 +3660,8 @@ fun ChatSettingsDialog(
         hazeState = hazeState,
         onDismissRequest = onDismiss,
         modifier = Modifier
-            .fillMaxWidth()
-            .widthIn(max = 560.dp),
+            .fillMaxWidth(0.90f)
+            .widthIn(max = 430.dp),
         tint = dialogContainerColor,
         containerColor = dialogContainerColor,
         contentColor = dialogContentColor,
@@ -3627,8 +3710,8 @@ fun ChatSettingsDialog(
 
                 item {
                     ChatSettingsSystemPromptSection(
-                        promptText = promptText,
-                        onPromptChange = { promptText = it },
+                        promptTextFieldValue = promptTextFieldValue,
+                        onPromptChange = { promptTextFieldValue = it },
                         hasTemplates = templates.isNotEmpty(),
                         contentColor = dialogContentColor,
                         secondaryColor = dialogSecondaryColor,
@@ -3935,7 +4018,7 @@ fun ChatSettingsDialog(
                             thinkingEffort = thinkingEffort,
                             enableWebSearch = enableWebSearch
                         )
-                        onSave(settings, promptText.ifBlank { null })
+                        onSave(settings, promptTextFieldValue.text.ifBlank { null })
                     }
                 ) {
                     Text("保存")
@@ -3950,7 +4033,10 @@ fun ChatSettingsDialog(
             templates = templates,
             onDismiss = { showTemplates = false },
             onSelect = { template ->
-                promptText = template.content
+                promptTextFieldValue = TextFieldValue(
+                    text = template.content,
+                    selection = TextRange(template.content.length)
+                )
                 showTemplates = false
             }
         )
@@ -3959,7 +4045,7 @@ fun ChatSettingsDialog(
     if (showSaveDialog) {
         SaveTemplateDialog(
             hazeState = hazeState,
-            content = promptText,
+            content = promptTextFieldValue.text,
             onDismiss = { showSaveDialog = false },
             onSave = { name, content ->
                 onSavePromptTemplate(name, content)
@@ -4037,7 +4123,15 @@ private fun StoryUnifiedSettingsDialog(
     var enableThinking by remember { mutableStateOf(tempSettings.enableThinking) }
     var thinkingEffort by remember { mutableStateOf(tempSettings.thinkingEffort) }
     var enableWebSearch by remember { mutableStateOf(tempSettings.enableWebSearch) }
-    var promptText by remember { mutableStateOf(currentPrompt ?: "") }
+    var promptTextFieldValue by remember(currentPrompt) {
+        mutableStateOf(
+            TextFieldValue(
+                text = currentPrompt.orEmpty(),
+                selection = TextRange(currentPrompt?.length ?: 0)
+            )
+        )
+    }
+    var isPromptExpanded by remember { mutableStateOf(false) }
     var showTemplates by remember { mutableStateOf(false) }
     var showSaveDialog by remember { mutableStateOf(false) }
 
@@ -4063,6 +4157,9 @@ private fun StoryUnifiedSettingsDialog(
     EchoGlassDialog(
         hazeState = hazeState,
         onDismissRequest = onDismiss,
+        modifier = Modifier
+            .fillMaxWidth(0.90f)
+            .widthIn(max = 430.dp),
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.AutoStories, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
@@ -4432,27 +4529,57 @@ private fun StoryUnifiedSettingsDialog(
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text("系统提示词", style = MaterialTheme.typography.titleSmall, color = dialogContentColor)
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text("系统提示词", style = MaterialTheme.typography.titleSmall, color = dialogContentColor)
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            IconButton(
+                                                onClick = { isPromptExpanded = !isPromptExpanded },
+                                                modifier = Modifier.size(24.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = if (isPromptExpanded) Icons.Default.CloseFullscreen else Icons.Default.OpenInFull,
+                                                    contentDescription = if (isPromptExpanded) "缩小输入框" else "放大输入框",
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
+                                        }
                                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                             if (templates.isNotEmpty()) {
-                                                TextButton(onClick = { showTemplates = true }) {
-                                                    Text("使用模板")
+                                                TextButton(
+                                                    onClick = { showTemplates = true },
+                                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                                ) {
+                                                    Icon(Icons.AutoMirrored.Filled.List, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text("模板", style = MaterialTheme.typography.labelMedium)
                                                 }
                                             }
-                                            if (promptText.isNotBlank()) {
-                                                TextButton(onClick = { showSaveDialog = true }) {
-                                                    Text("存为模板")
+                                            if (promptTextFieldValue.text.isNotBlank()) {
+                                                TextButton(
+                                                    onClick = { showSaveDialog = true },
+                                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                                ) {
+                                                    Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text("存为模板", style = MaterialTheme.typography.labelMedium)
                                                 }
                                             }
                                         }
                                     }
                                     OutlinedTextField(
-                                        value = promptText,
-                                        onValueChange = { promptText = it },
+                                        value = promptTextFieldValue,
+                                        onValueChange = { promptTextFieldValue = it },
                                         placeholder = { Text("为故事或助手设定全局指导规则...") },
-                                        modifier = Modifier.fillMaxWidth(),
-                                        minLines = 2,
-                                        maxLines = 4
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(
+                                                min = if (isPromptExpanded) 200.dp else 80.dp,
+                                                max = if (isPromptExpanded) 340.dp else 130.dp
+                                            ),
+                                        minLines = if (isPromptExpanded) 7 else 2,
+                                        maxLines = if (isPromptExpanded) 15 else 4,
+                                        shape = RoundedCornerShape(14.dp)
                                     )
                                 }
                             }
@@ -4653,7 +4780,7 @@ private fun StoryUnifiedSettingsDialog(
                             selectedNarrativeMode,
                             plotSummaryText,
                             newSettings,
-                            promptText.ifBlank { null }
+                            promptTextFieldValue.text.ifBlank { null }
                         )
                     }
                 ) {
@@ -4669,7 +4796,10 @@ private fun StoryUnifiedSettingsDialog(
             templates = templates,
             onDismiss = { showTemplates = false },
             onSelect = { template ->
-                promptText = template.content
+                promptTextFieldValue = TextFieldValue(
+                    text = template.content,
+                    selection = TextRange(template.content.length)
+                )
                 showTemplates = false
             }
         )
@@ -4678,7 +4808,7 @@ private fun StoryUnifiedSettingsDialog(
     if (showSaveDialog) {
         SaveTemplateDialog(
             hazeState = hazeState,
-            content = promptText,
+            content = promptTextFieldValue.text,
             onDismiss = { showSaveDialog = false },
             onSave = { name, content ->
                 onSavePromptTemplate(name, content)

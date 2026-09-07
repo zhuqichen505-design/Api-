@@ -45,6 +45,7 @@ import com.aiassistant.domain.model.Conversation
 import com.aiassistant.domain.model.EnvironmentVariable
 import com.aiassistant.domain.model.MemoryItem
 import com.aiassistant.domain.model.PromptTemplate
+import com.aiassistant.ui.components.EchoGlassCard
 import com.aiassistant.ui.components.EchoGlassDialog
 import com.aiassistant.ui.components.EchoGlassDropdownMenu
 import com.aiassistant.ui.components.echoFilterChipBorder
@@ -84,20 +85,18 @@ private val CurrentFeatureHighlights = listOf(
     "全界面 Echo 液态玻璃设计与暗色主题适配"
 )
 
-private val CurrentVersionUserUpdates = listOf(
-    "长记忆深度隔离：对话页与故事页长记忆彻底分立，防止小说创作被全局记忆干扰或污染新小说",
-    "个性化与全局提示词合并：整合为一站式「个性化与全局设定」页面，操作直观统一",
-    "模型长记忆管理中心：支持在个性化中查看、搜索、添加、编辑、删除与清空模型长记忆",
-    "长记忆自动捕获开关：可一键启闭对话自动记忆，精准控制模型对偏好与背景的提取行为",
-    "输入框操作栏重构：交换智能搜索与深度思考位置，故事页专注剧情并移除搜索按钮",
-    "故事页输入框新增「剧情操作」按钮，集成继续、重生成、分支、改写与智能提取等完整指令",
-    "故事页创作设置与工作室深度对齐：支持直接查看并编辑全字段角色卡与世界观场景卡",
-    "故事专属设定管理：支持在故事创作设置中直接添加新角色/新世界观，或仅从本故事中移除",
-    "角色与故事库双向同步：角色工坊长按故事支持按故事更新库或按主库更新故事",
-    "消息气泡美化：深度思考输出胶囊与模型头像精准保持同一水平线并垂直居中对齐",
-    "弹窗界面全面优化：修复对话页与故事页设置弹窗底部保存按钮被挤出可视区域的问题",
-    "暗色液态玻璃修复：彻底消除添加 API 配置及设置子页面中偶现的白色背景异常",
-    "AI 智能设定提取重构：精准区分已有角色设定更新、新角色发现与世界观扩充，避免粗暴重复创建"
+internal val CurrentVersionUserUpdates = listOf(
+    "对话输入框展开放大：对话页主输入框支持一键放大展开为宽敞编辑面板，长提示词、长代码与复杂剧情构思输入更从容",
+    "系统提示词输入框可放大：对话设置与故事创作中系统提示词输入框支持一键放大，大幅改善长设定规则阅读和编辑体验",
+    "系统提示词光标定位修复：精准解决点击修改系统提示词时光标被强制跳至文本开头的异常，精确响应点击落点",
+    "对话设置窗口宽度与模型下拉对齐：优化对话设置弹窗宽度比例，展开模型列表与上方选择按钮严格等宽对齐",
+    "对话页消息分割线：模型回复完毕后在日期时间行下方新增优雅微光分割线，对话轮次更分明、视觉流更舒适",
+    "关于页面与全局卡片视觉净化：彻底消除关于页面「本次更新」与「功能特性」下方及各设置页中错误出现的白色气泡背景与白斑异常",
+    "原生 AlertDialog 彻底清零：全应用 17 处弹窗统一升级为液态玻璃 EchoGlassDialog，杜绝原生白底硬框与幽灵重影",
+    "模型思考卡片排版重构：思考过程详情接入 Markdown 引擎，支持 LaTeX 数学公式推导、代码高亮与高对比度显示",
+    "多 API Key 故障转移轮询：单配置支持填入多个密钥，网络异常或服务故障时透明自动轮换下一可用 Key",
+    "连接超时自动重试：遇连接超时自动执行 3 次平滑重连与线性退避，保障会话与故事创作高可用",
+    "API 可用模型即时检索：添加与编辑 API 配置时支持按名称即时过滤、高亮匹配数并支持批量勾选"
 )
 
 private val SettingsPanelShape = com.aiassistant.ui.theme.EchoTokens.Radius.shapeXl
@@ -110,27 +109,12 @@ private fun SettingsGlassCard(
     content: @Composable ColumnScope.() -> Unit
 ) {
     val glass = echoGlassPalette()
-    val glassModifier = if (hazeState != null) {
-        modifier
-            .fillMaxWidth()
-            .echoHazePanel(
-                hazeState = hazeState,
-                shape = SettingsPanelShape,
-                tint = glass.panel,
-                blurRadius = 18.dp,
-                highlightAlpha = 0.025f
-            )
-    } else {
-        modifier.fillMaxWidth()
-    }
-    Surface(
-        modifier = glassModifier,
+    EchoGlassCard(
+        modifier = modifier.fillMaxWidth(),
         shape = SettingsPanelShape,
-        color = glass.panel,
-        contentColor = glass.textPrimary,
-        border = androidx.compose.foundation.BorderStroke(1.dp, glass.outline),
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp
+        containerColor = glass.panel,
+        borderColor = glass.outline,
+        showBorder = true
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -455,19 +439,13 @@ private fun ThemeModeCard(
     selected: AppThemeMode,
     onSelected: (AppThemeMode) -> Unit
 ) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .echoHazePanel(
-                hazeState = hazeState,
-                shape = SettingsPanelShape,
-                tint = echoGlassPalette().panel,
-                blurRadius = 18.dp
-            ),
+    val glass = echoGlassPalette()
+    EchoGlassCard(
+        modifier = Modifier.fillMaxWidth(),
         shape = SettingsPanelShape,
-        color = echoGlassPalette().panel,
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp
+        containerColor = glass.panel,
+        borderColor = glass.outline,
+        showBorder = true
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -520,19 +498,15 @@ fun SettingsMenuItem(
 ) {
     val itemShape = SettingsPanelShape
     val glass = echoGlassPalette()
-    Box(
+    EchoGlassCard(
+        onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
-            .defaultMinSize(minHeight = 78.dp)
-            .echoHazePanel(
-                hazeState = hazeState,
-                shape = itemShape,
-                tint = glass.panel,
-                blurRadius = 18.dp
-            )
-            .background(glass.panel, itemShape)
-            .border(BorderStroke(1.dp, glass.outline), itemShape)
-            .echoShapeClick(itemShape, onClick = onClick)
+            .defaultMinSize(minHeight = 78.dp),
+        shape = itemShape,
+        containerColor = glass.panel,
+        borderColor = glass.outline,
+        showBorder = true
     ) {
         Row(
             modifier = Modifier
@@ -2681,6 +2655,10 @@ fun AboutTab(
                     }
                 }
             }
+        }
+
+        item {
+            Spacer(modifier = Modifier.height(32.dp))
         }
     }
 }

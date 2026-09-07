@@ -13,7 +13,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.aiassistant.domain.model.RoleplayScenario
 import com.aiassistant.ui.components.EchoGlassDialog
@@ -425,10 +427,14 @@ private fun SmartReadScenarioDialog(
 
                 // API 模型选择
                 if (apiConfigs.isNotEmpty()) {
+                    var selectorWidth by remember { mutableStateOf(0.dp) }
+                    val density = LocalDensity.current
                     Box(modifier = Modifier.fillMaxWidth()) {
                         OutlinedCard(
                             onClick = { if (!isAnalyzing) configMenuExpanded = true },
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .onSizeChanged { selectorWidth = with(density) { it.width.toDp() } }
                         ) {
                             Row(
                                 modifier = Modifier
@@ -449,7 +455,8 @@ private fun SmartReadScenarioDialog(
                         }
                         EchoGlassDropdownMenu(
                             expanded = configMenuExpanded,
-                            onDismissRequest = { configMenuExpanded = false }
+                            onDismissRequest = { configMenuExpanded = false },
+                            modifier = if (selectorWidth > 0.dp) Modifier.width(selectorWidth) else Modifier
                         ) {
                             apiConfigs.forEach { cfg ->
                                 val modelsForCfg = visibleOptions.value.filter { it.apiConfigId == cfg.id }.map { it.modelName }.ifEmpty { listOf(cfg.modelName) }
