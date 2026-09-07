@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.aiassistant.domain.model.CharacterProfile
+import com.aiassistant.ui.components.EchoGlassDialog
 import com.aiassistant.ui.components.EchoGlassDropdownMenu
 import com.aiassistant.utils.RoleplaySmartParser
 import kotlinx.coroutines.launch
@@ -287,7 +288,7 @@ fun CharacterEditorScreen(
 
     // 删除确认对话框
     if (showDeleteDialog) {
-        AlertDialog(
+        EchoGlassDialog(
             onDismissRequest = { showDeleteDialog = false },
             title = { Text("确认删除") },
             text = { Text("确定要删除角色\"${name}\"吗？此操作不可恢复。") },
@@ -384,7 +385,7 @@ private fun SmartReadCharacterDialog(
         }
     }
 
-    AlertDialog(
+    EchoGlassDialog(
         onDismissRequest = { if (!isAnalyzing) onDismiss() },
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -794,7 +795,7 @@ private fun CharacterPreviewDialog(
     character: CharacterProfile,
     onDismiss: () -> Unit
 ) {
-    AlertDialog(
+    EchoGlassDialog(
         onDismissRequest = onDismiss,
         title = { Text("角色预览: ${character.name}") },
         text = {

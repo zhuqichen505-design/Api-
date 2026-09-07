@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -324,7 +325,7 @@ private fun PeriodTabs(
                     text = period.label,
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
                     style = MaterialTheme.typography.labelLarge,
-                    color = if (isSelected) MaterialTheme.colorScheme.primary else content,
+                    color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else content,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                 )
             }
@@ -425,7 +426,7 @@ private fun SummaryCard(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     MetricPill(
-                        icon = Icons.Default.Send,
+                        icon = Icons.AutoMirrored.Filled.Send,
                         label = "总请求数",
                         value = "${summary.requestCount} 次",
                         contentColor = content,
@@ -1032,7 +1033,7 @@ private fun ModernModelStatsTable(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 MiniStatsChip(
-                                    icon = Icons.Default.Send,
+                                    icon = Icons.AutoMirrored.Filled.Send,
                                     label = "${row.requestCount}次请求",
                                     tint = content.copy(alpha = 0.78f)
                                 )

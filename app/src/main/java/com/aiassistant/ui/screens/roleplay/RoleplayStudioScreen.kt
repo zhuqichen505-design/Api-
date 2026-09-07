@@ -597,7 +597,7 @@ private fun SessionCard(
     }
 
     if (showDeleteDialog) {
-        AlertDialog(
+        EchoGlassDialog(
             onDismissRequest = { showDeleteDialog = false },
             title = { Text("确认删除故事") },
             text = { Text("确定要删除此故事会话吗？对话历史记录将一并清除。") },
@@ -958,7 +958,7 @@ private fun CharactersTab(
     }
 
     if (showDeleteConfirm) {
-        AlertDialog(
+        EchoGlassDialog(
             onDismissRequest = { showDeleteConfirm = false },
             title = { Text("确认批量删除") },
             text = { Text("确定要删除选中的 ${selectedIds.size} 位角色吗？此操作无法撤销。") },
@@ -1198,7 +1198,7 @@ private fun ScenariosTab(
     }
 
     if (showDeleteConfirm) {
-        AlertDialog(
+        EchoGlassDialog(
             onDismissRequest = { showDeleteConfirm = false },
             title = { Text("确认批量删除") },
             text = { Text("确定要删除选中的 ${selectedIds.size} 个世界观吗？此操作无法撤销。") },

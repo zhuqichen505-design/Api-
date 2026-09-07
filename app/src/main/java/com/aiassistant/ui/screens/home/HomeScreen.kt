@@ -2201,7 +2201,9 @@ fun NewChatDialog(
             else availableModels.filter { it.contains(modelSearchQuery, ignoreCase = true) }
         }
 
-        AlertDialog(
+        val glass = echoGlassPalette()
+
+        EchoGlassDialog(
             onDismissRequest = { showModelPickerDialog = false },
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -2220,15 +2222,19 @@ fun NewChatDialog(
                     Text("1. 选择 API 配置", style = MaterialTheme.typography.titleSmall)
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(configs) { cfg ->
+                            val isCfgSelected = cfg.id == selectedApiConfig?.id
                             FilterChip(
-                                selected = cfg.id == selectedApiConfig?.id,
+                                selected = isCfgSelected,
                                 onClick = {
                                     selectedApiConfig = cfg
                                     selectedModelName = cfg.modelName
                                 },
                                 label = { Text(cfg.name) },
+                                colors = echoFilterChipColors(),
+                                border = echoFilterChipBorder(isCfgSelected),
+                                elevation = echoFilterChipElevation(),
                                 leadingIcon = {
-                                    if (cfg.id == selectedApiConfig?.id) {
+                                    if (isCfgSelected) {
                                         Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
                                     }
                                 }
@@ -2264,7 +2270,8 @@ fun NewChatDialog(
                                     showModelPickerDialog = false
                                 },
                                 shape = RoundedCornerShape(10.dp),
-                                color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                color = if (isSelected) glass.controlSelected else glass.control,
+                                border = BorderStroke(1.dp, if (isSelected) glass.outlineSelected else glass.outline),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Row(
@@ -2274,7 +2281,7 @@ fun NewChatDialog(
                                     Text(
                                         text = model,
                                         style = MaterialTheme.typography.bodyMedium,
-                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else glass.textPrimary,
                                         modifier = Modifier.weight(1f)
                                     )
                                     if (isSelected) {

@@ -13,6 +13,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.aiassistant.domain.model.RoleplayMemory
 import com.aiassistant.ui.components.EchoGlassDialog
+import com.aiassistant.ui.components.echoFilterChipBorder
+import com.aiassistant.ui.components.echoFilterChipColors
+import com.aiassistant.ui.components.echoFilterChipElevation
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -299,7 +302,7 @@ private fun MemoryCard(
     }
 
     if (showDeleteDialog) {
-        AlertDialog(
+        EchoGlassDialog(
             onDismissRequest = { showDeleteDialog = false },
             title = { Text("确认删除") },
             text = { Text("确定要删除这条记忆吗？") },
@@ -330,7 +333,7 @@ private fun AddMemoryDialog(
     var selectedType by remember { mutableStateOf("fact") }
     var content by remember { mutableStateOf("") }
 
-    AlertDialog(
+    EchoGlassDialog(
         onDismissRequest = onDismiss,
         title = { Text("添加记忆") },
         text = {
@@ -343,20 +346,32 @@ private fun AddMemoryDialog(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    val isFact = selectedType == "fact"
                     FilterChip(
-                        selected = selectedType == "fact",
+                        selected = isFact,
                         onClick = { selectedType = "fact" },
-                        label = { Text("事实") }
+                        label = { Text("事实") },
+                        colors = echoFilterChipColors(),
+                        border = echoFilterChipBorder(isFact),
+                        elevation = echoFilterChipElevation()
                     )
+                    val isRel = selectedType == "relationship"
                     FilterChip(
-                        selected = selectedType == "relationship",
+                        selected = isRel,
                         onClick = { selectedType = "relationship" },
-                        label = { Text("关系") }
+                        label = { Text("关系") },
+                        colors = echoFilterChipColors(),
+                        border = echoFilterChipBorder(isRel),
+                        elevation = echoFilterChipElevation()
                     )
+                    val isEvent = selectedType == "event"
                     FilterChip(
-                        selected = selectedType == "event",
+                        selected = isEvent,
                         onClick = { selectedType = "event" },
-                        label = { Text("事件") }
+                        label = { Text("事件") },
+                        colors = echoFilterChipColors(),
+                        border = echoFilterChipBorder(isEvent),
+                        elevation = echoFilterChipElevation()
                     )
                 }
 
@@ -399,7 +414,7 @@ private fun EditSummaryDialog(
 ) {
     var editedSummary by remember { mutableStateOf(summary) }
 
-    AlertDialog(
+    EchoGlassDialog(
         onDismissRequest = onDismiss,
         title = { Text("编辑剧情摘要") },
         text = {
@@ -433,7 +448,7 @@ private fun EditMemoryDialog(
 ) {
     var content by remember { mutableStateOf(memory.content) }
 
-    AlertDialog(
+    EchoGlassDialog(
         onDismissRequest = onDismiss,
         title = { Text("编辑记忆") },
         text = {

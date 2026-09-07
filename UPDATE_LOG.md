@@ -1,5 +1,54 @@
 # Echo AI 助手更新日志 (Update Log)
 
+## [v1.9.13] - 2026-09-07
+
+### 1. 本次更新概述
+本次自查重点针对全项目的组件一致性、UI 对比度、弹窗视觉体系及 Markdown 推理排版进行了系统级完善与修复：
+1. **全项目原生 `AlertDialog` 彻底清零并全面升级为液态玻璃 `EchoGlassDialog`**：
+   - 覆盖首页模型切换、聊天故事重命名、自定义剧情提示、故事删除确认、批量删除角色、批量删除场景、智能人设读取、角色/场景预览、记忆添加与编辑等全部 17 处弹窗；
+   - 杜绝一切原生沉闷白底弹窗与跨窗口幽灵重影残留，带来全端统一的毛玻璃、高光折射与柔和半透明 Dim 蒙层体验。
+2. **模型思考过程卡片排版与渲染重构（支持 LaTeX 公式与代码块）**：
+   - 思考详情内容由原生普通单行 `Text` 升级为 `MarkdownText`，全面支持 DeepSeek-R1、Claude 3.7、OpenAI o1 等推理模型输出的数学公式（LaTeX `$$...$$`, `$...$`）、有序列表及代码块解析排版；
+   - 解决浅色模式下思考卡片正文字体使用 `primary` 浅蓝引发的对比度严重不足（< 3:1）问题，切换为高对比度 `glass.textPrimary`（> 10:1 WCAG AAA 极高对比度）；
+   - 思考胶囊头部与操作图标全面升级为 `onPrimaryContainer`，消除淡蓝背景下的发白与难以辨识问题。
+3. **全局 FilterChip 与 SegmentedButton 选中态对比度强化**：
+   - 将控件选中/激活态的前景文字与图标颜色从浅色调 `primary` 升级为 `onPrimaryContainer`，在浅色模式下呈现深邃优雅的海军蓝，深色模式下呈现清晰清爽的浅天蓝，提升可读性。
+4. **弃用组件与图标 API 现代化清理**：
+   - 清理全部 `Icons.Default.ArrowBack`、`Icons.Default.AltRoute`、`Icons.Default.List`、`Icons.Default.Send`、`Icons.Default.OpenInNew`、`Icons.Default.CallSplit`，转换为官方推荐的 `Icons.AutoMirrored` 版本；
+   - 现代化 `LinearProgressIndicator` 进度参数为 lambda 表达式；
+   - 消除 `PlotAction` 枚举分支冗余 `else` 分支。
+5. **历史版本安装包永久保留准则严格践行**：
+   - 严格保护 `releases/` 目录下全部历史安装包，零清理、零覆盖，增量输出 `Echo-v1.9.13-arm64-v8a.apk`。
+
+### 2. 需求实现与落地详情
+1. **`EchoGlassDialog` 全面兼容与落位**：
+   - 在 `EchoHaze.kt` 中重构 `EchoGlassDialog` 函数签名，为 `hazeState` 提供默认参数 `null`，并将 `title` 与 `text` 设为可空；
+   - 替换 `ChatScreen.kt`（重命名、自定义指令）、`HomeScreen.kt`（顶部模型选择）、`RoleplayStudioScreen.kt`（删除故事、批量删除角色、批量删除场景）、`RoleplayMemoryScreen.kt`（删除记忆、新增记忆、编辑摘要、编辑记忆）、`CharacterEditorScreen.kt`（删除角色、AI 人设拆解、角色卡全览）、`ScenarioEditorScreen.kt`（删除场景、AI 场景拆解、场景全览）、`PlotActionBar.kt`（自定义指令）中全部遗留的 `AlertDialog`。
+2. **思考卡片可读性与 MarkdownText/LaTeX**：
+   - `ChatScreen.kt` 思考详情卡片使用 `MarkdownText(content = message.thinkingContent ?: "", color = thinkingContentColor)`，结合 `glass.textPrimary` 实现极佳可读性与公式渲染。
+3. **增量 Release 构建与签名**：
+   - 成功执行混淆、资源压缩与 v2 签名，生成 15,856,177 字节的 Release APK，并同步存档至本地双目录。
+
+### 3. 修改文件列表
+- `app/build.gradle.kts`
+- `app/src/main/java/com/aiassistant/ui/components/EchoHaze.kt`
+- `app/src/main/java/com/aiassistant/ui/components/EchoControls.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatScreen.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/home/HomeScreen.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/roleplay/CharacterEditorScreen.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/roleplay/ScenarioEditorScreen.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/roleplay/PlotActionBar.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/roleplay/RoleplayMemoryScreen.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/roleplay/RoleplayStudioScreen.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/stats/StatsScreen.kt`
+- `app/src/test/java/com/aiassistant/V1913FeaturesTest.kt`
+- `UPDATE_LOG.md`
+- `CHANGELOG.md`
+- `PROJECT.md`
+- `README.md`
+
+---
+
 ## [v1.9.12] - 2026-09-07
 
 ### 1. 本次更新概述

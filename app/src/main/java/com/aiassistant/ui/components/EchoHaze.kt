@@ -250,16 +250,16 @@ fun EchoWallpaperBackground(
 
 @Composable
 fun EchoGlassDialog(
-    hazeState: HazeState,
+    hazeState: HazeState? = null,
     onDismissRequest: () -> Unit,
     modifier: Modifier = Modifier,
     shape: Shape = EchoTokens.Radius.shapeXl,
     tint: Color = Color.Unspecified,
     contentColor: Color = Color.Unspecified,
     containerColor: Color = Color.Unspecified,
-    title: @Composable ColumnScope.() -> Unit,
-    content: @Composable ColumnScope.() -> Unit,
-    buttons: @Composable ColumnScope.() -> Unit
+    title: (@Composable ColumnScope.() -> Unit)? = null,
+    content: (@Composable ColumnScope.() -> Unit)? = null,
+    buttons: (@Composable ColumnScope.() -> Unit)? = null
 ) {
     val glass = echoGlassPalette()
     val resolvedTint = if (tint != Color.Unspecified) tint else glass.panel
@@ -323,19 +323,25 @@ fun EchoGlassDialog(
                 Column(
                     modifier = Modifier.padding(EchoTokens.Spacing.lg)
                 ) {
-                    title()
-                    Spacer(modifier = Modifier.height(EchoTokens.Spacing.sm))
-                    Box(
-                        modifier = Modifier
-                            .weight(1f, fill = false)
-                            .fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                            content()
+                    if (title != null) {
+                        title()
+                        Spacer(modifier = Modifier.height(EchoTokens.Spacing.sm))
+                    }
+                    if (content != null) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f, fill = false)
+                                .fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                content()
+                            }
                         }
                     }
-                    Spacer(modifier = Modifier.height(EchoTokens.Spacing.md))
-                    buttons()
+                    if (buttons != null) {
+                        Spacer(modifier = Modifier.height(EchoTokens.Spacing.md))
+                        buttons()
+                    }
                 }
             }
         }
@@ -344,7 +350,7 @@ fun EchoGlassDialog(
 
 @Composable
 fun EchoGlassDialog(
-    hazeState: HazeState,
+    hazeState: HazeState? = null,
     onDismissRequest: () -> Unit,
     modifier: Modifier = Modifier,
     shape: Shape = EchoTokens.Radius.shapeXl,
@@ -352,8 +358,8 @@ fun EchoGlassDialog(
     contentColor: Color = Color.Unspecified,
     containerColor: Color = Color.Unspecified,
     icon: (@Composable ColumnScope.() -> Unit)? = null,
-    title: @Composable ColumnScope.() -> Unit,
-    text: @Composable ColumnScope.() -> Unit,
+    title: (@Composable ColumnScope.() -> Unit)? = null,
+    text: (@Composable ColumnScope.() -> Unit)? = null,
     confirmButton: @Composable RowScope.() -> Unit,
     dismissButton: (@Composable RowScope.() -> Unit)? = null
 ) {
@@ -365,10 +371,12 @@ fun EchoGlassDialog(
         tint = tint,
         contentColor = contentColor,
         containerColor = containerColor,
-        title = {
-            icon?.invoke(this)
-            title()
-        },
+        title = if (icon != null || title != null) {
+            {
+                icon?.invoke(this)
+                title?.invoke(this)
+            }
+        } else null,
         content = text,
         buttons = {
             Row(
@@ -377,7 +385,9 @@ fun EchoGlassDialog(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 dismissButton?.invoke(this)
-                Spacer(modifier = Modifier.width(8.dp))
+                if (dismissButton != null) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
                 confirmButton()
             }
         }

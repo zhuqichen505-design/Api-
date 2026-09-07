@@ -18,6 +18,9 @@ import androidx.compose.ui.unit.dp
 import com.aiassistant.domain.model.PlotAction
 import com.aiassistant.ui.components.EchoGlassCard
 import com.aiassistant.ui.components.EchoGlassDialog
+import com.aiassistant.ui.components.echoFilterChipBorder
+import com.aiassistant.ui.components.echoFilterChipColors
+import com.aiassistant.ui.components.echoFilterChipElevation
 import com.aiassistant.ui.theme.EchoTokens
 
 @Composable
@@ -273,7 +276,7 @@ private fun ActionChip(
 ) {
     val icon = when (action) {
         PlotAction.CONTINUE -> Icons.Default.PlayArrow
-        PlotAction.BRANCH_CHOICES -> Icons.Default.AltRoute
+        PlotAction.BRANCH_CHOICES -> Icons.AutoMirrored.Filled.AltRoute
         PlotAction.REGENERATE -> Icons.Default.Refresh
         PlotAction.REWRITE -> Icons.Default.Edit
         PlotAction.EXTEND -> Icons.Default.Add
@@ -285,15 +288,17 @@ private fun ActionChip(
         PlotAction.CUSTOM -> Icons.Default.MoreHoriz
         PlotAction.CHANGE_PERSPECTIVE -> Icons.Default.Visibility
         PlotAction.CHANGE_TONE -> Icons.Default.Tune
-        PlotAction.BRANCH -> Icons.Default.CallSplit
+        PlotAction.BRANCH -> Icons.AutoMirrored.Filled.CallSplit
         PlotAction.ROLLBACK -> Icons.Default.History
-        else -> Icons.Default.MoreHoriz
     }
 
     FilterChip(
         selected = false,
         onClick = onClick,
         label = { Text(action.displayName) },
+        colors = echoFilterChipColors(),
+        border = echoFilterChipBorder(false),
+        elevation = echoFilterChipElevation(),
         leadingIcon = {
             Icon(
                 imageVector = icon,
@@ -311,7 +316,7 @@ private fun CustomInstructionDialog(
 ) {
     var instruction by remember { mutableStateOf("") }
 
-    AlertDialog(
+    EchoGlassDialog(
         onDismissRequest = onDismiss,
         title = { Text("自定义指令") },
         text = {

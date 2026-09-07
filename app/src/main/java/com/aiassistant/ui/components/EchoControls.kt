@@ -20,9 +20,9 @@ fun echoFilterChipColors(): SelectableChipColors {
         labelColor = glass.textSecondary,
         iconColor = glass.iconSecondary,
         selectedContainerColor = glass.controlSelected,
-        selectedLabelColor = MaterialTheme.colorScheme.primary,
-        selectedLeadingIconColor = MaterialTheme.colorScheme.primary,
-        selectedTrailingIconColor = MaterialTheme.colorScheme.primary,
+        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        selectedTrailingIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
         disabledContainerColor = glass.control.copy(alpha = 0.42f),
         disabledLabelColor = glass.textMuted.copy(alpha = 0.56f),
         disabledLeadingIconColor = glass.iconSecondary.copy(alpha = 0.44f),
@@ -57,7 +57,7 @@ fun echoSegmentedButtonColors(): SegmentedButtonColors {
     val glass = echoGlassPalette()
     return SegmentedButtonDefaults.colors(
         activeContainerColor = glass.controlSelected,
-        activeContentColor = MaterialTheme.colorScheme.primary,
+        activeContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
         inactiveContainerColor = glass.control,
         inactiveContentColor = glass.textSecondary,
         disabledActiveContainerColor = glass.controlSelected.copy(alpha = 0.44f),

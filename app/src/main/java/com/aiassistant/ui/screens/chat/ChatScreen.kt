@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -315,7 +316,7 @@ fun ChatScreen(
                         onClick = { viewModel.leaveConversation(onNavigateBack) },
                         modifier = Modifier.size(48.dp)
                     ) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
                     ChatHeaderTitle(
                         title = uiState.conversationTitle.ifBlank { "新对话" },
@@ -824,7 +825,7 @@ fun ChatScreen(
     }
 
     if (showRenameDialog) {
-        AlertDialog(
+        EchoGlassDialog(
             onDismissRequest = { showRenameDialog = false },
             title = { Text(if (uiState.isRoleplay) "重命名故事" else "重命名对话") },
             text = {
@@ -1113,7 +1114,7 @@ private fun ContextUsageOverview(usage: ConversationContextUsage) {
             )
         }
         LinearProgressIndicator(
-            progress = progress,
+            progress = { progress },
             modifier = Modifier
                 .fillMaxWidth()
                 .height(8.dp)
@@ -1302,7 +1303,7 @@ private data class ScrollFollowSnapshot(
         get() = totalItems <= 0 || lastVisibleIndex >= totalItems - 2
 }
 
-private fun formatThinkingCapsuleText(
+fun formatThinkingCapsuleText(
     template: String,
     modelName: String,
     isThinkingActive: Boolean,
@@ -1610,7 +1611,8 @@ private fun MessageBubble(
                 horizontalAlignment = Alignment.Start
             ) {
                 val thinkingBubbleColor = glass.controlSelected
-                val thinkingContentColor = MaterialTheme.colorScheme.primary
+                val thinkingHeaderColor = MaterialTheme.colorScheme.onPrimaryContainer
+                val thinkingContentColor = glass.textPrimary
 
                 Row(
                     modifier = Modifier
@@ -1687,7 +1689,7 @@ private fun MessageBubble(
                                 } else Modifier
                             ),
                         color = thinkingBubbleColor,
-                        contentColor = thinkingContentColor,
+                        contentColor = thinkingHeaderColor,
                         shape = capsuleShape,
                         border = BorderStroke(
                             1.dp,
@@ -1710,14 +1712,14 @@ private fun MessageBubble(
                                     Icons.Default.Psychology,
                                     contentDescription = null,
                                     modifier = Modifier.size(16.dp),
-                                    tint = thinkingContentColor
+                                    tint = thinkingHeaderColor
                                 )
                             } else {
                                 Icon(
                                     Icons.Default.SmartToy,
                                     contentDescription = null,
                                     modifier = Modifier.size(15.dp),
-                                    tint = thinkingContentColor
+                                    tint = thinkingHeaderColor
                                 )
                             }
                             Box(
@@ -1732,7 +1734,7 @@ private fun MessageBubble(
                                         fontFamily = FontFamily.SansSerif,
                                         fontWeight = FontWeight.SemiBold
                                     ),
-                                    color = thinkingContentColor,
+                                    color = thinkingHeaderColor,
                                     maxLines = 1,
                                     softWrap = false
                                 )
@@ -1742,7 +1744,7 @@ private fun MessageBubble(
                                     imageVector = if (showThinking) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                                     contentDescription = if (showThinking) "收起" else "展开",
                                     modifier = Modifier.size(16.dp),
-                                    tint = thinkingContentColor.copy(alpha = 0.78f)
+                                    tint = thinkingHeaderColor.copy(alpha = 0.78f)
                                 )
                             }
                         }
@@ -1756,7 +1758,7 @@ private fun MessageBubble(
                                 .fillMaxWidth()
                                 .padding(horizontal = 2.dp, vertical = 4.dp),
                             color = glass.controlSelected.copy(alpha = 0.6f),
-                            contentColor = MaterialTheme.colorScheme.primary,
+                            contentColor = thinkingContentColor,
                             shape = RoundedCornerShape(12.dp),
                             border = BorderStroke(1.dp, glass.outlineSelected.copy(alpha = 0.5f))
                         ) {
@@ -1769,7 +1771,8 @@ private fun MessageBubble(
                                     Text(
                                         "思考内容详情",
                                         style = MaterialTheme.typography.labelMedium,
-                                        fontWeight = FontWeight.Bold
+                                        fontWeight = FontWeight.Bold,
+                                        color = thinkingHeaderColor
                                     )
                                     IconButton(
                                         onClick = onCopyThinking,
@@ -1779,14 +1782,13 @@ private fun MessageBubble(
                                             Icons.Default.ContentCopy,
                                             contentDescription = "复制思考",
                                             modifier = Modifier.size(14.dp),
-                                            tint = thinkingContentColor.copy(alpha = 0.78f)
+                                            tint = thinkingHeaderColor.copy(alpha = 0.78f)
                                         )
                                     }
                                 }
                                 Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = message.thinkingContent ?: "",
-                                    style = MaterialTheme.typography.bodySmall,
+                                MarkdownText(
+                                    content = message.thinkingContent ?: "",
                                     color = thinkingContentColor
                                 )
                             }
@@ -2356,7 +2358,7 @@ fun ChatInputBar(
                             item {
                                 InputPillButton(
                                     text = "剧情操作",
-                                    icon = Icons.Default.AltRoute,
+                                    icon = Icons.AutoMirrored.Filled.AltRoute,
                                     selected = false,
                                     onClick = onPlotActionClick,
                                     containerColor = glass.control,
@@ -2827,7 +2829,7 @@ fun SystemPromptDialog(
                         onClick = { showTemplates = true },
                         modifier = Modifier.weight(1f)
                     ) {
-                        Icon(Icons.Default.List, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Icon(Icons.AutoMirrored.Filled.List, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
                         Text("选择模板")
                     }
@@ -3447,7 +3449,7 @@ private fun ChatSettingsSystemPromptSection(
                 enabled = hasTemplates,
                 modifier = Modifier.weight(1f)
             ) {
-                Icon(Icons.Default.List, contentDescription = null, modifier = Modifier.size(16.dp))
+                Icon(Icons.AutoMirrored.Filled.List, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(4.dp))
                 Text("选择模板")
             }
@@ -4686,7 +4688,7 @@ private fun StoryUnifiedSettingsDialog(
     }
 
     if (showCustomPlotDialog) {
-        AlertDialog(
+        EchoGlassDialog(
             onDismissRequest = { showCustomPlotDialog = false },
             title = { Text("输入自定义剧情指令") },
             text = {
@@ -5309,7 +5311,7 @@ fun CitationsCardsRow(
                             modifier = Modifier.widthIn(max = 140.dp)
                         )
                         Icon(
-                            Icons.Default.OpenInNew,
+                            Icons.AutoMirrored.Filled.OpenInNew,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                             modifier = Modifier.size(12.dp)
