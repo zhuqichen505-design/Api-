@@ -64,10 +64,14 @@ import com.aiassistant.utils.BackupManager
 import com.aiassistant.utils.HiddenConversationLock
 import com.aiassistant.utils.TavilySearchSettings
 import com.aiassistant.utils.AppThemeMode
+import com.aiassistant.tools.search.SearchEngineType
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import com.aiassistant.tools.cloud.OpenMeteoWeatherEngine
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -86,6 +90,11 @@ private val CurrentFeatureHighlights = listOf(
 )
 
 internal val CurrentVersionUserUpdates = listOf(
+    "Exa 免Key 联网搜索引擎：新增 Exa 官方托管免费搜索通道，开箱即用，无需申请与填写任何 API Key 即可实时联网",
+    "手机设备与健康生态深度联动：无缝读取当前设备时间/公历日程、GPS/网络定位与逆地理编码、手机硬件计步传感器（兼容华为运动健康生态）及电池电量/硬件状态",
+    "Open-Meteo 全球开源气象：接入高精度开源气象数据源，免 Key 查询实时天气、温度、湿度、风速与多日温差预报",
+    "Jina Reader 网页长文智能抓取：对话中输入任意文章网址自动转换为纯净 Markdown 正文，彻底剥离广告杂质，支持本地解析回退保障",
+    "智能工具箱设置中枢：全新升级设置页工具面板，支持搜索引擎一键切换、定位刷新、气象即时测试与健康数据卡片",
     "对话输入框展开放大：对话页主输入框支持一键放大展开为宽敞编辑面板，长提示词、长代码与复杂剧情构思输入更从容",
     "系统提示词输入框可放大：对话设置与故事创作中系统提示词输入框支持一键放大，大幅改善长设定规则阅读和编辑体验",
     "系统提示词光标定位修复：精准解决点击修改系统提示词时光标被强制跳至文本开头的异常，精确响应点击落点",
@@ -307,7 +316,7 @@ fun SettingsScreen(
                                     null -> "设置"
                                     "api_config" -> "API配置"
                                     "personalization" -> "个性化与全局设定"
-                                    "web_search" -> "联网搜索"
+                                    "web_search" -> "联网搜索与智能工具箱"
                                     "hidden_conversations" -> "其他对话"
                                     "backup" -> "数据备份"
                                     "about" -> "关于"
@@ -398,8 +407,8 @@ fun SettingsMenu(
             SettingsMenuItem(
                 hazeState = hazeState,
                 icon = Icons.Default.Search,
-                title = "联网搜索",
-                subtitle = "配置 Tavily，让对话中的智能搜索真正联网",
+                title = "联网搜索与智能工具箱",
+                subtitle = "Exa 免Key搜索、Open-Meteo天气、健康步数与设备硬件",
                 onClick = { onSectionSelected("web_search") }
             )
         }
@@ -772,21 +781,42 @@ fun WebSearchTab(
     onUnsavedStateChanged: (Boolean) -> Unit = {},
     saveTrigger: Int = 0
 ) {
-    val manager = AiAssistantApp.instance.tavilySearchManager
-    var settings by remember { mutableStateOf(manager.getSettings()) }
-    var apiKey by remember(settings) { mutableStateOf(settings.apiKey) }
-    var enabled by remember(settings) { mutableStateOf(settings.enabled) }
-    var searchDepth by remember(settings) { mutableStateOf(settings.searchDepth) }
-    var maxResults by remember(settings) { mutableStateOf(settings.maxResults.toString()) }
-    var includeAnswer by remember(settings) { mutableStateOf(settings.includeAnswer) }
+    val toolHub = AiAssistantApp.instance.echoToolHub
+    val tavilyManager = AiAssistantApp.instance.tavilySearchManager
+    val coroutineScope = rememberCoroutineScope()
+
+    var searchEngine by remember { mutableStateOf(toolHub.getSearchEngine()) }
+    var exaApiKey by remember { mutableStateOf(toolHub.getExaApiKey()) }
+    var jinaApiKey by remember { mutableStateOf(toolHub.getJinaApiKey()) }
+    var deviceToolsEnabled by remember { mutableStateOf(toolHub.isDeviceToolsEnabled()) }
+    var manualCity by remember { mutableStateOf(toolHub.locationAddressManager.getManualCity()) }
+
+    var tavilySettings by remember { mutableStateOf(tavilyManager.getSettings()) }
+    var tavilyApiKey by remember(tavilySettings) { mutableStateOf(tavilySettings.apiKey) }
+    var tavilyEnabled by remember(tavilySettings) { mutableStateOf(tavilySettings.enabled) }
+    var searchDepth by remember(tavilySettings) { mutableStateOf(tavilySettings.searchDepth) }
+    var maxResults by remember(tavilySettings) { mutableStateOf(tavilySettings.maxResults.toString()) }
+    var includeAnswer by remember(tavilySettings) { mutableStateOf(tavilySettings.includeAnswer) }
+
+    var weatherTestResult by remember { mutableStateOf<String?>(null) }
+    var isTestingWeather by remember { mutableStateOf(false) }
+
     var savedMessage by remember { mutableStateOf<String?>(null) }
 
-    val hasUnsaved = remember(settings, apiKey, enabled, searchDepth, maxResults, includeAnswer) {
-        apiKey != settings.apiKey ||
-        enabled != settings.enabled ||
-        searchDepth != settings.searchDepth ||
-        maxResults != settings.maxResults.toString() ||
-        includeAnswer != settings.includeAnswer
+    val hasUnsaved = remember(
+        searchEngine, exaApiKey, jinaApiKey, deviceToolsEnabled, manualCity,
+        tavilySettings, tavilyApiKey, tavilyEnabled, searchDepth, maxResults, includeAnswer
+    ) {
+        searchEngine != toolHub.getSearchEngine() ||
+        exaApiKey != toolHub.getExaApiKey() ||
+        jinaApiKey != toolHub.getJinaApiKey() ||
+        deviceToolsEnabled != toolHub.isDeviceToolsEnabled() ||
+        manualCity != toolHub.locationAddressManager.getManualCity() ||
+        tavilyApiKey != tavilySettings.apiKey ||
+        tavilyEnabled != tavilySettings.enabled ||
+        searchDepth != tavilySettings.searchDepth ||
+        maxResults != tavilySettings.maxResults.toString() ||
+        includeAnswer != tavilySettings.includeAnswer
     }
 
     LaunchedEffect(hasUnsaved) {
@@ -794,16 +824,22 @@ fun WebSearchTab(
     }
 
     fun performSave() {
-        val newSettings = TavilySearchSettings(
-            enabled = enabled,
-            apiKey = apiKey,
+        toolHub.setSearchEngine(searchEngine)
+        toolHub.setExaApiKey(exaApiKey)
+        toolHub.setJinaApiKey(jinaApiKey)
+        toolHub.setDeviceToolsEnabled(deviceToolsEnabled)
+        toolHub.locationAddressManager.setManualCity(manualCity)
+
+        val newTavily = TavilySearchSettings(
+            enabled = tavilyEnabled,
+            apiKey = tavilyApiKey,
             searchDepth = searchDepth,
             maxResults = maxResults.toIntOrNull()?.coerceIn(1, 20) ?: 8,
             includeAnswer = includeAnswer
         )
-        val ok = manager.saveSettings(newSettings)
-        settings = manager.getSettings()
-        savedMessage = if (ok) "联网搜索配置已保存" else "保存失败，请重试"
+        val ok = tavilyManager.saveSettings(newTavily)
+        tavilySettings = tavilyManager.getSettings()
+        savedMessage = if (ok) "联网搜索与智能工具箱配置已保存" else "保存失败，请重试"
     }
 
     LaunchedEffect(saveTrigger) {
@@ -812,11 +848,125 @@ fun WebSearchTab(
         }
     }
 
+    val currentTime = remember { toolHub.timeCalendarManager.getCurrentTimeFormatted() }
+    var currentLocation by remember { mutableStateOf(toolHub.locationAddressManager.getCurrentLocation()) }
+    val healthSummary = remember { toolHub.healthDataManager.getHealthDataSummary() }
+    val deviceStatus = remember { toolHub.deviceHardwareManager.getDeviceStatus() }
+
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
+        // 卡片 1：搜索引擎选择
+        item {
+            SettingsGlassCard(hazeState = hazeState) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Public, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("联网搜索引擎", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                }
+                Text(
+                    "为对话中的智能联网选择搜索底层提供商。Exa 采用官方云端托管，支持免 Key 直接调用。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SearchEngineType.entries.forEach { engine ->
+                        val selected = searchEngine == engine
+                        FilterChip(
+                            selected = selected,
+                            onClick = { searchEngine = engine },
+                            colors = echoFilterChipColors(),
+                            border = echoFilterChipBorder(selected),
+                            elevation = echoFilterChipElevation(),
+                            label = { Text(engine.displayName) }
+                        )
+                    }
+                }
+
+                if (searchEngine == SearchEngineType.EXA) {
+                    Surface(
+                        shape = com.aiassistant.ui.theme.EchoTokens.Radius.shapeMd,
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                "免 Key 体验模式生效中：日常对话联网开箱即用，无需申请与配置 API 密钥。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+
+                    SettingsInputField(
+                        title = "Exa API Key (选填)",
+                        value = exaApiKey,
+                        onValueChange = { exaApiKey = it },
+                        placeholder = "留空则使用官方免Key通道"
+                    )
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("启用 Tavily 搜索", style = MaterialTheme.typography.bodyMedium)
+                        Switch(checked = tavilyEnabled, onCheckedChange = { tavilyEnabled = it })
+                    }
+
+                    SettingsInputField(
+                        title = "Tavily API Key",
+                        value = tavilyApiKey,
+                        onValueChange = { tavilyApiKey = it },
+                        placeholder = "tvly-..."
+                    )
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("basic", "advanced").forEach { depth ->
+                            val selected = searchDepth == depth
+                            FilterChip(
+                                selected = selected,
+                                onClick = { searchDepth = depth },
+                                colors = echoFilterChipColors(),
+                                border = echoFilterChipBorder(selected),
+                                elevation = echoFilterChipElevation(),
+                                label = { Text(if (depth == "basic") "基础搜索" else "深入搜索") }
+                            )
+                        }
+                    }
+
+                    SettingsInputField(
+                        title = "最大结果数 (1-20)",
+                        value = maxResults,
+                        onValueChange = { v -> maxResults = v.filter { it.isDigit() }.take(2) },
+                        placeholder = "8",
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("包含 Tavily 自动摘要", style = MaterialTheme.typography.bodyMedium)
+                        Switch(checked = includeAnswer, onCheckedChange = { includeAnswer = it })
+                    }
+                }
+            }
+        }
+
+        // 卡片 2：手机本地设备与健康工具
         item {
             SettingsGlassCard(hazeState = hazeState) {
                 Row(
@@ -824,77 +974,155 @@ fun WebSearchTab(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Tavily 联网搜索", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Smartphone, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column(modifier = Modifier.weight(1f, fill = false)) {
+                            Text("手机设备与健康数据联动", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            Text("允许模型根据问题读取时间、定位、步数、心率、睡眠及硬件", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    Switch(checked = deviceToolsEnabled, onCheckedChange = { deviceToolsEnabled = it })
+                }
+
+                if (deviceToolsEnabled) {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                    // 时间与日历
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Schedule, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("系统时间：", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                        Text(currentTime, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+
+                    // 定位与逆地理编码
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.LocationOn, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("当前定位：", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                                Text(currentLocation.city.ifBlank { "检测中" }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            TextButton(onClick = { currentLocation = toolHub.locationAddressManager.getCurrentLocation() }) {
+                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("刷新定位", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                        if (currentLocation.fullAddress.isNotBlank()) {
+                            Text("详细位置: ${currentLocation.fullAddress}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        SettingsInputField(
+                            title = "手动指定常驻城市（选填，留空自动定位）",
+                            value = manualCity,
+                            onValueChange = { manualCity = it },
+                            placeholder = "例如：深圳 / 北京 / 上海"
+                        )
+                    }
+
+                    // 健康与运动数据 (华为健康生态)
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.DirectionsWalk, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("华为运动健康 / 硬件计步：", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                            Text("${healthSummary.todaySteps} 步", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                        }
                         Text(
-                            "开启后，对话里的智能搜索会先调用 Tavily，再把结果交给当前模型。",
+                            "最近心率: ${healthSummary.heartRate} bpm · 昨晚睡眠: ${healthSummary.sleepMinutes / 60}小时${healthSummary.sleepMinutes % 60}分 (深睡 ${healthSummary.deepSleepMinutes / 60}小时${healthSummary.deepSleepMinutes % 60}分) · 评分: ${healthSummary.sleepScore}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    Switch(
-                        checked = enabled,
-                        onCheckedChange = { enabled = it }
-                    )
-                }
 
-                SettingsInputField(
-                    title = "Tavily API Key",
-                    value = apiKey,
-                    onValueChange = { apiKey = it },
-                    placeholder = "tvly-..."
-                )
-
-                Text(
-                    "Key 只保存在本机应用私有数据中，并使用 Android Keystore 加密；不会写入源码。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-
-        item {
-            SettingsGlassCard(hazeState = hazeState) {
-                Text("搜索参数", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("basic", "advanced").forEach { depth ->
-                        val selected = searchDepth == depth
-                        FilterChip(
-                            selected = selected,
-                            onClick = { searchDepth = depth },
-                            colors = echoFilterChipColors(),
-                            border = echoFilterChipBorder(selected),
-                            elevation = echoFilterChipElevation(),
-                            label = { Text(if (depth == "basic") "基础" else "深入") }
+                    // 硬件状态
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Smartphone, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            "电池: ${if (deviceStatus.batteryLevel >= 0) "${deviceStatus.batteryLevel}%" else "未知"}${if (deviceStatus.isCharging) " (充电中 ⚡)" else ""} · ${deviceStatus.deviceModel} · ${deviceStatus.networkType}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
+            }
+        }
 
-                SettingsInputField(
-                    title = "最大结果数 (1-20)",
-                    value = maxResults,
-                    onValueChange = { value ->
-                        maxResults = value.filter { it.isDigit() }.take(2)
-                    },
-                    placeholder = "10",
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                )
+        // 卡片 3：公开免 Key 云端工具 (Open-Meteo 与 Jina Reader)
+        item {
+            SettingsGlassCard(hazeState = hazeState) {
+                Text("开放免Key云端工具", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text("包含 Tavily 自动摘要", style = MaterialTheme.typography.bodyMedium)
-                    Switch(
-                        checked = includeAnswer,
-                        onCheckedChange = { includeAnswer = it }
+                // Open-Meteo
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Open-Meteo 全球气象 (免Key)", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                            Text("全球高精度天气与预报，无需任何 API Key", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Button(
+                            onClick = {
+                                isTestingWeather = true
+                                coroutineScope.launch {
+                                    val loc = toolHub.locationAddressManager.getCurrentLocation()
+                                    val res = withContext(Dispatchers.IO) {
+                                        toolHub.openMeteoWeatherEngine.getWeather(
+                                            cityName = manualCity.ifBlank { null },
+                                            defaultLat = loc.latitude,
+                                            defaultLon = loc.longitude
+                                        )
+                                    }
+                                    isTestingWeather = false
+                                    weatherTestResult = res.fold(
+                                        onSuccess = { "${it.cityName}: ${it.condition} · 气温 ${String.format(Locale.US, "%.1f", it.temperature)}℃ · 湿度 ${it.humidity}% · 风速 ${String.format(Locale.US, "%.1f", it.windSpeed)}km/h" },
+                                        onFailure = { "查询失败: ${it.message}" }
+                                    )
+                                }
+                            },
+                            enabled = !isTestingWeather
+                        ) {
+                            Text(if (isTestingWeather) "测试中..." else "测试天气")
+                        }
+                    }
+                    weatherTestResult?.let { result ->
+                        Surface(
+                            shape = com.aiassistant.ui.theme.EchoTokens.Radius.shapeSm,
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                        ) {
+                            Text(result, modifier = Modifier.padding(8.dp), style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                // Jina Reader
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Jina Reader 网页长文提取", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                    Text("输入网页网址时，自动抓取并转换为纯净 Markdown 正文，免去广告干扰。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    SettingsInputField(
+                        title = "Jina API Key (选填)",
+                        value = jinaApiKey,
+                        onValueChange = { jinaApiKey = it },
+                        placeholder = "留空使用免费通道，填入可避免数据中心限制"
                     )
                 }
             }
         }
 
+        // 保存按键
         item {
             Button(
                 onClick = { performSave() },
@@ -902,7 +1130,7 @@ fun WebSearchTab(
             ) {
                 Icon(Icons.Default.Save, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("保存联网搜索配置")
+                Text("保存联网搜索与工具配置")
             }
         }
 

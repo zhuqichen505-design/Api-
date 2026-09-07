@@ -36,7 +36,8 @@ class AiRepository(
     private val selectedModelDao: SelectedModelDao,
     private val cryptoManager: CryptoManager,
     private val personalizationManager: PersonalizationManager,
-    private val tavilySearchManager: TavilySearchManager
+    private val tavilySearchManager: TavilySearchManager,
+    private val echoToolHub: com.aiassistant.tools.EchoToolHub? = null
 ) {
     private val gson = Gson()
     private val tag = "AiRepository"
@@ -1052,10 +1053,17 @@ class AiRepository(
         chatMessages.add(ChatMessage(role = "user", content = userContent))
 
         // 创建请求 - OpenAI格式不发送top_k
+        val searchIsReady = echoToolHub?.let {
+            when (it.getSearchEngine()) {
+                com.aiassistant.tools.search.SearchEngineType.EXA -> true
+                com.aiassistant.tools.search.SearchEngineType.TAVILY -> tavilySearchManager.isReady()
+            }
+        } ?: tavilySearchManager.isReady()
+
         val providerToggles = buildOpenAiProviderToggles(
             config = config,
             options = effectiveOptions,
-            allowNativeWebSearch = !tavilySearchManager.isReady()
+            allowNativeWebSearch = !searchIsReady
         )
         val request = ChatCompletionRequest(
             model = requestModel,
@@ -2006,10 +2014,15 @@ class AiRepository(
         return notes.takeIf { it.isNotEmpty() }?.joinToString("\n")
     }
 
-    private fun enrichUserMessageWithWebSearch(
+    private suspend fun enrichUserMessageWithWebSearch(
         userMessage: String,
         options: ChatRequestOptions
     ): String {
+        val hub = echoToolHub
+        if (hub != null) {
+            return hub.enrichUserPrompt(userMessage, options)
+        }
+
         if (options.enableWebSearch != true) return userMessage
 
         val settings = tavilySearchManager.getSettings()
@@ -2039,7 +2052,6 @@ class AiRepository(
                 }
             )
         }
-
     }
 
     private fun compactMessageForHistory(content: String, limit: Int = 2_400): String {

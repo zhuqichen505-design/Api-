@@ -1,5 +1,37 @@
 # Echo AI 助手更新日志 (Update Log)
 
+## [v1.9.15] - 2026-09-07
+
+### 1. 本次更新概述
+本次迭代全面落地了用户提出的 3 大核心工具调用与联网能力体系，包含 8 项端到端特性与智能工具集成：
+1. **Exa 免Key 联网搜索引擎落地**：
+   - 接入 Exa MCP JSON-RPC 2.0 搜索协议（`web_search_exa`），无需用户注册或配置 API Key 即可实时获取高质量网络搜索与高亮结果摘要；
+   - 统一抽象 `WebSearchProvider` 与 `SearchEngineType`（支持 `EXA` 与 `TAVILY` 无缝切换），并在设置页提供默认搜索引擎配置与 Exa 可选定制 Key 输入。
+2. **手机设备、健康与日程系统深度调用**：
+   - **时间与系统日程（TimeCalendarManager）**：实时读取精准系统时间、星期、农历/节气提示，并安全读取 `CalendarContract` 日程列表，为 AI 提供完整今日日程安排；
+   - **本地定位与逆地理编码（LocationAddressManager）**：基于 Android 原生 `LocationManager` 与 `Geocoder` 自动获取经纬度与省/市/区县真实中文地址，同时支持手动设置常驻城市；
+   - **华为运动健康与硬件计步（HealthDataManager）**：针对安卓与华为手机用户，基于底层硬件传感器 `Sensor.TYPE_STEP_COUNTER` 实时获取今日步数、卡路里与距离，并结构化汇聚心率与昨晚睡眠（含深睡与评分）健康数据；
+   - **设备与硬件状态（DeviceHardwareManager）**：动态感知电池电量百分比、充电状态、可用内存/存储 GB 数、网络连接类型及手机机型。
+3. **Open-Meteo 免Key 全球高精度气象与 Jina Reader 网页深度阅读**：
+   - **Open-Meteo 天气引擎（OpenMeteoWeatherEngine）**：集成免 Key 全球高精度气象 API，支持自动基于用户地理位置或智能提取输入中的地名查询天气、温湿度、风速及天气现象（支持全部 WMO Weather Code 中文与 Emoji 映射）；
+   - **Jina Reader 网页长文提取（Jina Reader Engine）**：输入包含 URL 的对话内容时自动抓取正文 Markdown（支持免 Key 即用，带直接 HTML 正文提取智能回退），让大模型轻松深度阅读长文与网页。
+4. **智能工具枢纽与意图自动路由（EchoToolHub）**：
+   - 智能识别用户输入的提问意图（天气气温、时间日程、运动健康步数、手机状态电量、定位位置、文章链接），在发起 AI 请求时自动将精准工具上下文无缝注入模型提示词。
+5. **设置页「联网搜索与智能工具箱」交互全面升级**：
+   - 设置菜单全面更新，提供 Exa / Tavily 搜索引擎切换、智能设备工具箱总开关、实时状态卡片预览以及 Open-Meteo 实时气象联调测试。
+6. **历史版本安装包永久保留准则严格践行**：
+   - 严格保护全部 43+ 历史 APK，新增唯一构建 `Echo-v1.9.15-arm64-v8a.apk`。
+
+### 2. 产物与交付验证
+- **单一安装包**：`D:\Agent\APP-烧\app\releases\Echo-v1.9.15-arm64-v8a.apk`
+- **SHA-256**：`93158F4F74DB76D46A84ABC2B95D384857F3E355D0E69FBB4A2DCBA95D5C4AFE`
+- **文件大小**：15,890,949 字节 (约 15.15 MB)
+- **架构**：`arm64-v8a`，`versionCode: 95`，`versionName: 1.9.15`
+- **自动化单元测试**：59 项测试全部通过（100% 通过率，覆盖 Exa 解析、Open-Meteo 映射、智能意图路由、设备健康上下文、角色扮演全链路等）
+- **构建状态**：`BUILD SUCCESSFUL`（Release 签名验证通过，Scheme v2: true）
+
+---
+
 ## [v1.9.14] - 2026-09-07
 
 ### 1. 本次更新概述

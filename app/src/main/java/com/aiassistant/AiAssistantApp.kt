@@ -34,6 +34,9 @@ class AiAssistantApp : Application() {
     lateinit var tavilySearchManager: TavilySearchManager
         private set
 
+    lateinit var echoToolHub: com.aiassistant.tools.EchoToolHub
+        private set
+
     lateinit var themePreferenceManager: ThemePreferenceManager
         private set
 
@@ -47,6 +50,7 @@ class AiAssistantApp : Application() {
         cryptoManager = CryptoManager(this)
         personalizationManager = PersonalizationManager(this)
         tavilySearchManager = TavilySearchManager(this, cryptoManager)
+        echoToolHub = com.aiassistant.tools.EchoToolHub(this, cryptoManager, tavilySearchManager)
         themePreferenceManager = ThemePreferenceManager(this)
 
         // 先尝试自动备份
@@ -72,7 +76,8 @@ class AiAssistantApp : Application() {
                 selectedModelDao = database.selectedModelDao(),
                 cryptoManager = cryptoManager,
                 personalizationManager = personalizationManager,
-                tavilySearchManager = tavilySearchManager
+                tavilySearchManager = tavilySearchManager,
+                echoToolHub = echoToolHub
             )
             roleplayRepository = com.aiassistant.data.repository.RoleplayRepository(
                 characterProfileDao = database.characterProfileDao(),
@@ -108,7 +113,8 @@ class AiAssistantApp : Application() {
                         selectedModelDao = database.selectedModelDao(),
                         cryptoManager = cryptoManager,
                         personalizationManager = personalizationManager,
-                        tavilySearchManager = tavilySearchManager
+                        tavilySearchManager = tavilySearchManager,
+                        echoToolHub = echoToolHub
                     )
                     roleplayRepository = com.aiassistant.data.repository.RoleplayRepository(
                         characterProfileDao = database.characterProfileDao(),
@@ -141,7 +147,8 @@ class AiAssistantApp : Application() {
                     selectedModelDao = database.selectedModelDao(),
                     cryptoManager = cryptoManager,
                     personalizationManager = personalizationManager,
-                    tavilySearchManager = tavilySearchManager
+                    tavilySearchManager = tavilySearchManager,
+                    echoToolHub = echoToolHub
                 )
                 roleplayRepository = com.aiassistant.data.repository.RoleplayRepository(
                     characterProfileDao = database.characterProfileDao(),
