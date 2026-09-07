@@ -1,4 +1,4 @@
-﻿package com.aiassistant.tools.search
+package com.aiassistant.tools.search
 
 import com.aiassistant.utils.WebSearchBundle
 import com.aiassistant.utils.WebSearchDocument
@@ -30,12 +30,13 @@ class ExaSearchEngine(
 
     override fun isReady(): Boolean = true // Exa 免 Key 即可使用
 
-    override fun search(query: String): Result<WebSearchBundle> {
+    override fun search(query: String, maxResults: Int): Result<WebSearchBundle> {
         val cleanQuery = query.trim()
         if (cleanQuery.isBlank()) {
             return Result.failure(IllegalArgumentException("搜索关键词为空"))
         }
 
+        val limit = maxResults.coerceIn(1, 20)
         val requestPayload = JsonObject().apply {
             addProperty("jsonrpc", "2.0")
             addProperty("method", "tools/call")
@@ -43,6 +44,7 @@ class ExaSearchEngine(
                 addProperty("name", "web_search_exa")
                 add("arguments", JsonObject().apply {
                     addProperty("query", cleanQuery)
+                    addProperty("num_results", limit)
                 })
             })
             addProperty("id", 1)
@@ -62,10 +64,10 @@ class ExaSearchEngine(
             httpClient.newCall(requestBuilder.build()).execute().use { response ->
                 val body = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
-                    return Result.failure(Exception("Exa 搜索请求失败 (): "))
+                    return Result.failure(Exception("Exa 搜索请求失败 (${response.code}): $body"))
                 }
 
-                val documents = parseExaResponse(body)
+                val documents = parseExaResponse(body).take(limit)
                 if (documents.isEmpty()) {
                     return Result.failure(Exception("Exa 未检索到相关结果"))
                 }
@@ -79,7 +81,7 @@ class ExaSearchEngine(
                 )
             }
         } catch (e: Exception) {
-            Result.failure(Exception("Exa 网络连接异常: ", e))
+            Result.failure(Exception("Exa 网络连接异常: ${e.message}", e))
         }
     }
 

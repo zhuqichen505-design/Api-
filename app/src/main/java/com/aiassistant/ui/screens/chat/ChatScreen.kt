@@ -18,6 +18,11 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.selection.SelectionContainer
+import com.aiassistant.domain.model.ToolCallRecord
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
@@ -1840,6 +1845,26 @@ private fun MessageBubble(
                         }
                     } else {
                         MessageContent(textColor)
+                    }
+
+                    // 工具调用留痕展示 (支持展开查看执行摘要与注入的上下文详情)
+                    val toolCallsList = remember(message.toolCalls) {
+                        if (message.toolCalls.isNullOrBlank()) {
+                            emptyList<ToolCallRecord>()
+                        } else {
+                            try {
+                                val gson = com.google.gson.Gson()
+                                val type = com.google.gson.reflect.TypeToken.getParameterized(
+                                    List::class.java, ToolCallRecord::class.java
+                                ).type
+                                gson.fromJson<List<ToolCallRecord>>(message.toolCalls, type) ?: emptyList()
+                            } catch (e: Exception) {
+                                emptyList()
+                            }
+                        }
+                    }
+                    if (toolCallsList.isNotEmpty()) {
+                        ToolCallsFooter(toolCalls = toolCallsList)
                     }
 
                     MessageFooter(
@@ -5568,4 +5593,256 @@ fun CitationDetailDialog(
             }
         }
     }
+}
+
+@Composable
+fun ToolCallsFooter(
+    toolCalls: List<ToolCallRecord>,
+    modifier: Modifier = Modifier
+) {
+    if (toolCalls.isEmpty()) return
+
+    var isExpanded by remember { mutableStateOf(false) }
+    var selectedRecordForDialog by remember { mutableStateOf<ToolCallRecord?>(null) }
+    val glass = echoGlassPalette()
+    val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
+
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp, bottom = 4.dp),
+        shape = RoundedCornerShape(12.dp),
+        color = glass.control.copy(alpha = if (isDarkTheme) 0.5f else 0.7f),
+        border = BorderStroke(0.8.dp, glass.outline.copy(alpha = 0.6f))
+    ) {
+        Column(modifier = Modifier.padding(10.dp)) {
+            // 头部摘要栏
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { isExpanded = !isExpanded }
+                    .padding(vertical = 4.dp, horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primaryContainer),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Default.Build,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(13.dp)
+                        )
+                    }
+                    Text(
+                        text = "成功调用 ${toolCalls.size} 项系统与联网工具",
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = if (isExpanded) "收起留痕" else "查看留痕",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Icon(
+                        imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = if (isExpanded) "收起" else "展开",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+
+            // 展开的工具调用记录列表
+            AnimatedVisibility(
+                visible = isExpanded,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    toolCalls.forEach { record ->
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable { selectedRecordForDialog = record },
+                            shape = RoundedCornerShape(10.dp),
+                            color = glass.controlSelected.copy(alpha = 0.4f),
+                            border = BorderStroke(0.6.dp, glass.outlineSelected.copy(alpha = 0.4f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                val icon = when (record.toolType) {
+                                    "WEATHER" -> Icons.Default.Cloud
+                                    "TIME_CALENDAR" -> Icons.Default.Schedule
+                                    "HEALTH" -> Icons.Default.DirectionsWalk
+                                    "DEVICE_HARDWARE" -> Icons.Default.Smartphone
+                                    "LOCATION" -> Icons.Default.LocationOn
+                                    "JINA_READER" -> Icons.Default.MenuBook
+                                    else -> Icons.Default.Search
+                                }
+                                Icon(
+                                    imageVector = icon,
+                                    contentDescription = record.toolName,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Text(
+                                            text = record.toolName,
+                                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
+                                        ) {
+                                            Text(
+                                                text = "执行成功",
+                                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                                color = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                            )
+                                        }
+                                    }
+                                    if (record.summary.isNotBlank()) {
+                                        Text(
+                                            text = record.summary,
+                                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                                TextButton(
+                                    onClick = { selectedRecordForDialog = record },
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                                    modifier = Modifier.height(28.dp)
+                                ) {
+                                    Text("详情", style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (selectedRecordForDialog != null) {
+        ToolCallDetailDialog(
+            record = selectedRecordForDialog!!,
+            onDismiss = { selectedRecordForDialog = null }
+        )
+    }
+}
+
+@Composable
+fun ToolCallDetailDialog(
+    record: ToolCallRecord,
+    onDismiss: () -> Unit
+) {
+    val clipboardManager = LocalClipboardManager.current
+    val context = LocalContext.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    Icons.Default.Build,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(22.dp)
+                )
+                Text(record.toolName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Text("执行摘要：", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                        Text(record.summary, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+
+                Text("工具获取并注入模型的完整上下文数据：", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                    border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.outlineVariant),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    SelectionContainer {
+                        Text(
+                            text = record.detailContent,
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 12.sp
+                            ),
+                            modifier = Modifier.padding(10.dp)
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    clipboardManager.setText(AnnotatedString(record.detailContent))
+                    android.widget.Toast.makeText(context, "已复制工具数据到剪贴板", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            ) {
+                Text("复制数据")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("关闭")
+            }
+        }
+    )
 }

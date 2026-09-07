@@ -1,4 +1,4 @@
-﻿package com.aiassistant.tools.search
+package com.aiassistant.tools.search
 
 import com.aiassistant.utils.WebSearchBundle
 
@@ -16,5 +16,5 @@ enum class SearchEngineType(val displayName: String) {
 interface WebSearchProvider {
     val engineType: SearchEngineType
     fun isReady(): Boolean
-    fun search(query: String): Result<WebSearchBundle>
+    fun search(query: String, maxResults: Int = 5): Result<WebSearchBundle>
 }

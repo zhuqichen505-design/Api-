@@ -1,4 +1,4 @@
-﻿package com.aiassistant.tools.device
+package com.aiassistant.tools.device
 
 import android.content.Context
 import android.hardware.Sensor
@@ -44,29 +44,39 @@ class HealthDataManager(private val context: Context) : SensorEventListener {
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 
+    @Volatile
+    private var lastHardwareTotal: Int = 0
+
     @Synchronized
     private fun handleStepUpdate(currentTotal: Int) {
+        lastHardwareTotal = currentTotal
         val today = getTodayDateKey()
         val savedDate = prefs.getString(KEY_STEP_DATE, "").orEmpty()
-        var baseline = prefs.getInt(KEY_STEP_BASELINE, 0)
+        var baseline = prefs.getInt(KEY_STEP_BASELINE, -1)
 
         if (savedDate != today) {
-            // 新的一天，将当前硬件计数设为今天的基准起点
+            // 新的一天
             baseline = currentTotal
             prefs.edit()
                 .putString(KEY_STEP_DATE, today)
                 .putInt(KEY_STEP_BASELINE, baseline)
                 .putInt(KEY_TODAY_STEPS, 0)
+                .putInt(KEY_LAST_HARDWARE_TOTAL, currentTotal)
                 .apply()
         } else {
-            // 同一天
+            if (baseline < 0) {
+                baseline = currentTotal
+                prefs.edit().putInt(KEY_STEP_BASELINE, baseline).apply()
+            }
             if (currentTotal < baseline) {
-                // 手机中途可能重启过，硬件计数器归零
                 baseline = 0
                 prefs.edit().putInt(KEY_STEP_BASELINE, 0).apply()
             }
             val todaySteps = (currentTotal - baseline).coerceAtLeast(0)
-            prefs.edit().putInt(KEY_TODAY_STEPS, todaySteps).apply()
+            prefs.edit()
+                .putInt(KEY_TODAY_STEPS, todaySteps)
+                .putInt(KEY_LAST_HARDWARE_TOTAL, currentTotal)
+                .apply()
         }
     }
 
@@ -81,11 +91,52 @@ class HealthDataManager(private val context: Context) : SensorEventListener {
     }
 
     fun setManualSteps(steps: Int) {
+        calibrateTodaySteps(steps)
+    }
+
+    /**
+     * 用户手动校准华为运动健康步数：
+     * 将今日步数与硬件传感器基准线对齐，后续步数实时自增
+     */
+    fun calibrateTodaySteps(steps: Int) {
         val today = getTodayDateKey()
+        val validSteps = steps.coerceAtLeast(0)
+        val currentHw = if (lastHardwareTotal > 0) lastHardwareTotal else prefs.getInt(KEY_LAST_HARDWARE_TOTAL, validSteps)
+        val newBaseline = (currentHw - validSteps).coerceAtLeast(0)
+
         prefs.edit()
             .putString(KEY_STEP_DATE, today)
-            .putInt(KEY_TODAY_STEPS, steps.coerceAtLeast(0))
+            .putInt(KEY_STEP_BASELINE, newBaseline)
+            .putInt(KEY_TODAY_STEPS, validSteps)
+            .putInt(KEY_LAST_HARDWARE_TOTAL, currentHw)
+            .putLong(KEY_HEALTH_UPDATE_TIME, System.currentTimeMillis())
             .apply()
+    }
+
+    fun syncHuaweiHealthData(
+        steps: Int,
+        heartRate: Int,
+        sleepHours: Int,
+        sleepMinutes: Int,
+        deepSleepMinutes: Int,
+        sleepScore: Int
+    ) {
+        val totalSleepMins = sleepHours * 60 + sleepMinutes
+        calibrateTodaySteps(steps)
+        setHeartRate(heartRate)
+        saveSleepRecord(totalSleepMins, deepSleepMinutes, sleepScore)
+    }
+
+    fun syncHuaweiHealthData(
+        steps: Int,
+        heartRate: Int,
+        totalSleepMinutes: Int,
+        deepSleepMinutes: Int,
+        sleepScore: Int
+    ) {
+        calibrateTodaySteps(steps)
+        setHeartRate(heartRate)
+        saveSleepRecord(totalSleepMinutes, deepSleepMinutes, sleepScore)
     }
 
     // 心率 (bpm)
@@ -140,21 +191,25 @@ class HealthDataManager(private val context: Context) : SensorEventListener {
             val deepHours = deepSleepMinutes / 60
             val deepMins = deepSleepMinutes % 60
 
+            val estimatedKm = String.format(Locale.US, "%.2f", todaySteps * 0.0007)
+            val estimatedKcal = (todaySteps * 0.035).toInt()
+
             return buildString {
                 append("【用户手机健康与运动数据 (华为运动健康/硬件传感器)】")
                 append("\n今日累计步数：").append(todaySteps).append(" 步")
+                append(" (约 ").append(estimatedKm).append(" 公里, 消耗约 ").append(estimatedKcal).append(" 千卡)")
                 if (todaySteps >= 10000) {
-                    append(" (已达成万步运动目标)")
+                    append(" - 已达成万步运动目标 🎉")
                 } else {
-                    append(" (距一万步还差 ").append(10000 - todaySteps).append(" 步)")
+                    append(" - 距一万步还差 ").append(10000 - todaySteps).append(" 步")
                 }
-                append("\n当前/最近静息心率：").append(heartRate).append(" bpm")
+                append("\n当前/最近心率：").append(heartRate).append(" bpm")
                 append("\n昨晚睡眠时长：").append(sleepHours).append("小时").append(sleepMins).append("分钟")
                 if (deepSleepMinutes > 0) {
                     append(" (其中深睡 ").append(deepHours).append("小时").append(deepMins).append("分)")
                 }
                 append("\n睡眠质量评分：").append(sleepScore).append(" 分")
-                append("\n数据来源：手机硬件计步传感器与运动健康同步档案")
+                append("\n数据来源：华为运动健康与手机硬件步数传感器")
             }
         }
     }
@@ -162,6 +217,7 @@ class HealthDataManager(private val context: Context) : SensorEventListener {
     companion object {
         private const val KEY_STEP_DATE = "health_step_date"
         private const val KEY_STEP_BASELINE = "health_step_baseline"
+        private const val KEY_LAST_HARDWARE_TOTAL = "health_last_hardware_total"
         private const val KEY_TODAY_STEPS = "health_today_steps"
         private const val KEY_HEART_RATE = "health_heart_rate"
         private const val KEY_SLEEP_MINUTES = "health_sleep_minutes"

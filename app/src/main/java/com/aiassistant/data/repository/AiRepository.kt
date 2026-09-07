@@ -4,6 +4,7 @@ import android.util.Log
 import com.aiassistant.data.local.*
 import com.aiassistant.data.remote.RetrofitClient
 import com.aiassistant.domain.model.*
+import com.aiassistant.tools.EnrichedPromptResult
 import com.aiassistant.utils.CryptoManager
 import com.aiassistant.utils.FileUtils
 import com.aiassistant.utils.PersonalizationManager
@@ -107,6 +108,35 @@ class AiRepository(
             ) }
             val asciiCount = trimmed.length - cjkCount
             return (cjkCount / 1.7f + asciiCount / 4.0f).toInt().coerceAtLeast(1)
+        }
+
+        fun sanitizeGeneratedTitle(rawTitle: String?): String? {
+            if (rawTitle.isNullOrBlank()) return null
+
+            // 1. 剔除思考过程标签（支持 <think>...</think> 或未闭合的 <think>）
+            var cleaned = rawTitle.replace(Regex("(?s)<think>.*?</think>"), "").trim()
+            if (cleaned.contains("<think>")) {
+                cleaned = cleaned.substringAfterLast("</think>", cleaned.substringBefore("<think>")).trim()
+            }
+
+            // 2. 取第一行非空文字
+            var firstLine = cleaned
+                .lineSequence()
+                .map { it.trim() }
+                .firstOrNull { it.isNotBlank() } ?: return null
+
+            // 3. 剥离常见前缀（例如 "标题：", "对话标题：", "建议标题：", "Title:", "1. " 等）
+            val prefixRegex = Regex("^(?:[0-9]+[\\.、]|[-*]\\s*|对话标题[：:]|标题[：:]|建议标题[：:]|Title[：:]|Topic[：:])\\s*", RegexOption.IGNORE_CASE)
+            firstLine = firstLine.replace(prefixRegex, "").trim()
+
+            // 4. 剥离首尾引号、标点与多余符号
+            firstLine = firstLine
+                .trim('"', '\'', '“', '”', '「', '」', '《', '》', '【', '】', '`', '。', '.', '：', ':', '！', '!', '？', '?')
+                .trim()
+
+            // 5. 限制在18个汉字/字符以内
+            val title = firstLine.take(18).trim()
+            return title.ifBlank { null }
         }
     }
 
@@ -1020,7 +1050,10 @@ class AiRepository(
             contextWindowOverrideTokens = effectiveOptions.contextWindowOverrideTokens,
             currentUserMessage = userMessage
         )
-        val enrichedUserMessage = enrichUserMessageWithWebSearch(userMessage, effectiveOptions)
+        val enrichedResult = enrichUserMessageWithWebSearch(userMessage, effectiveOptions)
+        val enrichedUserMessage = enrichedResult.enrichedPrompt
+        val toolCalls = enrichedResult.toolCalls
+        val toolCallsJson = if (toolCalls.isNotEmpty()) gson.toJson(toolCalls) else null
         val chatMessages = mutableListOf<ChatMessage>()
 
         buildEffectiveSystemPrompt(
@@ -1258,7 +1291,8 @@ class AiRepository(
                     variantIndex = assistantVariantIndex,
                     tokenCount = finalTotalTokens,
                     thinkingTokens = finalThinkingTokens,
-                    responseTime = responseTime
+                    responseTime = responseTime,
+                    toolCalls = toolCallsJson
                 )
                 saveMessage(assistantMsg)
 
@@ -1281,7 +1315,7 @@ class AiRepository(
                     Log.e(tag, "记录成功统计异常", statEx)
                 }
 
-                onComplete(fullContent, fullThinking, null)
+                onComplete(fullContent, fullThinking, toolCalls)
             } else {
                 val errorBody = okResponse.body?.string() ?: "未知错误"
                 val errorMsg = try {
@@ -1344,7 +1378,10 @@ class AiRepository(
         }
 
         // 构建当前用户消息（支持多模态）
-        val enrichedUserMessage = enrichUserMessageWithWebSearch(userMessage, effectiveOptions)
+        val enrichedResult = enrichUserMessageWithWebSearch(userMessage, effectiveOptions)
+        val enrichedUserMessage = enrichedResult.enrichedPrompt
+        val toolCalls = enrichedResult.toolCalls
+        val toolCallsJson = if (toolCalls.isNotEmpty()) gson.toJson(toolCalls) else null
         val userContent = buildAnthropicUserMessage(enrichedUserMessage, attachments)
         if (userContent is String) {
             addAnthropicHistoryMessage(anthropicMessages, "user", userContent)
@@ -1480,7 +1517,8 @@ class AiRepository(
                     variantIndex = assistantVariantIndex,
                     tokenCount = finalTotalTokens,
                     thinkingTokens = finalThinkingTokens,
-                    responseTime = responseTime
+                    responseTime = responseTime,
+                    toolCalls = toolCallsJson
                 )
                 saveMessage(assistantMsg)
 
@@ -1503,7 +1541,7 @@ class AiRepository(
                     Log.e(tag, "记录成功统计异常", statEx)
                 }
 
-                onComplete(fullContent, fullThinking, null)
+                onComplete(fullContent, fullThinking, toolCalls)
             } else {
                 val errorBody = okResponse.body?.string() ?: "未知错误"
                 val errorMsg = try {
@@ -2017,38 +2055,49 @@ class AiRepository(
     private suspend fun enrichUserMessageWithWebSearch(
         userMessage: String,
         options: ChatRequestOptions
-    ): String {
+    ): EnrichedPromptResult {
         val hub = echoToolHub
         if (hub != null) {
             return hub.enrichUserPrompt(userMessage, options)
         }
 
-        if (options.enableWebSearch != true) return userMessage
+        if (options.enableWebSearch != true) return EnrichedPromptResult(userMessage, emptyList())
 
         val settings = tavilySearchManager.getSettings()
         return if (!settings.enabled || settings.apiKey.isBlank()) {
-            buildString {
+            val prompt = buildString {
                 append(userMessage)
                 append("\n\n[联网搜索状态]\n")
                 append("用户已开启联网搜索，但 Tavily 未启用或 API Key 为空。请明确说明本轮未能成功联网，不要假装读取了实时网页。")
             }
+            EnrichedPromptResult(prompt, emptyList())
         } else {
             tavilySearchManager.search(userMessage).fold(
                 onSuccess = { bundle ->
-                    buildString {
+                    val prompt = buildString {
                         append(bundle.toPromptBlock())
                         append("\n\n用户原始问题：\n")
                         append(userMessage)
                     }
+                    val record = ToolCallRecord(
+                        toolType = "WEB_SEARCH",
+                        toolName = "Tavily 联网搜索",
+                        iconName = "Search",
+                        summary = "已检索到 ${bundle.results.size} 条网络网页资料",
+                        detailContent = bundle.toPromptBlock(),
+                        isSuccess = true
+                    )
+                    EnrichedPromptResult(prompt, listOf(record))
                 },
                 onFailure = { error ->
-                    buildString {
+                    val prompt = buildString {
                         append(userMessage)
                         append("\n\n[联网搜索状态]\n")
                         append("Tavily 搜索失败：")
                         append(error.message ?: "未知错误")
                         append("\n请明确说明本轮未能成功联网，并基于已有上下文谨慎回答。")
                     }
+                    EnrichedPromptResult(prompt, emptyList())
                 }
             )
         }
@@ -2408,8 +2457,21 @@ class AiRepository(
 
     suspend fun generateConversationTitle(conversationId: Long): String? = withContext(Dispatchers.IO) {
         try {
+            val settings = personalizationManager.getSettings()
+            if (!settings.autoNameEnabled) {
+                return@withContext null
+            }
+
             val conversation = getConversationById(conversationId) ?: return@withContext null
-            val config = getDecryptedConfig(conversation.apiConfigId) ?: return@withContext null
+
+            // API 配置选择：若设置了独立自动命名配置则优先使用，否则使用当前对话的配置
+            val targetConfigId = if (settings.autoNameApiConfigId > 0L) settings.autoNameApiConfigId else conversation.apiConfigId
+            val rawConfig = getDecryptedConfig(targetConfigId) ?: getDecryptedConfig(conversation.apiConfigId) ?: return@withContext null
+
+            // 模型选择：若设置了指定自动命名模型则覆盖配置模型，否则沿用配置模型
+            val targetModel = settings.autoNameModel.trim().ifBlank { rawConfig.modelName }
+            val config = rawConfig.copy(modelName = targetModel)
+
             val messages = getMessagesList(conversationId).take(8)
             if (messages.isEmpty()) return@withContext null
 
@@ -2421,10 +2483,14 @@ class AiRepository(
                 }
                 "$role: ${message.content.take(500)}"
             }
-            val prompt = """
-                请根据下面这段对话，生成一个简短中文标题。
-                要求：不超过12个汉字，不要引号，不要句号，只输出标题。
 
+            val customPrompt = settings.autoNamePrompt.trim().ifBlank {
+                "请根据下面这段对话，生成一个简短精炼的中文标题。\n要求：严格在12个字以内，禁止使用任何标点符号、书名号或引号，禁止包含'标题'、'关于'等前缀废话，只直接输出最终标题。"
+            }
+            val prompt = """
+                $customPrompt
+
+                【对话内容】
                 $transcript
             """.trimIndent()
 
@@ -2441,12 +2507,47 @@ class AiRepository(
         }
     }
 
+    suspend fun testAutoNaming(
+        apiConfigId: Long,
+        modelName: String,
+        testText: String,
+        customPrompt: String = ""
+    ): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val rawConfig = getDecryptedConfig(apiConfigId) ?: return@withContext Result.failure(Exception("API配置不存在"))
+            val targetModel = modelName.trim().ifBlank { rawConfig.modelName }
+            val config = rawConfig.copy(modelName = targetModel)
+            val promptTemplate = customPrompt.trim().ifBlank {
+                "请根据下面这段用户发言或对话，生成一个简短精炼的中文标题。\n要求：严格在12个字以内，禁止使用任何标点符号、书名号或引号，禁止包含'标题'、'关于'等前缀废话，只直接输出最终标题。"
+            }
+            val prompt = """
+                $promptTemplate
+
+                【对话内容】
+                用户: ${testText.take(500)}
+            """.trimIndent()
+            val raw = if (config.apiType == "anthropic") {
+                generateAnthropicTitle(config, prompt)
+            } else {
+                generateOpenAITitle(config, prompt)
+            }
+            val sanitized = sanitizeGeneratedTitle(raw)
+            if (sanitized.isNullOrBlank()) {
+                Result.failure(Exception("未能生成有效标题，原始返回: ${raw ?: "空"}"))
+            } else {
+                Result.success(sanitized)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     private suspend fun generateOpenAITitle(config: ApiConfig, prompt: String): String? {
         val request = ChatCompletionRequest(
             model = config.modelName,
             messages = listOf(ChatMessage(role = "user", content = prompt)),
             temperature = 0.2f,
-            max_tokens = 32,
+            max_tokens = 64,
             stream = false
         )
         val response = RetrofitClient.getService(config.baseUrl)
@@ -2460,7 +2561,7 @@ class AiRepository(
         val request = AnthropicRequest(
             model = config.modelName,
             messages = listOf(AnthropicMessage(role = "user", content = prompt)),
-            max_tokens = 32,
+            max_tokens = 64,
             temperature = 0.2f
         )
         val response = RetrofitClient.getService(config.baseUrl)
@@ -2468,17 +2569,6 @@ class AiRepository(
             .execute()
         if (!response.isSuccessful) return null
         return response.body()?.content?.firstOrNull()?.text
-    }
-
-    private fun sanitizeGeneratedTitle(rawTitle: String?): String? {
-        val title = rawTitle
-            ?.lineSequence()
-            ?.firstOrNull { it.isNotBlank() }
-            ?.trim()
-            ?.trim('"', '\'', '“', '”', '「', '」', '。', '.', '：', ':')
-            ?.take(30)
-            ?.trim()
-        return title?.ifBlank { null }
     }
 
     suspend fun executeQuickCompletion(config: ApiConfig, prompt: String, maxTokens: Int = 1000): String? = withContext(Dispatchers.IO) {

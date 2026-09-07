@@ -13,7 +13,11 @@ data class PersonalizationSettings(
     val thinkingCapsuleTemplate: String = "{model} {status} {time} {tokens}",
     val fontSizeScale: Float = 1.0f,
     val chatFontSize: Int = 16,
-    val appTheme: String = "system"
+    val appTheme: String = "system",
+    val autoNameEnabled: Boolean = true,
+    val autoNameApiConfigId: Long = 0L,
+    val autoNameModel: String = "",
+    val autoNamePrompt: String = ""
 )
 
 class PersonalizationManager(private val context: Context) {
@@ -41,7 +45,11 @@ class PersonalizationManager(private val context: Context) {
             thinkingCapsuleTemplate = prefs.getString(KEY_THINKING_TEMPLATE, "{model} {status} {time} {tokens}").orEmpty().ifBlank { "{model} {status} {time} {tokens}" },
             fontSizeScale = prefs.getFloat(KEY_FONT_SIZE_SCALE, 1.0f),
             chatFontSize = prefs.getInt(KEY_CHAT_FONT_SIZE, 16),
-            appTheme = prefs.getString(KEY_APP_THEME, "system").orEmpty().ifBlank { "system" }
+            appTheme = prefs.getString(KEY_APP_THEME, "system").orEmpty().ifBlank { "system" },
+            autoNameEnabled = prefs.getBoolean(KEY_AUTO_NAME_ENABLED, true),
+            autoNameApiConfigId = prefs.getLong(KEY_AUTO_NAME_API_CONFIG_ID, 0L),
+            autoNameModel = prefs.getString(KEY_AUTO_NAME_MODEL, "").orEmpty(),
+            autoNamePrompt = prefs.getString(KEY_AUTO_NAME_PROMPT, "").orEmpty()
         )
     }
 
@@ -59,6 +67,10 @@ class PersonalizationManager(private val context: Context) {
             .putFloat(KEY_FONT_SIZE_SCALE, settings.fontSizeScale)
             .putInt(KEY_CHAT_FONT_SIZE, settings.chatFontSize)
             .putString(KEY_APP_THEME, settings.appTheme)
+            .putBoolean(KEY_AUTO_NAME_ENABLED, settings.autoNameEnabled)
+            .putLong(KEY_AUTO_NAME_API_CONFIG_ID, settings.autoNameApiConfigId)
+            .putString(KEY_AUTO_NAME_MODEL, settings.autoNameModel)
+            .putString(KEY_AUTO_NAME_PROMPT, settings.autoNamePrompt)
             .commit()
     }
 
@@ -102,5 +114,9 @@ class PersonalizationManager(private val context: Context) {
         private const val KEY_FONT_SIZE_SCALE = "font_size_scale"
         private const val KEY_CHAT_FONT_SIZE = "chat_font_size"
         private const val KEY_APP_THEME = "app_theme"
+        private const val KEY_AUTO_NAME_ENABLED = "auto_name_enabled"
+        private const val KEY_AUTO_NAME_API_CONFIG_ID = "auto_name_api_config_id"
+        private const val KEY_AUTO_NAME_MODEL = "auto_name_model"
+        private const val KEY_AUTO_NAME_PROMPT = "auto_name_prompt"
     }
 }

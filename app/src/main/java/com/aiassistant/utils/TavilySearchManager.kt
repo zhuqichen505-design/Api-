@@ -91,7 +91,12 @@ class TavilySearchManager(
     }
 
     fun search(query: String): Result<WebSearchBundle> {
-        val settings = getSettings()
+        return search(query, getSettings().maxResults)
+    }
+
+    fun search(query: String, maxResults: Int): Result<WebSearchBundle> {
+        val baseSettings = getSettings()
+        val settings = baseSettings.copy(maxResults = maxResults.coerceIn(1, MAX_SEARCH_RESULTS))
         if (!settings.enabled) {
             return Result.failure(IllegalStateException("Tavily 联网搜索未启用"))
         }

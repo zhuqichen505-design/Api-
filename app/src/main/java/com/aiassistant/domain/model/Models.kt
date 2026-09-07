@@ -101,7 +101,20 @@ data class Message(
     val tokenCount: Int = 0,
     val thinkingTokens: Int = 0,
     val responseTime: Long = 0,
+    val toolCalls: String? = null,
     val createdAt: Long = System.currentTimeMillis()
+)
+
+// 智能工具调用留痕记录
+data class ToolCallRecord(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val toolType: String,
+    val toolName: String,
+    val iconName: String = "AutoAwesome",
+    val summary: String,
+    val detailContent: String,
+    val isSuccess: Boolean = true,
+    val timestamp: Long = System.currentTimeMillis()
 )
 
 // 文件附件

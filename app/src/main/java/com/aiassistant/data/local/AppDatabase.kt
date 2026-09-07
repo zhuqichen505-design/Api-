@@ -27,7 +27,7 @@ import com.aiassistant.domain.model.*
         CharacterTag::class,
         CharacterTagCrossRef::class
     ],
-    version = 20,
+    version = 21,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -388,14 +388,20 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        private val LEGACY_REPAIR_MIGRATIONS: Array<Migration> = ((1..19)
+        val MIGRATION_20_21 = object : Migration(20, 21) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                addColumnIfMissing(database, "messages", "toolCalls", "TEXT")
+            }
+        }
+
+        private val LEGACY_REPAIR_MIGRATIONS: Array<Migration> = ((1..20)
             .map { startVersion ->
-                object : Migration(startVersion, 20) {
+                object : Migration(startVersion, 21) {
                     override fun migrate(database: SupportSQLiteDatabase) {
                         repairSchema(database)
                     }
                 }
-            } + MIGRATION_17_18 + MIGRATION_18_19 + MIGRATION_19_20)
+            } + MIGRATION_17_18 + MIGRATION_18_19 + MIGRATION_19_20 + MIGRATION_20_21)
             .toTypedArray()
 
         private fun repairSchema(database: SupportSQLiteDatabase) {
@@ -490,6 +496,7 @@ abstract class AppDatabase : RoomDatabase() {
                     ColumnSpec("tokenCount", "INTEGER NOT NULL", "0"),
                     ColumnSpec("thinkingTokens", "INTEGER NOT NULL", "0"),
                     ColumnSpec("responseTime", "INTEGER NOT NULL", "0"),
+                    ColumnSpec("toolCalls", "TEXT", "NULL", nullable = true),
                     ColumnSpec("createdAt", "INTEGER NOT NULL", "0")
                 ),
                 indices = listOf("CREATE INDEX IF NOT EXISTS `index_messages_conversationId` ON `messages` (`conversationId`)")

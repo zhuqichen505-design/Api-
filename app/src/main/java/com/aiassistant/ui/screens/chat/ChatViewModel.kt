@@ -708,17 +708,19 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
         }
     }
 
-    // 自动生成标题（根据对话内容）
+    // 自动生成标题（优先使用配置的独立自动命名模型）
     fun generateAutoTitle() {
         viewModelScope.launch {
-            val messages = repository.getMessagesList(conversationId)
-            if (messages.isEmpty()) return@launch
-
-            // 取第一条用户消息作为标题依据
-            val firstUserMessage = messages.firstOrNull { it.role == "user" }
-            if (firstUserMessage != null) {
-                val title = generateTitleFromContent(firstUserMessage.content)
-                renameConversation(title)
+            val generated = repository.generateConversationTitle(conversationId)
+            if (generated != null) {
+                renameConversation(generated)
+            } else {
+                val messages = repository.getMessagesList(conversationId)
+                val firstUserMessage = messages.firstOrNull { it.role == "user" }
+                if (firstUserMessage != null) {
+                    val title = generateTitleFromContent(firstUserMessage.content)
+                    renameConversation(title)
+                }
             }
         }
     }

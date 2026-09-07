@@ -1,9 +1,10 @@
-﻿package com.aiassistant.tools.cloud
+package com.aiassistant.tools.cloud
 
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.net.URLEncoder
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
@@ -41,7 +42,7 @@ class OpenMeteoWeatherEngine {
                 targetCity = "本地定位区域"
             }
 
-            val url = "https://api.open-meteo.com/v1/forecast?latitude=&longitude=" +
+            val url = "https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon" +
                     "&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m" +
                     "&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto"
 
@@ -49,7 +50,7 @@ class OpenMeteoWeatherEngine {
             httpClient.newCall(request).execute().use { response ->
                 val body = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
-                    return Result.failure(Exception("Open-Meteo 天气请求失败 ()"))
+                    return Result.failure(Exception("Open-Meteo 天气请求失败 (${response.code})"))
                 }
 
                 val root = gson.fromJson(body, JsonObject::class.java)
@@ -79,13 +80,14 @@ class OpenMeteoWeatherEngine {
                 )
             }
         } catch (e: Exception) {
-            Result.failure(Exception("天气服务查询失败: ", e))
+            Result.failure(Exception("天气服务查询失败: ${e.message}", e))
         }
     }
 
     private fun resolveCityCoordinates(city: String): Triple<Double, Double, String>? {
         return try {
-            val url = "https://geocoding-api.open-meteo.com/v1/search?name=&count=1&language=zh&format=json"
+            val encodedCity = URLEncoder.encode(city, "UTF-8")
+            val url = "https://geocoding-api.open-meteo.com/v1/search?name=$encodedCity&count=1&language=zh&format=json"
             val request = Request.Builder().url(url).build()
             httpClient.newCall(request).execute().use { resp ->
                 if (!resp.isSuccessful) return null
@@ -97,7 +99,7 @@ class OpenMeteoWeatherEngine {
                     val lon = item.get("longitude").asDouble
                     val name = item.get("name").asString
                     val admin = item.get("admin1")?.asString
-                    val resolvedName = if (!admin.isNullOrBlank() && admin != name) " " else name
+                    val resolvedName = if (!admin.isNullOrBlank() && admin != name) "$admin $name" else name
                     Triple(lat, lon, resolvedName)
                 } else null
             }

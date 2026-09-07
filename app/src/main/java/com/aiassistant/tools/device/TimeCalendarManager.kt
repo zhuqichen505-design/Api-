@@ -1,4 +1,4 @@
-﻿package com.aiassistant.tools.device
+package com.aiassistant.tools.device
 
 import android.Manifest
 import android.content.ContentUris
@@ -19,13 +19,13 @@ class TimeCalendarManager(private val context: Context) {
         val now = Date()
         val dateFormat = SimpleDateFormat("yyyy年MM月dd日 EEEE HH:mm:ss", Locale.CHINESE)
         val tz = TimeZone.getDefault()
-        return " (, )"
+        return "${dateFormat.format(now)} (${tz.id}, ${tz.displayName})"
     }
 
     fun getTodayScheduleSummary(): String {
         val timeStr = getCurrentTimeFormatted()
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) != PackageManager.PERMISSION_GRANTED) {
-            return "【当前设备时间】\n\n(系统日历读取权限未授予，如需查询日程安排请在系统设置中授予日历权限)"
+            return "【当前设备时间】\n$timeStr\n(系统日历读取权限未授予，如需查询日程安排请在系统设置中授予日历权限)"
         }
 
         val events = queryTodayCalendarEvents()
@@ -36,9 +36,9 @@ class TimeCalendarManager(private val context: Context) {
                 append("\n今日暂无日程或未检索到已同步的待办事项。")
             } else {
                 events.forEachIndexed { index, event ->
-                    append("\n. [] ")
+                    append("\n${index + 1}. [${event.time}] ${event.title}")
                     if (event.description.isNotBlank()) {
-                        append(" (备注: )")
+                        append(" (备注: ${event.description})")
                     }
                 }
             }
@@ -79,7 +79,7 @@ class TimeCalendarManager(private val context: Context) {
                 projection,
                 null,
                 null,
-                " ASC"
+                CalendarContract.Instances.BEGIN + " ASC"
             )?.use { cursor ->
                 val titleIdx = cursor.getColumnIndex(CalendarContract.Instances.TITLE)
                 val descIdx = cursor.getColumnIndex(CalendarContract.Instances.DESCRIPTION)
@@ -99,7 +99,7 @@ class TimeCalendarManager(private val context: Context) {
                     val timeLabel = if (isAllDay) {
                         "全天"
                     } else {
-                        " - "
+                        "${timeFmt.format(Date(begin))} - ${timeFmt.format(Date(end))}"
                     }
 
                     list.add(CalendarEventItem(title, desc, timeLabel))
