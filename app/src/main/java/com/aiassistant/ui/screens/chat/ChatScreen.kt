@@ -145,6 +145,7 @@ fun ChatScreen(
     val tempSettings by viewModel.tempSettings.collectAsState()
     val contextUsage by viewModel.contextUsage.collectAsState()
     val messageModelMap by viewModel.messageModelMap.collectAsState()
+    val pendingMemoryCandidate by viewModel.pendingMemoryCandidate.collectAsState()
 
     val hazeState = rememberEchoHazeState()
     val readableBackdrops = rememberReadableBackdropColors(chatBackgroundBitmap)
@@ -161,6 +162,7 @@ fun ChatScreen(
     var showRenameDialog by remember { mutableStateOf(false) }
     var renameText by remember(uiState.conversationTitle) { mutableStateOf(uiState.conversationTitle) }
     var showSettingsDialog by remember { mutableStateOf(false) }
+    var showConvertToRoleplayDialog by remember { mutableStateOf(false) }
     var showContextUsageDialog by remember { mutableStateOf(false) }
     var showStoryManagerDialog by remember { mutableStateOf(false) }
     var showStorySmartAnalyzeDialog by remember { mutableStateOf(false) }
@@ -373,6 +375,95 @@ fun ChatScreen(
         },
         bottomBar = {
             Column(modifier = Modifier.fillMaxWidth()) {
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = pendingMemoryCandidate != null,
+                    enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.expandVertically(),
+                    exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.shrinkVertically()
+                ) {
+                    pendingMemoryCandidate?.let { candidate ->
+                        EchoGlassCard(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 4.dp),
+                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.92f),
+                            shape = EchoTokens.Radius.shapeMd
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(10.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            Icons.Default.AutoAwesome,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            "智能识别记忆候选 (需主动确认)",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = { viewModel.dismissPendingMemory() },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Close,
+                                            contentDescription = "忽略",
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                }
+                                Text(
+                                    text = "「${candidate.distilledContent}」",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    maxLines = 2,
+                                    modifier = Modifier.padding(vertical = 4.dp)
+                                )
+                                Row(
+                                    horizontalArrangement = Arrangement.End,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    TextButton(
+                                        onClick = { viewModel.dismissPendingMemory() },
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                        modifier = Modifier.height(28.dp)
+                                    ) {
+                                        Text("忽略", style = MaterialTheme.typography.labelSmall)
+                                    }
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    OutlinedButton(
+                                        onClick = { viewModel.acceptPendingMemory("session") },
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                        modifier = Modifier.height(28.dp)
+                                    ) {
+                                        Text("仅本会话生效", style = MaterialTheme.typography.labelSmall)
+                                    }
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Button(
+                                        onClick = { viewModel.acceptPendingMemory("user") },
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                        modifier = Modifier.height(28.dp)
+                                    ) {
+                                        Text("存为跨会话长期记忆", style = MaterialTheme.typography.labelSmall)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 ChatInputBar(
                     hazeState = hazeState,
                     inputText = inputText,
@@ -705,7 +796,80 @@ fun ChatScreen(
             onSavePromptTemplate = { name, content ->
                 viewModel.savePromptTemplate(name, content)
             },
-            onModelAvatarChanged = { modelAvatarRevision++ }
+            onModelAvatarChanged = { modelAvatarRevision++ },
+            onConvertToRoleplay = {
+                showSettingsDialog = false
+                showConvertToRoleplayDialog = true
+            }
+        )
+    }
+
+    if (showConvertToRoleplayDialog) {
+        var charName by remember { mutableStateOf((uiState.conversationTitle.ifBlank { "故事主角" }).take(10)) }
+        var charIdentity by remember { mutableStateOf("核心探索者") }
+        var charPersonality by remember { mutableStateOf("沉着、机智、性格鲜明") }
+        var scenarioName by remember { mutableStateOf("${uiState.conversationTitle.take(8)} · 世界观") }
+
+        EchoGlassDialog(
+            hazeState = hazeState,
+            onDismissRequest = { showConvertToRoleplayDialog = false },
+            title = { Text("转为角色扮演 / 故事创作") },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        "将当前对话平滑升级为故事创作会话。自动建立独立角色卡与世界观，完整保留全部聊天历史，解锁剧情推进动作与独立记忆体系。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedTextField(
+                        value = charName,
+                        onValueChange = { charName = it },
+                        label = { Text("主角名称") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = charIdentity,
+                        onValueChange = { charIdentity = it },
+                        label = { Text("主角身份/职业") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = charPersonality,
+                        onValueChange = { charPersonality = it },
+                        label = { Text("主角性格特征") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = scenarioName,
+                        onValueChange = { scenarioName = it },
+                        label = { Text("舞台/世界观名称") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    viewModel.convertToRoleplay(
+                        charName = charName,
+                        charIdentity = charIdentity,
+                        charPersonality = charPersonality,
+                        scenarioName = scenarioName
+                    ) {
+                        showConvertToRoleplayDialog = false
+                        Toast.makeText(context, "已成功升级为角色扮演故事", Toast.LENGTH_SHORT).show()
+                    }
+                }) {
+                    Text("立即转换")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showConvertToRoleplayDialog = false }) {
+                    Text("取消")
+                }
+            }
         )
     }
 
@@ -757,6 +921,12 @@ fun ChatScreen(
             },
             onOpenSmartAppend = {
                 showStorySmartAnalyzeDialog = true
+            },
+            onConvertToNormal = {
+                viewModel.convertToNormal {
+                    showStoryManagerDialog = false
+                    Toast.makeText(context, "已转为普通对话（设定已合并为系统提示词）", Toast.LENGTH_SHORT).show()
+                }
             },
             onSaveLocalCharacter = { updatedChar ->
                 viewModel.addNewLocalCharacter(updatedChar)
@@ -2641,17 +2811,43 @@ private fun InputModelSelector(
 
 @Composable
 private fun ModelOptionText(option: ChatModelOption) {
+    val cap = remember(option.modelName) {
+        com.aiassistant.domain.model.ModelCapabilityEngine.evaluateModel(option.modelName)
+    }
     Column {
-        Text(
-            text = option.modelName,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-        if (option.configName.isNotBlank() || option.provider.isNotBlank()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = listOf(option.configName, option.provider)
-                    .filter { it.isNotBlank() }
-                    .joinToString(" · "),
+                text = option.modelName,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Surface(
+                shape = RoundedCornerShape(4.dp),
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
+            ) {
+                Text(
+                    text = cap.contextWindowDisplay,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                )
+            }
+        }
+        val subLine = listOf(option.configName, option.provider)
+            .filter { it.isNotBlank() }
+            .joinToString(" · ")
+        val badges = buildList {
+            if (subLine.isNotBlank()) add(subLine)
+            if (cap.supportsVision) add("视觉")
+            if (cap.supportsTools) add("工具")
+            if (cap.supportsReasoning) add("思考")
+        }.joinToString(" | ")
+
+        if (badges.isNotBlank()) {
+            Text(
+                text = badges,
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -3502,6 +3698,66 @@ private fun ChatSettingsModelSelector(
                 }
             }
         }
+
+        val cap = remember(currentLabel) {
+            com.aiassistant.domain.model.ModelCapabilityEngine.evaluateModel(currentLabel)
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
+            ) {
+                Text(
+                    text = "窗口: ${cap.contextWindowDisplay}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                )
+            }
+            if (cap.supportsVision) {
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f)
+                ) {
+                    Text(
+                        text = "🖼️ 视觉",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+            }
+            if (cap.supportsTools) {
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.7f)
+                ) {
+                    Text(
+                        text = "🛠️ 工具",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+            }
+            if (cap.supportsReasoning) {
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f)
+                ) {
+                    Text(
+                        text = "🧠 思考",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -3615,7 +3871,8 @@ fun ChatSettingsDialog(
     onSave: (TempChatSettings, String?) -> Unit,
     onModelSelected: (ChatModelOption) -> Unit,
     onSavePromptTemplate: (String, String) -> Unit,
-    onModelAvatarChanged: () -> Unit
+    onModelAvatarChanged: () -> Unit,
+    onConvertToRoleplay: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val dialogContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f)
@@ -3715,11 +3972,48 @@ fun ChatSettingsDialog(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 item {
-                    Text(
-                        text = "这些设置仅对当前对话有效，不会影响全局配置",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = dialogSecondaryColor
-                    )
+                    EchoGlassCard(
+                        onClick = onConvertToRoleplay,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = EchoTokens.Radius.shapeMd,
+                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.AutoStories, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("转为角色扮演 / 故事创作", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall, color = dialogContentColor)
+                                Text("平滑升级为故事会话，解锁角色卡、世界观与剧情推进指令", style = MaterialTheme.typography.bodySmall, color = dialogSecondaryColor)
+                            }
+                            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = dialogSecondaryColor)
+                        }
+                    }
+                }
+
+                item {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "【优先级提示】若设置了对话系统提示词，全局系统提示词将被 100% 覆盖；若留空则自动继承全局系统提示词。",
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
+                                color = dialogSecondaryColor
+                            )
+                        }
+                    }
                 }
 
                 item {
@@ -4109,6 +4403,7 @@ private fun StoryUnifiedSettingsDialog(
     onSummarizeMemories: () -> Unit,
     onNavigateToMemory: () -> Unit,
     onOpenSmartAppend: () -> Unit,
+    onConvertToNormal: () -> Unit = {},
     onSaveLocalCharacter: (CharacterProfile) -> Unit = {},
     onDeleteLocalCharacter: (CharacterProfile) -> Unit = {},
     onSaveLocalScenario: (RoleplayScenario) -> Unit = {},
@@ -4207,12 +4502,17 @@ private fun StoryUnifiedSettingsDialog(
                     Tab(
                         selected = activeTab == 0,
                         onClick = { activeTab = 0 },
-                        text = { Text("📖 故事与角色", fontWeight = if (activeTab == 0) FontWeight.Bold else FontWeight.Normal) }
+                        text = { Text("🎭 剧情导向", fontWeight = if (activeTab == 0) FontWeight.Bold else FontWeight.Normal) }
                     )
                     Tab(
                         selected = activeTab == 1,
                         onClick = { activeTab = 1 },
-                        text = { Text("⚙️ 模型与参数", fontWeight = if (activeTab == 1) FontWeight.Bold else FontWeight.Normal) }
+                        text = { Text("👥 角色世界观", fontWeight = if (activeTab == 1) FontWeight.Bold else FontWeight.Normal) }
+                    )
+                    Tab(
+                        selected = activeTab == 2,
+                        onClick = { activeTab = 2 },
+                        text = { Text("⚙️ 模型参数", fontWeight = if (activeTab == 2) FontWeight.Bold else FontWeight.Normal) }
                     )
                 }
 
@@ -4250,6 +4550,151 @@ private fun StoryUnifiedSettingsDialog(
                                 }
                             }
 
+                            // 转为普通对话操作
+                            item {
+                                EchoGlassCard(
+                                    onClick = onConvertToNormal,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = EchoTokens.Radius.shapeMd,
+                                    containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.35f)
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Default.SwapHoriz, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary)
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("转为普通对话", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                                            Text("将角色与世界观设定转译融合为普通系统提示词，降级为日常聊天", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                        Icon(Icons.Default.ChevronRight, contentDescription = null)
+                                    }
+                                }
+                            }
+
+                            // 叙事模式选择
+                            item {
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("当前叙事模式", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                        Text("点击即时切换导演/对话风格", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                    NarrativeMode.values().forEach { mode ->
+                                        val isSelected = selectedNarrativeMode == mode
+                                        EchoGlassCard(
+                                            onClick = { selectedNarrativeMode = mode },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = EchoTokens.Radius.shapeSm,
+                                            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else Color.Unspecified
+                                        ) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(8.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                RadioButton(selected = isSelected, onClick = { selectedNarrativeMode = mode })
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Column {
+                                                    Text(mode.displayName, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+                                                    Text(mode.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 剧情推进快捷指令
+                            item {
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("剧情导演指令", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                        Text("即时引导或改写故事", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                    FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        ActionChip(text = "🎬 剧情走向选择") { onPlotAction(PlotAction.BRANCH_CHOICES, null) }
+                                        ActionChip(text = "⚡ 继续推进") { onPlotAction(PlotAction.CONTINUE, null) }
+                                        ActionChip(text = "🔄 重新生成") { onPlotAction(PlotAction.REGENERATE, null) }
+                                        ActionChip(text = "✏️ 重写上一段") { onPlotAction(PlotAction.REWRITE, null) }
+                                        ActionChip(text = "➕ 扩写细节") { onPlotAction(PlotAction.EXTEND, null) }
+                                        ActionChip(text = "➖ 精简提炼") { onPlotAction(PlotAction.SHORTEN, null) }
+                                        ActionChip(text = "👁️ 切换视角") { onPlotAction(PlotAction.CHANGE_PERSPECTIVE, null) }
+                                        ActionChip(text = "📝 剧情摘要") { onPlotAction(PlotAction.SUMMARY, null) }
+                                        ActionChip(text = "💬 自定义指令") { showCustomPlotDialog = true }
+                                    }
+                                }
+                            }
+
+                            // 一键提炼剧情摘要与记忆
+                            item {
+                                EchoGlassCard(
+                                    onClick = onSummarizeMemories,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = EchoTokens.Radius.shapeSm,
+                                    containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.35f)
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Default.AutoFixHigh, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary)
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("一键提炼剧情摘要与关键事实", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                                            Text("通过AI分析上下文，自动更新故事记忆与事实库", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 剧情备忘录/摘要编辑
+                            item {
+                                OutlinedTextField(
+                                    value = plotSummaryText,
+                                    onValueChange = { plotSummaryText = it },
+                                    label = { Text("当前剧情摘要 / 备忘录") },
+                                    placeholder = { Text("记录当前故事线推进到的关键阶段或核心暗线...") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    minLines = 2,
+                                    maxLines = 4
+                                )
+                            }
+
+                            // 记忆管理
+                            item {
+                                OutlinedButton(
+                                    onClick = onNavigateToMemory,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(Icons.Default.Memory, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("管理长期记忆与关键事实库")
+                                }
+                            }
+                        }
+                    } else if (activeTab == 1) {
+                        // activeTab == 1: 角色与世界观
+                        LazyColumn(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
                             // 登场角色勾选列表
                             item {
                                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -4415,123 +4860,9 @@ private fun StoryUnifiedSettingsDialog(
                                     }
                                 }
                             }
-
-                            // 叙事模式选择
-                            item {
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text("当前叙事模式", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                                        Text("点击即时切换导演/对话风格", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                    NarrativeMode.values().forEach { mode ->
-                                        val isSelected = selectedNarrativeMode == mode
-                                        EchoGlassCard(
-                                            onClick = { selectedNarrativeMode = mode },
-                                            modifier = Modifier.fillMaxWidth(),
-                                            shape = EchoTokens.Radius.shapeSm,
-                                            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else Color.Unspecified
-                                        ) {
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(8.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                RadioButton(selected = isSelected, onClick = { selectedNarrativeMode = mode })
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Column {
-                                                    Text(mode.displayName, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
-                                                    Text(mode.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // 剧情推进快捷指令
-                            item {
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text("剧情导演指令", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                                        Text("即时引导或改写故事", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                    FlowRow(
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                                    ) {
-                                        ActionChip(text = "🎬 剧情走向选择") { onPlotAction(PlotAction.BRANCH_CHOICES, null) }
-                                        ActionChip(text = "⚡ 继续推进") { onPlotAction(PlotAction.CONTINUE, null) }
-                                        ActionChip(text = "🔄 重新生成") { onPlotAction(PlotAction.REGENERATE, null) }
-                                        ActionChip(text = "✏️ 重写上一段") { onPlotAction(PlotAction.REWRITE, null) }
-                                        ActionChip(text = "➕ 扩写细节") { onPlotAction(PlotAction.EXTEND, null) }
-                                        ActionChip(text = "➖ 精简提炼") { onPlotAction(PlotAction.SHORTEN, null) }
-                                        ActionChip(text = "👁️ 切换视角") { onPlotAction(PlotAction.CHANGE_PERSPECTIVE, null) }
-                                        ActionChip(text = "📝 剧情摘要") { onPlotAction(PlotAction.SUMMARY, null) }
-                                        ActionChip(text = "💬 自定义指令") { showCustomPlotDialog = true }
-                                    }
-                                }
-                            }
-
-                            // 一键提炼剧情摘要与记忆
-                            item {
-                                EchoGlassCard(
-                                    onClick = onSummarizeMemories,
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = EchoTokens.Radius.shapeSm,
-                                    containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.35f)
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(10.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(Icons.Default.AutoFixHigh, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary)
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text("一键提炼剧情摘要与关键事实", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
-                                            Text("通过AI分析上下文，自动更新故事记忆与事实库", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        }
-                                    }
-                                }
-                            }
-
-                            // 剧情备忘录/摘要编辑
-                            item {
-                                OutlinedTextField(
-                                    value = plotSummaryText,
-                                    onValueChange = { plotSummaryText = it },
-                                    label = { Text("当前剧情摘要 / 备忘录") },
-                                    placeholder = { Text("记录当前故事线推进到的关键阶段或核心暗线...") },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    minLines = 2,
-                                    maxLines = 4
-                                )
-                            }
-
-                            // 记忆管理
-                            item {
-                                OutlinedButton(
-                                    onClick = onNavigateToMemory,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Icon(Icons.Default.Memory, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("管理长期记忆与关键事实库")
-                                }
-                            }
                         }
                     } else {
-                        // activeTab == 1: 模型与参数
+                        // activeTab == 2: 模型与参数
                         LazyColumn(
                             modifier = Modifier.fillMaxWidth(),
                             verticalArrangement = Arrangement.spacedBy(10.dp)

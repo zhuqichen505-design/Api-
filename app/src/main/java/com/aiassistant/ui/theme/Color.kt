@@ -41,35 +41,35 @@ val OutlineVariant = Color(0xFFF0F8FF)
 
 // ============ 深色主题 ============
 
-val DarkPrimary = Color(0xFF81B4FA)
-val DarkOnPrimary = Color(0xFF0F2744)
+val DarkPrimary = Color(0xFF60A5FA)
+val DarkOnPrimary = Color(0xFF0A192F)
 val DarkPrimaryContainer = Color(0xFF1E3A8A)
-val DarkOnPrimaryContainer = Color(0xFFF0F8FF)
+val DarkOnPrimaryContainer = Color(0xFFE0F2FE)
 
-val DarkSecondary = Color(0xFF7DD3FC)
+val DarkSecondary = Color(0xFF38BDF8)
 val DarkOnSecondary = Color(0xFF082F49)
-val DarkSecondaryContainer = Color(0xFF075985)
-val DarkOnSecondaryContainer = Color(0xFFF0F9FF)
+val DarkSecondaryContainer = Color(0xFF0369A1)
+val DarkOnSecondaryContainer = Color(0xFFE0F2FE)
 
-val DarkTertiary = Color(0xFFFDA4AF)
-val DarkOnTertiary = Color(0xFF4C0519)
-val DarkTertiaryContainer = Color(0xFF9F1239)
-val DarkOnTertiaryContainer = Color(0xFFFFE4E6)
+val DarkTertiary = Color(0xFF93C5FD)
+val DarkOnTertiary = Color(0xFF0F172A)
+val DarkTertiaryContainer = Color(0xFF1E3A5F)
+val DarkOnTertiaryContainer = Color(0xFFDBEAFE)
 
-val DarkBackground = Color(0xFF0B1020)
-val DarkOnBackground = Color(0xFFE2E8F0)
-val DarkSurface = Color(0xFF151D2C)
-val DarkOnSurface = Color(0xFFE2E8F0)
-val DarkSurfaceVariant = Color(0xFF1E293B)
-val DarkOnSurfaceVariant = Color(0xFFCBD5E1)
+val DarkBackground = Color(0xFF0A0F1E)
+val DarkOnBackground = Color(0xFFF8FAFC)
+val DarkSurface = Color(0xFF11192C)
+val DarkOnSurface = Color(0xFFF8FAFC)
+val DarkSurfaceVariant = Color(0xFF18233C)
+val DarkOnSurfaceVariant = Color(0xFF94A3B8)
 
 val DarkError = Color(0xFFFCA5A5)
 val DarkOnError = Color(0xFF7F1D1D)
 val DarkErrorContainer = Color(0xFF991B1B)
 val DarkOnErrorContainer = Color(0xFFFEF2F2)
 
-val DarkOutline = Color(0xFF475569)
-val DarkOutlineVariant = Color(0xFF334155)
+val DarkOutline = Color(0xFF334155)
+val DarkOutlineVariant = Color(0xFF1E293B)
 
 // ============ 功能色 ============
 
@@ -80,23 +80,23 @@ val InfoBlue = Color(0xFF6BA4F8)
 // ============ 消息气泡色 ============
 
 // 浅色主题
-val UserMessageBubble = Color(0xFF6BA4F8)
+val UserMessageBubble = Color(0xFF3B82F6)
 val AssistantMessageBubble = Color(0xFFFFFFFF)
 
 // 深色主题
-val DarkUserMessageBubble = Color(0xFF1E3A8A)
-val DarkAssistantMessageBubble = Color(0xFF151D2C)
+val DarkUserMessageBubble = Color(0xFF1E40AF)
+val DarkAssistantMessageBubble = Color(0xFF11192C)
 
 // ============ 特殊色 ============
 
 // 代码块背景
 val CodeBlockBackground = Color(0xFFF1F5F9)
-val DarkCodeBlockBackground = Color(0xFF1E293B)
+val DarkCodeBlockBackground = Color(0xFF0F172A)
 
-// 思考内容背景
-val ThinkingBackground = Color(0xFFFFF1F2)
-val DarkThinkingBackground = Color(0xFF4C0519)
+// 思考内容背景 (纯净浅冰蓝与深海蓝，杜绝杂乱红紫)
+val ThinkingBackground = Color(0xFFF0F7FF)
+val DarkThinkingBackground = Color(0xFF0E1A30)
 
 // 链接色
-val LinkColor = Color(0xFF6BA4F8)
-val DarkLinkColor = Color(0xFF81B4FA)
+val LinkColor = Color(0xFF2563EB)
+val DarkLinkColor = Color(0xFF60A5FA)

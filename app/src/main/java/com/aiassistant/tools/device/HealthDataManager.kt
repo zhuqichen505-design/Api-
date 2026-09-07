@@ -1,10 +1,14 @@
 package com.aiassistant.tools.device
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.os.Build
+import androidx.core.content.ContextCompat
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -22,9 +26,37 @@ class HealthDataManager(private val context: Context) : SensorEventListener {
         startListening()
     }
 
+    fun hasActivityRecognitionPermission(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.ACTIVITY_RECOGNITION
+            ) == PackageManager.PERMISSION_GRANTED
+        } else {
+            true
+        }
+    }
+
+    fun hasStepSensor(): Boolean = stepSensor != null
+
+    fun getSensorStatusText(): String {
+        return when {
+            stepSensor == null -> "设备无硬件计步传感器"
+            !hasActivityRecognitionPermission() -> "未授权活动识别权限"
+            isListening -> "硬件计步传感器运行中"
+            else -> "传感器待命就绪"
+        }
+    }
+
     fun startListening() {
+        if (!hasActivityRecognitionPermission()) return
         if (!isListening && stepSensor != null && sensorManager != null) {
             isListening = sensorManager.registerListener(this, stepSensor, SensorManager.SENSOR_DELAY_NORMAL)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+                    sensorManager.flush(this)
+                }
+            } catch (_: Exception) {}
         }
     }
 
@@ -33,6 +65,18 @@ class HealthDataManager(private val context: Context) : SensorEventListener {
             sensorManager.unregisterListener(this)
             isListening = false
         }
+    }
+
+    fun forceRefreshHardwareSteps(): HealthDataSummary {
+        stopListening()
+        startListening()
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+                sensorManager?.flush(this)
+            }
+        } catch (_: Exception) {}
+        prefs.edit().putLong(KEY_HEALTH_UPDATE_TIME, System.currentTimeMillis()).apply()
+        return getHealthDataSummary()
     }
 
     override fun onSensorChanged(event: SensorEvent?) {
@@ -161,6 +205,8 @@ class HealthDataManager(private val context: Context) : SensorEventListener {
             .putLong(KEY_HEALTH_UPDATE_TIME, System.currentTimeMillis())
             .apply()
     }
+
+    fun getLastUpdateTime(): Long = prefs.getLong(KEY_HEALTH_UPDATE_TIME, 0L)
 
     fun getHealthDataSummary(): HealthDataSummary {
         return HealthDataSummary(

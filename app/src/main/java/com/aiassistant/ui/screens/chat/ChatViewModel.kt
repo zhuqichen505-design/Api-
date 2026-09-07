@@ -65,6 +65,10 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
     val messageModelMap: StateFlow<Map<Long, String>> = _messageModelMap.asStateFlow()
     private val runtimeMessageModelMap = java.util.concurrent.ConcurrentHashMap<Long, String>()
 
+    // 智能记忆提取待确认候选
+    private val _pendingMemoryCandidate = MutableStateFlow<com.aiassistant.domain.model.PendingMemoryCandidate?>(null)
+    val pendingMemoryCandidate: StateFlow<com.aiassistant.domain.model.PendingMemoryCandidate?> = _pendingMemoryCandidate.asStateFlow()
+
     private var conversation: Conversation? = null
     private var apiConfig: ApiConfig? = null
     private var generationJob: Job? = null
@@ -509,7 +513,19 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                         variantGroupId = userVariantGroupId,
                         variantIndex = userVariantIndex
                     )
-                    repository.saveMessage(userMessage)
+                    val savedMsgId = repository.saveMessage(userMessage)
+
+                    // 智能记忆提取（仅在普通会话生效，需用户在界面主动确认才入库）
+                    if (_uiState.value.roleplaySession == null && content.isNotBlank()) {
+                        val candidate = com.aiassistant.utils.SmartMemoryExtractor.extractCandidate(
+                            content = content,
+                            conversationId = conversationId,
+                            messageId = savedMsgId
+                        )
+                        if (candidate != null) {
+                            _pendingMemoryCandidate.value = candidate
+                        }
+                    }
                 }
 
                 val selectedConfig = repository.getDecryptedConfig(selectedOption.apiConfigId)
@@ -800,6 +816,70 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
             repository.createBranch(conversationId, messageId, newConversationId)
 
             onComplete(newConversationId)
+        }
+    }
+
+    fun acceptPendingMemory(scope: String) {
+        val candidate = _pendingMemoryCandidate.value ?: return
+        viewModelScope.launch {
+            val targetScope = if (scope == "session" || scope == "conversation") "conversation" else "user"
+            repository.saveConfirmedMemory(
+                content = candidate.distilledContent,
+                scope = targetScope,
+                conversationId = if (targetScope == "conversation") candidate.conversationId else null,
+                sourceMessageId = candidate.sourceMessageId
+            )
+            _pendingMemoryCandidate.value = null
+        }
+    }
+
+    fun dismissPendingMemory() {
+        _pendingMemoryCandidate.value = null
+    }
+
+    fun convertToRoleplay(
+        charName: String? = null,
+        charIdentity: String? = null,
+        charPersonality: String? = null,
+        scenarioName: String? = null,
+        onSuccess: (Long) -> Unit
+    ) {
+        viewModelScope.launch {
+            val db = AiAssistantApp.instance.database
+            val converter = com.aiassistant.utils.ConversationConverter(
+                conversationDao = db.conversationDao(),
+                messageDao = db.messageDao(),
+                roleplaySessionDao = db.roleplaySessionDao(),
+                characterProfileDao = db.characterProfileDao(),
+                roleplayScenarioDao = db.roleplayScenarioDao()
+            )
+            val sessionId = converter.convertToRoleplay(
+                conversationId = conversationId,
+                charName = charName,
+                charIdentity = charIdentity,
+                charPersonality = charPersonality,
+                scenarioName = scenarioName
+            )
+            loadConversation()
+            onSuccess(sessionId)
+        }
+    }
+
+    fun convertToNormal(onSuccess: () -> Unit) {
+        viewModelScope.launch {
+            val db = AiAssistantApp.instance.database
+            val converter = com.aiassistant.utils.ConversationConverter(
+                conversationDao = db.conversationDao(),
+                messageDao = db.messageDao(),
+                roleplaySessionDao = db.roleplaySessionDao(),
+                characterProfileDao = db.characterProfileDao(),
+                roleplayScenarioDao = db.roleplayScenarioDao()
+            )
+            val success = converter.convertToNormal(conversationId)
+            if (success) {
+                loadConversation()
+                onSuccess()
+            }
         }
     }
 

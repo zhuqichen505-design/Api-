@@ -215,6 +215,17 @@ data class MemoryItem(
     val updatedAt: Long = System.currentTimeMillis()
 )
 
+// 待用户确认的智能提炼记忆候选
+data class PendingMemoryCandidate(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val distilledContent: String,
+    val originalSnippet: String,
+    val suggestedScope: String = "user", // "user" (长期记忆) 或 "conversation" (会话记忆)
+    val conversationId: Long,
+    val sourceMessageId: Long? = null,
+    val category: String = "PREFERENCE"   // "PREFERENCE", "FACT", "PROJECT"
+)
+
 // 会话分支
 @Entity(
     tableName = "conversation_branches",

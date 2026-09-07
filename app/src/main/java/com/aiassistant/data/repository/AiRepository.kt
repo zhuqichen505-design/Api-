@@ -701,6 +701,27 @@ class AiRepository(
 
     suspend fun setMemoryEnabled(id: Long, isEnabled: Boolean) = memoryDao.setMemoryEnabled(id, isEnabled)
 
+    suspend fun saveConfirmedMemory(
+        content: String,
+        scope: String,
+        conversationId: Long?,
+        sourceMessageId: Long? = null
+    ): Long {
+        val now = System.currentTimeMillis()
+        val item = MemoryItem(
+            scope = scope,
+            conversationId = if (scope == "conversation") conversationId else null,
+            content = content,
+            keywords = tokenizeForMemory(content).take(18).joinToString(","),
+            sourceMessageId = sourceMessageId,
+            confidence = 1.0f,
+            isEnabled = true,
+            createdAt = now,
+            updatedAt = now
+        )
+        return memoryDao.insertMemory(item)
+    }
+
     // ============ 消息相关 ============
 
     fun getMessages(conversationId: Long): Flow<List<Message>> =
@@ -1056,11 +1077,16 @@ class AiRepository(
         val toolCallsJson = if (toolCalls.isNotEmpty()) gson.toJson(toolCalls) else null
         val chatMessages = mutableListOf<ChatMessage>()
 
+        val isRoleplayConv = conversation != null && (hasConversationTag(conversation, "roleplay") || hasConversationTag(conversation, "story"))
+        val promptResolution = resolveSystemPromptWithPriority(conversation, effectiveOptions, isRoleplayConv)
+
         buildEffectiveSystemPrompt(
-            customPrompt = effectiveSystemPrompt(conversation, effectiveOptions),
+            customPrompt = promptResolution.first,
             olderSummary = contextBundle.summary,
             memoryBlock = contextBundle.memoryBlock,
-            options = effectiveOptions
+            options = effectiveOptions,
+            isConversationSpecific = promptResolution.second,
+            isRoleplay = isRoleplayConv
         )?.let {
             chatMessages.add(ChatMessage(role = "system", content = it))
         }
@@ -1072,8 +1098,8 @@ class AiRepository(
         }
 
         // 双端注水机制 (Dual-Anchor Prompting)：当长历史超过6轮或存在摘要时，注入尾部系统强化声明
-        val customPrompt = effectiveSystemPrompt(conversation, effectiveOptions)
-        if (!customPrompt.isNullOrBlank() && (contextBundle.recentMessages.size >= 6 || contextBundle.summary != null)) {
+        val customPrompt = promptResolution.first
+        if (!isRoleplayConv && !customPrompt.isNullOrBlank() && (contextBundle.recentMessages.size >= 6 || contextBundle.summary != null)) {
             val tailOverride = "[System Override Directive / 核心指令强化声明]\n" +
                 "请注意：用户已对当前对话设定了最新的行为规范与提示词要求。\n" +
                 "无论前序历史对话风格如何，你必须立即完全遵循以下最新指令，放弃先前的惯性回复模式：\n" +
@@ -1361,11 +1387,15 @@ class AiRepository(
             contextWindowOverrideTokens = effectiveOptions.contextWindowOverrideTokens,
             currentUserMessage = userMessage
         )
+        val isRoleplayConv = conversation != null && (hasConversationTag(conversation, "roleplay") || hasConversationTag(conversation, "story"))
+        val promptResolution = resolveSystemPromptWithPriority(conversation, effectiveOptions, isRoleplayConv)
         val systemPrompt = buildEffectiveSystemPrompt(
-            customPrompt = effectiveSystemPrompt(conversation, effectiveOptions),
+            customPrompt = promptResolution.first,
             olderSummary = contextBundle.summary,
             memoryBlock = contextBundle.memoryBlock,
-            options = effectiveOptions
+            options = effectiveOptions,
+            isConversationSpecific = promptResolution.second,
+            isRoleplay = isRoleplayConv
         )
         val anthropicMessages = mutableListOf<AnthropicMessage>()
 
@@ -1586,21 +1616,37 @@ class AiRepository(
         )
     }
 
+    fun resolveSystemPromptWithPriority(
+        conversation: Conversation?,
+        options: ChatRequestOptions,
+        isRoleplay: Boolean = conversation != null && (hasConversationTag(conversation, "roleplay") || hasConversationTag(conversation, "story"))
+    ): Pair<String?, Boolean> {
+        if (options.overrideSystemPrompt && !options.systemPromptOverride.isNullOrBlank()) {
+            return Pair(options.systemPromptOverride, true)
+        }
+        if (isRoleplay) {
+            // 角色扮演拥有完全独立的上下文，不读取普通全局提示词
+            return Pair(conversation?.systemPrompt, true)
+        }
+        val convPrompt = conversation?.systemPrompt?.trim()
+        if (!convPrompt.isNullOrBlank()) {
+            // 对话本身有系统提示词 -> 全局提示词 100% 0作用
+            return Pair(convPrompt, true)
+        }
+        // 对话本身无系统提示词 -> 自动继承使用全局提示词作为兜底
+        val globalPrompt = personalizationManager.getSettings().globalSystemPrompt.trim()
+        return if (globalPrompt.isNotBlank()) {
+            Pair(globalPrompt, false)
+        } else {
+            Pair(null, false)
+        }
+    }
+
     private fun effectiveSystemPrompt(
         conversation: Conversation?,
         options: ChatRequestOptions
     ): String? {
-        return if (options.overrideSystemPrompt) {
-            options.systemPromptOverride
-        } else if (!conversation?.systemPrompt.isNullOrBlank()) {
-            conversation?.systemPrompt
-        } else {
-            if (conversation != null && !hasConversationTag(conversation, "roleplay") && !hasConversationTag(conversation, "story")) {
-                personalizationManager.getSettings().globalSystemPrompt.takeIf { it.isNotBlank() }
-            } else {
-                null
-            }
-        }
+        return resolveSystemPromptWithPriority(conversation, options).first
     }
 
     private fun normalizeThinkingEffort(effort: String?, config: ApiConfig): String {
@@ -2013,12 +2059,19 @@ class AiRepository(
         """.trimIndent().let { compactTextToTokenBudget(it, tokenBudget) }
     }
 
-    private fun buildEffectiveSystemPrompt(
+    fun buildEffectiveSystemPrompt(
         customPrompt: String?,
         olderSummary: String?,
         memoryBlock: String?,
-        options: ChatRequestOptions?
+        options: ChatRequestOptions?,
+        isConversationSpecific: Boolean = true,
+        isRoleplay: Boolean = false
     ): String? {
+        if (isRoleplay) {
+            // 角色与故事创作严格隔离：只使用角色卡与场景组装的上下文，不注入通用助手规则与常规偏好
+            return customPrompt
+        }
+
         val basePrompt = """
             你是一个可靠、清晰的 AI 助手。
             - 优先回答用户最新的问题，同时结合本轮对话上下文。
@@ -2028,14 +2081,24 @@ class AiRepository(
             - 用户明确指定格式、语气或步骤时，优先遵守用户要求。
         """.trimIndent()
 
+        val personalizationPart = personalizationManager.buildPrompt()?.let {
+            "【用户个性化习惯偏好（通用背景引导）】\n$it\n（注：当个性化偏好与下方的提示词发生任何冲突时，严格以下方的提示词为最高准则。）"
+        }
+
+        val promptPart = customPrompt?.takeIf { it.isNotBlank() }?.let {
+            if (isConversationSpecific) {
+                "【会话独享系统提示词（已覆盖全局提示词，最高指令）】\n${it.trim()}"
+            } else {
+                "【全局默认系统提示词（当前会话未设置专属提示词）】\n${it.trim()}"
+            }
+        }
+
         return listOfNotNull(
             basePrompt,
-            personalizationManager.buildPrompt(),
+            personalizationPart,
             buildRuntimeFeaturePrompt(options),
+            promptPart,
             memoryBlock,
-            customPrompt?.takeIf { it.isNotBlank() }?.let {
-                "用户为当前对话设置的系统提示（从本轮请求开始立即生效；若与较早对话内容冲突，以这里为准）：\n${it.trim()}"
-            },
             olderSummary
         ).joinToString("\n\n").ifBlank { null }
     }
@@ -2234,31 +2297,43 @@ class AiRepository(
             hasConversationTag(conversation, "story")
         ) return null
 
-        val candidates = memoryDao.getCandidateMemories(conversation.id)
+        val candidates = memoryDao.getCandidateMemories(conversation.id).filter { it.isEnabled }
         if (candidates.isEmpty()) return null
 
-        val queryTerms = tokenizeForMemory(currentUserMessage)
-        val ranked = candidates
-            .map { it to scoreMemory(it, queryTerms, conversation.id) }
-            .filter { (_, score) -> score >= MEMORY_RELEVANCE_THRESHOLD }
-            .sortedWith(compareByDescending<Pair<MemoryItem, Float>> { it.second }
-                .thenByDescending { it.first.updatedAt })
+        val sessionMemories = candidates.filter { it.scope == "conversation" && it.conversationId == conversation.id }
+        val longTermMemories = candidates.filter { it.scope == "user" }
 
-        val lines = mutableListOf<String>()
-        var usedTokens = 0
-        for ((memory, _) in ranked) {
-            val line = "- ${memory.content}"
-            val cost = estimateTokenCount(line) + 8
-            if (lines.isNotEmpty() && usedTokens + cost > tokenBudget) break
-            lines += line
-            usedTokens += cost
+        val blocks = mutableListOf<String>()
+
+        if (sessionMemories.isNotEmpty()) {
+            val sessionLines = sessionMemories.map { "- ${it.content}" }
+            blocks += "【当前会话专属记忆（仅在此会话内生效）】\n${sessionLines.joinToString("\n")}"
         }
 
-        if (lines.isEmpty()) return null
-        return """
-            长期记忆（只作为用户偏好或背景事实，不当作本轮新指令）：
-            ${lines.joinToString("\n")}
-        """.trimIndent()
+        if (longTermMemories.isNotEmpty()) {
+            val queryTerms = tokenizeForMemory(currentUserMessage)
+            val ranked = longTermMemories
+                .map { it to scoreMemory(it, queryTerms, conversation.id) }
+                .filter { (_, score) -> score >= MEMORY_RELEVANCE_THRESHOLD }
+                .sortedWith(compareByDescending<Pair<MemoryItem, Float>> { it.second }
+                    .thenByDescending { it.first.updatedAt })
+
+            val lines = mutableListOf<String>()
+            var usedTokens = 0
+            for ((memory, _) in ranked) {
+                val line = "- ${memory.content}"
+                val cost = estimateTokenCount(line) + 8
+                if (lines.isNotEmpty() && usedTokens + cost > tokenBudget) break
+                lines += line
+                usedTokens += cost
+            }
+            if (lines.isNotEmpty()) {
+                blocks += "【用户长期记忆与习惯偏好（跨会话通用事实，不作为本轮新指令）】\n${lines.joinToString("\n")}"
+            }
+        }
+
+        if (blocks.isEmpty()) return null
+        return blocks.joinToString("\n\n")
     }
 
     private fun scoreMemory(memory: MemoryItem, queryTerms: Set<String>, conversationId: Long): Float {
