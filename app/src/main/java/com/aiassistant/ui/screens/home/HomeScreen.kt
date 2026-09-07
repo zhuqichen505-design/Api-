@@ -1507,12 +1507,15 @@ fun ConversationCard(
                 }
                 Spacer(modifier = Modifier.height(4.dp))
                 Row(
+                    modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // 模型标签
+                    // 模型标签：增加弹性权重与不折行保护，超长截断，绝不挤压后续消息数量
                     Surface(
-                        modifier = Modifier.height(24.dp),
+                        modifier = Modifier
+                            .height(24.dp)
+                            .weight(1f, fill = false),
                         shape = RoundedCornerShape(999.dp),
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.54f),
                         contentColor = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1522,15 +1525,18 @@ fun ConversationCard(
                             style = MaterialTheme.typography.labelSmall,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            overflow = TextOverflow.Ellipsis,
+                            softWrap = false
                         )
                     }
 
-                    // 消息数量
+                    // 消息数量：保持完整展示与单行防折行
                     Text(
                         text = "${conversation.messageCount} 条消息",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
             }

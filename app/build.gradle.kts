@@ -13,8 +13,8 @@ android {
         applicationId = "com.aiassistant"
         minSdk = 26
         targetSdk = 34
-        versionCode = 91
-        versionName = "1.9.11"
+        versionCode = 92
+        versionName = "1.9.12"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -66,7 +66,7 @@ android {
         unitTests {
             isReturnDefaultValues = true
             all {
-                it.jvmArgs("-Dfile.encoding=UTF-8", "-Dsun.jnu.encoding=UTF-8")
+                it.jvmArgs("-Dfile.encoding=UTF-8")
             }
         }
     }

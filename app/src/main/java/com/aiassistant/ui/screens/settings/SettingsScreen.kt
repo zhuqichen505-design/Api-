@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.sp
 import com.aiassistant.AiAssistantApp
 import com.aiassistant.BuildConfig
 import com.aiassistant.R
+import com.aiassistant.data.repository.AiRepository
 import com.aiassistant.domain.model.ApiConfig
 import com.aiassistant.domain.model.Conversation
 import com.aiassistant.domain.model.EnvironmentVariable
@@ -2753,6 +2754,11 @@ fun ApiConfigDialog(
     var enabledModelNames by remember { mutableStateOf<Set<String>>(emptySet()) }
     var modelCapabilities by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var modelsExpanded by remember { mutableStateOf(false) }
+    var modelSearchQuery by remember { mutableStateOf("") }
+    val filteredModels = remember(availableModels, modelSearchQuery) {
+        if (modelSearchQuery.isBlank()) availableModels
+        else availableModels.filter { it.contains(modelSearchQuery.trim(), ignoreCase = true) }
+    }
     var isLoadingModels by remember { mutableStateOf(false) }
     var selectedApiAvatarUri by remember { mutableStateOf<android.net.Uri?>(null) }
     var clearApiAvatar by remember { mutableStateOf(false) }
@@ -2812,7 +2818,7 @@ fun ApiConfigDialog(
         text = {
             LazyColumn(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.heightIn(max = 400.dp)
+                modifier = Modifier.heightIn(max = 500.dp)
             ) {
                 // 预设选择
                 item {
@@ -2891,11 +2897,23 @@ fun ApiConfigDialog(
 
                 // API Key
                 item {
+                    val detectedKeys = remember(apiKey) {
+                        AiRepository.parseApiKeys(apiKey)
+                    }
                     SettingsInputField(
-                        title = "API Key",
+                        title = if (detectedKeys.size > 1) "API Key (已录入 ${detectedKeys.size} 个密钥 · 自动故障转移)" else "API Key",
                         value = apiKey,
                         onValueChange = { apiKey = it },
-                        placeholder = "sk-..."
+                        placeholder = "sk-...\n支持输入多个 Key（换行、分号或逗号分隔），第一个失败后自动使用下一个",
+                        singleLine = false,
+                        minLines = 2,
+                        maxLines = 4
+                    )
+                    Text(
+                        text = "💡 支持输入多个 Key（换行、分号或逗号隔开）。请求超时重连 3 次失败或连接报错时，将自动切换至下一个可用 Key 并透明重试。",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 2.dp, top = 2.dp)
                     )
                 }
 
@@ -3005,65 +3023,133 @@ fun ApiConfigDialog(
                             shape = SettingsInnerShape,
                             color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
                         ) {
-                            Row(
+                            Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(horizontal = 12.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        Icons.AutoMirrored.Filled.List,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp),
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            Icons.AutoMirrored.Filled.List,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp),
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = if (modelSearchQuery.isNotBlank()) "可用模型 (${filteredModels.size}/${availableModels.size})" else "可用模型列表 (共 ${availableModels.size} 个)",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
                                     Text(
-                                        text = "可用模型列表 (共 ${availableModels.size} 个)",
-                                        style = MaterialTheme.typography.titleSmall,
-                                        color = MaterialTheme.colorScheme.primary
+                                        text = "已启用 ${enabledModelNames.size} 个",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
-                                Text(
-                                    text = "已启用 ${enabledModelNames.size} 个",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+
+                                OutlinedTextField(
+                                    value = modelSearchQuery,
+                                    onValueChange = { modelSearchQuery = it },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    placeholder = { Text("搜索模型名称 (如: deepseek, gpt, claude)...", style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.5.sp)) },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    },
+                                    trailingIcon = if (modelSearchQuery.isNotBlank()) {
+                                        {
+                                            IconButton(onClick = { modelSearchQuery = "" }, modifier = Modifier.size(24.dp)) {
+                                                Icon(Icons.Default.Clear, contentDescription = "清除搜索", modifier = Modifier.size(14.dp))
+                                            }
+                                        }
+                                    } else null,
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(10.dp),
+                                    textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                        focusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
+                                        unfocusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.3f)
+                                    )
                                 )
+
+                                if (modelSearchQuery.isNotBlank() && filteredModels.isNotEmpty()) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        TextButton(
+                                            onClick = { enabledModelNames = enabledModelNames + filteredModels.toSet() },
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Text("勾选搜出的 ${filteredModels.size} 个", style = MaterialTheme.typography.labelSmall)
+                                        }
+                                        TextButton(
+                                            onClick = { enabledModelNames = enabledModelNames - filteredModels.toSet() },
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Text("取消搜出的 ${filteredModels.size} 个", style = MaterialTheme.typography.labelSmall)
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
 
-                    items(availableModels, key = { it }) { model ->
-                        ModelDisplaySelectionRow(
-                            model = model,
-                            checked = enabledModelNames.contains(model),
-                            selected = modelName == model,
-                            capability = modelCapabilities[model] ?: "auto",
-                            onCheckedChange = { checked ->
-                                enabledModelNames = if (checked) {
-                                    enabledModelNames + model
-                                } else {
-                                    enabledModelNames - model
-                                }
-                            },
-                            onSelectAsDefault = {
-                                modelName = model
-                                enabledModelNames = enabledModelNames + model
-                            },
-                            onRowClick = {
-                                enabledModelNames = if (enabledModelNames.contains(model)) {
-                                    enabledModelNames - model
-                                } else {
-                                    enabledModelNames + model
-                                }
-                                if (modelName.isBlank()) modelName = model
-                            },
-                            onCapabilityChange = { capability ->
-                                modelCapabilities = modelCapabilities + (model to capability)
+                    if (filteredModels.isEmpty()) {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 16.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "未找到包含 “$modelSearchQuery” 的模型",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
-                        )
+                        }
+                    } else {
+                        items(filteredModels, key = { it }) { model ->
+                            ModelDisplaySelectionRow(
+                                model = model,
+                                checked = enabledModelNames.contains(model),
+                                selected = modelName == model,
+                                capability = modelCapabilities[model] ?: "auto",
+                                onCheckedChange = { checked ->
+                                    enabledModelNames = if (checked) {
+                                        enabledModelNames + model
+                                    } else {
+                                        enabledModelNames - model
+                                    }
+                                },
+                                onSelectAsDefault = {
+                                    modelName = model
+                                    enabledModelNames = enabledModelNames + model
+                                },
+                                onRowClick = {
+                                    enabledModelNames = if (enabledModelNames.contains(model)) {
+                                        enabledModelNames - model
+                                    } else {
+                                        enabledModelNames + model
+                                    }
+                                    if (modelName.isBlank()) modelName = model
+                                },
+                                onCapabilityChange = { capability ->
+                                    modelCapabilities = modelCapabilities + (model to capability)
+                                }
+                            )
+                        }
                     }
                 }
 

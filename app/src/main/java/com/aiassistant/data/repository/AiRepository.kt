@@ -44,7 +44,7 @@ class AiRepository(
     private val modelContextWindowCache = ConcurrentHashMap<String, Int>()
     private val runtimeContextWindowLimitCache = ConcurrentHashMap<String, Int>()
 
-    private companion object {
+    companion object {
         const val SUMMARY_BUDGET_RATIO = 0.14f
         const val MEMORY_BUDGET_RATIO = 0.08f
         const val SYSTEM_PROMPT_TOKEN_RESERVE = 900
@@ -73,6 +73,40 @@ class AiRepository(
         const val MEMORY_RECENCY_WINDOW_MS = 14f * 24f * 60f * 60f * 1000f
         const val DEFAULT_UNKNOWN_CONTEXT_WINDOW_TOKENS = 1_000_000
         const val CONTEXT_OVERFLOW_RETRY_WINDOW_TOKENS = 32_000
+
+        fun parseApiKeys(rawKey: String?): List<String> {
+            if (rawKey.isNullOrBlank()) return emptyList()
+            return rawKey
+                .split(Regex("[\\n,;]+"))
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .distinct()
+        }
+
+        fun isTimeoutException(e: Throwable): Boolean {
+            if (e is java.net.SocketTimeoutException) return true
+            var current: Throwable? = e
+            while (current != null) {
+                if (current is java.net.SocketTimeoutException) return true
+                val msg = current.message?.lowercase().orEmpty()
+                if (msg.contains("timeout") || msg.contains("timed out") || msg.contains("time out")) return true
+                current = current.cause
+            }
+            return false
+        }
+
+        fun estimateTokenCount(text: String): Int {
+            val trimmed = text.trim()
+            if (trimmed.isEmpty()) return 0
+            val cjkCount = trimmed.count { Character.UnicodeScript.of(it.code) in setOf(
+                Character.UnicodeScript.HAN,
+                Character.UnicodeScript.HIRAGANA,
+                Character.UnicodeScript.KATAKANA,
+                Character.UnicodeScript.HANGUL
+            ) }
+            val asciiCount = trimmed.length - cjkCount
+            return (cjkCount / 1.7f + asciiCount / 4.0f).toInt().coerceAtLeast(1)
+        }
     }
 
     fun cancelActiveRequest(conversationId: Long) {
@@ -296,22 +330,26 @@ class AiRepository(
         }
     }
 
-    // 直接获取模型列表（不保存配置）
+    // 直接获取模型列表（不保存配置，支持多Key轮询尝试）
     suspend fun fetchAvailableModelsDirect(baseUrl: String, apiKey: String, apiType: String = "openai"): Result<List<String>> {
         return withContext(Dispatchers.IO) {
-            try {
-                val normalizedBaseUrl = normalizeApiBaseUrl(baseUrl, apiType)
-                val models = fetchModelsFromEndpoint(normalizedBaseUrl, apiKey, apiType)
-                val cleanedModels = sanitizeModelNames(models)
-                if (cleanedModels.isEmpty()) {
-                    Result.failure(Exception("该API未返回模型列表，请手动输入模型名称"))
-                } else {
-                    Result.success(cleanedModels)
+            val allKeys = parseApiKeys(apiKey).ifEmpty { listOf(apiKey) }
+            var lastException: Exception? = null
+
+            for (key in allKeys) {
+                try {
+                    val normalizedBaseUrl = normalizeApiBaseUrl(baseUrl, apiType)
+                    val models = fetchModelsFromEndpoint(normalizedBaseUrl, key, apiType)
+                    val cleanedModels = sanitizeModelNames(models)
+                    if (cleanedModels.isNotEmpty()) {
+                        return@withContext Result.success(cleanedModels)
+                    }
+                } catch (e: Exception) {
+                    Log.w(tag, "Key获取模型列表失败: ${e.message}，尝试下一Key")
+                    lastException = e
                 }
-            } catch (e: Exception) {
-                Log.e(tag, "获取模型列表失败", e)
-                Result.failure(Exception(e.message ?: "网络错误，请检查API地址是否正确"))
             }
+            Result.failure(lastException ?: Exception("未能获取到模型列表，请手动输入模型名称"))
         }
     }
 
@@ -857,10 +895,53 @@ class AiRepository(
         onComplete: (String, String?, Any?) -> Unit
     ) {
         val historyMessages = getMessagesList(conversationId)
-        when (config.apiType) {
-            "anthropic" -> sendAnthropicMessage(config, conversationId, historyMessages, userMessage, attachments, options, assistantVariantGroupId, assistantVariantIndex, onToken, onThinkingToken, onComplete)
-            else -> sendOpenAIMessage(config, conversationId, historyMessages, userMessage, attachments, options, assistantVariantGroupId, assistantVariantIndex, onToken, onThinkingToken, onComplete)
+        val allKeys = parseApiKeys(config.apiKey).ifEmpty { listOf(config.apiKey) }
+        var lastException: Exception? = null
+
+        for ((keyIndex, currentKey) in allKeys.withIndex()) {
+            val keyConfig = config.copy(apiKey = currentKey)
+            var attempt = 0
+            val maxTimeoutAttempts = 3 // 遇连接超时最多重试3次
+
+            while (attempt <= maxTimeoutAttempts) {
+                try {
+                    when (keyConfig.apiType) {
+                        "anthropic" -> sendAnthropicMessage(
+                            keyConfig, conversationId, historyMessages, userMessage, attachments,
+                            options, assistantVariantGroupId, assistantVariantIndex,
+                            onToken, onThinkingToken, onComplete
+                        )
+                        else -> sendOpenAIMessage(
+                            keyConfig, conversationId, historyMessages, userMessage, attachments,
+                            options, assistantVariantGroupId, assistantVariantIndex,
+                            onToken, onThinkingToken, onComplete
+                        )
+                    }
+                    return // 请求成功完成
+                } catch (e: Exception) {
+                    if (isRequestCancellation(e)) throw e
+                    lastException = e
+                    if (isTimeoutException(e)) {
+                        attempt++
+                        if (attempt <= maxTimeoutAttempts) {
+                            Log.w(tag, "Key[$keyIndex] 连接超时，第 $attempt 次自动重试中...")
+                            kotlinx.coroutines.delay(500L * attempt)
+                            continue
+                        } else {
+                            Log.w(tag, "Key[$keyIndex] 超时重试已达 $maxTimeoutAttempts 次，切换下一个 Key")
+                            break
+                        }
+                    } else {
+                        // 非超时报错（如 401, 403, 429, 500 等 API 错误）
+                        Log.w(tag, "Key[$keyIndex] 请求报错: ${e.message}，尝试切换下一个 Key")
+                        break
+                    }
+                }
+            }
         }
+
+        // 所有 Key 都尝试失败
+        throw lastException ?: Exception("所有 API Key 均连接失败或报错")
     }
 
     private suspend fun retryWithCompressedContext(
@@ -1030,6 +1111,7 @@ class AiRepository(
 
                 val contentBuilder = StringBuilder()
                 val thinkingBuilder = StringBuilder()
+                var isInThinkTag = false
                 var totalTokens = 0
                 var inputTokens = 0
                 var outputTokens = 0
@@ -1049,20 +1131,70 @@ class AiRepository(
                                 val chunk = gson.fromJson(data, ChatCompletionChunk::class.java)
                                 val delta = chunk.choices?.firstOrNull()?.delta
 
-                                // 处理普通内容
-                                delta?.content?.let { content ->
-                                    contentBuilder.append(content)
-                                    onToken(content)
-                                }
-
-                                // 处理思考内容（DeepSeek/Qwen/Claude 兼容网关等字段名不完全一致）
+                                // 处理思考内容（DeepSeek/Qwen/Claude/Gemini 兼容网关等字段名全覆盖）
                                 val thinkingChunk = delta?.reasoning_content
+                                    ?: delta?.reasoning_content_camel
+                                    ?: delta?.reasoningContent
                                     ?: delta?.reasoning
                                     ?: delta?.thinking
                                     ?: delta?.thinking_content
+                                    ?: delta?.thought
                                 thinkingChunk?.let { thinking ->
                                     thinkingBuilder.append(thinking)
                                     onThinkingToken(thinking)
+                                }
+
+                                // 处理普通内容（若包含 <think> 标签，支持动态分流到思考通道）
+                                delta?.content?.let { content ->
+                                    if (isInThinkTag) {
+                                        if (content.contains("</think>")) {
+                                            val parts = content.split("</think>", limit = 2)
+                                            val inside = parts[0]
+                                            val after = parts.getOrNull(1).orEmpty()
+                                            if (inside.isNotEmpty()) {
+                                                thinkingBuilder.append(inside)
+                                                onThinkingToken(inside)
+                                            }
+                                            isInThinkTag = false
+                                            if (after.isNotEmpty()) {
+                                                contentBuilder.append(after)
+                                                onToken(after)
+                                            }
+                                        } else {
+                                            thinkingBuilder.append(content)
+                                            onThinkingToken(content)
+                                        }
+                                    } else if (content.contains("<think>")) {
+                                        val parts = content.split("<think>", limit = 2)
+                                        val before = parts[0]
+                                        val insideAndAfter = parts.getOrNull(1).orEmpty()
+                                        if (before.isNotEmpty()) {
+                                            contentBuilder.append(before)
+                                            onToken(before)
+                                        }
+                                        if (insideAndAfter.contains("</think>")) {
+                                            val subParts = insideAndAfter.split("</think>", limit = 2)
+                                            val inside = subParts[0]
+                                            val after = subParts.getOrNull(1).orEmpty()
+                                            if (inside.isNotEmpty()) {
+                                                thinkingBuilder.append(inside)
+                                                onThinkingToken(inside)
+                                            }
+                                            if (after.isNotEmpty()) {
+                                                contentBuilder.append(after)
+                                                onToken(after)
+                                            }
+                                        } else {
+                                            isInThinkTag = true
+                                            if (insideAndAfter.isNotEmpty()) {
+                                                thinkingBuilder.append(insideAndAfter)
+                                                onThinkingToken(insideAndAfter)
+                                            }
+                                        }
+                                    } else {
+                                        contentBuilder.append(content)
+                                        onToken(content)
+                                    }
                                 }
 
                                 // 处理usage
@@ -1085,8 +1217,22 @@ class AiRepository(
                 }
 
                 val responseTime = System.currentTimeMillis() - startTime
-                val fullContent = contentBuilder.toString()
-                val fullThinking = thinkingBuilder.toString().ifEmpty { null }
+                var fullContent = contentBuilder.toString()
+                var fullThinking = thinkingBuilder.toString().ifEmpty { null }
+
+                // 兜底提取：若思考内容未被流式单独捕获但文本中带有 <think> 标签，将其分离并持久化到 thinkingContent
+                if (fullThinking == null && fullContent.contains("<think>", ignoreCase = true)) {
+                    val thinkRegex = Regex("<think>([\\s\\S]*?)(?:</think>|$)", RegexOption.IGNORE_CASE)
+                    val match = thinkRegex.find(fullContent)
+                    if (match != null) {
+                        val extracted = match.groupValues[1].trim()
+                        if (extracted.isNotEmpty()) {
+                            fullThinking = extracted
+                        }
+                        fullContent = fullContent.replace(match.value, "").trim()
+                    }
+                }
+
                 val finalThinkingTokens = thinkingTokens.takeIf { it > 0 } ?: estimateTokenCount(fullThinking.orEmpty())
                 val finalOutputTokens = outputTokens.takeIf { it > 0 } ?: estimateTokenCount(fullContent)
                 val finalInputTokens = inputTokens.takeIf { it > 0 }
@@ -1295,8 +1441,20 @@ class AiRepository(
                 }
 
                 val responseTime = System.currentTimeMillis() - startTime
-                val fullContent = contentBuilder.toString()
-                val fullThinking = thinkingBuilder.toString().ifEmpty { null }
+                var fullContent = contentBuilder.toString()
+                var fullThinking = thinkingBuilder.toString().ifEmpty { null }
+
+                if (fullThinking == null && fullContent.contains("<think>", ignoreCase = true)) {
+                    val thinkRegex = Regex("<think>([\\s\\S]*?)(?:</think>|$)", RegexOption.IGNORE_CASE)
+                    val match = thinkRegex.find(fullContent)
+                    if (match != null) {
+                        val extracted = match.groupValues[1].trim()
+                        if (extracted.isNotEmpty()) {
+                            fullThinking = extracted
+                        }
+                        fullContent = fullContent.replace(match.value, "").trim()
+                    }
+                }
                 val finalThinkingTokens = estimateTokenCount(fullThinking.orEmpty())
                 val finalOutputTokens = outputTokens.takeIf { it > 0 } ?: estimateTokenCount(fullContent)
                 val finalInputTokens = inputTokens.takeIf { it > 0 }
@@ -1488,19 +1646,6 @@ class AiRepository(
             includeThinkingEffort = wantsThinking && !isDeepSeek && !isOpenAi && !isMiMo,
             includeReasoningEffort = wantsThinking && (isDeepSeek || (isOpenAi && isOpenAiReasoningModel))
         )
-    }
-
-    private fun estimateTokenCount(text: String): Int {
-        val trimmed = text.trim()
-        if (trimmed.isEmpty()) return 0
-        val cjkCount = trimmed.count { Character.UnicodeScript.of(it.code) in setOf(
-            Character.UnicodeScript.HAN,
-            Character.UnicodeScript.HIRAGANA,
-            Character.UnicodeScript.KATAKANA,
-            Character.UnicodeScript.HANGUL
-        ) }
-        val asciiCount = trimmed.length - cjkCount
-        return (cjkCount / 1.7f + asciiCount / 4.0f).toInt().coerceAtLeast(1)
     }
 
     private data class ContextBundle(

@@ -1,5 +1,62 @@
 # Echo AI 助手更新日志 (Update Log)
 
+## [v1.9.12] - 2026-09-07
+
+### 1. 本次更新概述
+本次更新针对 API 配置管理、深度思考推理过程保留、连接重试容灾体系、Markdown 对话排版与气泡规范化进行了 10 项系统级完善与修复：
+1. **设置页面配置 API 后白窗残留彻底修复**；
+2. **模型深度思考内容全流程保留与展示持久化**；
+3. **API/模型连接超时 3 次自动重试机制与线性退避**；
+4. **单 URL 多 API Key 自动轮询与无感故障转移**；
+5. **API 配置界面可读性增强与可用模型列表即时搜索/批量筛选**；
+6. **首页对话胶囊超长模型名称自适应约束，杜绝消息计数徽章被挤压**；
+7. **对话页 Markdown 标题字号层级重塑，彻底解决标题比正文还小的缺陷**；
+8. **对话页移除 Markdown 无序列表前导圆点 `•` / `·`，视觉更简约自然**；
+9. **对话页模型思考气泡长名称内部水平滑动，消除截断与内容丢失**；
+10. **禁用思考时气泡样式与思考模式 100% 视觉统一，文案定制为 `"${model}用${time}秒吃掉了你${token}token"`**。
+
+### 2. 需求实现与落地详情
+1. **设置页面配置 API 后白窗残留彻底修复**：
+   - **根因分析**：Compose `Dialog` 原生在独立的 PhoneWindow 中运行。在 `EchoHaze.kt` 的 `EchoGlassDialog` 中原将 `hazeState` 挂载在 Dialog 内部 Surface 上，导致跨 Window 的 `hazeChild` 坐标注册到宿主 Activity 的 `HazeState` 中。当弹窗 Dismiss 时，注销时机滞后引发宿主背景被渲染上一个与 Dialog 形状一致的白色重影卡片。
+   - **解决**：在 `EchoGlassDialog` 中改用 `echoHazePanel(hazeState = null)` 独立毛玻璃渲染，切断 Dialog 与宿主 Activity `HazeState` 的跨窗口绑定，彻底根除白窗幽灵残留。
+2. **模型思考过程内容全流程保留**：
+   - **解决**：重构 `ChatScreen.kt` 的 `MessageBubble`，移除将 `isGenerating` 绑定为 `showThinking` 重置条件的逻辑；流式结束后思考过程保持展开可读；`AiRepository.kt` 与数据模型全面兼容 `<think>...</think>` 与 `reasoning_content`，推理内容持久化存储且不随流式结束收起。
+3. **API 超时 3 次自动重试机制**：
+   - **解决**：`AiRepository.kt` 中实现 `isTimeoutException` 递归异常检测，对 `SocketTimeoutException` 及带 timeout 标识的连接异常执行至多 3 次带线性退避（`delay(500L * attempt)`）的自动重新连接，提高弱网环境下的生成成功率。
+4. **单 URL 多 API Key 自动故障转移**：
+   - **解决**：`AiRepository.parseApiKeys` 统一支持按换行、逗号（`,`）、分号（`;`）录入多个 API Key。在流式对话或获取模型列表时，前一个 Key 发生超时或业务报错时，系统自动切换至下一个可用 Key 并透明重试，直到成功或所有 Key 尝试完毕。
+5. **API 配置界面可读性增强与模型列表搜索**：
+   - **解决**：设置页 `ApiConfigDialog` 增加 `modelSearchQuery` 即时过滤输入框、匹配计数指示、一键勾选/取消搜出结果；API Key 输入框支持多行录入与实时密钥数量识别（如「已录入 3 个密钥 · 自动故障转移」）；弹窗内容区最大高度从 400.dp 提升至 500.dp，大幅提升操作舒适度。
+6. **首页对话胶囊长模型名自适应排版**：
+   - **解决**：`HomeScreen.kt` 的 `ConversationCard` 为模型标签 Surface 添加 `.weight(1f, fill = false)` 与 `softWrap = false`，消息数量徽章设置 `maxLines = 1, softWrap = false`，无论模型名称多长，消息数量均获得独立空间保障。
+7. **对话页 Markdown 标题字号层级重塑**：
+   - **解决**：`MarkdownText.kt` 重新标定 1-6 级标题：H1(22sp) > H2(20sp) > H3(18.5sp) > H4(17sp) > H5(16sp bold) >= H6(16sp bold) >= 正文(16sp normal)，彻底废除原 H4-H6 使用 14sp/13.5sp/12sp 比正文还小的错误设定。
+8. **移除无序列表前导圆点 `•` / `·`**：
+   - **解决**：`MarkdownText.kt` 中对 `- ` 和 `* ` 的列表项移除了 `Text(text = "•")` 及间距，保留自然层级缩进，文本清爽一致。
+9. **思考气泡长模型名称水平滑动**：
+   - **解决**：`ChatScreen.kt` 气泡内部文字容器配置 `Modifier.weight(1f, fill = false).horizontalScroll(capsuleScrollState)`，长模型名与统计数字支持在气泡内平滑横向滚动查阅，不再截断溢出。
+10. **非思考模式气泡样式统一与定制文案**：
+    - **解决**：提取纯函数 `formatNonThinkingCapsuleText`，格式化为 `"${model}用${seconds}秒吃掉了你${effectiveTokens}token"`（当缺少 token 统计时使用 `estimateTokenCount` 兜底）；样式上与思考中气泡统一使用淡色系背景、高光边框和一致的对齐规范。
+
+### 3. 修改文件列表
+- `app/build.gradle.kts`
+- `gradle.properties`
+- `app/src/main/java/com/aiassistant/ui/components/EchoHaze.kt`
+- `app/src/main/java/com/aiassistant/domain/model/Models.kt`
+- `app/src/main/java/com/aiassistant/data/repository/AiRepository.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/home/HomeScreen.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatScreen.kt`
+- `app/src/main/java/com/aiassistant/ui/components/MarkdownText.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/settings/SettingsScreen.kt`
+- `app/src/test/java/com/aiassistant/V1912FeaturesTest.kt`
+- `UPDATE_LOG.md`
+- `WORKFLOW_GUIDELINES.md`
+- `CHANGELOG.md`
+- `PROJECT.md`
+- `README.md`
+
+---
+
 ## [v1.9.11] - 2026-08-18
 
 ### 1. 本次更新概述

@@ -57,6 +57,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import com.aiassistant.AiAssistantApp
 import com.aiassistant.R
+import com.aiassistant.data.repository.AiRepository
 import com.aiassistant.domain.model.Attachment
 import com.aiassistant.domain.model.ChatModelOption
 import com.aiassistant.domain.model.ConversationContextUsage
@@ -1329,6 +1330,26 @@ private fun formatThinkingCapsuleText(
     return if (result.isBlank()) "$model $status" else result
 }
 
+fun formatNonThinkingCapsuleText(
+    modelName: String,
+    responseTimeMs: Long,
+    tokenCount: Int,
+    content: String = ""
+): String {
+    val model = modelName.ifBlank { "AI" }
+    val effectiveTokens = if (tokenCount > 0) tokenCount else AiRepository.estimateTokenCount(content)
+    val seconds = (responseTimeMs / 1000).toInt().coerceAtLeast(1)
+    return when {
+        responseTimeMs > 0 && effectiveTokens > 0 ->
+            "${model}用${seconds}秒吃掉了你${effectiveTokens}token"
+        responseTimeMs > 0 ->
+            "${model}用${seconds}秒回复了你"
+        effectiveTokens > 0 ->
+            "${model}吃掉了你${effectiveTokens}token"
+        else -> model
+    }
+}
+
 private data class VariantInfo(
     val groupId: String,
     val currentIndex: Int,
@@ -1432,8 +1453,8 @@ private fun MessageBubble(
     }
     val hasThinkingContent = !message.thinkingContent.isNullOrBlank()
     val hasThinking = hasThinkingContent || message.thinkingTokens > 0
-    var showThinking by remember(message.id, isGenerating, hasThinkingContent) {
-        mutableStateOf(isGenerating && hasThinkingContent)
+    var showThinking by remember(message.id, hasThinkingContent) {
+        mutableStateOf(hasThinkingContent)
     }
 
     // 解析附件
@@ -1633,15 +1654,22 @@ private fun MessageBubble(
                                 thinkingTokens = message.thinkingTokens,
                                 totalTokens = message.tokenCount
                             )
-                            else -> model
+                            isGenerating -> "$model 正在思考回复中..."
+                            else -> formatNonThinkingCapsuleText(
+                                modelName = model,
+                                responseTimeMs = message.responseTime,
+                                tokenCount = message.tokenCount,
+                                content = message.content
+                            )
                         }
                     }
 
-                    val isBlueCapsule = hasThinking || isConnecting
                     val capsuleShape = RoundedCornerShape(999.dp)
+                    val capsuleScrollState = rememberScrollState()
                     Surface(
                         modifier = Modifier
                             .defaultMinSize(minHeight = 34.dp)
+                            .widthIn(max = 300.dp)
                             .then(
                                 if (hasThinking && hasThinkingContent) {
                                     Modifier.echoShapeClick(capsuleShape) { showThinking = !showThinking }
@@ -1652,18 +1680,18 @@ private fun MessageBubble(
                                     Modifier.echoHazePanel(
                                         hazeState = hazeState,
                                         shape = capsuleShape,
-                                        tint = if (isBlueCapsule) thinkingBubbleColor else glass.control,
+                                        tint = thinkingBubbleColor,
                                         blurRadius = 12.dp,
                                         highlightAlpha = 0.03f
                                     )
                                 } else Modifier
                             ),
-                        color = if (isBlueCapsule) thinkingBubbleColor else glass.control,
-                        contentColor = if (isBlueCapsule) thinkingContentColor else MaterialTheme.colorScheme.primary,
+                        color = thinkingBubbleColor,
+                        contentColor = thinkingContentColor,
                         shape = capsuleShape,
                         border = BorderStroke(
                             1.dp,
-                            if (isBlueCapsule) glass.outlineSelected.copy(alpha = 0.72f) else glass.outline
+                            glass.outlineSelected.copy(alpha = 0.72f)
                         )
                     ) {
                         Row(
@@ -1689,21 +1717,26 @@ private fun MessageBubble(
                                     Icons.Default.SmartToy,
                                     contentDescription = null,
                                     modifier = Modifier.size(15.dp),
-                                    tint = MaterialTheme.colorScheme.primary
+                                    tint = thinkingContentColor
                                 )
                             }
-                            Text(
-                                text = capsuleText,
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    fontSize = 12.5.sp,
-                                    fontFamily = FontFamily.SansSerif,
-                                    fontWeight = FontWeight.SemiBold
-                                ),
-                                color = if (hasThinking) thinkingContentColor else MaterialTheme.colorScheme.primary,
-                                maxLines = 1,
-                                softWrap = false,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f, fill = false)
+                                    .horizontalScroll(capsuleScrollState)
+                            ) {
+                                Text(
+                                    text = capsuleText,
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontSize = 12.5.sp,
+                                        fontFamily = FontFamily.SansSerif,
+                                        fontWeight = FontWeight.SemiBold
+                                    ),
+                                    color = thinkingContentColor,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
                             if (hasThinking && hasThinkingContent) {
                                 Icon(
                                     imageVector = if (showThinking) Icons.Default.ExpandLess else Icons.Default.ExpandMore,

@@ -408,9 +408,12 @@ data class Delta(
     val role: String?,
     val content: String?,
     val reasoning_content: String? = null,
+    val reasoning_content_camel: String? = null,
     val reasoning: String? = null,
+    val reasoningContent: String? = null,
     val thinking: String? = null,
-    val thinking_content: String? = null
+    val thinking_content: String? = null,
+    val thought: String? = null
 )
 
 // 统计数据

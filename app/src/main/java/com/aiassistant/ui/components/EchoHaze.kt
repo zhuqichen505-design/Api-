@@ -309,7 +309,7 @@ fun EchoGlassDialog(
                         onClick = {} // 阻止点击弹窗内容冒泡触发关闭
                     )
                     .echoHazePanel(
-                        hazeState = hazeState,
+                        hazeState = null, // 弹窗处于独立的 Window 中，跨窗口注册会导致宿主背景留存幽灵白窗残影，此处传入 null
                         shape = shape,
                         tint = resolvedTint,
                         blurRadius = EchoTokens.Glass.blurRadiusHeavy

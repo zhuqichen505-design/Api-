@@ -129,81 +129,75 @@ fun MarkdownText(
                 // 标题 1-6 级（含特定关键词加粗、加大字号、斜体强化）
                 line.startsWith("# ") -> {
                     val text = line.removePrefix("# ")
-                    renderHeadingText(text = text, defaultStyle = MaterialTheme.typography.titleLarge, color = color, topPad = 8.dp, bottomPad = 4.dp)
+                    renderHeadingText(text = text, defaultStyle = MaterialTheme.typography.titleLarge.copy(fontSize = 22.sp), color = color, topPad = 8.dp, bottomPad = 4.dp)
                     index++
                 }
                 line.startsWith("## ") -> {
                     val text = line.removePrefix("## ")
-                    renderHeadingText(text = text, defaultStyle = MaterialTheme.typography.titleMedium, color = color, topPad = 6.dp, bottomPad = 3.dp)
+                    renderHeadingText(text = text, defaultStyle = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp), color = color, topPad = 6.dp, bottomPad = 3.dp)
                     index++
                 }
                 line.startsWith("### ") -> {
                     val text = line.removePrefix("### ")
-                    renderHeadingText(text = text, defaultStyle = MaterialTheme.typography.titleSmall, color = color, topPad = 5.dp, bottomPad = 3.dp)
+                    renderHeadingText(text = text, defaultStyle = MaterialTheme.typography.titleMedium.copy(fontSize = 18.5.sp), color = color, topPad = 5.dp, bottomPad = 3.dp)
                     index++
                 }
-                    line.startsWith("#### ") -> {
-                        val text = line.removePrefix("#### ")
-                        renderHeadingText(text = text, defaultStyle = MaterialTheme.typography.labelLarge, color = color, topPad = 4.dp, bottomPad = 2.dp)
-                        index++
-                    }
-                    line.startsWith("##### ") -> {
-                        val text = line.removePrefix("##### ")
-                        renderHeadingText(text = text, defaultStyle = MaterialTheme.typography.labelLarge.copy(fontSize = 13.5.sp), color = color, topPad = 3.dp, bottomPad = 2.dp)
-                        index++
-                    }
-                    line.startsWith("###### ") -> {
-                        val text = line.removePrefix("###### ")
-                        renderHeadingText(text = text, defaultStyle = MaterialTheme.typography.labelMedium, color = color, topPad = 2.dp, bottomPad = 2.dp)
-                        index++
-                    }
+                line.startsWith("#### ") -> {
+                    val text = line.removePrefix("#### ")
+                    renderHeadingText(text = text, defaultStyle = MaterialTheme.typography.titleMedium.copy(fontSize = 17.sp), color = color, topPad = 4.dp, bottomPad = 2.dp)
+                    index++
+                }
+                line.startsWith("##### ") -> {
+                    val text = line.removePrefix("##### ")
+                    renderHeadingText(text = text, defaultStyle = MaterialTheme.typography.bodyLarge.copy(fontSize = 16.sp, fontWeight = FontWeight.Bold), color = color, topPad = 3.dp, bottomPad = 2.dp)
+                    index++
+                }
+                line.startsWith("###### ") -> {
+                    val text = line.removePrefix("###### ")
+                    renderHeadingText(text = text, defaultStyle = MaterialTheme.typography.bodyLarge.copy(fontSize = 16.sp, fontWeight = FontWeight.Bold), color = color, topPad = 2.dp, bottomPad = 2.dp)
+                    index++
+                }
 
-                    // 表格渲染
-                    parseMarkdownTable(lines, index) != null -> {
-                        val table = parseMarkdownTable(lines, index)!!
-                        MarkdownTableBlock(table = table, color = color)
-                        Spacer(modifier = Modifier.height(8.dp))
-                        index += table.consumedLines
-                    }
+                // 表格渲染
+                parseMarkdownTable(lines, index) != null -> {
+                    val table = parseMarkdownTable(lines, index)!!
+                    MarkdownTableBlock(table = table, color = color)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    index += table.consumedLines
+                }
 
-                    // 末尾参考资料项（如 - [1] 标题 或 * [1] 标题 或 [1] 标题：前面不要有圆点，正常大小显示）
-                    isReferenceListItem(line) -> {
-                        val cleanRefLine = cleanReferenceItemLine(line)
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 3.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            InlineMarkdownText(
-                                text = parseInlineMarkdown(cleanRefLine, isReferenceItem = true),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = color,
-                                onCitationClick = onCitationClick
-                            )
-                        }
-                        index++
+                // 末尾参考资料项（如 - [1] 标题 或 * [1] 标题 或 [1] 标题：前面不要有圆点，正常大小显示）
+                isReferenceListItem(line) -> {
+                    val cleanRefLine = cleanReferenceItemLine(line)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        InlineMarkdownText(
+                            text = parseInlineMarkdown(cleanRefLine, isReferenceItem = true),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = color,
+                            onCitationClick = onCitationClick
+                        )
                     }
+                    index++
+                }
 
-                    // 普通无序列表项
-                    line.trimStart().startsWith("- ") || line.trimStart().startsWith("* ") -> {
-                        val indent = line.length - line.trimStart().length
-                        val itemContent = line.trimStart().removePrefix("- ").removePrefix("* ")
-                        Row(modifier = Modifier.padding(start = (8 + indent * 4).dp, top = 2.dp)) {
-                            Text(
-                                text = "•",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = color
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            InlineMarkdownText(
-                                text = parseInlineMarkdown(itemContent),
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = color
-                            )
-                        }
-                        index++
+                // 普通无序列表项（无前缀圆点·，保持自然缩进与正文字号一致）
+                line.trimStart().startsWith("- ") || line.trimStart().startsWith("* ") -> {
+                    val indent = line.length - line.trimStart().length
+                    val itemContent = line.trimStart().removePrefix("- ").removePrefix("* ")
+                    Row(modifier = Modifier.padding(start = (8 + indent * 4).dp, top = 2.dp)) {
+                        InlineMarkdownText(
+                            text = parseInlineMarkdown(itemContent),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = color
+                        )
                     }
+                    index++
+                }
 
                     // 有序列表
                     line.trimStart().matches(Regex("^\\d+\\.\\s+.*")) -> {
