@@ -4,6 +4,7 @@ import android.content.Context
 
 data class PersonalizationSettings(
     val globalSystemPrompt: String = "",
+    val globalRoleplayPrompt: String = "",
     val enabled: Boolean = true,
     val aboutUser: String = "",
     val responseStyle: String = "",
@@ -33,9 +34,11 @@ class PersonalizationManager(private val context: Context) {
     fun getSettings(): PersonalizationSettings {
         val legacyGlobalPrompt = legacyPrefs.getString("global_system_prompt", "").orEmpty()
         val globalPrompt = prefs.getString(KEY_GLOBAL_PROMPT, null) ?: legacyGlobalPrompt
+        val globalRpPrompt = prefs.getString(KEY_GLOBAL_ROLEPLAY_PROMPT, "").orEmpty()
 
         return PersonalizationSettings(
             globalSystemPrompt = globalPrompt,
+            globalRoleplayPrompt = globalRpPrompt,
             enabled = prefs.getBoolean(KEY_ENABLED, true),
             aboutUser = prefs.getString(KEY_ABOUT_USER, "").orEmpty(),
             responseStyle = prefs.getString(KEY_RESPONSE_STYLE, "").orEmpty(),
@@ -57,6 +60,7 @@ class PersonalizationManager(private val context: Context) {
         legacyPrefs.edit().putString("global_system_prompt", settings.globalSystemPrompt).apply()
         return prefs.edit()
             .putString(KEY_GLOBAL_PROMPT, settings.globalSystemPrompt)
+            .putString(KEY_GLOBAL_ROLEPLAY_PROMPT, settings.globalRoleplayPrompt)
             .putBoolean(KEY_ENABLED, settings.enabled)
             .putString(KEY_ABOUT_USER, settings.aboutUser)
             .putString(KEY_RESPONSE_STYLE, settings.responseStyle)
@@ -104,6 +108,7 @@ class PersonalizationManager(private val context: Context) {
 
     companion object {
         private const val KEY_GLOBAL_PROMPT = "global_prompt"
+        private const val KEY_GLOBAL_ROLEPLAY_PROMPT = "global_roleplay_prompt"
         private const val KEY_ENABLED = "enabled"
         private const val KEY_ABOUT_USER = "about_user"
         private const val KEY_RESPONSE_STYLE = "response_style"

@@ -207,20 +207,23 @@ class EchoToolHub(
         }
 
         // 5. 手机健康与步数意图
-        if (isHealthIntent(trimmed)) {
             val healthSummary = healthDataManager.getHealthDataSummary()
             blocks.add(healthSummary.toPromptBlock())
+            val healthBrief = buildString {
+                append("今日步数: ").append(healthSummary.todaySteps).append(" 步")
+                if (healthSummary.heartRate > 0) append(" · 心率: ").append(healthSummary.heartRate).append(" bpm")
+                if (healthSummary.sleepMinutes > 0) append(" · 睡眠: ").append(healthSummary.sleepMinutes / 60).append("小时").append(healthSummary.sleepMinutes % 60).append("分")
+            }
             toolRecords.add(
                 ToolCallRecord(
                     toolType = "HEALTH",
                     toolName = "华为运动健康与硬件计步",
                     iconName = "DirectionsWalk",
-                    summary = "今日步数: ${healthSummary.todaySteps} 步 · 心率: ${healthSummary.heartRate} bpm · 昨晚睡眠: ${healthSummary.sleepMinutes / 60}小时${healthSummary.sleepMinutes % 60}分",
+                    summary = healthBrief,
                     detailContent = healthSummary.toPromptBlock(),
                     isSuccess = true
                 )
             )
-        }
 
         // 6. 手机设备与硬件状态意图
         if (isDeviceStatusIntent(trimmed)) {

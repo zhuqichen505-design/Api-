@@ -786,6 +786,7 @@ fun WebSearchTab(
     val toolHub = AiAssistantApp.instance.echoToolHub
     val tavilyManager = AiAssistantApp.instance.tavilySearchManager
     val coroutineScope = rememberCoroutineScope()
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     var searchEngine by remember { mutableStateOf(toolHub.getSearchEngine()) }
     var searchResultCount by remember { mutableIntStateOf(toolHub.getSearchResultCount()) }
@@ -1152,6 +1153,19 @@ fun WebSearchTab(
                                     Spacer(modifier = Modifier.width(3.dp))
                                     Text("数据校准", style = MaterialTheme.typography.labelSmall)
                                 }
+                                TextButton(
+                                    onClick = {
+                                        if (!toolHub.healthDataManager.openHuaweiHealthApp(context)) {
+                                            savedMessage = "未检测到已安装的华为运动健康应用"
+                                        }
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                                    modifier = Modifier.height(28.dp)
+                                ) {
+                                    Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(13.dp))
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Text("打开华为健康", style = MaterialTheme.typography.labelSmall)
+                                }
                             }
                         }
                         Text(
@@ -1159,8 +1173,16 @@ fun WebSearchTab(
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.primary
                         )
+                        val hrDisplay = if (currentHealthSummary.heartRate > 0) "${currentHealthSummary.heartRate} bpm" else "暂未录入"
+                        val sleepDisplay = if (currentHealthSummary.sleepMinutes > 0) {
+                            "${currentHealthSummary.sleepMinutes / 60}小时${currentHealthSummary.sleepMinutes % 60}分" +
+                                if (currentHealthSummary.deepSleepMinutes > 0) " (深睡 ${currentHealthSummary.deepSleepMinutes / 60}小时${currentHealthSummary.deepSleepMinutes % 60}分)" else "" +
+                                if (currentHealthSummary.sleepScore > 0) " · 评分: ${currentHealthSummary.sleepScore}" else ""
+                        } else {
+                            "暂未录入"
+                        }
                         Text(
-                            "最近心率: ${currentHealthSummary.heartRate} bpm · 昨晚睡眠: ${currentHealthSummary.sleepMinutes / 60}小时${currentHealthSummary.sleepMinutes % 60}分 (深睡 ${currentHealthSummary.deepSleepMinutes / 60}小时${currentHealthSummary.deepSleepMinutes % 60}分) · 评分: ${currentHealthSummary.sleepScore}",
+                            "心率: $hrDisplay · 昨晚睡眠: $sleepDisplay",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -1297,10 +1319,11 @@ fun HuaweiHealthSyncDialog(
     onCalibrateSteps: (Int) -> Unit,
     onSyncAll: (steps: Int, heartRate: Int, sleepMinutes: Int, deepSleepMinutes: Int, score: Int) -> Unit
 ) {
-    var stepsText by remember { mutableStateOf(if (initialSteps > 0) initialSteps.toString() else "6500") }
-    var heartRateText by remember { mutableStateOf(if (initialHeartRate > 0) initialHeartRate.toString() else "72") }
-    var sleepHoursText by remember { mutableStateOf((initialSleepMinutes / 60).toString().ifBlank { "7" }) }
-    var sleepMinsText by remember { mutableStateOf((initialSleepMinutes % 60).toString().ifBlank { "30" }) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var stepsText by remember { mutableStateOf(if (initialSteps > 0) initialSteps.toString() else "") }
+    var heartRateText by remember { mutableStateOf(if (initialHeartRate > 0) initialHeartRate.toString() else "") }
+    var sleepHoursText by remember { mutableStateOf(if (initialSleepMinutes > 0) (initialSleepMinutes / 60).toString() else "") }
+    var sleepMinsText by remember { mutableStateOf(if (initialSleepMinutes > 0) (initialSleepMinutes % 60).toString() else "") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1323,26 +1346,42 @@ fun HuaweiHealthSyncDialog(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
-                        "提示：Android 硬件计步器自开机后累加。在此输入华为运动健康 APP 上的今日实时步数与生理指标，应用将立即精准校准并注入对话。",
+                        "机制说明：受 Android 系统安全沙箱保护，三方应用无法直接跨应用暗中读取华为运动健康私有数据。当前步数由本机硬件计步传感器自动累加；若需将手环/手表记录的心率与睡眠同步给 AI，可点击下方打开华为运动健康 APP 对照填入。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.padding(10.dp)
                     )
                 }
 
+                OutlinedButton(
+                    onClick = {
+                        val pm = context.packageManager
+                        val launchIntent = pm.getLaunchIntentForPackage("com.huawei.health")
+                        if (launchIntent != null) {
+                            launchIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                            context.startActivity(launchIntent)
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("打开华为运动健康 APP 查看数据")
+                }
+
                 SettingsInputField(
                     title = "今日实时步数 (步)",
                     value = stepsText,
                     onValueChange = { stepsText = it.filter { c -> c.isDigit() }.take(6) },
-                    placeholder = "例如 6800",
+                    placeholder = if (initialSteps > 0) initialSteps.toString() else "输入今日步数",
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
                 )
 
                 SettingsInputField(
-                    title = "静态/静息心率 (bpm)",
+                    title = "静态/静息心率 (bpm，可选)",
                     value = heartRateText,
                     onValueChange = { heartRateText = it.filter { c -> c.isDigit() }.take(3) },
-                    placeholder = "例如 72",
+                    placeholder = "留空表示未录入",
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
                 )
 
@@ -1352,10 +1391,10 @@ fun HuaweiHealthSyncDialog(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         SettingsInputField(
-                            title = "睡眠时长 (小时)",
+                            title = "昨晚睡眠 (小时)",
                             value = sleepHoursText,
                             onValueChange = { sleepHoursText = it.filter { c -> c.isDigit() }.take(2) },
-                            placeholder = "7",
+                            placeholder = "可选，如 7",
                             keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
                         )
                     }
@@ -1364,7 +1403,7 @@ fun HuaweiHealthSyncDialog(
                             title = "睡眠零头 (分钟)",
                             value = sleepMinsText,
                             onValueChange = { sleepMinsText = it.filter { c -> c.isDigit() }.take(2) },
-                            placeholder = "30",
+                            placeholder = "可选，如 30",
                             keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
                         )
                     }
@@ -1374,11 +1413,15 @@ fun HuaweiHealthSyncDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    val steps = stepsText.toIntOrNull() ?: 0
-                    val hr = heartRateText.toIntOrNull() ?: 70
-                    val totalSleep = (sleepHoursText.toIntOrNull() ?: 7) * 60 + (sleepMinsText.toIntOrNull() ?: 0)
-                    val deepSleep = (totalSleep * 0.28f).toInt()
-                    val score = if (totalSleep in 420..540) 88 else 80
+                    val steps = stepsText.toIntOrNull() ?: initialSteps
+                    val hr = heartRateText.toIntOrNull() ?: -1
+                    val totalSleep = if (sleepHoursText.isNotBlank() || sleepMinsText.isNotBlank()) {
+                        (sleepHoursText.toIntOrNull() ?: 0) * 60 + (sleepMinsText.toIntOrNull() ?: 0)
+                    } else {
+                        -1
+                    }
+                    val deepSleep = if (totalSleep > 0) (totalSleep * 0.28f).toInt() else -1
+                    val score = if (totalSleep in 420..540) 88 else if (totalSleep > 0) 80 else -1
                     onSyncAll(steps, hr, totalSleep, deepSleep, score)
                     onDismiss()
                 }
@@ -1421,6 +1464,7 @@ fun PersonalizationTab(
 
     var settings by remember { mutableStateOf(manager.getSettings()) }
     var globalPrompt by remember(settings) { mutableStateOf(settings.globalSystemPrompt) }
+    var globalRoleplayPrompt by remember(settings) { mutableStateOf(settings.globalRoleplayPrompt) }
     var instruction by remember(settings) {
         mutableStateOf(
             listOf(
@@ -1451,10 +1495,11 @@ fun PersonalizationTab(
     var savedMessage by remember { mutableStateOf<String?>(null) }
 
     val hasUnsaved = remember(
-        settings, globalPrompt, instruction, autoMemoryEnabled, thinkingTemplate, chatFontSize, fontSizeScale,
+        settings, globalPrompt, globalRoleplayPrompt, instruction, autoMemoryEnabled, thinkingTemplate, chatFontSize, fontSizeScale,
         autoNameEnabled, autoNameApiConfigId, autoNameModel, autoNamePrompt
     ) {
         globalPrompt.trim() != settings.globalSystemPrompt.trim() ||
+        globalRoleplayPrompt.trim() != settings.globalRoleplayPrompt.trim() ||
         instruction.trim() != settings.aboutUser.trim() ||
         autoMemoryEnabled != settings.autoMemoryEnabled ||
         thinkingTemplate.trim() != settings.thinkingCapsuleTemplate.trim() ||
@@ -1474,6 +1519,7 @@ fun PersonalizationTab(
         val saved = manager.saveSettings(
             settings.copy(
                 globalSystemPrompt = globalPrompt.trim(),
+                globalRoleplayPrompt = globalRoleplayPrompt.trim(),
                 aboutUser = instruction.trim(),
                 responseStyle = "",
                 preferences = "",
@@ -2003,6 +2049,51 @@ fun PersonalizationTab(
                     maxLines = 14,
                     shape = SettingsInnerShape
                 )
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.AutoStories,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("故事创作与角色扮演全局教学指引", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "用于教学模型如何创作故事、行文规范与沉浸感（如以演代述、避免性格副词、维持角色独立性）。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    TextButton(
+                        onClick = {
+                            globalRoleplayPrompt = com.aiassistant.data.repository.RoleplayRepository.DEFAULT_FICTION_TEACHING_GUIDELINES
+                            savedMessage = null
+                        }
+                    ) {
+                        Text("填入默认规范", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+
+                OutlinedTextField(
+                    value = globalRoleplayPrompt,
+                    onValueChange = {
+                        globalRoleplayPrompt = it
+                        savedMessage = null
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 120.dp),
+                    placeholder = { Text("留空将使用内置文学创作铁律（Show Don't Tell、真实对白与微动作交融）...") },
+                    minLines = 4,
+                    maxLines = 14,
+                    shape = SettingsInnerShape
+                )
             }
         }
 
@@ -2217,7 +2308,9 @@ fun PersonalizationTab(
                                                         color = if (autoNameModel == m) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                                                     )
                                                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                                        Text(cap.contextWindowDisplay, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                                        if (cap.contextWindowDisplay.isNotBlank()) {
+                                                            Text(cap.contextWindowDisplay, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                                        }
                                                         if (cap.supportsVision) Text("视觉", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
                                                         if (cap.supportsReasoning) Text("思考", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
                                                     }
@@ -4789,16 +4882,18 @@ private fun ModelDisplaySelectionRow(
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Surface(
-                    shape = RoundedCornerShape(4.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
-                ) {
-                    Text(
-                        text = cap.contextWindowDisplay,
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                    )
+                if (cap.contextWindowDisplay.isNotBlank()) {
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
+                    ) {
+                        Text(
+                            text = cap.contextWindowDisplay,
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                        )
+                    }
                 }
                 if (cap.supportsVision || capability == "multimodal") {
                     Surface(

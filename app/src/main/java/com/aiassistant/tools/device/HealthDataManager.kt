@@ -183,19 +183,19 @@ class HealthDataManager(private val context: Context) : SensorEventListener {
         saveSleepRecord(totalSleepMinutes, deepSleepMinutes, sleepScore)
     }
 
-    // 心率 (bpm)
-    fun getHeartRate(): Int = prefs.getInt(KEY_HEART_RATE, 72)
+    // 心率 (bpm) -1 表示未录入
+    fun getHeartRate(): Int = prefs.getInt(KEY_HEART_RATE, -1)
 
     fun setHeartRate(bpm: Int) {
         prefs.edit().putInt(KEY_HEART_RATE, bpm.coerceIn(40, 220)).apply()
     }
 
-    // 昨晚睡眠 (分钟)
-    fun getSleepDurationMinutes(): Int = prefs.getInt(KEY_SLEEP_MINUTES, 450) // 默认 7.5 小时
+    // 昨晚睡眠 (分钟) -1 表示未录入
+    fun getSleepDurationMinutes(): Int = prefs.getInt(KEY_SLEEP_MINUTES, -1)
 
-    fun getDeepSleepMinutes(): Int = prefs.getInt(KEY_DEEP_SLEEP_MINUTES, 90)
+    fun getDeepSleepMinutes(): Int = prefs.getInt(KEY_DEEP_SLEEP_MINUTES, -1)
 
-    fun getSleepScore(): Int = prefs.getInt(KEY_SLEEP_SCORE, 85)
+    fun getSleepScore(): Int = prefs.getInt(KEY_SLEEP_SCORE, -1)
 
     fun saveSleepRecord(durationMinutes: Int, deepMinutes: Int, score: Int) {
         prefs.edit()
@@ -207,6 +207,25 @@ class HealthDataManager(private val context: Context) : SensorEventListener {
     }
 
     fun getLastUpdateTime(): Long = prefs.getLong(KEY_HEALTH_UPDATE_TIME, 0L)
+
+    /**
+     * 尝试拉起系统已安装的华为运动健康官方应用
+     */
+    fun openHuaweiHealthApp(context: Context): Boolean {
+        return try {
+            val pm = context.packageManager
+            val launchIntent = pm.getLaunchIntentForPackage("com.huawei.health")
+            if (launchIntent != null) {
+                launchIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(launchIntent)
+                true
+            } else {
+                false
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
 
     fun getHealthDataSummary(): HealthDataSummary {
         return HealthDataSummary(
@@ -225,37 +244,52 @@ class HealthDataManager(private val context: Context) : SensorEventListener {
 
     data class HealthDataSummary(
         val todaySteps: Int,
-        val heartRate: Int,
-        val sleepMinutes: Int,
-        val deepSleepMinutes: Int,
-        val sleepScore: Int,
+        val heartRate: Int, // -1 表示未手动录入
+        val sleepMinutes: Int, // -1 表示未手动录入
+        val deepSleepMinutes: Int, // -1 表示未手动录入
+        val sleepScore: Int, // -1 表示未手动录入
         val hasHardwareStepSensor: Boolean
     ) {
         fun toPromptBlock(): String {
-            val sleepHours = sleepMinutes / 60
-            val sleepMins = sleepMinutes % 60
-            val deepHours = deepSleepMinutes / 60
-            val deepMins = deepSleepMinutes % 60
-
             val estimatedKm = String.format(Locale.US, "%.2f", todaySteps * 0.0007)
             val estimatedKcal = (todaySteps * 0.035).toInt()
 
             return buildString {
-                append("【用户手机健康与运动数据 (华为运动健康/硬件传感器)】")
-                append("\n今日累计步数：").append(todaySteps).append(" 步")
+                append("【用户手机运动与健康数据】")
+                append("\n今日步数：").append(todaySteps).append(" 步")
                 append(" (约 ").append(estimatedKm).append(" 公里, 消耗约 ").append(estimatedKcal).append(" 千卡)")
+                if (hasHardwareStepSensor) {
+                    append(" [来自手机硬件传感器]")
+                }
                 if (todaySteps >= 10000) {
-                    append(" - 已达成万步运动目标 🎉")
-                } else {
+                    append(" - 已达成万步目标 🎉")
+                } else if (todaySteps > 0) {
                     append(" - 距一万步还差 ").append(10000 - todaySteps).append(" 步")
                 }
-                append("\n当前/最近心率：").append(heartRate).append(" bpm")
-                append("\n昨晚睡眠时长：").append(sleepHours).append("小时").append(sleepMins).append("分钟")
-                if (deepSleepMinutes > 0) {
-                    append(" (其中深睡 ").append(deepHours).append("小时").append(deepMins).append("分)")
+
+                if (heartRate > 0) {
+                    append("\n静态心率：").append(heartRate).append(" bpm (用户对照校准)")
+                } else {
+                    append("\n心率监测：暂无录入数据")
                 }
-                append("\n睡眠质量评分：").append(sleepScore).append(" 分")
-                append("\n数据来源：华为运动健康与手机硬件步数传感器")
+
+                if (sleepMinutes > 0) {
+                    val sleepHours = sleepMinutes / 60
+                    val sleepMins = sleepMinutes % 60
+                    append("\n昨晚睡眠时长：").append(sleepHours).append("小时").append(sleepMins).append("分钟")
+                    if (deepSleepMinutes > 0) {
+                        val deepHours = deepSleepMinutes / 60
+                        val deepMins = deepSleepMinutes % 60
+                        append(" (深睡 ").append(deepHours).append("小时").append(deepMins).append("分)")
+                    }
+                    if (sleepScore > 0) {
+                        append(" · 质量评分: ").append(sleepScore).append(" 分")
+                    }
+                } else {
+                    append("\n昨晚睡眠：暂无录入数据")
+                }
+
+                append("\n数据说明：步数由本地手机硬件计步传感器实时统计；心率与睡眠受 Android 系统隐私沙箱机制保护，三方应用无法直接跨应用暗中读取华为运动健康私有数据，支持在设置中对照手动校准同步。")
             }
         }
     }

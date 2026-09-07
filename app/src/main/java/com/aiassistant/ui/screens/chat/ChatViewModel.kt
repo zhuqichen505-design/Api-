@@ -536,10 +536,12 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                 val roleplayRepo = AiAssistantApp.instance.roleplayRepository
                 val currentRoleplaySession = _uiState.value.roleplaySession
                 val effectiveSystemPrompt = if (currentRoleplaySession != null) {
+                    val globalRpPrompt = AiAssistantApp.instance.personalizationManager.getSettings().globalRoleplayPrompt
                     roleplayRepo.assembleRoleplayContext(
                         sessionId = currentRoleplaySession.id,
                         globalSystemPrompt = currentSystemPrompt,
-                        userMessage = content
+                        userMessage = content,
+                        globalRoleplayPrompt = globalRpPrompt
                     )
                 } else {
                     currentSystemPrompt
@@ -1045,16 +1047,33 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
         viewModelScope.launch {
             val roleplayRepo = AiAssistantApp.instance.roleplayRepository
             val currentSession = _uiState.value.roleplaySession ?: roleplayRepo.getSessionByConversationId(conversationId) ?: return@launch
+
+            // 如果是全新创建的角色 (id <= 0)，先同步持久化进全局 Room 数据库以分配真实主键 ID
+            val finalCharacter = if (editedCharacter.id <= 0L) {
+                val newId = roleplayRepo.insertCharacter(editedCharacter)
+                editedCharacter.copy(id = newId)
+            } else {
+                editedCharacter
+            }
+
             val baseCharacters = _uiState.value.roleplayCharacters
             val currentCustomized = currentSession.getCustomizedCharacters(baseCharacters).toMutableList()
-            val existingIndex = currentCustomized.indexOfFirst { it.id == editedCharacter.id && it.id > 0 || it.name == editedCharacter.name }
+            val existingIndex = currentCustomized.indexOfFirst { (it.id == finalCharacter.id && it.id > 0) || it.name == finalCharacter.name }
             if (existingIndex >= 0) {
-                currentCustomized[existingIndex] = editedCharacter
+                currentCustomized[existingIndex] = finalCharacter
             } else {
-                currentCustomized.add(editedCharacter)
+                currentCustomized.add(finalCharacter)
             }
+
+            // 确保角色 ID 加入到本故事会话的登场角色列表中
+            val sessionCharIds = currentSession.getEffectiveCharacterIds().toMutableList()
+            if (!sessionCharIds.contains(finalCharacter.id)) {
+                sessionCharIds.add(finalCharacter.id)
+            }
+
             val jsonStr = com.google.gson.Gson().toJson(currentCustomized)
             val updatedSession = currentSession.copy(
+                characterIds = com.google.gson.Gson().toJson(sessionCharIds),
                 customCharacterData = jsonStr,
                 updatedAt = System.currentTimeMillis()
             )
@@ -1074,8 +1093,18 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
         viewModelScope.launch {
             val roleplayRepo = AiAssistantApp.instance.roleplayRepository
             val currentSession = _uiState.value.roleplaySession ?: roleplayRepo.getSessionByConversationId(conversationId) ?: return@launch
-            val jsonStr = com.google.gson.Gson().toJson(editedScenario)
+
+            // 如果是全新创建的世界观 (id <= 0)，先同步持久化进全局 Room 数据库以分配真实主键 ID
+            val finalScenario = if (editedScenario.id <= 0L) {
+                val newId = roleplayRepo.insertScenario(editedScenario)
+                editedScenario.copy(id = newId)
+            } else {
+                editedScenario
+            }
+
+            val jsonStr = com.google.gson.Gson().toJson(finalScenario)
             val updatedSession = currentSession.copy(
+                scenarioId = finalScenario.id,
                 customScenarioData = jsonStr,
                 updatedAt = System.currentTimeMillis()
             )

@@ -2822,17 +2822,19 @@ private fun ModelOptionText(option: ChatModelOption) {
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f, fill = false)
             )
-            Spacer(modifier = Modifier.width(6.dp))
-            Surface(
-                shape = RoundedCornerShape(4.dp),
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
-            ) {
-                Text(
-                    text = cap.contextWindowDisplay,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                )
+            if (cap.contextWindowDisplay.isNotBlank()) {
+                Spacer(modifier = Modifier.width(6.dp))
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
+                ) {
+                    Text(
+                        text = cap.contextWindowDisplay,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                    )
+                }
             }
         }
         val subLine = listOf(option.configName, option.provider)
@@ -3562,56 +3564,51 @@ private fun chatTuningProfile(
     fallbackModel: String,
     enableThinking: Boolean
 ): ChatTuningProfile {
-    val identity = listOfNotNull(
-        currentOption?.provider,
-        currentOption?.configName,
-        currentOption?.modelName,
-        fallbackModel
-    ).joinToString(" ").lowercase()
-    val isDeepSeek = "deepseek" in identity
-    val isMiMo = "mimo" in identity || "xiaomi" in identity
-    val label = when {
-        isDeepSeek -> "DeepSeek"
-        isMiMo -> "MiMo"
-        else -> "当前模型"
+    val modelName = currentOption?.modelName?.ifBlank { null } ?: fallbackModel
+    val provider = currentOption?.provider.orEmpty()
+    val cap = com.aiassistant.domain.model.ModelCapabilityEngine.resolveCapabilities(modelName, provider)
+
+    val label = when (cap.reasoningProviderType) {
+        "deepseek_fixed" -> "DeepSeek 推理"
+        "openai" -> "OpenAI 推理"
+        "anthropic" -> "Claude 思考"
+        else -> if (provider.isNotBlank()) provider else "当前模型"
     }
 
-    return when {
-        isDeepSeek -> ChatTuningProfile(
-            modelLabel = label,
-            temperatureMax = 2f,
-            temperatureEnabled = !enableThinking,
-            thinkingEfforts = if (enableThinking) {
-                listOf(
-                    ThinkingEffortOption("high", "高"),
-                    ThinkingEffortOption("max", "最大")
-                )
-            } else {
-                emptyList()
+    val efforts = if (enableThinking && cap.supportedThinkingGears.isNotEmpty()) {
+        cap.supportedThinkingGears.map { gear ->
+            val gearLabel = when (gear) {
+                "low" -> "低"
+                "medium" -> "中"
+                "high" -> "高"
+                "max" -> "最大"
+                else -> gear
             }
-        )
-        isMiMo -> ChatTuningProfile(
-            modelLabel = label,
-            temperatureMax = 1f,
-            temperatureEnabled = !enableThinking,
-            thinkingEfforts = emptyList(),
-            noThinkingEffortReason = if (enableThinking) "MiMo 的思考模式没有强度选项。" else null
-        )
-        else -> ChatTuningProfile(
-            modelLabel = label,
-            temperatureMax = 1f,
-            temperatureEnabled = true,
-            thinkingEfforts = if (enableThinking) {
-                listOf(
-                    ThinkingEffortOption("low", "低"),
-                    ThinkingEffortOption("medium", "中"),
-                    ThinkingEffortOption("high", "高")
-                )
-            } else {
-                emptyList()
-            }
-        )
+            ThinkingEffortOption(gear, gearLabel)
+        }
+    } else {
+        emptyList()
     }
+
+    val reason = when {
+        !enableThinking -> null
+        cap.reasoningProviderType == "deepseek_fixed" -> "原生全量推理模型，默认全强度输出，无需设置档位。"
+        cap.reasoningProviderType == "none" && cap.supportsThinking -> "该模型仅支持思考开关，无档位调节。"
+        cap.reasoningProviderType == "none" -> "当前模型无官方思考档位参数，保持默认输出。"
+        else -> null
+    }
+
+    val isDeepSeek = cap.reasoningProviderType == "deepseek_fixed" || modelName.lowercase().contains("deepseek")
+    val tempMax = if (isDeepSeek) 2f else 1f
+    val tempEnabled = !(enableThinking && (cap.reasoningProviderType == "openai" || cap.reasoningProviderType == "deepseek_fixed"))
+
+    return ChatTuningProfile(
+        modelLabel = label,
+        temperatureMax = tempMax,
+        temperatureEnabled = tempEnabled,
+        thinkingEfforts = efforts,
+        noThinkingEffortReason = reason
+    )
 }
 
 @Composable
@@ -3707,16 +3704,18 @@ private fun ChatSettingsModelSelector(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Surface(
-                shape = RoundedCornerShape(6.dp),
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
-            ) {
-                Text(
-                    text = "窗口: ${cap.contextWindowDisplay}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                )
+            if (cap.contextWindowDisplay.isNotBlank()) {
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
+                ) {
+                    Text(
+                        text = "窗口: ${cap.contextWindowDisplay}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
             }
             if (cap.supportsVision) {
                 Surface(
@@ -4492,11 +4491,12 @@ private fun StoryUnifiedSettingsDialog(
         },
         content = {
             Column(modifier = Modifier.fillMaxWidth()) {
-                TabRow(
+                ScrollableTabRow(
                     selectedTabIndex = activeTab,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(bottom = 8.dp),
+                    edgePadding = 0.dp,
                     containerColor = Color.Transparent
                 ) {
                     Tab(
@@ -4507,19 +4507,29 @@ private fun StoryUnifiedSettingsDialog(
                     Tab(
                         selected = activeTab == 1,
                         onClick = { activeTab = 1 },
-                        text = { Text("👥 角色世界观", fontWeight = if (activeTab == 1) FontWeight.Bold else FontWeight.Normal) }
+                        text = { Text("👥 登场角色", fontWeight = if (activeTab == 1) FontWeight.Bold else FontWeight.Normal) }
                     )
                     Tab(
                         selected = activeTab == 2,
                         onClick = { activeTab = 2 },
-                        text = { Text("⚙️ 模型参数", fontWeight = if (activeTab == 2) FontWeight.Bold else FontWeight.Normal) }
+                        text = { Text("🌍 世界观", fontWeight = if (activeTab == 2) FontWeight.Bold else FontWeight.Normal) }
+                    )
+                    Tab(
+                        selected = activeTab == 3,
+                        onClick = { activeTab = 3 },
+                        text = { Text("📜 创作规范", fontWeight = if (activeTab == 3) FontWeight.Bold else FontWeight.Normal) }
+                    )
+                    Tab(
+                        selected = activeTab == 4,
+                        onClick = { activeTab = 4 },
+                        text = { Text("⚙️ 模型参数", fontWeight = if (activeTab == 4) FontWeight.Bold else FontWeight.Normal) }
                     )
                 }
 
-                Box(modifier = Modifier.heightIn(max = 440.dp)) {
+                Box(modifier = Modifier.fillMaxWidth().heightIn(min = 280.dp, max = 480.dp)) {
                     if (activeTab == 0) {
                         LazyColumn(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxSize(),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             // 快捷 AI 追加
@@ -4600,9 +4610,12 @@ private fun StoryUnifiedSettingsDialog(
                                                     .padding(8.dp),
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                RadioButton(selected = isSelected, onClick = { selectedNarrativeMode = mode })
+                                                RadioButton(
+                                                    selected = isSelected,
+                                                    onClick = { selectedNarrativeMode = mode }
+                                                )
                                                 Spacer(modifier = Modifier.width(6.dp))
-                                                Column {
+                                                Column(modifier = Modifier.weight(1f)) {
                                                     Text(mode.displayName, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
                                                     Text(mode.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                                 }
@@ -4612,59 +4625,45 @@ private fun StoryUnifiedSettingsDialog(
                                 }
                             }
 
-                            // 剧情推进快捷指令
+                            // 剧情提示快捷动作
                             item {
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text("剧情导演指令", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                                        Text("即时引导或改写故事", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text("快捷剧情提示指令", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                                     FlowRow(
                                         horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier.fillMaxWidth()
                                     ) {
-                                        ActionChip(text = "🎬 剧情走向选择") { onPlotAction(PlotAction.BRANCH_CHOICES, null) }
-                                        ActionChip(text = "⚡ 继续推进") { onPlotAction(PlotAction.CONTINUE, null) }
-                                        ActionChip(text = "🔄 重新生成") { onPlotAction(PlotAction.REGENERATE, null) }
-                                        ActionChip(text = "✏️ 重写上一段") { onPlotAction(PlotAction.REWRITE, null) }
-                                        ActionChip(text = "➕ 扩写细节") { onPlotAction(PlotAction.EXTEND, null) }
-                                        ActionChip(text = "➖ 精简提炼") { onPlotAction(PlotAction.SHORTEN, null) }
-                                        ActionChip(text = "👁️ 切换视角") { onPlotAction(PlotAction.CHANGE_PERSPECTIVE, null) }
-                                        ActionChip(text = "📝 剧情摘要") { onPlotAction(PlotAction.SUMMARY, null) }
-                                        ActionChip(text = "💬 自定义指令") { showCustomPlotDialog = true }
-                                    }
-                                }
-                            }
-
-                            // 一键提炼剧情摘要与记忆
-                            item {
-                                EchoGlassCard(
-                                    onClick = onSummarizeMemories,
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = EchoTokens.Radius.shapeSm,
-                                    containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.35f)
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(10.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(Icons.Default.AutoFixHigh, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary)
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text("一键提炼剧情摘要与关键事实", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
-                                            Text("通过AI分析上下文，自动更新故事记忆与事实库", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        listOf(
+                                            PlotAction.CONTINUE to "继续剧情",
+                                            PlotAction.BRANCH_CHOICES to "决策分支",
+                                            PlotAction.SUMMARY to "剧情摘要",
+                                            PlotAction.REWRITE to "改写上一段",
+                                            PlotAction.EXTEND to "延长描写",
+                                            PlotAction.SHORTEN to "精简对白",
+                                            PlotAction.CHANGE_PERSPECTIVE to "切换视角",
+                                            PlotAction.CUSTOM to "自定义指令..."
+                                        ).forEach { (action, label) ->
+                                            OutlinedButton(
+                                                onClick = {
+                                                    if (action == PlotAction.CUSTOM) {
+                                                        showCustomPlotDialog = true
+                                                    } else {
+                                                        onDismiss()
+                                                        onPlotAction(action, null)
+                                                    }
+                                                },
+                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                                modifier = Modifier.height(28.dp)
+                                            ) {
+                                                Text(label, style = MaterialTheme.typography.labelSmall)
+                                            }
                                         }
                                     }
                                 }
                             }
 
-                            // 剧情备忘录/摘要编辑
+                            // 剧情摘要输入
                             item {
                                 OutlinedTextField(
                                     value = plotSummaryText,
@@ -4690,181 +4689,325 @@ private fun StoryUnifiedSettingsDialog(
                             }
                         }
                     } else if (activeTab == 1) {
-                        // activeTab == 1: 角色与世界观
+                        // activeTab == 1: 登场角色独立列表与管理
+                        val charListToDisplay = (allCharacters + characters).distinctBy { it.id }
+                        val validCharIds = charListToDisplay.map { it.id }.toSet()
+                        val effectiveSelectedCharIds = selectedCharIds.filter { validCharIds.contains(it) }.toSet()
+
                         LazyColumn(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxSize(),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            // 登场角色勾选列表
                             item {
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("登场角色 (${effectiveSelectedCharIds.size}/${charListToDisplay.size})", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                    OutlinedButton(
+                                        onClick = {
+                                            editingLocalCharacter = CharacterProfile(id = 0, name = "")
+                                        },
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                        modifier = Modifier.height(28.dp)
                                     ) {
-                                        Text("登场角色 (${selectedCharIds.size}/${(allCharacters + characters).distinctBy { it.id }.size})", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                                        OutlinedButton(
-                                            onClick = {
-                                                editingLocalCharacter = CharacterProfile(id = 0, name = "")
-                                            },
-                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                            modifier = Modifier.height(28.dp)
-                                        ) {
-                                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp))
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text("添加新角色", style = MaterialTheme.typography.labelSmall)
-                                        }
-                                    }
-                                    val charListToDisplay = (allCharacters + characters).distinctBy { it.id }
-                                    if (charListToDisplay.isEmpty()) {
-                                        Text("暂无角色卡，可点击上方「添加新角色」", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    } else {
-                                        charListToDisplay.forEach { char ->
-                                            val isChecked = selectedCharIds.contains(char.id)
-                                            EchoGlassCard(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .combinedClickable(
-                                                        onClick = {
-                                                            selectedCharIds = if (isChecked) {
-                                                                selectedCharIds - char.id
-                                                            } else {
-                                                                selectedCharIds + char.id
-                                                            }
-                                                        },
-                                                        onLongClick = {
-                                                            editingLocalCharacter = char
-                                                        }
-                                                    ),
-                                                shape = EchoTokens.Radius.shapeSm,
-                                                containerColor = if (isChecked) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else Color.Unspecified
-                                            ) {
-                                                Row(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .padding(horizontal = 8.dp, vertical = 6.dp),
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    Checkbox(
-                                                        checked = isChecked,
-                                                        onCheckedChange = { checked ->
-                                                            selectedCharIds = if (checked) selectedCharIds + char.id else selectedCharIds - char.id
-                                                        }
-                                                    )
-                                                    Spacer(modifier = Modifier.width(6.dp))
-                                                    Column(modifier = Modifier.weight(1f)) {
-                                                        Text(char.name + if (char.identity.isNotBlank()) " · ${char.identity}" else "", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
-                                                        if (char.personality.isNotBlank()) {
-                                                            Text("性格: ${char.personality}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-                                                        }
-                                                    }
-                                                    IconButton(
-                                                        onClick = { editingLocalCharacter = char },
-                                                        modifier = Modifier.size(32.dp)
-                                                    ) {
-                                                        Icon(Icons.Default.Edit, contentDescription = "编辑角色", modifier = Modifier.size(16.dp))
-                                                    }
-                                                    IconButton(
-                                                        onClick = { onDeleteLocalCharacter(char) },
-                                                        modifier = Modifier.size(32.dp)
-                                                    ) {
-                                                        Icon(Icons.Default.DeleteOutline, contentDescription = "从故事移除", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
-                                                    }
-                                                }
-                                            }
-                                        }
+                                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("添加新角色", style = MaterialTheme.typography.labelSmall)
                                     }
                                 }
                             }
 
-                            // 世界观与场景设定单选
-                            item {
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
+                            if (charListToDisplay.isEmpty()) {
+                                item {
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                        modifier = Modifier.fillMaxWidth()
                                     ) {
-                                        Text("世界观与场景设定", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                                        OutlinedButton(
-                                            onClick = {
-                                                editingLocalScenario = RoleplayScenario(id = 0, name = "")
-                                            },
-                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                            modifier = Modifier.height(28.dp)
-                                        ) {
-                                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp))
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text("添加新世界观", style = MaterialTheme.typography.labelSmall)
-                                        }
+                                        Text("暂无角色卡，点击上方「添加新角色」立即为故事编排登场人物。", modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.bodySmall)
                                     }
+                                }
+                            } else {
+                                items(charListToDisplay.size) { idx ->
+                                    val char = charListToDisplay[idx]
+                                    val isChecked = effectiveSelectedCharIds.contains(char.id)
                                     EchoGlassCard(
-                                        onClick = { selectedScenarioId = null },
-                                        modifier = Modifier.fillMaxWidth(),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .combinedClickable(
+                                                onClick = {
+                                                    selectedCharIds = if (isChecked) {
+                                                        effectiveSelectedCharIds - char.id
+                                                    } else {
+                                                        effectiveSelectedCharIds + char.id
+                                                    }
+                                                },
+                                                onLongClick = {
+                                                    editingLocalCharacter = char
+                                                }
+                                            ),
                                         shape = EchoTokens.Radius.shapeSm,
-                                        containerColor = if (selectedScenarioId == null) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else Color.Unspecified
+                                        containerColor = if (isChecked) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else Color.Unspecified
                                     ) {
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .padding(8.dp),
+                                                .padding(horizontal = 8.dp, vertical = 6.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            RadioButton(selected = selectedScenarioId == null, onClick = { selectedScenarioId = null })
+                                            Checkbox(
+                                                checked = isChecked,
+                                                onCheckedChange = { checked ->
+                                                    selectedCharIds = if (checked) effectiveSelectedCharIds + char.id else effectiveSelectedCharIds - char.id
+                                                }
+                                            )
                                             Spacer(modifier = Modifier.width(6.dp))
-                                            Text("不指定世界观（自由背景）", style = MaterialTheme.typography.bodyMedium)
-                                        }
-                                    }
-                                    val scenarioListToDisplay = (allScenarios + listOfNotNull(scenario)).distinctBy { it.id }
-                                    scenarioListToDisplay.forEach { sc ->
-                                        val isSelected = selectedScenarioId == sc.id
-                                        EchoGlassCard(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .combinedClickable(
-                                                    onClick = { selectedScenarioId = sc.id },
-                                                    onLongClick = { editingLocalScenario = sc }
-                                                ),
-                                            shape = EchoTokens.Radius.shapeSm,
-                                            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else Color.Unspecified
-                                        ) {
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(8.dp),
-                                                verticalAlignment = Alignment.CenterVertically
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(char.name + if (char.identity.isNotBlank()) " · ${char.identity}" else "", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+                                                if (char.personality.isNotBlank()) {
+                                                    Text("性格: ${char.personality}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                                                }
+                                            }
+                                            IconButton(
+                                                onClick = { editingLocalCharacter = char },
+                                                modifier = Modifier.size(32.dp)
                                             ) {
-                                                RadioButton(selected = isSelected, onClick = { selectedScenarioId = sc.id })
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Column(modifier = Modifier.weight(1f)) {
-                                                    Text(sc.name, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
-                                                    if (sc.worldview.isNotBlank()) {
-                                                        Text(sc.worldview, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
-                                                    }
-                                                }
-                                                IconButton(
-                                                    onClick = { editingLocalScenario = sc },
-                                                    modifier = Modifier.size(32.dp)
-                                                ) {
-                                                    Icon(Icons.Default.Edit, contentDescription = "编辑世界观", modifier = Modifier.size(16.dp))
-                                                }
-                                                IconButton(
-                                                    onClick = { onDeleteLocalScenario() },
-                                                    modifier = Modifier.size(32.dp)
-                                                ) {
-                                                    Icon(Icons.Default.DeleteOutline, contentDescription = "从故事移除", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
-                                                }
+                                                Icon(Icons.Default.Edit, contentDescription = "编辑角色", modifier = Modifier.size(16.dp))
+                                            }
+                                            IconButton(
+                                                onClick = { onDeleteLocalCharacter(char) },
+                                                modifier = Modifier.size(32.dp)
+                                            ) {
+                                                Icon(Icons.Default.DeleteOutline, contentDescription = "从故事移除", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
                                             }
                                         }
                                     }
                                 }
                             }
                         }
-                    } else {
-                        // activeTab == 2: 模型与参数
+                    } else if (activeTab == 2) {
+                        // activeTab == 2: 世界观与场景独立列表
+                        val scenarioListToDisplay = (allScenarios + listOfNotNull(scenario)).distinctBy { it.id }
+
                         LazyColumn(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            item {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("世界观与场景设定", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                    OutlinedButton(
+                                        onClick = {
+                                            editingLocalScenario = RoleplayScenario(id = 0, name = "")
+                                        },
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                        modifier = Modifier.height(28.dp)
+                                    ) {
+                                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("添加新世界观", style = MaterialTheme.typography.labelSmall)
+                                    }
+                                }
+                            }
+                            item {
+                                EchoGlassCard(
+                                    onClick = { selectedScenarioId = null },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = EchoTokens.Radius.shapeSm,
+                                    containerColor = if (selectedScenarioId == null) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else Color.Unspecified
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        RadioButton(selected = selectedScenarioId == null, onClick = { selectedScenarioId = null })
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("不指定世界观（自由开放背景）", style = MaterialTheme.typography.bodyMedium)
+                                    }
+                                }
+                            }
+                            items(scenarioListToDisplay.size) { idx ->
+                                val sc = scenarioListToDisplay[idx]
+                                val isSelected = selectedScenarioId == sc.id
+                                EchoGlassCard(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .combinedClickable(
+                                            onClick = { selectedScenarioId = sc.id },
+                                            onLongClick = { editingLocalScenario = sc }
+                                        ),
+                                    shape = EchoTokens.Radius.shapeSm,
+                                    containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else Color.Unspecified
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        RadioButton(selected = isSelected, onClick = { selectedScenarioId = sc.id })
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(sc.name, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+                                            if (sc.worldview.isNotBlank()) {
+                                                Text(sc.worldview, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
+                                            }
+                                        }
+                                        IconButton(
+                                            onClick = { editingLocalScenario = sc },
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Icon(Icons.Default.Edit, contentDescription = "编辑世界观", modifier = Modifier.size(16.dp))
+                                        }
+                                        IconButton(
+                                            onClick = { onDeleteLocalScenario() },
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Icon(Icons.Default.DeleteOutline, contentDescription = "从故事移除", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else if (activeTab == 3) {
+                        // activeTab == 3: 创作规范与提示词 (教学模型如何创作)
+                        val personalizationMgr = remember { AiAssistantApp.instance.personalizationManager }
+                        val initialGlobalRpPrompt = remember { personalizationMgr.getSettings().globalRoleplayPrompt }
+                        var globalRoleplayPromptText by remember { mutableStateOf(initialGlobalRpPrompt) }
+
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            // 本故事系统提示词
+                            item {
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text("本故事专属系统提示词", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = dialogContentColor)
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            IconButton(
+                                                onClick = { isPromptExpanded = !isPromptExpanded },
+                                                modifier = Modifier.size(24.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = if (isPromptExpanded) Icons.Default.CloseFullscreen else Icons.Default.OpenInFull,
+                                                    contentDescription = if (isPromptExpanded) "缩小" else "放大",
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
+                                        }
+                                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            if (templates.isNotEmpty()) {
+                                                TextButton(
+                                                    onClick = { showTemplates = true },
+                                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                                                ) {
+                                                    Icon(Icons.AutoMirrored.Filled.List, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text("模板", style = MaterialTheme.typography.labelMedium)
+                                                }
+                                            }
+                                            if (promptTextFieldValue.text.isNotBlank()) {
+                                                TextButton(
+                                                    onClick = { showSaveDialog = true },
+                                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                                                ) {
+                                                    Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text("存模板", style = MaterialTheme.typography.labelMedium)
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Text("仅作用于当前故事，指导本故事特定的叙事基调、伏笔暗线或风格限制", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    OutlinedTextField(
+                                        value = promptTextFieldValue,
+                                        onValueChange = { promptTextFieldValue = it },
+                                        placeholder = { Text("例如：采用冷硬派侦探小说笔触，多用客观白描，强化悬疑氛围...") },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(
+                                                min = if (isPromptExpanded) 160.dp else 80.dp,
+                                                max = if (isPromptExpanded) 260.dp else 120.dp
+                                            ),
+                                        minLines = if (isPromptExpanded) 5 else 2,
+                                        maxLines = if (isPromptExpanded) 10 else 4,
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                }
+                            }
+
+                            // 全局创作教学规范
+                            item {
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("全局角色创作规范与教学指引", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = dialogContentColor)
+                                        TextButton(
+                                            onClick = {
+                                                globalRoleplayPromptText = com.aiassistant.data.repository.RoleplayRepository.DEFAULT_FICTION_TEACHING_GUIDELINES
+                                                personalizationMgr.saveSettings(personalizationMgr.getSettings().copy(globalRoleplayPrompt = globalRoleplayPromptText))
+                                            },
+                                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text("恢复默认文学规范", style = MaterialTheme.typography.labelSmall)
+                                        }
+                                    }
+                                    Text("作用于所有角色扮演故事，用于教学模型如何创作故事、行文规范与沉浸感", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    OutlinedTextField(
+                                        value = globalRoleplayPromptText,
+                                        onValueChange = {
+                                            globalRoleplayPromptText = it
+                                            personalizationMgr.saveSettings(personalizationMgr.getSettings().copy(globalRoleplayPrompt = it))
+                                        },
+                                        placeholder = { Text("留空将使用内置文学创作铁律（以演代述、神态微表情描写、禁止出戏性格副词）...") },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(min = 100.dp, max = 180.dp),
+                                        minLines = 3,
+                                        maxLines = 8,
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                }
+                            }
+
+                            // 机制说明卡片
+                            item {
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text("💡 创作提示词分层作用机制说明", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                                        Text("1. 全局创作规范：向模型传授文学创作方法论（以演代述、避免性格副词、台词动作节奏），全局共用。", style = MaterialTheme.typography.bodySmall)
+                                        Text("2. 本故事专属系统提示词：指导本故事特定的情节、题材与世界限制，优先级高于全局提示词。", style = MaterialTheme.typography.bodySmall)
+                                        Text("3. 登场角色卡与场景卡：作为独立结构化卡片拼入上下文，与剧情提示词解耦，确保人设永不走样。", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        // activeTab == 4: 模型与参数
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             item {
@@ -4876,68 +5019,6 @@ private fun StoryUnifiedSettingsDialog(
                                     secondaryColor = dialogSecondaryColor,
                                     onModelSelected = onModelSelected
                                 )
-                            }
-
-                            item {
-                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text("系统提示词", style = MaterialTheme.typography.titleSmall, color = dialogContentColor)
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            IconButton(
-                                                onClick = { isPromptExpanded = !isPromptExpanded },
-                                                modifier = Modifier.size(24.dp)
-                                            ) {
-                                                Icon(
-                                                    imageVector = if (isPromptExpanded) Icons.Default.CloseFullscreen else Icons.Default.OpenInFull,
-                                                    contentDescription = if (isPromptExpanded) "缩小输入框" else "放大输入框",
-                                                    tint = MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                            }
-                                        }
-                                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                            if (templates.isNotEmpty()) {
-                                                TextButton(
-                                                    onClick = { showTemplates = true },
-                                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                                                ) {
-                                                    Icon(Icons.AutoMirrored.Filled.List, contentDescription = null, modifier = Modifier.size(14.dp))
-                                                    Spacer(modifier = Modifier.width(4.dp))
-                                                    Text("模板", style = MaterialTheme.typography.labelMedium)
-                                                }
-                                            }
-                                            if (promptTextFieldValue.text.isNotBlank()) {
-                                                TextButton(
-                                                    onClick = { showSaveDialog = true },
-                                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                                                ) {
-                                                    Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(14.dp))
-                                                    Spacer(modifier = Modifier.width(4.dp))
-                                                    Text("存为模板", style = MaterialTheme.typography.labelMedium)
-                                                }
-                                            }
-                                        }
-                                    }
-                                    OutlinedTextField(
-                                        value = promptTextFieldValue,
-                                        onValueChange = { promptTextFieldValue = it },
-                                        placeholder = { Text("为故事或助手设定全局指导规则...") },
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .heightIn(
-                                                min = if (isPromptExpanded) 200.dp else 80.dp,
-                                                max = if (isPromptExpanded) 340.dp else 130.dp
-                                            ),
-                                        minLines = if (isPromptExpanded) 7 else 2,
-                                        maxLines = if (isPromptExpanded) 15 else 4,
-                                        shape = RoundedCornerShape(14.dp)
-                                    )
-                                }
                             }
 
                             item {
@@ -5002,7 +5083,15 @@ private fun StoryUnifiedSettingsDialog(
                                 ) {
                                     Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
                                         Text("深度思考模式", style = MaterialTheme.typography.titleSmall, color = dialogContentColor)
-                                        Text("适合复杂情节构思与严谨逻辑推演", style = MaterialTheme.typography.bodySmall, color = dialogSecondaryColor)
+                                        Text(
+                                            if (tuningProfile.noThinkingEffortReason != null) {
+                                                tuningProfile.noThinkingEffortReason
+                                            } else {
+                                                "适合复杂情节构思与严谨逻辑推演"
+                                            },
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = dialogSecondaryColor
+                                        )
                                     }
                                     Switch(
                                         checked = enableThinking,
@@ -5014,7 +5103,7 @@ private fun StoryUnifiedSettingsDialog(
                             if (enableThinking && tuningProfile.thinkingEfforts.isNotEmpty()) {
                                 item {
                                     Column {
-                                        Text("思考强度", style = MaterialTheme.typography.titleSmall, color = dialogContentColor)
+                                        Text("思考强度档位", style = MaterialTheme.typography.titleSmall, color = dialogContentColor)
                                         Spacer(modifier = Modifier.height(8.dp))
                                         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                             items(tuningProfile.thinkingEfforts) { level ->
@@ -5130,8 +5219,12 @@ private fun StoryUnifiedSettingsDialog(
                             thinkingEffort = thinkingEffort,
                             enableWebSearch = enableWebSearch
                         )
+                        val charListToDisplay = (allCharacters + characters).distinctBy { it.id }
+                        val validCharIds = charListToDisplay.map { it.id }.toSet()
+                        val finalCharIds = selectedCharIds.filter { validCharIds.contains(it) }.toList()
+
                         onSaveAll(
-                            selectedCharIds.toList(),
+                            finalCharIds,
                             selectedScenarioId,
                             selectedNarrativeMode,
                             plotSummaryText,

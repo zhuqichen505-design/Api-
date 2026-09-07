@@ -9,15 +9,19 @@ data class ModelCapabilityInfo(
     val supportsToolCalling: Boolean,
     val supportsThinking: Boolean,
     val supportedThinkingGears: List<String> = emptyList(),
-    val defaultThinkingBudget: Int = 1024
+    val defaultThinkingBudget: Int = 1024,
+    val reasoningProviderType: String = "none" // "openai", "anthropic", "deepseek_fixed", "none"
 ) {
     val contextWindowDisplay: String get() = contextWindowLabel
     val supportsVision: Boolean get() = isMultimodal
     val supportsTools: Boolean get() = supportsToolCalling
     val supportsReasoning: Boolean get() = supportsThinking
+    val isContextWindowRecognized: Boolean get() = contextWindowLabel.isNotBlank()
 }
 
 object ModelCapabilityEngine {
+
+    const val DEFAULT_CONTEXT_TOKENS = 256_000 // 默认上下文设定为 256k
 
     fun evaluateModel(modelName: String): ModelCapabilityInfo = resolveCapabilities(modelName)
 
@@ -29,7 +33,7 @@ object ModelCapabilityEngine {
         val name = modelName.trim().lowercase(Locale.ROOT)
         val fullIdentity = "$provider $baseUrl $name".lowercase(Locale.ROOT)
 
-        // 1. 上下文窗口识别
+        // 1. 上下文窗口识别（未识别成功时不带标签，默认 256k）
         val (contextTokens, contextLabel) = resolveContextWindow(name)
 
         // 2. 多模态视觉识别 (Vision / Image)
@@ -39,7 +43,7 @@ object ModelCapabilityEngine {
         val supportsToolCalling = resolveSupportsToolCalling(name)
 
         // 4. 思考模式 (Reasoning / Thinking) & 档位
-        val (supportsThinking, gears, defaultBudget) = resolveThinkingCapabilities(name, fullIdentity)
+        val (supportsThinking, gears, defaultBudget, providerType) = resolveThinkingCapabilities(name, fullIdentity)
 
         return ModelCapabilityInfo(
             contextWindowTokens = contextTokens,
@@ -48,44 +52,78 @@ object ModelCapabilityEngine {
             supportsToolCalling = supportsToolCalling,
             supportsThinking = supportsThinking,
             supportedThinkingGears = gears,
-            defaultThinkingBudget = defaultBudget
+            defaultThinkingBudget = defaultBudget,
+            reasoningProviderType = providerType
         )
     }
 
     private fun resolveContextWindow(name: String): Pair<Int, String> {
+        // A. 显式数字与单位后缀优先提取：例如 -128k, -200k, -1m, -2m, -32k, -64k
+        val explicitSuffix = Regex("""(?:^|[-_./])(\d+)([kmKM])(?:$|[-_./])""").find(name)
+        if (explicitSuffix != null) {
+            val num = explicitSuffix.groupValues[1].toIntOrNull()
+            val unit = explicitSuffix.groupValues[2].lowercase(Locale.ROOT)
+            if (num != null) {
+                if (unit == "m" && num in 1..10) {
+                    return Pair(num * 1_000_000, "${num}M")
+                } else if (unit == "k" && num in 4..2048) {
+                    return Pair(num * 1_000, "${num}K")
+                }
+            }
+        }
+
+        // B. 主流大模型家族全谱系识别
         return when {
             // 2M 上下文
-            name.contains("gemini-1.5-pro") || name.contains("gemini-2.0-pro") || name.contains("gemini-pro-1.5") ->
+            name.contains("gemini-1.5-pro") || name.contains("gemini-2.0-pro") || name.contains("gemini-2.5-pro") || name.contains("gemini-pro-1.5") ->
                 Pair(2_000_000, "2M")
 
             // 1M 上下文
-            name.contains("gemini") || name.contains("gpt-4.1") || name.contains("qwen-long") || name.contains("qwen-max-long") ->
+            name.contains("gemini-1.5-flash") || name.contains("gemini-2.0-flash") || name.contains("gemini-flash") ||
+            name.contains("gemini") || name.contains("qwen-long") || name.contains("qwen-max-long") ||
+            name.contains("glm-4-long") || name.contains("grok-3") || name.contains("gpt-4.1") ->
                 Pair(1_000_000, "1M")
 
             // 200K 上下文
-            name.contains("claude-3") || name.contains("claude-3-5") || name.contains("claude-3-7") ->
+            name.contains("claude-3-7") || name.contains("claude-3-5") || name.contains("claude-3") ||
+            name.contains("o1") || name.contains("o3") || name.contains("o4") ||
+            name.contains("yi-34b-200k") || name.contains("yi-large-rag") ->
                 Pair(200_000, "200K")
 
             // 128K 上下文
-            name.contains("gpt-4o") || name.contains("o1") || name.contains("o3") || name.contains("o4") ||
-            name.contains("deepseek-v3") || name.contains("deepseek-chat") || name.contains("deepseek-reasoner") || name.contains("r1") ||
-            name.contains("qwen-2.5") || name.contains("qwen-plus") || name.contains("qwen-max") || name.contains("glm-4") || name.contains("kimi") ->
+            name.contains("gpt-4o") || name.contains("gpt-4.5") || name.contains("gpt-4-turbo") ||
+            name.contains("deepseek-v3") || name.contains("deepseek-chat") || name.contains("deepseek-reasoner") || name.contains("r1") || name.contains("deepseek-coder") ||
+            name.contains("qwen-2.5") || name.contains("qwen2.5") || name.contains("qwq") || name.contains("qwen-plus") || name.contains("qwen-max") || name.contains("qwen-turbo") ||
+            name.contains("glm-4") || name.contains("glm-3-turbo") || name.contains("kimi") || name.contains("moonshot") ||
+            name.contains("llama-3.3") || name.contains("llama-3.2") || name.contains("llama-3.1") ||
+            name.contains("mistral-large") || name.contains("mistral-small") || name.contains("codestral") ||
+            name.contains("baichuan4") || name.contains("grok-2") || name.contains("abab6") ->
                 Pair(128_000, "128K")
 
             // 64K 上下文
-            name.contains("deepseek") || name.contains("llama-3.1") || name.contains("llama-3.2") || name.contains("llama-3.3") ->
+            name.contains("deepseek-v2") || name.contains("deepseek") || name.contains("open-mixtral-8x22b") ->
                 Pair(64_000, "64K")
 
             // 32K 上下文
-            name.contains("gpt-4-32k") || name.contains("qwen-turbo") || name.contains("baichuan") ->
+            name.contains("gpt-4-32k") || name.contains("chatglm3") || name.contains("baichuan3") || name.contains("baichuan2") ||
+            name.contains("yi-large") || name.contains("yi-medium") || name.contains("open-mixtral-8x7b") || name.contains("mistral-7b") ->
                 Pair(32_000, "32K")
 
             // 16K 上下文
-            name.contains("gpt-3.5-turbo-16k") ->
+            name.contains("gpt-3.5-turbo") ->
                 Pair(16_000, "16K")
 
-            // 默认兜底
-            else -> Pair(32_000, "32K")
+            // 8K 上下文
+            (name.contains("gpt-4") && !name.contains("gpt-4o") && !name.contains("gpt-4-turbo") && !name.contains("gpt-4.5")) ||
+            name.contains("llama-3-8b") || name.contains("llama-3-70b") ->
+                Pair(8_000, "8K")
+
+            // 4K 上下文
+            name.contains("llama-2") ->
+                Pair(4_000, "4K")
+
+            // 未被成功识别的模型：不用标注上下文标签，默认内部预算设定为 256K
+            else -> Pair(DEFAULT_CONTEXT_TOKENS, "")
         }
     }
 
@@ -98,6 +136,7 @@ object ModelCapabilityEngine {
             name.contains("gemini") ||
             name.contains("claude-3") ||
             name.contains("gpt-4-turbo") ||
+            name.contains("gpt-4.5") ||
             name.contains("glm-4v") ||
             name.contains("internvl") ||
             name.contains("minicpm-v") ||
@@ -105,7 +144,7 @@ object ModelCapabilityEngine {
     }
 
     private fun resolveSupportsToolCalling(name: String): Boolean {
-        // 大多数现代模型支持工具调用
+        // o1-mini / o1-preview 早期版本不支持 Function Calling
         if (name.contains("o1-mini") || name.contains("o1-preview")) return false
         return name.contains("gpt-4") ||
             name.contains("gpt-3.5") ||
@@ -114,39 +153,42 @@ object ModelCapabilityEngine {
             name.contains("gemini") ||
             name.contains("qwen") ||
             name.contains("glm") ||
-            name.contains("mistral")
+            name.contains("mistral") ||
+            name.contains("o1") ||
+            name.contains("o3") ||
+            name.contains("o4")
     }
 
-    private fun resolveThinkingCapabilities(name: String, identity: String): Triple<Boolean, List<String>, Int> {
-        val isReasoner = name.contains("reasoner") ||
-            name.contains("r1") ||
-            name.contains("thinking") ||
-            name.contains("qwq") ||
-            name.contains("claude-3-7") ||
-            Regex("""(^|[-_/])(o[134])""").containsMatchIn(name)
-
-        if (!isReasoner) {
-            // 普通模型若为 DeepSeek 或 MiMo 也支持开启思考模式
-            val isDeepSeekOrMiMo = identity.contains("deepseek") || identity.contains("mimo") || identity.contains("xiaomi")
-            if (isDeepSeekOrMiMo && (name.contains("deepseek") || name.contains("mimo"))) {
-                return Triple(true, listOf("low", "medium", "high"), 1024)
-            }
-            return Triple(false, emptyList(), 0)
+    private fun resolveThinkingCapabilities(name: String, identity: String): Tuple4<Boolean, List<String>, Int, String> {
+        // 1. OpenAI o系列推理模型 (o1, o3, o4)
+        if (Regex("""(^|[-_/])(o[134]|gpt-5)""").containsMatchIn(name)) {
+            return Tuple4(true, listOf("low", "medium", "high"), 1024, "openai")
         }
 
-        val gears = when {
-            name.contains("deepseek-reasoner") || name.contains("r1") -> listOf("high", "max")
-            Regex("""(^|[-_/])(o[134])""").containsMatchIn(name) -> listOf("low", "medium", "high")
-            name.contains("claude-3-7") -> listOf("low", "medium", "high", "max")
-            else -> listOf("low", "medium", "high")
+        // 2. Anthropic Claude 3.7 Sonnet 思考模型
+        if (name.contains("claude-3-7")) {
+            return Tuple4(true, listOf("low", "medium", "high", "max"), 2048, "anthropic")
         }
 
-        val defaultBudget = when {
-            name.contains("claude-3-7") -> 2048
-            name.contains("deepseek-reasoner") -> 4096
-            else -> 1024
+        // 3. DeepSeek 官方深度思考/推理模型 (deepseek-reasoner, deepseek-r1)
+        if (name.contains("deepseek-reasoner") || name.contains("r1") || name.contains("deepseek-r")) {
+            // DeepSeek 官方模型为全量深度推理，接口拒绝外部 reasoning_effort 参数
+            return Tuple4(true, emptyList(), 4096, "deepseek_fixed")
         }
 
-        return Triple(true, gears, defaultBudget)
+        // 4. 通义千问推理模型 QwQ
+        if (name.contains("qwq") || name.contains("thinking")) {
+            return Tuple4(true, emptyList(), 2048, "deepseek_fixed")
+        }
+
+        // 5. MiMo / 小米模型（支持开关）
+        if (identity.contains("mimo") || identity.contains("xiaomi")) {
+            return Tuple4(true, emptyList(), 1024, "none")
+        }
+
+        // 6. 普通标准模型（gpt-4o, gpt-4o-mini, qwen-turbo, baichuan, deepseek-chat 等）：不支持思考档位
+        return Tuple4(false, emptyList(), 0, "none")
     }
+
+    data class Tuple4<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
 }

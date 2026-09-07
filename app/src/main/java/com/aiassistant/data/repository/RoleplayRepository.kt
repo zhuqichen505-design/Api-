@@ -267,19 +267,20 @@ class RoleplayRepository(
     /**
      * 组装角色扮演上下文
      * 按照指定顺序组装：
-     * 1. 全局系统约束
-     * 2. 角色卡
-     * 3. 场景卡
-     * 4. 长期记忆
-     * 5. 当前剧情摘要
-     * 6. 已固定的重要事实
-     * 7. 会话历史
+     * 1. 全局创作规范与教学指引 (全局提示词)
+     * 2. 本故事专属系统提示词 (系统提示词)
+     * 3. 登场角色设定卡
+     * 4. 世界观与场景卡
+     * 5. 长期记忆与关键事实
+     * 6. 当前剧情摘要与备忘
+     * 7. 叙事模式与互动规范
      * 8. 用户最新消息或剧情提示
      */
     suspend fun assembleRoleplayContext(
         sessionId: Long,
         globalSystemPrompt: String?,
         userMessage: String?,
+        globalRoleplayPrompt: String? = null,
         includeHistory: Boolean = true,
         maxHistoryMessages: Int = 50
     ): String {
@@ -288,12 +289,20 @@ class RoleplayRepository(
 
         val parts = mutableListOf<String>()
 
-        // 1. 全局系统约束
+        // 1. 全局创作规范与教学指引 (全局提示词)
+        val teachingPrompt = if (!globalRoleplayPrompt.isNullOrBlank()) {
+            globalRoleplayPrompt.trim()
+        } else {
+            DEFAULT_FICTION_TEACHING_GUIDELINES
+        }
+        parts.add("【全局创作规范与教学指引】\n$teachingPrompt")
+
+        // 2. 本故事专属系统提示词 (会话级系统提示词)
         if (!globalSystemPrompt.isNullOrBlank()) {
-            parts.add("【全局系统约束】\n$globalSystemPrompt")
+            parts.add("【本故事专属系统提示词】\n${globalSystemPrompt.trim()}")
         }
 
-        // 2. 角色卡 (支持多角色与故事编排，并支持本故事专属定制覆盖)
+        // 3. 角色卡 (支持多角色与故事编排，并支持本故事专属定制覆盖)
         val characterIds = session.getEffectiveCharacterIds()
         if (characterIds.isNotEmpty()) {
             val baseChars = characterIds.mapNotNull { characterId ->
@@ -519,5 +528,13 @@ class RoleplayRepository(
         val character = session?.characterId?.let { characterProfileDao.getCharacterById(it) }
         val scenario = session?.scenarioId?.let { roleplayScenarioDao.getScenarioById(it) }
         return Triple(session, character, scenario)
+    }
+
+    companion object {
+        const val DEFAULT_FICTION_TEACHING_GUIDELINES = """你是一位具备深厚文学功底与戏剧编排能力的创作导师与沉浸式演绎专家。请遵循以下行文创作规范：
+1. 【以演代述 (Show, Don't Tell)】：严禁在动作描写中直接使用生硬性格副词标签。通过角色的眼神、微表情、肢体动作、用词节奏、声调变化、呼吸停顿以及选择性沉默展现内心世界。
+2. 【台词与动作交融】：台词契合角色身份经历，富有生活温度与张力，避免空洞说教或假大空独白。
+3. 【世界观沉浸度】：严格遵守当前场景与世界设定的物理法则、社会关系与时代背景，严禁出戏或产生违背设定的现代/异质词汇。
+4. 【用户主导与留白互动】：严禁擅自代替用户发言或替用户角色做主观决定；段落结尾保持情节动力，为用户留出推进空间。"""
     }
 }

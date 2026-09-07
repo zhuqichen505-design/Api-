@@ -73,7 +73,7 @@ class AiRepository(
         const val MEMORY_TERM_OVERLAP_WEIGHT = 0.32f
         const val MEMORY_RECENCY_WEIGHT = 0.12f
         const val MEMORY_RECENCY_WINDOW_MS = 14f * 24f * 60f * 60f * 1000f
-        const val DEFAULT_UNKNOWN_CONTEXT_WINDOW_TOKENS = 1_000_000
+        const val DEFAULT_UNKNOWN_CONTEXT_WINDOW_TOKENS = 256_000
         const val CONTEXT_OVERFLOW_RETRY_WINDOW_TOKENS = 32_000
 
         fun parseApiKeys(rawKey: String?): List<String> {
@@ -1736,7 +1736,7 @@ class AiRepository(
             includeEnableThinking = wantsThinking && !isDeepSeek && !isOpenAi,
             includeThinkingBudget = wantsThinking && !isDeepSeek && !isOpenAi && !isMiMo,
             includeThinkingEffort = wantsThinking && !isDeepSeek && !isOpenAi && !isMiMo,
-            includeReasoningEffort = wantsThinking && (isDeepSeek || (isOpenAi && isOpenAiReasoningModel))
+            includeReasoningEffort = wantsThinking && isOpenAi && isOpenAiReasoningModel
         )
     }
 
@@ -1906,12 +1906,7 @@ class AiRepository(
             ?.takeIf { it >= 128_000 }
             ?.let { return it }
 
-        return when {
-            name.contains("gemini") -> 1_000_000
-            name.contains("gpt-4.1") -> 1_000_000
-            name.contains("qwen-long") || name.contains("qwen-max-long") -> 1_000_000
-            else -> DEFAULT_UNKNOWN_CONTEXT_WINDOW_TOKENS
-        }
+        return com.aiassistant.domain.model.ModelCapabilityEngine.evaluateModel(modelName).contextWindowTokens
     }
 
     private fun parseContextWindowFromText(value: String): Int? {

@@ -115,7 +115,7 @@ class V1917FeaturesTest {
         val deepseek = ModelCapabilityEngine.resolveCapabilities("deepseek-reasoner")
         assertEquals(128_000, deepseek.contextWindowTokens)
         assertTrue(deepseek.supportsThinking)
-        assertTrue(deepseek.supportedThinkingGears.contains("high"))
+        assertEquals("deepseek_fixed", deepseek.reasoningProviderType)
 
         // UI 评估展示徽标
         val badge = ModelCapabilityEngine.evaluateModel("deepseek-reasoner")
