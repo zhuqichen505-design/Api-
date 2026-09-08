@@ -176,6 +176,9 @@ interface MessageDao {
 
     @Query("SELECT SUM(tokenCount) FROM messages WHERE conversationId = :conversationId")
     suspend fun getTotalTokens(conversationId: Long): Int?
+
+    @Query("UPDATE messages SET translatedThinking = :translatedThinking WHERE id = :messageId")
+    suspend fun updateTranslatedThinking(messageId: Long, translatedThinking: String?)
 }
 
 // ============ 使用统计 DAO ============

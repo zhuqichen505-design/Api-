@@ -1486,6 +1486,9 @@ fun PersonalizationTab(
     var autoNameApiConfigId by remember(settings) { mutableLongStateOf(settings.autoNameApiConfigId) }
     var autoNameModel by remember(settings) { mutableStateOf(settings.autoNameModel) }
     var autoNamePrompt by remember(settings) { mutableStateOf(settings.autoNamePrompt) }
+    var enableThinkingTranslation by remember(settings) { mutableStateOf(settings.enableThinkingTranslation) }
+    var thinkingTranslationApiConfigId by remember(settings) { mutableLongStateOf(settings.thinkingTranslationApiConfigId) }
+    var thinkingTranslationModel by remember(settings) { mutableStateOf(settings.thinkingTranslationModel) }
     val allApiConfigs by repository.getAllApiConfigs().collectAsState(initial = emptyList())
 
     var testAutoNameInput by remember { mutableStateOf("帮我写一个Python快速排序算法") }
@@ -1496,7 +1499,8 @@ fun PersonalizationTab(
 
     val hasUnsaved = remember(
         settings, globalPrompt, globalRoleplayPrompt, instruction, autoMemoryEnabled, thinkingTemplate, chatFontSize, fontSizeScale,
-        autoNameEnabled, autoNameApiConfigId, autoNameModel, autoNamePrompt
+        autoNameEnabled, autoNameApiConfigId, autoNameModel, autoNamePrompt,
+        enableThinkingTranslation, thinkingTranslationApiConfigId, thinkingTranslationModel
     ) {
         globalPrompt.trim() != settings.globalSystemPrompt.trim() ||
         globalRoleplayPrompt.trim() != settings.globalRoleplayPrompt.trim() ||
@@ -1508,7 +1512,10 @@ fun PersonalizationTab(
         autoNameEnabled != settings.autoNameEnabled ||
         autoNameApiConfigId != settings.autoNameApiConfigId ||
         autoNameModel.trim() != settings.autoNameModel.trim() ||
-        autoNamePrompt.trim() != settings.autoNamePrompt.trim()
+        autoNamePrompt.trim() != settings.autoNamePrompt.trim() ||
+        enableThinkingTranslation != settings.enableThinkingTranslation ||
+        thinkingTranslationApiConfigId != settings.thinkingTranslationApiConfigId ||
+        thinkingTranslationModel.trim() != settings.thinkingTranslationModel.trim()
     }
 
     LaunchedEffect(hasUnsaved) {
@@ -1531,7 +1538,10 @@ fun PersonalizationTab(
                 autoNameEnabled = autoNameEnabled,
                 autoNameApiConfigId = autoNameApiConfigId,
                 autoNameModel = autoNameModel.trim(),
-                autoNamePrompt = autoNamePrompt.trim()
+                autoNamePrompt = autoNamePrompt.trim(),
+                enableThinkingTranslation = enableThinkingTranslation,
+                thinkingTranslationApiConfigId = thinkingTranslationApiConfigId,
+                thinkingTranslationModel = thinkingTranslationModel.trim()
             )
         )
         settings = manager.getSettings()
@@ -2434,6 +2444,231 @@ fun PersonalizationTab(
                                     )
                                 }
                             }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4.5 思考链汉化与翻译 (Requirement 1)
+        item {
+            SettingsGlassCard(hazeState = hazeState) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Translate,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("思考链汉化与翻译", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text(
+                            "当模型思考链主要为英文时，在思考胶囊内提供一键汉化，调用指定翻译模型将思考过程翻译为中文并持久化",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Switch(
+                        checked = enableThinkingTranslation,
+                        onCheckedChange = {
+                            enableThinkingTranslation = it
+                            savedMessage = null
+                        }
+                    )
+                }
+
+                if (enableThinkingTranslation) {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                    // 翻译专用 API 配置选择
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            "翻译专用 API 服务商：",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+
+                        val configOptions = listOf(0L to "跟随当前会话 API 配置（默认）") +
+                            allApiConfigs.map { it.id to "${it.name.ifBlank { it.provider }} (${it.provider})" }
+
+                        var expandedApiDropdown by remember { mutableStateOf(false) }
+                        val currentConfigLabel = configOptions.find { it.first == thinkingTranslationApiConfigId }?.second
+                            ?: "跟随当前会话 API 配置（默认）"
+
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            OutlinedButton(
+                                onClick = { expandedApiDropdown = true },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = SettingsInnerShape
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = currentConfigLabel,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                                }
+                            }
+
+                            DropdownMenu(
+                                expanded = expandedApiDropdown,
+                                onDismissRequest = { expandedApiDropdown = false }
+                            ) {
+                                configOptions.forEach { (cfgId, label) ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                label,
+                                                fontWeight = if (cfgId == thinkingTranslationApiConfigId) FontWeight.Bold else FontWeight.Normal,
+                                                color = if (cfgId == thinkingTranslationApiConfigId) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                            )
+                                        },
+                                        onClick = {
+                                            thinkingTranslationApiConfigId = cfgId
+                                            expandedApiDropdown = false
+                                            savedMessage = null
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // 翻译专用模型选择
+                    val currentTargetConfig = remember(thinkingTranslationApiConfigId, allApiConfigs) {
+                        if (thinkingTranslationApiConfigId > 0L) {
+                            allApiConfigs.find { it.id == thinkingTranslationApiConfigId }
+                        } else {
+                            allApiConfigs.find { it.isDefault } ?: allApiConfigs.firstOrNull()
+                        }
+                    }
+                    val translationModelOptions = remember(currentTargetConfig) {
+                        val fromConfig = parseModelList(currentTargetConfig?.availableModels)
+                        val defaultModel = cleanModelName(currentTargetConfig?.modelName)
+                        (fromConfig + listOfNotNull(defaultModel)).distinct().filter { it.isNotBlank() }
+                    }
+                    var expandedModelDropdown by remember { mutableStateOf(false) }
+                    var isManualInputMode by remember { mutableStateOf(false) }
+
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "翻译专用模型：",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            TextButton(
+                                onClick = { isManualInputMode = !isManualInputMode },
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    if (isManualInputMode) "切换为模型下拉选择" else "手动输入模型名称",
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                        }
+
+                        if (!isManualInputMode && translationModelOptions.isNotEmpty()) {
+                            Box(modifier = Modifier.fillMaxWidth()) {
+                                OutlinedButton(
+                                    onClick = { expandedModelDropdown = true },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = SettingsInnerShape
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = if (thinkingTranslationModel.isBlank()) {
+                                                "跟随配置默认 (${currentTargetConfig?.modelName?.ifBlank { "未指定" } ?: "未指定"})"
+                                            } else {
+                                                thinkingTranslationModel
+                                            },
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                                    }
+                                }
+
+                                DropdownMenu(
+                                    expanded = expandedModelDropdown,
+                                    onDismissRequest = { expandedModelDropdown = false },
+                                    modifier = Modifier.heightIn(max = 300.dp)
+                                ) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                "跟随配置默认 (${currentTargetConfig?.modelName?.ifBlank { "未指定" } ?: "未指定"})",
+                                                fontWeight = if (thinkingTranslationModel.isBlank()) FontWeight.Bold else FontWeight.Normal,
+                                                color = if (thinkingTranslationModel.isBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                            )
+                                        },
+                                        onClick = {
+                                            thinkingTranslationModel = ""
+                                            expandedModelDropdown = false
+                                            savedMessage = null
+                                        }
+                                    )
+                                    translationModelOptions.forEach { m ->
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    m,
+                                                    fontWeight = if (thinkingTranslationModel == m) FontWeight.Bold else FontWeight.Normal,
+                                                    color = if (thinkingTranslationModel == m) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                                )
+                                            },
+                                            onClick = {
+                                                thinkingTranslationModel = m
+                                                expandedModelDropdown = false
+                                                savedMessage = null
+                                            }
+                                        )
+                                    }
+                                    HorizontalDivider()
+                                    DropdownMenuItem(
+                                        text = { Text("手动输入自定义模型名称...", color = MaterialTheme.colorScheme.secondary) },
+                                        onClick = {
+                                            isManualInputMode = true
+                                            expandedModelDropdown = false
+                                        }
+                                    )
+                                }
+                            }
+                        } else {
+                            OutlinedTextField(
+                                value = thinkingTranslationModel,
+                                onValueChange = {
+                                    thinkingTranslationModel = it
+                                    savedMessage = null
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                placeholder = { Text("例如 gpt-4o-mini 或留空跟随默认") },
+                                singleLine = true,
+                                shape = SettingsInnerShape
+                            )
                         }
                     }
                 }

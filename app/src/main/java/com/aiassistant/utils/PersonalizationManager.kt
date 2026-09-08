@@ -18,7 +18,10 @@ data class PersonalizationSettings(
     val autoNameEnabled: Boolean = true,
     val autoNameApiConfigId: Long = 0L,
     val autoNameModel: String = "",
-    val autoNamePrompt: String = ""
+    val autoNamePrompt: String = "",
+    val enableThinkingTranslation: Boolean = true,
+    val thinkingTranslationApiConfigId: Long = 0L,
+    val thinkingTranslationModel: String = ""
 )
 
 class PersonalizationManager(private val context: Context) {
@@ -52,7 +55,10 @@ class PersonalizationManager(private val context: Context) {
             autoNameEnabled = prefs.getBoolean(KEY_AUTO_NAME_ENABLED, true),
             autoNameApiConfigId = prefs.getLong(KEY_AUTO_NAME_API_CONFIG_ID, 0L),
             autoNameModel = prefs.getString(KEY_AUTO_NAME_MODEL, "").orEmpty(),
-            autoNamePrompt = prefs.getString(KEY_AUTO_NAME_PROMPT, "").orEmpty()
+            autoNamePrompt = prefs.getString(KEY_AUTO_NAME_PROMPT, "").orEmpty(),
+            enableThinkingTranslation = prefs.getBoolean(KEY_ENABLE_THINKING_TRANSLATION, true),
+            thinkingTranslationApiConfigId = prefs.getLong(KEY_THINKING_TRANSLATION_API_CONFIG_ID, 0L),
+            thinkingTranslationModel = prefs.getString(KEY_THINKING_TRANSLATION_MODEL, "").orEmpty()
         )
     }
 
@@ -75,6 +81,9 @@ class PersonalizationManager(private val context: Context) {
             .putLong(KEY_AUTO_NAME_API_CONFIG_ID, settings.autoNameApiConfigId)
             .putString(KEY_AUTO_NAME_MODEL, settings.autoNameModel)
             .putString(KEY_AUTO_NAME_PROMPT, settings.autoNamePrompt)
+            .putBoolean(KEY_ENABLE_THINKING_TRANSLATION, settings.enableThinkingTranslation)
+            .putLong(KEY_THINKING_TRANSLATION_API_CONFIG_ID, settings.thinkingTranslationApiConfigId)
+            .putString(KEY_THINKING_TRANSLATION_MODEL, settings.thinkingTranslationModel)
             .commit()
     }
 
@@ -123,5 +132,8 @@ class PersonalizationManager(private val context: Context) {
         private const val KEY_AUTO_NAME_API_CONFIG_ID = "auto_name_api_config_id"
         private const val KEY_AUTO_NAME_MODEL = "auto_name_model"
         private const val KEY_AUTO_NAME_PROMPT = "auto_name_prompt"
+        private const val KEY_ENABLE_THINKING_TRANSLATION = "enable_thinking_translation"
+        private const val KEY_THINKING_TRANSLATION_API_CONFIG_ID = "thinking_translation_api_config_id"
+        private const val KEY_THINKING_TRANSLATION_MODEL = "thinking_translation_model"
     }
 }

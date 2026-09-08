@@ -102,6 +102,7 @@ data class Message(
     val thinkingTokens: Int = 0,
     val responseTime: Long = 0,
     val toolCalls: String? = null,
+    val translatedThinking: String? = null,
     val createdAt: Long = System.currentTimeMillis()
 )
 

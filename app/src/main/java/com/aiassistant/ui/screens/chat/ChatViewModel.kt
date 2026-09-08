@@ -69,6 +69,13 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
     private val _pendingMemoryCandidate = MutableStateFlow<com.aiassistant.domain.model.PendingMemoryCandidate?>(null)
     val pendingMemoryCandidate: StateFlow<com.aiassistant.domain.model.PendingMemoryCandidate?> = _pendingMemoryCandidate.asStateFlow()
 
+    // 思考链翻译状态
+    private val _translatingMessageIds = MutableStateFlow<Set<Long>>(emptySet())
+    val translatingMessageIds: StateFlow<Set<Long>> = _translatingMessageIds.asStateFlow()
+
+    private var activeAssistantVariantGroupId: String? = null
+    private var activeAssistantVariantIndex: Int = 1
+
     private var conversation: Conversation? = null
     private var apiConfig: ApiConfig? = null
     private var generationJob: Job? = null
@@ -489,6 +496,8 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
         } else null
 
         isMessageSaved = false
+        activeAssistantVariantGroupId = assistantVariantGroupId
+        activeAssistantVariantIndex = assistantVariantIndex
 
         // 获取当前选择的模型和设置
         val settings = if (_useTempSettings.value) _tempSettings.value else null
@@ -578,6 +587,8 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                         onComplete = { _, _, _ ->
                             isMessageSaved = true
                             _isGenerating.value = false
+                            activeAssistantVariantGroupId = null
+                            activeAssistantVariantIndex = 1
                             _currentResponse.value = ""
                             _currentThinking.value = ""
                             autoNameIfNeeded()
@@ -613,6 +624,10 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
     private fun saveErrorReply(errorMsg: String) {
         val partialResponse = _currentResponse.value.trim()
         val partialThinking = _currentThinking.value.trim().ifEmpty { null }
+        val variantGroupId = activeAssistantVariantGroupId
+        val variantIndex = activeAssistantVariantIndex
+        activeAssistantVariantGroupId = null
+        activeAssistantVariantIndex = 1
         AiAssistantApp.instance.applicationScope.launch {
             val content = if (partialResponse.isNotBlank()) {
                 "$partialResponse\n\n[输出已被中断: $errorMsg]"
@@ -627,7 +642,9 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                 conversationId = conversationId,
                 role = "assistant",
                 content = content,
-                thinkingContent = partialThinking
+                thinkingContent = partialThinking,
+                variantGroupId = variantGroupId,
+                variantIndex = variantIndex
             )
             repository.saveMessage(message)
         }
@@ -638,28 +655,64 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
         generationJob?.cancel(CancellationException("用户暂停生成"))
         _isGenerating.value = false
 
-        val responseToSave = _currentResponse.value
-        val thinkingToSave = _currentThinking.value.ifBlank { null }
+        val responseToSave = _currentResponse.value.trim()
+        val thinkingToSave = _currentThinking.value.trim().ifEmpty { null }
+        val variantGroupId = activeAssistantVariantGroupId
+        val variantIndex = activeAssistantVariantIndex
+        activeAssistantVariantGroupId = null
+        activeAssistantVariantIndex = 1
 
-        if (!isMessageSaved && (responseToSave.isNotBlank() || thinkingToSave != null)) {
+        if (!isMessageSaved) {
             isMessageSaved = true
-            val finalContent = if (responseToSave.isNotBlank()) {
-                "$responseToSave\n\n[输出已由用户暂停]"
-            } else {
-                "[思考已停止]"
+            val finalContent = when {
+                responseToSave.isNotBlank() -> "$responseToSave\n\n*(回复已被暂停)*"
+                thinkingToSave != null -> "*(思考已停止，回复已暂停)*"
+                else -> "回复已停止"
             }
             AiAssistantApp.instance.applicationScope.launch {
                 val message = Message(
                     conversationId = conversationId,
                     role = "assistant",
                     content = finalContent,
-                    thinkingContent = thinkingToSave
+                    thinkingContent = thinkingToSave,
+                    variantGroupId = variantGroupId,
+                    variantIndex = variantIndex
                 )
                 repository.saveMessage(message)
             }
         }
         _currentResponse.value = ""
         _currentThinking.value = ""
+    }
+
+    fun translateMessageThinking(message: Message) {
+        val thinking = message.thinkingContent
+        if (thinking.isNullOrBlank()) return
+        if (_translatingMessageIds.value.contains(message.id)) return
+
+        viewModelScope.launch {
+            _translatingMessageIds.update { it + message.id }
+            try {
+                val settings = AiAssistantApp.instance.personalizationManager.getSettings()
+                val targetConfigId = settings.thinkingTranslationApiConfigId
+                val targetModel = settings.thinkingTranslationModel
+
+                val result = repository.translateThinkingContent(
+                    thinkingText = thinking,
+                    targetApiConfigId = targetConfigId,
+                    targetModelName = targetModel
+                )
+                result.onSuccess { translated ->
+                    repository.updateTranslatedThinking(message.id, translated)
+                }.onFailure { e ->
+                    _error.value = "思考链翻译失败: ${e.message}"
+                }
+            } catch (e: Exception) {
+                _error.value = "思考链翻译异常: ${e.message}"
+            } finally {
+                _translatingMessageIds.update { it - message.id }
+            }
+        }
     }
 
     fun clearError() {

@@ -85,6 +85,49 @@ class AiRepository(
                 .distinct()
         }
 
+        fun isMainlyEnglish(text: String?): Boolean {
+            if (text.isNullOrBlank()) return false
+            val nonWhitespace = text.filterNot { it.isWhitespace() }
+            if (nonWhitespace.length < 15) return false
+
+            var chineseCount = 0
+            var latinCount = 0
+            for (ch in nonWhitespace) {
+                if (ch in '\u4e00'..'\u9fa5') {
+                    chineseCount++
+                } else if ((ch in 'a'..'z') || (ch in 'A'..'Z')) {
+                    latinCount++
+                }
+            }
+            return latinCount >= 30 && chineseCount < (latinCount * 0.15)
+        }
+
+        fun normalizeThinkingEffort(effort: String?, providerType: String = "openai"): String {
+            val normalized = effort?.lowercase()
+            return if (providerType.equals("deepseek", true) || providerType.equals("deepseek_fixed", true)) {
+                when (normalized) {
+                    "max", "ultra" -> "max"
+                    else -> "high"
+                }
+            } else {
+                when (normalized) {
+                    "low", "medium", "high" -> normalized
+                    "ultra", "max" -> "high"
+                    else -> "medium"
+                }
+            }
+        }
+
+        fun thinkingBudgetForEffort(effort: String?, configuredBudget: Int): Int {
+            val base = configuredBudget.coerceIn(1024, 32768)
+            return when (effort?.lowercase()) {
+                "low" -> (base / 2).coerceIn(1024, 32768)
+                "max", "ultra" -> 32768
+                "high" -> (base * 2).coerceIn(1024, 32768)
+                else -> base
+            }
+        }
+
         fun isTimeoutException(e: Throwable): Boolean {
             if (e is java.net.SocketTimeoutException) return true
             var current: Throwable? = e
@@ -801,6 +844,10 @@ class AiRepository(
         updateConversationStats(message.conversationId)
         captureMemoryCandidate(message.copy(id = id))
         return id
+    }
+
+    suspend fun updateTranslatedThinking(messageId: Long, translatedThinking: String?) {
+        messageDao.updateTranslatedThinking(messageId, translatedThinking)
     }
 
     suspend fun deleteMessage(message: Message) {
@@ -1650,25 +1697,14 @@ class AiRepository(
     }
 
     private fun normalizeThinkingEffort(effort: String?, config: ApiConfig): String {
-        val normalized = effort?.lowercase()
-        return if (isDeepSeekConfig(config)) {
-            when (normalized) {
-                "max" -> "max"
-                else -> "high"
-            }
-        } else {
-            when (normalized) {
-                "low", "medium", "high" -> normalized
-                else -> "medium"
-            }
-        }
+        return normalizeThinkingEffort(effort, if (isDeepSeekConfig(config)) "deepseek" else "openai")
     }
 
     private fun thinkingBudgetForEffort(effort: String?, configuredBudget: Int): Int {
         val base = configuredBudget.coerceIn(1024, 32768)
         return when (effort?.lowercase()) {
             "low" -> (base / 2).coerceIn(1024, 32768)
-            "max" -> 32768
+            "max", "ultra" -> 32768
             "high" -> (base * 2).coerceIn(1024, 32768)
             else -> base
         }
@@ -2670,6 +2706,55 @@ class AiRepository(
         } catch (e: Exception) {
             Log.e(tag, "executeQuickCompletion 失败", e)
             null
+        }
+    }
+
+    suspend fun translateThinkingContent(
+        thinkingText: String,
+        targetApiConfigId: Long = 0L,
+        targetModelName: String = ""
+    ): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            if (thinkingText.isBlank()) {
+                return@withContext Result.failure(Exception("待翻译内容为空"))
+            }
+
+            val rawConfig = if (targetApiConfigId > 0L) {
+                getDecryptedConfig(targetApiConfigId)
+            } else {
+                val def = getDefaultApiConfig()
+                if (def != null) {
+                    getDecryptedConfig(def.id)
+                } else {
+                    val allConfigs = getAllApiConfigs().first()
+                    allConfigs.firstOrNull()?.let { getDecryptedConfig(it.id) }
+                }
+            } ?: return@withContext Result.failure(Exception("未找到可用的 API 配置用于翻译"))
+
+            val targetModel = targetModelName.trim().ifBlank { rawConfig.modelName }
+            val effectiveConfig = rawConfig.copy(modelName = targetModel)
+
+            val prompt = """
+                请将以下 AI 模型的深度思考过程（Chain-of-Thought / 思维链）翻译为流畅、自然、符合中文表达习惯的简体中文。
+                要求：
+                1. 完整保留原有的思考逻辑、推理步骤、数学推导、代码标记和技术术语；
+                2. 保持原有的思考语气（如自言自语、第一人称分析等）；
+                3. 绝对不要添加任何额外的开场白、解释说明、翻译备注或结语，只直接输出翻译后的思考链正文。
+
+                【待翻译思考过程】
+                $thinkingText
+            """.trimIndent()
+
+            val maxOut = (thinkingText.length * 2).coerceIn(1000, 8192)
+            val translated = executeQuickCompletion(effectiveConfig, prompt, maxTokens = maxOut)
+            if (translated.isNullOrBlank()) {
+                Result.failure(Exception("模型未返回有效翻译结果"))
+            } else {
+                Result.success(translated.trim())
+            }
+        } catch (e: Exception) {
+            Log.e(tag, "思考链翻译异常", e)
+            Result.failure(e)
         }
     }
 

@@ -58,6 +58,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.graphics.asImageBitmap
 import android.graphics.Bitmap
+import androidx.compose.ui.graphics.Brush
+import kotlin.math.roundToInt
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.border
@@ -153,6 +155,7 @@ fun ChatScreen(
     val showScrollControls by rememberLazyListControlsVisible(listState)
     val clipboardManager = LocalClipboardManager.current
     val promptTemplates by viewModel.promptTemplates.collectAsState()
+    val translatingMessageIds by viewModel.translatingMessageIds.collectAsState()
 
     val roleplayRepo = remember { com.aiassistant.AiAssistantApp.instance.roleplayRepository }
     val allAvailableCharacters by roleplayRepo.getAllCharacters().collectAsState(initial = emptyList())
@@ -477,9 +480,21 @@ fun ChatScreen(
                                 val editSource = pendingEditSource
                                 if (editSource != null) {
                                     preserveScrollForBranchGeneration = true
-                                    streamingBranchGroupId = editSource.variantGroupId
+                                    val targetAssistantGroupId = editSource.variantGroupId
                                         ?.let { pairedVariantGroupId(it) }
                                         ?: "turn_${editSource.id}_assistant"
+                                    streamingBranchGroupId = targetAssistantGroupId
+                                    val userGroupId = editSource.variantGroupId ?: "turn_${editSource.id}_user"
+                                    val targetIndex = displayMessages.indexOfFirst {
+                                        it.message.id == editSource.id || it.groupId == userGroupId
+                                    }
+                                    if (targetIndex >= 0) {
+                                        scope.launch {
+                                            try {
+                                                listState.animateScrollToItem(targetIndex)
+                                            } catch (_: Exception) {}
+                                        }
+                                    }
                                     viewModel.sendEditedMessage(editSource, inputText, selectedAttachments)
                                 } else {
                                     preserveScrollForBranchGeneration = false
@@ -514,8 +529,9 @@ fun ChatScreen(
                         viewModel.updateTempSettings(tempSettings.copy(enableWebSearch = enabled))
                     },
                     enableThinking = tempSettings.enableThinking,
-                    onThinkingChange = { enabled ->
-                        viewModel.updateTempSettings(tempSettings.copy(enableThinking = enabled))
+                    thinkingEffort = tempSettings.thinkingEffort,
+                    onThinkingChange = { enabled, effort ->
+                        viewModel.updateTempSettings(tempSettings.copy(enableThinking = enabled, thinkingEffort = effort))
                     },
                     isRoleplay = uiState.isRoleplay,
                     onPlotActionClick = { showPlotActionDialog = true },
@@ -624,56 +640,128 @@ fun ChatScreen(
                         val resolvedAssistantModelName = messageModelMap[message.id]
                             ?: messageModelMap[message.createdAt]
                             ?: currentAssistantModelName
+                        val isBranchStreamingHere = streamingBranchGroupId != null &&
+                            displayItem.groupId == streamingBranchGroupId &&
+                            (isGenerating || currentResponse.isNotEmpty() || currentThinking.isNotEmpty())
+
+                        val totalVariantsWithStreaming = if (isBranchStreamingHere) {
+                            (displayItem.variantInfo?.total ?: 1) + 1
+                        } else {
+                            displayItem.variantInfo?.total ?: 1
+                        }
+                        val selectedVariantIndex = if (isBranchStreamingHere) {
+                            variantSelections[streamingBranchGroupId!!] ?: totalVariantsWithStreaming
+                        } else {
+                            displayItem.variantInfo?.currentIndex ?: 1
+                        }
+                        val showStreamingBubbleHere = isBranchStreamingHere && selectedVariantIndex == totalVariantsWithStreaming
+
                         Column(modifier = Modifier.fillMaxWidth()) {
-                            MessageBubble(
-                                message = message,
-                                hazeState = hazeState,
-                                readableBackdrop = readableBackdrops.content,
-                                assistantAvatarRevision = modelAvatarRevision,
-                                assistantApiConfigId = currentModelOption?.apiConfigId,
-                                assistantModelName = resolvedAssistantModelName,
-                                variantInfo = displayItem.variantInfo,
-                                onVariantSelected = { groupId, index ->
-                                    variantSelections[groupId] = index
-                                    pairedVariantGroupId(groupId)?.let { pairedGroup ->
-                                        if (messages.any { it.variantGroupId == pairedGroup && it.variantIndex == index }) {
+                            if (showStreamingBubbleHere) {
+                                // 在原位以正在生成的最新版本渲染
+                                MessageBubble(
+                                    message = Message(
+                                        conversationId = conversationId,
+                                        role = "assistant",
+                                        content = currentResponse,
+                                        thinkingContent = currentThinking.ifEmpty { null },
+                                        variantGroupId = streamingBranchGroupId,
+                                        variantIndex = totalVariantsWithStreaming
+                                    ),
+                                    hazeState = hazeState,
+                                    readableBackdrop = readableBackdrops.content,
+                                    isGenerating = true,
+                                    assistantAvatarRevision = modelAvatarRevision,
+                                    assistantApiConfigId = currentModelOption?.apiConfigId,
+                                    assistantModelName = currentAssistantModelName,
+                                    variantInfo = VariantInfo(
+                                        groupId = streamingBranchGroupId!!,
+                                        currentIndex = totalVariantsWithStreaming,
+                                        total = totalVariantsWithStreaming,
+                                        availableIndices = (displayItem.variantInfo?.availableIndices ?: listOf(1)) + totalVariantsWithStreaming
+                                    ),
+                                    onVariantSelected = { groupId, index ->
+                                        variantSelections[groupId] = index
+                                        pairedVariantGroupId(groupId)?.let { pairedGroup ->
                                             variantSelections[pairedGroup] = index
                                         }
+                                    },
+                                    translatingThinking = false,
+                                    onTranslateThinking = null,
+                                    onCopy = {
+                                        clipboardManager.setText(AnnotatedString(currentResponse))
+                                    },
+                                    onCopyThinking = {
+                                        clipboardManager.setText(AnnotatedString(currentThinking))
                                     }
-                                },
-                                onCopy = {
-                                clipboardManager.setText(AnnotatedString(message.content))
-                            },
-                            onCopyThinking = {
-                                message.thinkingContent?.let {
-                                    clipboardManager.setText(AnnotatedString(it))
+                                )
+                            } else {
+                                val dynamicVariantInfo = if (isBranchStreamingHere) {
+                                    VariantInfo(
+                                        groupId = streamingBranchGroupId!!,
+                                        currentIndex = selectedVariantIndex,
+                                        total = totalVariantsWithStreaming,
+                                        availableIndices = (displayItem.variantInfo?.availableIndices ?: listOf(1)) + totalVariantsWithStreaming
+                                    )
+                                } else {
+                                    displayItem.variantInfo
                                 }
-                            },
-                            onRegenerate = if (message.role == "assistant" && message == messages.lastOrNull { it.role == "assistant" }) {
-                                {
-                                    preserveScrollForBranchGeneration = true
-                                    autoFollowOutput = false
-                                    streamingBranchGroupId = message.variantGroupId ?: "reply_${message.id}"
-                                    viewModel.regenerateLastMessage()
-                                }
-                            } else null,
-                            onEdit = if (message.role == "user") {
-                                {
-                                    inputText = message.content
-                                    pendingEditSource = message
-                                    autoFollowOutput = false
-                                    selectedAttachments = emptyList()
-                                    attachmentStatus = null
-                                }
-                            } else null,
-                            onDelete = {
-                                viewModel.deleteMessage(message)
+                                MessageBubble(
+                                    message = message,
+                                    hazeState = hazeState,
+                                    readableBackdrop = readableBackdrops.content,
+                                    assistantAvatarRevision = modelAvatarRevision,
+                                    assistantApiConfigId = currentModelOption?.apiConfigId,
+                                    assistantModelName = resolvedAssistantModelName,
+                                    variantInfo = dynamicVariantInfo,
+                                    onVariantSelected = { groupId, index ->
+                                        variantSelections[groupId] = index
+                                        pairedVariantGroupId(groupId)?.let { pairedGroup ->
+                                            if (messages.any { it.variantGroupId == pairedGroup && it.variantIndex == index }) {
+                                                variantSelections[pairedGroup] = index
+                                            }
+                                        }
+                                    },
+                                    translatingThinking = translatingMessageIds.contains(message.id),
+                                    onTranslateThinking = { msg -> viewModel.translateMessageThinking(msg) },
+                                    onCopy = {
+                                        clipboardManager.setText(AnnotatedString(message.content))
+                                    },
+                                    onCopyThinking = {
+                                        message.thinkingContent?.let {
+                                            clipboardManager.setText(AnnotatedString(it))
+                                        }
+                                    },
+                                    onRegenerate = if (message.role == "assistant" && message == messages.lastOrNull { it.role == "assistant" }) {
+                                        {
+                                            preserveScrollForBranchGeneration = true
+                                            autoFollowOutput = false
+                                            streamingBranchGroupId = message.variantGroupId ?: "reply_${message.id}"
+                                            viewModel.regenerateLastMessage()
+                                        }
+                                    } else null,
+                                    onEdit = if (message.role == "user") {
+                                        {
+                                            inputText = message.content
+                                            pendingEditSource = message
+                                            autoFollowOutput = false
+                                            selectedAttachments = emptyList()
+                                            attachmentStatus = null
+                                        }
+                                    } else null,
+                                    onDelete = {
+                                        viewModel.deleteMessage(message)
+                                    }
+                                )
                             }
-                        )
 
+                            // 如果该轮还没有已入库的 assistant 消息，但在对应 user 消息后正在流式生成
+                            val hasAssistantItemForThisTurn = displayMessages.any { it.groupId == streamingBranchGroupId }
                             if (
+                                !hasAssistantItemForThisTurn &&
                                 streamingBranchGroupId != null &&
-                                displayItem.groupId == streamingBranchGroupId &&
+                                (displayItem.groupId == pairedVariantGroupId(streamingBranchGroupId!!) ||
+                                 streamingBranchGroupId!!.startsWith("turn_${displayItem.message.id}_")) &&
                                 (isGenerating || currentResponse.isNotEmpty() || currentThinking.isNotEmpty())
                             ) {
                                 Spacer(modifier = Modifier.height(14.dp))
@@ -691,6 +779,8 @@ fun ChatScreen(
                                     assistantAvatarRevision = modelAvatarRevision,
                                     assistantApiConfigId = currentModelOption?.apiConfigId,
                                     assistantModelName = currentAssistantModelName,
+                                    translatingThinking = false,
+                                    onTranslateThinking = null,
                                     onCopy = {
                                         clipboardManager.setText(AnnotatedString(currentResponse))
                                     },
@@ -1608,6 +1698,8 @@ private fun MessageBubble(
     assistantModelName: String = "AI",
     variantInfo: VariantInfo? = null,
     onVariantSelected: (String, Int) -> Unit = { _, _ -> },
+    translatingThinking: Boolean = false,
+    onTranslateThinking: ((Message) -> Unit)? = null,
     onCopy: () -> Unit,
     onCopyThinking: () -> Unit,
     onRegenerate: (() -> Unit)? = null,
@@ -1636,6 +1728,14 @@ private fun MessageBubble(
     var showThinking by remember(message.id, hasThinkingContent) {
         mutableStateOf(hasThinkingContent)
     }
+    val isThinkingEnglish = remember(message.thinkingContent) {
+        AiRepository.isMainlyEnglish(message.thinkingContent)
+    }
+    val hasTranslation = !message.translatedThinking.isNullOrBlank()
+    var showTranslated by remember(message.id, message.translatedThinking) {
+        mutableStateOf(hasTranslation)
+    }
+    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
 
     // 解析附件
     val attachments = remember(message.attachments) {
@@ -1760,6 +1860,8 @@ private fun MessageBubble(
                     MessageFooter(
                         isUser = true,
                         message = message,
+                        variantInfo = variantInfo,
+                        onVariantSelected = onVariantSelected,
                         onCopy = onCopy,
                         onRegenerate = onRegenerate,
                         onEdit = onEdit,
@@ -1768,14 +1870,6 @@ private fun MessageBubble(
                             .widthIn(max = bubbleMaxWidth)
                             .fillMaxWidth()
                     )
-
-                    variantInfo?.let { info ->
-                        VariantSwitcher(
-                            info = info,
-                            onSelect = { index -> onVariantSelected(info.groupId, index) },
-                            modifier = Modifier.padding(top = 2.dp)
-                        )
-                    }
                 }
 
                 Spacer(modifier = Modifier.width(8.dp))
@@ -1930,6 +2024,38 @@ private fun MessageBubble(
                     }
                 }
 
+                if (!isGenerating && isThinkingEnglish && !hasTranslation) {
+                    Surface(
+                        modifier = Modifier
+                            .padding(top = 4.dp, start = 40.dp)
+                            .clickable {
+                                showThinking = true
+                                onTranslateThinking?.invoke(message)
+                            },
+                        shape = RoundedCornerShape(999.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Translate,
+                                contentDescription = null,
+                                modifier = Modifier.size(13.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = if (translatingThinking) "正在翻译思考链..." else "检测到英文思考 · 点击汉化",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+
                 if (hasThinking) {
                     AnimatedVisibility(visible = showThinking && hasThinkingContent) {
                         Surface(
@@ -1947,27 +2073,127 @@ private fun MessageBubble(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text(
-                                        "思考内容详情",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = thinkingHeaderColor
-                                    )
-                                    IconButton(
-                                        onClick = onCopyThinking,
-                                        modifier = Modifier.size(24.dp)
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
-                                        Icon(
-                                            Icons.Default.ContentCopy,
-                                            contentDescription = "复制思考",
-                                            modifier = Modifier.size(14.dp),
-                                            tint = thinkingHeaderColor.copy(alpha = 0.78f)
+                                        Text(
+                                            "思考内容详情",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = thinkingHeaderColor
                                         )
+
+                                        if (hasTranslation) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .background(glass.control.copy(alpha = 0.7f))
+                                                    .padding(2.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                            ) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(6.dp),
+                                                    color = if (showTranslated) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                                    modifier = Modifier.clickable { showTranslated = true }
+                                                ) {
+                                                    Text(
+                                                        text = "译文",
+                                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                                                        fontWeight = if (showTranslated) FontWeight.Bold else FontWeight.Normal,
+                                                        color = if (showTranslated) MaterialTheme.colorScheme.onPrimary else thinkingHeaderColor.copy(alpha = 0.8f),
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    )
+                                                }
+                                                Surface(
+                                                    shape = RoundedCornerShape(6.dp),
+                                                    color = if (!showTranslated) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                                    modifier = Modifier.clickable { showTranslated = false }
+                                                ) {
+                                                    Text(
+                                                        text = "原文",
+                                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                                                        fontWeight = if (!showTranslated) FontWeight.Bold else FontWeight.Normal,
+                                                        color = if (!showTranslated) MaterialTheme.colorScheme.onPrimary else thinkingHeaderColor.copy(alpha = 0.8f),
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        if (!hasTranslation && isThinkingEnglish && !isGenerating) {
+                                            if (translatingThinking) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                                    modifier = Modifier.padding(end = 4.dp)
+                                                ) {
+                                                    CircularProgressIndicator(
+                                                        modifier = Modifier.size(13.dp),
+                                                        strokeWidth = 1.6.dp,
+                                                        color = MaterialTheme.colorScheme.primary
+                                                    )
+                                                    Text(
+                                                        "翻译中...",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.primary
+                                                    )
+                                                }
+                                            } else {
+                                                Surface(
+                                                    shape = RoundedCornerShape(999.dp),
+                                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
+                                                    modifier = Modifier.clickable { onTranslateThinking?.invoke(message) }
+                                                ) {
+                                                    Row(
+                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                    ) {
+                                                        Icon(Icons.Default.Translate, contentDescription = null, modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.primary)
+                                                        Text("翻译为中文", style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.5.sp), color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                                                    }
+                                                }
+                                            }
+                                        } else if (hasTranslation && !isGenerating) {
+                                            IconButton(
+                                                onClick = { onTranslateThinking?.invoke(message) },
+                                                modifier = Modifier.size(24.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.Refresh,
+                                                    contentDescription = "重新翻译",
+                                                    modifier = Modifier.size(14.dp),
+                                                    tint = thinkingHeaderColor.copy(alpha = 0.78f)
+                                                )
+                                            }
+                                        }
+
+                                        IconButton(
+                                            onClick = {
+                                                val textToCopy = if (hasTranslation && showTranslated) message.translatedThinking ?: "" else message.thinkingContent ?: ""
+                                                clipboardManager.setText(AnnotatedString(textToCopy))
+                                            },
+                                            modifier = Modifier.size(24.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.ContentCopy,
+                                                contentDescription = "复制思考",
+                                                modifier = Modifier.size(14.dp),
+                                                tint = thinkingHeaderColor.copy(alpha = 0.78f)
+                                            )
+                                        }
                                     }
                                 }
                                 Spacer(modifier = Modifier.height(4.dp))
+                                val displayThinking = if (hasTranslation && showTranslated) message.translatedThinking ?: "" else (message.thinkingContent ?: "")
                                 MarkdownText(
-                                    content = message.thinkingContent ?: "",
+                                    content = displayThinking,
                                     color = thinkingContentColor
                                 )
                             }
@@ -2040,20 +2266,14 @@ private fun MessageBubble(
                     MessageFooter(
                         isUser = false,
                         message = message,
+                        variantInfo = variantInfo,
+                        onVariantSelected = onVariantSelected,
                         onCopy = onCopy,
                         onRegenerate = onRegenerate,
                         onEdit = onEdit,
                         onDelete = onDelete,
                         modifier = Modifier.fillMaxWidth()
                     )
-
-                    variantInfo?.let { info ->
-                        VariantSwitcher(
-                            info = info,
-                            onSelect = { index -> onVariantSelected(info.groupId, index) },
-                            modifier = Modifier.padding(top = 2.dp)
-                        )
-                    }
 
                     if (!isGenerating) {
                         val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
@@ -2075,6 +2295,8 @@ private fun MessageBubble(
 private fun MessageFooter(
     isUser: Boolean,
     message: Message,
+    variantInfo: VariantInfo? = null,
+    onVariantSelected: ((String, Int) -> Unit)? = null,
     onCopy: () -> Unit,
     onRegenerate: (() -> Unit)?,
     onEdit: (() -> Unit)?,
@@ -2089,12 +2311,14 @@ private fun MessageFooter(
         modifier = modifier.padding(top = 5.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        FlowRow(
+        // 左侧元数据：时间戳、Token 等支持水平横向滚动
+        Row(
             modifier = Modifier
                 .weight(1f)
-                .padding(end = 4.dp),
-            horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
-            verticalArrangement = Arrangement.spacedBy(2.dp)
+                .horizontalScroll(rememberScrollState())
+                .padding(end = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
         ) {
             MessageMetaText(
                 text = formatMessageClock(message.createdAt),
@@ -2134,10 +2358,19 @@ private fun MessageFooter(
             }
         }
 
+        // 右侧操作栏：版本切换器与操作按钮同一行排布
         Row(
             horizontalArrangement = Arrangement.End,
             verticalAlignment = Alignment.CenterVertically
         ) {
+            if (variantInfo != null && variantInfo.total > 1 && onVariantSelected != null) {
+                VariantSwitcher(
+                    info = variantInfo,
+                    onSelect = { index -> onVariantSelected(variantInfo.groupId, index) }
+                )
+                Spacer(modifier = Modifier.width(2.dp))
+            }
+
             FooterIconButton(
                 icon = Icons.Default.ContentCopy,
                 contentDescription = "复制",
@@ -2432,13 +2665,15 @@ fun ChatInputBar(
     enableWebSearch: Boolean,
     onWebSearchChange: (Boolean) -> Unit,
     enableThinking: Boolean = false,
-    onThinkingChange: (Boolean) -> Unit = {},
+    thinkingEffort: String = "medium",
+    onThinkingChange: (Boolean, String) -> Unit = { _, _ -> },
     isRoleplay: Boolean = false,
     onPlotActionClick: () -> Unit = {},
     readableBackdrop: Color = Color.Unspecified
 ) {
     var showToolMenu by remember { mutableStateOf(false) }
     var isInputExpanded by remember { mutableStateOf(false) }
+    var showThinkingPopover by remember { mutableStateOf(false) }
     val inputShape = if (isInputExpanded) RoundedCornerShape(22.dp) else RoundedCornerShape(30.dp)
     val resolvedReadableBackdrop = readableBackdrop.takeOrElse {
         MaterialTheme.colorScheme.background
@@ -2457,6 +2692,22 @@ fun ChatInputBar(
             .navigationBarsPadding()
             .padding(horizontal = 12.dp, vertical = 8.dp)
     ) {
+        // 深度思考向上展开渐变滑块气泡弹窗 (Requirement 7)
+        AnimatedVisibility(
+            visible = showThinkingPopover,
+            enter = fadeIn() + expandVertically(expandFrom = Alignment.Bottom),
+            exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Bottom)
+        ) {
+            ReasoningEffortPopupCard(
+                enableThinking = enableThinking,
+                thinkingEffort = thinkingEffort,
+                onEffortSelected = { enabled, effort ->
+                    onThinkingChange(enabled, effort)
+                },
+                onClose = { showThinkingPopover = false }
+            )
+        }
+
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
@@ -2558,24 +2809,41 @@ fun ChatInputBar(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // 1. 深度思考 按钮（排在第1位）
+                        // 1. 深度思考 按钮（排在第1位，点击向上展开档位弹窗）
                         item {
+                            val effortText = when {
+                                !enableThinking -> "深度思考 · 关 ⌃"
+                                thinkingEffort.equals("low", true) || thinkingEffort.equals("fast", true) -> "深度思考 · 快速 ⌃"
+                                thinkingEffort.equals("medium", true) || thinkingEffort.equals("balanced", true) -> "深度思考 · 平衡 ⌃"
+                                thinkingEffort.equals("high", true) || thinkingEffort.equals("deep", true) -> "深度思考 · 深入 ⌃"
+                                thinkingEffort.equals("ultra", true) || thinkingEffort.equals("max", true) -> "深度思考 · Ultra ⌃"
+                                else -> "深度思考 · 平衡 ⌃"
+                            }
+                            val effortAccentColor = when {
+                                !enableThinking -> glass.outline
+                                thinkingEffort.equals("low", true) -> Color(0xFF2ECC71)
+                                thinkingEffort.equals("medium", true) -> Color(0xFF3498DB)
+                                thinkingEffort.equals("high", true) -> Color(0xFF9B59B6)
+                                thinkingEffort.equals("ultra", true) || thinkingEffort.equals("max", true) -> Color(0xFFB950FD)
+                                else -> MaterialTheme.colorScheme.primary
+                            }
                             InputPillButton(
-                                text = "深度思考",
+                                text = effortText,
+                                icon = Icons.Default.Psychology,
                                 selected = enableThinking,
-                                onClick = { onThinkingChange(!enableThinking) },
+                                onClick = { showThinkingPopover = !showThinkingPopover },
                                 containerColor = if (enableThinking) {
-                                    glass.controlSelected
+                                    effortAccentColor.copy(alpha = 0.16f)
                                 } else {
                                     glass.control
                                 },
                                 contentColor = if (enableThinking) {
-                                    MaterialTheme.colorScheme.primary
+                                    effortAccentColor
                                 } else {
                                     inputTextColor
                                 },
                                 borderColor = if (enableThinking) {
-                                    glass.outlineSelected
+                                    effortAccentColor.copy(alpha = 0.65f)
                                 } else {
                                     glass.outline
                                 }
@@ -2736,6 +3004,231 @@ fun ChatInputBar(
                             )
                         ) {
                             Icon(Icons.Default.ArrowUpward, contentDescription = "发送")
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private data class ThinkingEffortLevel(
+    val step: Int,
+    val key: String,
+    val enabled: Boolean,
+    val name: String,
+    val subtitle: String,
+    val detail: String,
+    val primaryColor: Color,
+    val gradientColors: List<Color>
+)
+
+@Composable
+private fun ReasoningEffortPopupCard(
+    enableThinking: Boolean,
+    thinkingEffort: String,
+    onEffortSelected: (Boolean, String) -> Unit,
+    onClose: () -> Unit
+) {
+    val levels = remember {
+        listOf(
+            ThinkingEffortLevel(
+                step = 0,
+                key = "none",
+                enabled = false,
+                name = "关闭",
+                subtitle = "极速直答 · 无思考",
+                detail = "跳过深度思维链推演，以模型原生最高速度直接生成最终回复内容。",
+                primaryColor = Color(0xFF7F8C8D),
+                gradientColors = listOf(Color(0xFF7F8C8D), Color(0xFF95A5A6))
+            ),
+            ThinkingEffortLevel(
+                step = 1,
+                key = "low",
+                enabled = true,
+                name = "快速",
+                subtitle = "轻度思考 · 快速响应",
+                detail = "分配少量思考预算进行简要推理，适合常规闲聊、翻译与基础问答。",
+                primaryColor = Color(0xFF2ECC71),
+                gradientColors = listOf(Color(0xFF2ECC71), Color(0xFF27AE60))
+            ),
+            ThinkingEffortLevel(
+                step = 2,
+                key = "medium",
+                enabled = true,
+                name = "平衡",
+                subtitle = "适中思考 · 兼顾速度与深度",
+                detail = "兼顾逻辑严谨性与响应耗时，应对大多数日常工作、分析与创作场景（推荐）。",
+                primaryColor = Color(0xFF3498DB),
+                gradientColors = listOf(Color(0xFF3498DB), Color(0xFF2980B9))
+            ),
+            ThinkingEffortLevel(
+                step = 3,
+                key = "high",
+                enabled = true,
+                name = "深入",
+                subtitle = "深度思考 · 严密推演",
+                detail = "投入大量思考预算进行多步论证、边界检查与代码架构推演，适合复杂技术任务。",
+                primaryColor = Color(0xFF9B59B6),
+                gradientColors = listOf(Color(0xFF9B59B6), Color(0xFF8E44AD))
+            ),
+            ThinkingEffortLevel(
+                step = 4,
+                key = "ultra",
+                enabled = true,
+                name = "Ultra",
+                subtitle = "极限思考 · 极致推理",
+                detail = "释放最大思考预算上限，全力攻坚数学证明、高难度算法与复杂多维哲学推理。",
+                primaryColor = Color(0xFFB950FD),
+                gradientColors = listOf(Color(0xFF8E44AD), Color(0xFFE056FD))
+            )
+        )
+    }
+
+    val currentStep = remember(enableThinking, thinkingEffort) {
+        if (!enableThinking) 0
+        else when (thinkingEffort.lowercase()) {
+            "low", "fast" -> 1
+            "medium", "balanced" -> 2
+            "high", "deep" -> 3
+            "ultra", "max" -> 4
+            else -> 2
+        }
+    }
+
+    var sliderIndex by remember(currentStep) { mutableFloatStateOf(currentStep.toFloat()) }
+    val currentLevel = levels[sliderIndex.roundToInt().coerceIn(0, 4)]
+    val glass = echoGlassPalette()
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 8.dp),
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+        border = BorderStroke(1.dp, currentLevel.primaryColor.copy(alpha = 0.5f)),
+        shadowElevation = 10.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // 顶部 Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(Brush.linearGradient(currentLevel.gradientColors)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Psychology,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Column {
+                        Text(
+                            text = "深度思考强度",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = currentLevel.subtitle,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = currentLevel.primaryColor,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(
+                        onClick = onClose,
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                    ) {
+                        Text("完成", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            // 档位详细说明卡片
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                color = currentLevel.primaryColor.copy(alpha = 0.08f),
+                border = BorderStroke(1.dp, currentLevel.primaryColor.copy(alpha = 0.25f))
+            ) {
+                Text(
+                    text = currentLevel.detail,
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 17.sp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                )
+            }
+
+            // 渐变滑块区域
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Slider(
+                    value = sliderIndex,
+                    onValueChange = { newVal ->
+                        sliderIndex = newVal
+                        val stepInt = newVal.roundToInt().coerceIn(0, 4)
+                        val target = levels[stepInt]
+                        onEffortSelected(target.enabled, target.key)
+                    },
+                    valueRange = 0f..4f,
+                    steps = 3,
+                    colors = SliderDefaults.colors(
+                        thumbColor = currentLevel.primaryColor,
+                        activeTrackColor = currentLevel.primaryColor,
+                        inactiveTrackColor = currentLevel.primaryColor.copy(alpha = 0.2f),
+                        activeTickColor = Color.White.copy(alpha = 0.8f),
+                        inactiveTickColor = currentLevel.primaryColor.copy(alpha = 0.5f)
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                // 快捷点选 Chips 行
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    levels.forEach { lvl ->
+                        val isSelected = currentLevel.step == lvl.step
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isSelected) lvl.primaryColor else glass.control,
+                            contentColor = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                            border = BorderStroke(
+                                1.dp,
+                                if (isSelected) lvl.primaryColor else glass.outline
+                            ),
+                            modifier = Modifier.clickable {
+                                sliderIndex = lvl.step.toFloat()
+                                onEffortSelected(lvl.enabled, lvl.key)
+                            }
+                        ) {
+                            Text(
+                                text = lvl.name,
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.5.sp),
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                            )
                         }
                     }
                 }
@@ -3771,6 +4264,7 @@ private fun ChatSettingsSystemPromptSection(
     onSaveTemplate: () -> Unit
 ) {
     var isExpanded by remember { mutableStateOf(false) }
+    var showPriorityTip by remember { mutableStateOf(false) }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
@@ -3779,6 +4273,18 @@ private fun ChatSettingsSystemPromptSection(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(
+                    onClick = { showPriorityTip = !showPriorityTip },
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Info,
+                        contentDescription = "系统提示词优先级说明",
+                        tint = if (showPriorityTip) MaterialTheme.colorScheme.primary else secondaryColor,
+                        modifier = Modifier.size(17.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(4.dp))
                 Text("系统提示词", style = MaterialTheme.typography.titleSmall, color = contentColor)
                 Spacer(modifier = Modifier.width(6.dp))
                 IconButton(
@@ -3813,6 +4319,38 @@ private fun ChatSettingsSystemPromptSection(
                         Spacer(modifier = Modifier.width(4.dp))
                         Text("存为模板", style = MaterialTheme.typography.labelMedium)
                     }
+                }
+            }
+        }
+
+        AnimatedVisibility(
+            visible = showPriorityTip,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically()
+        ) {
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Info,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "【优先级说明】若设置了当前对话的系统提示词，将 100% 覆盖全局系统提示词；若留空则自动继承全局系统提示词。",
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
+                        color = secondaryColor
+                    )
                 }
             }
         }
@@ -3970,51 +4508,6 @@ fun ChatSettingsDialog(
                 contentPadding = PaddingValues(end = 2.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                item {
-                    EchoGlassCard(
-                        onClick = onConvertToRoleplay,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = EchoTokens.Radius.shapeMd,
-                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Default.AutoStories, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("转为角色扮演 / 故事创作", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall, color = dialogContentColor)
-                                Text("平滑升级为故事会话，解锁角色卡、世界观与剧情推进指令", style = MaterialTheme.typography.bodySmall, color = dialogSecondaryColor)
-                            }
-                            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = dialogSecondaryColor)
-                        }
-                    }
-                }
-
-                item {
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "【优先级提示】若设置了对话系统提示词，全局系统提示词将被 100% 覆盖；若留空则自动继承全局系统提示词。",
-                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
-                                color = dialogSecondaryColor
-                            )
-                        }
-                    }
-                }
-
                 item {
                     ChatSettingsModelSelector(
                         currentOption = currentOption,
@@ -4312,6 +4805,30 @@ fun ChatSettingsDialog(
                                     }
                                 }
                             }
+                        }
+                    }
+                }
+
+                item {
+                    EchoGlassCard(
+                        onClick = onConvertToRoleplay,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = EchoTokens.Radius.shapeMd,
+                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.AutoStories, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("转为角色扮演 / 故事创作", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall, color = dialogContentColor)
+                                Text("平滑升级为故事会话，解锁角色卡、世界观与剧情推进指令", style = MaterialTheme.typography.bodySmall, color = dialogSecondaryColor)
+                            }
+                            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = dialogSecondaryColor)
                         }
                     }
                 }
