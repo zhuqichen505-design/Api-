@@ -1,4 +1,4 @@
-﻿package com.aiassistant
+package com.aiassistant
 
 import com.aiassistant.data.repository.RoleplayRepository
 import com.aiassistant.domain.model.CharacterProfile
@@ -61,11 +61,11 @@ class V1918FeaturesTest {
         assertEquals("anthropic", claude37.reasoningProviderType)
         assertTrue(claude37.supportedThinkingGears.contains("high"))
 
-        // DeepSeek-R1: fixed full reasoning, no tier selection
+        // DeepSeek-R1: full reasoning with dynamic thinking gears support (v1.9.20 upgrade)
         val dsR1 = ModelCapabilityEngine.resolveCapabilities("deepseek-reasoner")
         assertTrue(dsR1.supportsThinking)
         assertEquals("deepseek_fixed", dsR1.reasoningProviderType)
-        assertTrue(dsR1.supportedThinkingGears.isEmpty()) // No manual gear tuning needed
+        assertTrue(dsR1.supportedThinkingGears.isNotEmpty())
 
         // Non-thinking model
         val gpt4o = ModelCapabilityEngine.resolveCapabilities("gpt-4o")

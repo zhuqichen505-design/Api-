@@ -79,6 +79,7 @@ import com.aiassistant.ui.components.MarkdownText
 import com.aiassistant.ui.components.SideAnchorItem
 import com.aiassistant.ui.components.SideAnchorNavigator
 import com.aiassistant.ui.components.TransientLazyListScrollbar
+import com.aiassistant.ui.components.EchoPillSlider
 import com.aiassistant.ui.components.EchoGlassDialog
 import com.aiassistant.ui.components.EchoGlassDropdownMenu
 import com.aiassistant.ui.components.echoFilterChipBorder
@@ -259,9 +260,7 @@ fun ChatScreen(
                 isLastItem && (lastItem.offset + lastItem.size <= viewportBottom + 80)
             }
         }.collect { atBottom ->
-            if (listState.isScrollInProgress) {
-                autoFollowOutput = atBottom
-            }
+            autoFollowOutput = atBottom
         }
     }
 
@@ -271,7 +270,7 @@ fun ChatScreen(
         if (messages.size <= prev) {
             return@LaunchedEffect
         }
-        if (autoFollowOutput && !preserveScrollForBranchGeneration && !listState.isScrollInProgress) {
+        if (isGenerating && autoFollowOutput && !preserveScrollForBranchGeneration && !listState.isScrollInProgress) {
             val totalCount = listState.layoutInfo.totalItemsCount
             if (totalCount > 0) {
                 try {
@@ -535,7 +534,8 @@ fun ChatScreen(
                     },
                     isRoleplay = uiState.isRoleplay,
                     onPlotActionClick = { showPlotActionDialog = true },
-                    readableBackdrop = readableBackdrops.bottom
+                    readableBackdrop = readableBackdrops.bottom,
+                    modelName = currentModelOption?.modelName ?: currentModel ?: uiState.modelName
                 )
             }
         }
@@ -681,6 +681,8 @@ fun ChatScreen(
                                         availableIndices = (displayItem.variantInfo?.availableIndices ?: listOf(1)) + totalVariantsWithStreaming
                                     ),
                                     onVariantSelected = { groupId, index ->
+                                        preserveScrollForBranchGeneration = true
+                                        autoFollowOutput = false
                                         variantSelections[groupId] = index
                                         pairedVariantGroupId(groupId)?.let { pairedGroup ->
                                             variantSelections[pairedGroup] = index
@@ -693,7 +695,13 @@ fun ChatScreen(
                                     },
                                     onCopyThinking = {
                                         clipboardManager.setText(AnnotatedString(currentThinking))
-                                    }
+                                    },
+                                    onQuote = if (currentResponse.isNotBlank()) {
+                                        {
+                                            val quoteBlock = currentResponse.lines().joinToString("\n") { line -> "> $line" } + "\n\n"
+                                            inputText = quoteBlock + inputText
+                                        }
+                                    } else null
                                 )
                             } else {
                                 val dynamicVariantInfo = if (isBranchStreamingHere) {
@@ -715,6 +723,8 @@ fun ChatScreen(
                                     assistantModelName = resolvedAssistantModelName,
                                     variantInfo = dynamicVariantInfo,
                                     onVariantSelected = { groupId, index ->
+                                        preserveScrollForBranchGeneration = true
+                                        autoFollowOutput = false
                                         variantSelections[groupId] = index
                                         pairedVariantGroupId(groupId)?.let { pairedGroup ->
                                             if (messages.any { it.variantGroupId == pairedGroup && it.variantIndex == index }) {
@@ -732,6 +742,12 @@ fun ChatScreen(
                                             clipboardManager.setText(AnnotatedString(it))
                                         }
                                     },
+                                    onQuote = if (message.content.isNotBlank()) {
+                                        {
+                                            val quoteBlock = message.content.lines().joinToString("\n") { line -> "> $line" } + "\n\n"
+                                            inputText = quoteBlock + inputText
+                                        }
+                                    } else null,
                                     onRegenerate = if (message.role == "assistant" && message == messages.lastOrNull { it.role == "assistant" }) {
                                         {
                                             preserveScrollForBranchGeneration = true
@@ -1702,6 +1718,7 @@ private fun MessageBubble(
     onTranslateThinking: ((Message) -> Unit)? = null,
     onCopy: () -> Unit,
     onCopyThinking: () -> Unit,
+    onQuote: (() -> Unit)? = null,
     onRegenerate: (() -> Unit)? = null,
     onEdit: (() -> Unit)? = null,
     onDelete: (() -> Unit)? = null
@@ -1759,61 +1776,63 @@ private fun MessageBubble(
         if (!isUser) extractCitationsFromContent(message.content) else emptyList()
     }
 
-    if (activeCitation != null) {
+    activeCitation?.let { citation ->
         CitationDetailDialog(
-            citation = activeCitation!!,
+            citation = citation,
             onDismiss = { activeCitation = null }
         )
     }
 
     @Composable
     fun MessageContent(contentColor: Color) {
-        Column(
-            modifier = if (isUser) {
-                Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
-            } else {
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 4.dp, vertical = 4.dp)
-            }
-        ) {
-            if (message.content.isNotBlank()) {
-                if (isUser) {
-                    Text(
-                        text = message.content,
-                        color = contentColor,
-                        style = MaterialTheme.typography.bodyLarge
-                    )
+        SelectionContainer {
+            Column(
+                modifier = if (isUser) {
+                    Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
                 } else {
-                    MarkdownText(
-                        content = message.content,
-                        color = contentColor,
-                        onCitationClick = { id ->
-                            activeCitation = citations.find { it.index == id }
-                                ?: CitationInfo(id, "参考资料 $id", "https://www.google.com/search?q=$id")
-                        }
-                    )
-                    if (citations.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        CitationsCardsRow(
-                            citations = citations,
-                            onCitationClick = { activeCitation = it }
-                        )
-                    }
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp, vertical = 4.dp)
                 }
-            } else if (!isGenerating && !hasThinking && attachments.isEmpty()) {
-                Text(
-                    text = "空消息",
-                    color = contentColor.copy(alpha = 0.65f),
-                    style = MaterialTheme.typography.bodyMedium
-                )
-            }
-
-            if (isGenerating) {
+            ) {
                 if (message.content.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(6.dp))
+                    if (isUser) {
+                        Text(
+                            text = message.content,
+                            color = contentColor,
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+                    } else {
+                        MarkdownText(
+                            content = message.content,
+                            color = contentColor,
+                            onCitationClick = { id ->
+                                activeCitation = citations.find { it.index == id }
+                                    ?: CitationInfo(id, "参考资料 $id", "https://www.google.com/search?q=$id")
+                            }
+                        )
+                        if (citations.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            CitationsCardsRow(
+                                citations = citations,
+                                onCitationClick = { activeCitation = it }
+                            )
+                        }
+                    }
+                } else if (!isGenerating && !hasThinking && attachments.isEmpty()) {
+                    Text(
+                        text = "空消息",
+                        color = contentColor.copy(alpha = 0.65f),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
                 }
-                TypingIndicator(textColor = contentColor)
+
+                if (isGenerating) {
+                    if (message.content.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                    }
+                    TypingIndicator(textColor = contentColor)
+                }
             }
         }
     }
@@ -1863,6 +1882,7 @@ private fun MessageBubble(
                         variantInfo = variantInfo,
                         onVariantSelected = onVariantSelected,
                         onCopy = onCopy,
+                        onQuote = onQuote,
                         onRegenerate = onRegenerate,
                         onEdit = onEdit,
                         onDelete = onDelete,
@@ -2269,6 +2289,7 @@ private fun MessageBubble(
                         variantInfo = variantInfo,
                         onVariantSelected = onVariantSelected,
                         onCopy = onCopy,
+                        onQuote = onQuote,
                         onRegenerate = onRegenerate,
                         onEdit = onEdit,
                         onDelete = onDelete,
@@ -2298,6 +2319,7 @@ private fun MessageFooter(
     variantInfo: VariantInfo? = null,
     onVariantSelected: ((String, Int) -> Unit)? = null,
     onCopy: () -> Unit,
+    onQuote: (() -> Unit)? = null,
     onRegenerate: (() -> Unit)?,
     onEdit: (() -> Unit)?,
     onDelete: (() -> Unit)?,
@@ -2377,6 +2399,15 @@ private fun MessageFooter(
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 onClick = onCopy
             )
+
+            if (onQuote != null && message.content.isNotBlank()) {
+                FooterIconButton(
+                    icon = Icons.Default.FormatQuote,
+                    contentDescription = "引用",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    onClick = onQuote
+                )
+            }
 
             if (!isUser && onRegenerate != null) {
                 FooterIconButton(
@@ -2669,7 +2700,8 @@ fun ChatInputBar(
     onThinkingChange: (Boolean, String) -> Unit = { _, _ -> },
     isRoleplay: Boolean = false,
     onPlotActionClick: () -> Unit = {},
-    readableBackdrop: Color = Color.Unspecified
+    readableBackdrop: Color = Color.Unspecified,
+    modelName: String = ""
 ) {
     var showToolMenu by remember { mutableStateOf(false) }
     var isInputExpanded by remember { mutableStateOf(false) }
@@ -2701,6 +2733,7 @@ fun ChatInputBar(
             ReasoningEffortPopupCard(
                 enableThinking = enableThinking,
                 thinkingEffort = thinkingEffort,
+                modelName = modelName,
                 onEffortSelected = { enabled, effort ->
                     onThinkingChange(enabled, effort)
                 },
@@ -2812,12 +2845,12 @@ fun ChatInputBar(
                         // 1. 深度思考 按钮（排在第1位，点击向上展开档位弹窗）
                         item {
                             val effortText = when {
-                                !enableThinking -> "深度思考 · 关 ⌃"
-                                thinkingEffort.equals("low", true) || thinkingEffort.equals("fast", true) -> "深度思考 · 快速 ⌃"
-                                thinkingEffort.equals("medium", true) || thinkingEffort.equals("balanced", true) -> "深度思考 · 平衡 ⌃"
-                                thinkingEffort.equals("high", true) || thinkingEffort.equals("deep", true) -> "深度思考 · 深入 ⌃"
-                                thinkingEffort.equals("ultra", true) || thinkingEffort.equals("max", true) -> "深度思考 · Ultra ⌃"
-                                else -> "深度思考 · 平衡 ⌃"
+                                !enableThinking -> "深度思考"
+                                thinkingEffort.equals("low", true) || thinkingEffort.equals("fast", true) -> "快速思考 ⌃"
+                                thinkingEffort.equals("medium", true) || thinkingEffort.equals("balanced", true) -> "平衡思考 ⌃"
+                                thinkingEffort.equals("high", true) || thinkingEffort.equals("deep", true) -> "深入思考 ⌃"
+                                thinkingEffort.equals("ultra", true) || thinkingEffort.equals("max", true) -> "极高思考 ⌃"
+                                else -> "平衡思考 ⌃"
                             }
                             val effortAccentColor = when {
                                 !enableThinking -> glass.outline
@@ -2829,7 +2862,7 @@ fun ChatInputBar(
                             }
                             InputPillButton(
                                 text = effortText,
-                                icon = Icons.Default.Psychology,
+                                icon = null,
                                 selected = enableThinking,
                                 onClick = { showThinkingPopover = !showThinkingPopover },
                                 containerColor = if (enableThinking) {
@@ -3027,78 +3060,139 @@ private data class ThinkingEffortLevel(
 private fun ReasoningEffortPopupCard(
     enableThinking: Boolean,
     thinkingEffort: String,
+    modelName: String = "",
     onEffortSelected: (Boolean, String) -> Unit,
     onClose: () -> Unit
 ) {
-    val levels = remember {
-        listOf(
-            ThinkingEffortLevel(
-                step = 0,
-                key = "none",
-                enabled = false,
-                name = "关闭",
-                subtitle = "极速直答 · 无思考",
-                detail = "跳过深度思维链推演，以模型原生最高速度直接生成最终回复内容。",
-                primaryColor = Color(0xFF7F8C8D),
-                gradientColors = listOf(Color(0xFF7F8C8D), Color(0xFF95A5A6))
-            ),
-            ThinkingEffortLevel(
-                step = 1,
-                key = "low",
-                enabled = true,
-                name = "快速",
-                subtitle = "轻度思考 · 快速响应",
-                detail = "分配少量思考预算进行简要推理，适合常规闲聊、翻译与基础问答。",
-                primaryColor = Color(0xFF2ECC71),
-                gradientColors = listOf(Color(0xFF2ECC71), Color(0xFF27AE60))
-            ),
-            ThinkingEffortLevel(
-                step = 2,
-                key = "medium",
-                enabled = true,
-                name = "平衡",
-                subtitle = "适中思考 · 兼顾速度与深度",
-                detail = "兼顾逻辑严谨性与响应耗时，应对大多数日常工作、分析与创作场景（推荐）。",
-                primaryColor = Color(0xFF3498DB),
-                gradientColors = listOf(Color(0xFF3498DB), Color(0xFF2980B9))
-            ),
-            ThinkingEffortLevel(
-                step = 3,
-                key = "high",
-                enabled = true,
-                name = "深入",
-                subtitle = "深度思考 · 严密推演",
-                detail = "投入大量思考预算进行多步论证、边界检查与代码架构推演，适合复杂技术任务。",
-                primaryColor = Color(0xFF9B59B6),
-                gradientColors = listOf(Color(0xFF9B59B6), Color(0xFF8E44AD))
-            ),
-            ThinkingEffortLevel(
-                step = 4,
-                key = "ultra",
-                enabled = true,
-                name = "Ultra",
-                subtitle = "极限思考 · 极致推理",
-                detail = "释放最大思考预算上限，全力攻坚数学证明、高难度算法与复杂多维哲学推理。",
-                primaryColor = Color(0xFFB950FD),
-                gradientColors = listOf(Color(0xFF8E44AD), Color(0xFFE056FD))
+    val cap = remember(modelName) {
+        if (modelName.isNotBlank()) com.aiassistant.domain.model.ModelCapabilityEngine.resolveCapabilities(modelName) else null
+    }
+    val isOpenAi = cap?.reasoningProviderType == "openai"
+
+    val levels = remember(isOpenAi) {
+        if (isOpenAi) {
+            listOf(
+                ThinkingEffortLevel(
+                    step = 0,
+                    key = "none",
+                    enabled = false,
+                    name = "关闭",
+                    subtitle = "极速直答 · 无思考",
+                    detail = "跳过深度思维链推演，以模型原生最高速度直接生成最终回复内容。",
+                    primaryColor = Color(0xFF7F8C8D),
+                    gradientColors = listOf(Color(0xFF7F8C8D), Color(0xFF95A5A6))
+                ),
+                ThinkingEffortLevel(
+                    step = 1,
+                    key = "low",
+                    enabled = true,
+                    name = "快速",
+                    subtitle = "快速思考 · 低延迟响应",
+                    detail = "分配精简思考预算进行关键逻辑检查，适合日常交流与常规问答。",
+                    primaryColor = Color(0xFF2ECC71),
+                    gradientColors = listOf(Color(0xFF2ECC71), Color(0xFF27AE60))
+                ),
+                ThinkingEffortLevel(
+                    step = 2,
+                    key = "medium",
+                    enabled = true,
+                    name = "平衡",
+                    subtitle = "平衡思考 · 兼顾深度与速度",
+                    detail = "投入适度思考预算，严密推演逻辑与代码设计（推荐默认）。",
+                    primaryColor = Color(0xFF3498DB),
+                    gradientColors = listOf(Color(0xFF3498DB), Color(0xFF2980B9))
+                ),
+                ThinkingEffortLevel(
+                    step = 3,
+                    key = "high",
+                    enabled = true,
+                    name = "深入",
+                    subtitle = "深入思考 · 严密严苛推导",
+                    detail = "投入最大上限思考预算进行多轮反思、边界穷举与高难论证。",
+                    primaryColor = Color(0xFF9B59B6),
+                    gradientColors = listOf(Color(0xFF9B59B6), Color(0xFF8E44AD))
+                )
             )
-        )
+        } else {
+            listOf(
+                ThinkingEffortLevel(
+                    step = 0,
+                    key = "none",
+                    enabled = false,
+                    name = "关闭",
+                    subtitle = "极速直答 · 无思考",
+                    detail = "跳过深度思维链推演，以模型原生最高速度直接生成最终回复内容。",
+                    primaryColor = Color(0xFF7F8C8D),
+                    gradientColors = listOf(Color(0xFF7F8C8D), Color(0xFF95A5A6))
+                ),
+                ThinkingEffortLevel(
+                    step = 1,
+                    key = "low",
+                    enabled = true,
+                    name = "快速",
+                    subtitle = "轻度思考 · 快速响应",
+                    detail = "分配少量思考预算进行简要推理，适合常规闲聊、翻译与基础问答。",
+                    primaryColor = Color(0xFF2ECC71),
+                    gradientColors = listOf(Color(0xFF2ECC71), Color(0xFF27AE60))
+                ),
+                ThinkingEffortLevel(
+                    step = 2,
+                    key = "medium",
+                    enabled = true,
+                    name = "平衡",
+                    subtitle = "适中思考 · 兼顾速度与深度",
+                    detail = "兼顾逻辑严谨性与响应耗时，应对大多数日常工作、分析与创作场景（推荐）。",
+                    primaryColor = Color(0xFF3498DB),
+                    gradientColors = listOf(Color(0xFF3498DB), Color(0xFF2980B9))
+                ),
+                ThinkingEffortLevel(
+                    step = 3,
+                    key = "high",
+                    enabled = true,
+                    name = "深入",
+                    subtitle = "深度思考 · 严密推演",
+                    detail = "投入大量思考预算进行多步论证、边界检查与代码架构推演，适合复杂技术任务。",
+                    primaryColor = Color(0xFF9B59B6),
+                    gradientColors = listOf(Color(0xFF9B59B6), Color(0xFF8E44AD))
+                ),
+                ThinkingEffortLevel(
+                    step = 4,
+                    key = "ultra",
+                    enabled = true,
+                    name = "极高",
+                    subtitle = "极限思考 · 极致推理",
+                    detail = "释放最大思考预算上限，全力攻坚数学证明、高难度算法与复杂多维哲学推理。",
+                    primaryColor = Color(0xFFB950FD),
+                    gradientColors = listOf(Color(0xFF8E44AD), Color(0xFFE056FD))
+                )
+            )
+        }
     }
 
-    val currentStep = remember(enableThinking, thinkingEffort) {
+    val maxStep = levels.lastIndex
+    val currentStep = remember(enableThinking, thinkingEffort, maxStep) {
         if (!enableThinking) 0
         else when (thinkingEffort.lowercase()) {
             "low", "fast" -> 1
             "medium", "balanced" -> 2
             "high", "deep" -> 3
-            "ultra", "max" -> 4
+            "ultra", "max" -> if (maxStep >= 4) 4 else 3
             else -> 2
-        }
+        }.coerceIn(0, maxStep)
     }
 
     var sliderIndex by remember(currentStep) { mutableFloatStateOf(currentStep.toFloat()) }
-    val currentLevel = levels[sliderIndex.roundToInt().coerceIn(0, 4)]
+    val currentLevel = levels[sliderIndex.roundToInt().coerceIn(0, maxStep)]
     val glass = echoGlassPalette()
+
+    val badgeText = remember(cap) {
+        when {
+            cap?.reasoningProviderType == "openai" -> "OpenAI 原生推理 · 3档适配"
+            cap?.reasoningProviderType == "anthropic" -> "Claude 原生思考 · 4档适配"
+            cap?.reasoningProviderType == "deepseek_fixed" || cap?.supportsThinking == true -> "原生推理架构 · 深度思考档位适配"
+            else -> "思维链推演引导 (CoT 增强)"
+        }
+    }
 
     Surface(
         modifier = Modifier
@@ -3122,6 +3216,7 @@ private fun ReasoningEffortPopupCard(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Row(
+                    modifier = Modifier.weight(1f, fill = false),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -3140,12 +3235,30 @@ private fun ReasoningEffortPopupCard(
                         )
                     }
                     Column {
-                        Text(
-                            text = "深度思考强度",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = "深度思考强度",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(999.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.30f))
+                            ) {
+                                Text(
+                                    text = badgeText,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.5.sp),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
                         Text(
                             text = currentLevel.subtitle,
                             style = MaterialTheme.typography.bodySmall,
@@ -3180,26 +3293,25 @@ private fun ReasoningEffortPopupCard(
                 )
             }
 
-            // 渐变滑块区域
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Slider(
+            // 胶囊美观滑块区域 (严格还原 media_1788845280823.jpg)
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                EchoPillSlider(
                     value = sliderIndex,
                     onValueChange = { newVal ->
                         sliderIndex = newVal
-                        val stepInt = newVal.roundToInt().coerceIn(0, 4)
+                        val stepInt = newVal.roundToInt().coerceIn(0, maxStep)
                         val target = levels[stepInt]
                         onEffortSelected(target.enabled, target.key)
                     },
-                    valueRange = 0f..4f,
-                    steps = 3,
-                    colors = SliderDefaults.colors(
-                        thumbColor = currentLevel.primaryColor,
-                        activeTrackColor = currentLevel.primaryColor,
-                        inactiveTrackColor = currentLevel.primaryColor.copy(alpha = 0.2f),
-                        activeTickColor = Color.White.copy(alpha = 0.8f),
-                        inactiveTickColor = currentLevel.primaryColor.copy(alpha = 0.5f)
-                    ),
-                    modifier = Modifier.fillMaxWidth()
+                    valueRange = 0f..maxStep.toFloat(),
+                    steps = (levels.size - 2).coerceAtLeast(0),
+                    activeColor = currentLevel.primaryColor,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp, vertical = 2.dp)
                 )
 
                 // 快捷点选 Chips 行
@@ -4068,8 +4180,13 @@ private fun chatTuningProfile(
         else -> if (provider.isNotBlank()) provider else "当前模型"
     }
 
-    val efforts = if (enableThinking && cap.supportedThinkingGears.isNotEmpty()) {
-        cap.supportedThinkingGears.map { gear ->
+    val efforts = if (enableThinking) {
+        val gears = if (cap.supportedThinkingGears.isNotEmpty()) {
+            cap.supportedThinkingGears
+        } else {
+            listOf("low", "medium", "high", "max")
+        }
+        gears.map { gear ->
             val gearLabel = when (gear) {
                 "low" -> "低"
                 "medium" -> "中"
@@ -4083,13 +4200,7 @@ private fun chatTuningProfile(
         emptyList()
     }
 
-    val reason = when {
-        !enableThinking -> null
-        cap.reasoningProviderType == "deepseek_fixed" -> "原生全量推理模型，默认全强度输出，无需设置档位。"
-        cap.reasoningProviderType == "none" && cap.supportsThinking -> "该模型仅支持思考开关，无档位调节。"
-        cap.reasoningProviderType == "none" -> "当前模型无官方思考档位参数，保持默认输出。"
-        else -> null
-    }
+    val reason: String? = null
 
     val isDeepSeek = cap.reasoningProviderType == "deepseek_fixed" || modelName.lowercase().contains("deepseek")
     val tempMax = if (isDeepSeek) 2f else 1f

@@ -92,7 +92,15 @@ private val CurrentFeatureHighlights = listOf(
 )
 
 internal val CurrentVersionUserUpdates = listOf(
-    "【v1.9.17 本次更新】自定义联网搜索结果数：自由输入并指定 1~20 条搜索结果，精准控制会话上下文体积与搜索丰富度",
+    "【v1.9.20 本次更新】API 配置多 Key 独立输入框：支持添加多个独立输入框（Key 1 主密钥、Key 2 备用密钥...），支持独立明密文切换、独立删除、粘贴多行自动拆分与自动故障转移轮询",
+    "华为运动健康检测与可读性重构：修复 Android 11+ 包可见性问题，精准检测并拉起华为运动健康与荣耀健康；重构设置页健康卡片，彻底消除原始 epoch 毫秒时间戳与低对比挤压 UI",
+    "深度思考按钮精简与极简档位：移除前缀脑图图标，精简文案为“深度思考 / 快速思考 ⌃ / 平衡思考 ⌃ / 深入思考 ⌃ / 极高思考 ⌃”",
+    "圆润美观胶囊滑块组件 (EchoPillSlider)：全圆角药丸轨道、吸附圆点、纯白浮雕圆 Thumb 与动态彩色进度轨道",
+    "深度思考弹窗与真实模型档位动态对应：根据激活模型真实推理架构动态匹配档位（OpenAI 3档、Claude/DeepSeek/通用 4档），解除对新模型档位的硬编码屏蔽",
+    "重构模型上下文识别逻辑：修正 deepseekv4flash 识别为 1M 上下文，增强正则提取与架构推断，严禁对未确证模型编造虚假标签",
+    "横屏与小窗稳定性优化：修复液态玻璃弹窗固定高度溢出与错位问题，引入动态屏幕百分比约束与抗溢出保护",
+    "修复上版回归缺陷：切换回复版本 (< 1/2 >) 时锁定当前消息位置不跳底；生成暂停/停止时锁定滚动条，消息气泡支持长按自由复制选择与一键引用",
+    "【v1.9.17 更新】自定义联网搜索结果数：自由输入并指定 1~20 条搜索结果，精准控制会话上下文体积与搜索丰富度",
     "对话自动命名读取模型列表：自动读取 API 服务商模型列表供一键选择，支持显示上下文窗口与思考能力徽标，免除手动输入",
     "华为运动健康步数主动刷新：增加活动识别权限申请与硬件计步传感器主动探测刷新，彻底摆脱手动输入",
     "提示词与记忆优先级与机制明确：系统提示词 100% 独占覆盖全局提示词，个性化偏好全局引导，长记忆弹窗确认入库，角色创作物理严格隔离并在设置中清晰说明",
@@ -1110,23 +1118,161 @@ fun WebSearchTab(
                     }
 
                     // 健康与运动数据 (华为运动健康与硬件计步)
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                    val isHealthInstalled = remember { toolHub.healthDataManager.isHuaweiHealthInstalled() }
+                    val healthAppName = remember { toolHub.healthDataManager.getHealthAppName() }
+
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
+                            // 标题栏与安装状态徽标
                             Row(
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        Icons.Default.DirectionsWalk,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        "运动健康与设备体征",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(999.dp),
+                                    color = if (isHealthInstalled) Color(0xFF2ECC71).copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant,
+                                    border = BorderStroke(
+                                        1.dp,
+                                        if (isHealthInstalled) Color(0xFF2ECC71).copy(alpha = 0.6f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+                                    )
+                                ) {
+                                    Text(
+                                        text = if (isHealthInstalled) "已安装 $healthAppName" else "未检测到健康App",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.5.sp),
+                                        color = if (isHealthInstalled) Color(0xFF27AE60) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontWeight = FontWeight.Medium,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+
+                            // 3列体征高对比指标卡
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                // 步数
+                                Surface(
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.22f))
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text("今日步数", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            "${currentHealthSummary.todaySteps}",
+                                            style = MaterialTheme.typography.titleMedium.copy(fontSize = 17.sp),
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        Text("步", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp), color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f))
+                                    }
+                                }
+
+                                // 心率
+                                val hrVal = currentHealthSummary.heartRate
+                                Surface(
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = Color(0xFFE74C3C).copy(alpha = 0.08f),
+                                    border = BorderStroke(1.dp, Color(0xFFE74C3C).copy(alpha = 0.22f))
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text("静息心率", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            if (hrVal > 0) "$hrVal" else "--",
+                                            style = MaterialTheme.typography.titleMedium.copy(fontSize = 17.sp),
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (hrVal > 0) Color(0xFFE74C3C) else MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Text(if (hrVal > 0) "bpm" else "未录入", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+
+                                // 睡眠
+                                val sleepMins = currentHealthSummary.sleepMinutes
+                                Surface(
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = Color(0xFF9B59B6).copy(alpha = 0.08f),
+                                    border = BorderStroke(1.dp, Color(0xFF9B59B6).copy(alpha = 0.22f))
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text("昨晚睡眠", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            if (sleepMins > 0) "${sleepMins / 60}h${sleepMins % 60}m" else "--",
+                                            style = MaterialTheme.typography.titleMedium.copy(fontSize = 15.sp),
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (sleepMins > 0) Color(0xFF9B59B6) else MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Text(if (sleepMins > 0 && currentHealthSummary.sleepScore > 0) "评分 ${currentHealthSummary.sleepScore}" else if (sleepMins > 0) "已记录" else "未录入", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                            }
+
+                            // 状态详情与更新时间 (使用优雅格式化时间)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(Icons.Default.DirectionsWalk, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("华为运动健康 / 硬件计步：", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
-                                Text("${currentHealthSummary.todaySteps} 步", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                                Text(
+                                    text = "传感器: ${toolHub.healthDataManager.getSensorStatusText()}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = "同步: ${toolHub.healthDataManager.getFormattedLastUpdateTime()}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Medium
+                                )
                             }
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Button(
+
+                            // 操作按钮栏 (清晰分行，响应式三等分)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                OutlinedButton(
                                     onClick = {
                                         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q &&
                                             !toolHub.healthDataManager.hasActivityRecognitionPermission()
@@ -1137,55 +1283,42 @@ fun WebSearchTab(
                                             currentHealthSummary = toolHub.healthDataManager.getHealthDataSummary()
                                         }
                                     },
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                    modifier = Modifier.height(28.dp)
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+                                    shape = RoundedCornerShape(10.dp)
                                 ) {
                                     Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(13.dp))
                                     Spacer(modifier = Modifier.width(3.dp))
-                                    Text("刷新传感器", style = MaterialTheme.typography.labelSmall)
+                                    Text("刷新步数", style = MaterialTheme.typography.labelSmall)
                                 }
-                                TextButton(
+
+                                OutlinedButton(
                                     onClick = { showHuaweiHealthSyncDialog = true },
-                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
-                                    modifier = Modifier.height(28.dp)
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+                                    shape = RoundedCornerShape(10.dp)
                                 ) {
                                     Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(13.dp))
                                     Spacer(modifier = Modifier.width(3.dp))
                                     Text("数据校准", style = MaterialTheme.typography.labelSmall)
                                 }
-                                TextButton(
+
+                                OutlinedButton(
                                     onClick = {
                                         if (!toolHub.healthDataManager.openHuaweiHealthApp(context)) {
                                             savedMessage = "未检测到已安装的华为运动健康应用"
                                         }
                                     },
-                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
-                                    modifier = Modifier.height(28.dp)
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+                                    shape = RoundedCornerShape(10.dp)
                                 ) {
                                     Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(13.dp))
                                     Spacer(modifier = Modifier.width(3.dp))
-                                    Text("打开华为健康", style = MaterialTheme.typography.labelSmall)
+                                    Text("打开健康App", style = MaterialTheme.typography.labelSmall)
                                 }
                             }
                         }
-                        Text(
-                            "传感器: ${toolHub.healthDataManager.getSensorStatusText()} · 上次更新: ${toolHub.healthDataManager.getLastUpdateTime()}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        val hrDisplay = if (currentHealthSummary.heartRate > 0) "${currentHealthSummary.heartRate} bpm" else "暂未录入"
-                        val sleepDisplay = if (currentHealthSummary.sleepMinutes > 0) {
-                            "${currentHealthSummary.sleepMinutes / 60}小时${currentHealthSummary.sleepMinutes % 60}分" +
-                                if (currentHealthSummary.deepSleepMinutes > 0) " (深睡 ${currentHealthSummary.deepSleepMinutes / 60}小时${currentHealthSummary.deepSleepMinutes % 60}分)" else "" +
-                                if (currentHealthSummary.sleepScore > 0) " · 评分: ${currentHealthSummary.sleepScore}" else ""
-                        } else {
-                            "暂未录入"
-                        }
-                        Text(
-                            "心率: $hrDisplay · 昨晚睡眠: $sleepDisplay",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
                     }
 
                     // 硬件状态
@@ -1334,9 +1467,14 @@ fun HuaweiHealthSyncDialog(
             }
         },
         text = {
+            val healthDataManager = remember { AiAssistantApp.instance.echoToolHub.healthDataManager }
+            val isInstalled = remember { healthDataManager.isHuaweiHealthInstalled() }
+            val appName = remember { healthDataManager.getHealthAppName() }
+            val screenHeight = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .heightIn(max = (screenHeight * 0.72f).dp)
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
@@ -1346,7 +1484,7 @@ fun HuaweiHealthSyncDialog(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
-                        "机制说明：受 Android 系统安全沙箱保护，三方应用无法直接跨应用暗中读取华为运动健康私有数据。当前步数由本机硬件计步传感器自动累加；若需将手环/手表记录的心率与睡眠同步给 AI，可点击下方打开华为运动健康 APP 对照填入。",
+                        "机制说明：受 Android 系统安全沙箱保护，三方应用无法直接跨应用暗中读取华为运动健康私有数据。当前步数由本机硬件计步传感器自动累加；若需将手环/手表记录的心率与睡眠同步给 AI，可点击下方打开健康 APP 对照填入。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.padding(10.dp)
@@ -1355,18 +1493,13 @@ fun HuaweiHealthSyncDialog(
 
                 OutlinedButton(
                     onClick = {
-                        val pm = context.packageManager
-                        val launchIntent = pm.getLaunchIntentForPackage("com.huawei.health")
-                        if (launchIntent != null) {
-                            launchIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                            context.startActivity(launchIntent)
-                        }
+                        healthDataManager.openHuaweiHealthApp(context)
                     },
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("打开华为运动健康 APP 查看数据")
+                    Text(if (isInstalled) "打开 $appName 查看数据" else "打开华为运动健康 APP 查看数据")
                 }
 
                 SettingsInputField(
@@ -4609,6 +4742,15 @@ fun ApiConfigDialog(
     var provider by remember { mutableStateOf(config?.provider ?: "") }
     var baseUrl by remember { mutableStateOf(config?.baseUrl ?: "") }
     var apiKey by remember { mutableStateOf(config?.apiKey ?: "") }
+    var keyList by remember {
+        val initialList = if (!config?.apiKey.isNullOrBlank()) {
+            AiRepository.parseApiKeys(config!!.apiKey)
+        } else emptyList()
+        mutableStateOf(initialList.ifEmpty { listOf("") })
+    }
+    var keyVisibilityList by remember {
+        mutableStateOf(List(16) { false })
+    }
     var apiType by remember { mutableStateOf(config?.apiType ?: "openai") }
     var modelName by remember { mutableStateOf(cleanModelName(config?.modelName) ?: "") }
     var availableModels by remember {
@@ -4657,6 +4799,8 @@ fun ApiConfigDialog(
         if (config != null) {
             repository.getDecryptedConfig(config.id)?.let { decrypted ->
                 apiKey = decrypted.apiKey
+                val parsed = AiRepository.parseApiKeys(decrypted.apiKey)
+                keyList = parsed.ifEmpty { listOf("") }
             }
             val selectedModels = repository.getSelectedModels(config.id).first()
             if (selectedModels.isNotEmpty()) {
@@ -4681,9 +4825,10 @@ fun ApiConfigDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (config == null) "添加API配置" else "编辑API配置") },
         text = {
+            val screenHeight = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp
             LazyColumn(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.heightIn(max = 500.dp)
+                modifier = Modifier.heightIn(max = (screenHeight * 0.78f).dp)
             ) {
                 // 预设选择
                 item {
@@ -4760,26 +4905,141 @@ fun ApiConfigDialog(
                     )
                 }
 
-                // API Key
+                // API Key 独立输入框列表 (需求 1)
                 item {
-                    val detectedKeys = remember(apiKey) {
-                        AiRepository.parseApiKeys(apiKey)
+                    val validKeysCount = keyList.count { it.isNotBlank() }
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "API Key 密钥列表",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            if (validKeysCount > 0) {
+                                Surface(
+                                    shape = RoundedCornerShape(999.dp),
+                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                                ) {
+                                    Text(
+                                        text = if (validKeysCount > 1) "已录入 $validKeysCount 个密钥 · 自动轮询故障转移" else "已录入 1 个密钥",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.5.sp),
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        keyList.forEachIndexed { index, currentKey ->
+                            val isVisible = keyVisibilityList.getOrElse(index) { false }
+                            val keyLabel = if (index == 0) "Key 1 (主密钥)" else "Key ${index + 1} (备用密钥 $index)"
+
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    text = keyLabel,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (index == 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontWeight = if (index == 0) FontWeight.Bold else FontWeight.Medium
+                                )
+                                OutlinedTextField(
+                                    value = currentKey,
+                                    onValueChange = { newVal ->
+                                        val splitKeys = AiRepository.parseApiKeys(newVal)
+                                        if (splitKeys.size > 1) {
+                                            val updated = keyList.toMutableList()
+                                            updated.removeAt(index)
+                                            updated.addAll(index, splitKeys)
+                                            keyList = updated
+                                            apiKey = updated.filter { it.isNotBlank() }.joinToString("\n")
+                                        } else {
+                                            val updated = keyList.toMutableList()
+                                            updated[index] = newVal.trim()
+                                            keyList = updated
+                                            apiKey = updated.filter { it.isNotBlank() }.joinToString("\n")
+                                        }
+                                    },
+                                    placeholder = { Text(if (index == 0) "填写主密钥 (sk-...)" else "填写备用密钥 (sk-...)", style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp)) },
+                                    visualTransformation = if (isVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                                    singleLine = true,
+                                    shape = SettingsInnerShape,
+                                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.5.sp),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                        focusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.45f),
+                                        unfocusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.28f)
+                                    ),
+                                    trailingIcon = {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            IconButton(
+                                                onClick = {
+                                                    val nextVis = keyVisibilityList.toMutableList()
+                                                    while (nextVis.size <= index) nextVis.add(false)
+                                                    nextVis[index] = !isVisible
+                                                    keyVisibilityList = nextVis
+                                                },
+                                                modifier = Modifier.size(32.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = if (isVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                                    contentDescription = if (isVisible) "隐藏密钥" else "显示密钥",
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                                    modifier = Modifier.size(17.dp)
+                                                )
+                                            }
+                                            if (keyList.size > 1) {
+                                                IconButton(
+                                                    onClick = {
+                                                        val updated = keyList.toMutableList()
+                                                        updated.removeAt(index)
+                                                        keyList = updated.ifEmpty { listOf("") }
+                                                        apiKey = keyList.filter { it.isNotBlank() }.joinToString("\n")
+                                                    },
+                                                    modifier = Modifier.size(32.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Close,
+                                                        contentDescription = "删除此密钥",
+                                                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
+                                                        modifier = Modifier.size(17.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
+
+                        // "+ 添加 Key" 按钮
+                        OutlinedButton(
+                            onClick = {
+                                keyList = keyList + ""
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(vertical = 6.dp)
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("添加独立 Key 输入框 (Key ${keyList.size + 1})", style = MaterialTheme.typography.labelMedium)
+                        }
+
+                        Text(
+                            text = "💡 每个输入框填写一个独立 Key。亦可将多行或逗号分隔的密钥批量粘贴进任意输入框自动拆分。当请求超时或遇到连接/认证报错时，系统将自动切换至备用 Key 并透明重试。",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 2.dp, top = 2.dp)
+                        )
                     }
-                    SettingsInputField(
-                        title = if (detectedKeys.size > 1) "API Key (已录入 ${detectedKeys.size} 个密钥 · 自动故障转移)" else "API Key",
-                        value = apiKey,
-                        onValueChange = { apiKey = it },
-                        placeholder = "sk-...\n支持输入多个 Key（换行、分号或逗号分隔），第一个失败后自动使用下一个",
-                        singleLine = false,
-                        minLines = 2,
-                        maxLines = 4
-                    )
-                    Text(
-                        text = "💡 支持输入多个 Key（换行、分号或逗号隔开）。请求超时重连 3 次失败或连接报错时，将自动切换至下一个可用 Key 并透明重试。",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 2.dp, top = 2.dp)
-                    )
                 }
 
                 // 模型选择

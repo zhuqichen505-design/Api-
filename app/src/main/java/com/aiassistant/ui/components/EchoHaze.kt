@@ -286,6 +286,10 @@ fun EchoGlassDialog(
             }
         }
 
+        val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+        val maxResponsiveHeight = (configuration.screenHeightDp * 0.88f).dp.coerceAtLeast(240.dp)
+        val maxResponsiveWidth = if (configuration.screenWidthDp > 600) 480.dp else (configuration.screenWidthDp * 0.92f).dp
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -299,9 +303,9 @@ fun EchoGlassDialog(
         ) {
             Surface(
                 modifier = modifier
-                    .fillMaxWidth(0.90f)
-                    .widthIn(max = 440.dp)
-                    .heightIn(max = 680.dp)
+                    .fillMaxWidth(0.92f)
+                    .widthIn(max = maxResponsiveWidth)
+                    .heightIn(max = maxResponsiveHeight)
                     .padding(horizontal = 8.dp)
                     .clickable(
                         interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },

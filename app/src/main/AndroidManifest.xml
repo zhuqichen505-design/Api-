@@ -21,6 +21,19 @@
     <!-- 智能工具箱：系统日历日程读取 -->
     <uses-permission android:name="android.permission.READ_CALENDAR" />
 
+    <!-- Android 11+ 包可见性声明：允许检测并拉起华为运动健康/荣耀健康等应用 -->
+    <queries>
+        <package android:name="com.huawei.health" />
+        <package android:name="com.huawei.bone" />
+        <package android:name="com.hihonor.health" />
+        <package android:name="com.google.android.apps.fitness" />
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" />
+        </intent>
+    </queries>
+
     <application
         android:name=".AiAssistantApp"
         android:allowBackup="true"

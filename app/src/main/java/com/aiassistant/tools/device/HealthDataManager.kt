@@ -208,13 +208,46 @@ class HealthDataManager(private val context: Context) : SensorEventListener {
 
     fun getLastUpdateTime(): Long = prefs.getLong(KEY_HEALTH_UPDATE_TIME, 0L)
 
+    fun getFormattedLastUpdateTime(): String = formatUpdateTime(getLastUpdateTime())
+
     /**
-     * 尝试拉起系统已安装的华为运动健康官方应用
+     * 探测系统是否已安装华为或荣耀运动健康官方应用
+     */
+    fun getInstalledHealthPackage(): String? {
+        val pm = context.packageManager
+        for (pkg in HUAWEI_HEALTH_PACKAGES) {
+            try {
+                pm.getPackageInfo(pkg, 0)
+                return pkg
+            } catch (_: Exception) {}
+            try {
+                if (pm.getLaunchIntentForPackage(pkg) != null) {
+                    return pkg
+                }
+            } catch (_: Exception) {}
+        }
+        return null
+    }
+
+    fun isHuaweiHealthInstalled(): Boolean = getInstalledHealthPackage() != null
+
+    fun getHealthAppName(): String {
+        val pkg = getInstalledHealthPackage() ?: return "华为运动健康"
+        return when (pkg) {
+            "com.hihonor.health" -> "荣耀运动健康"
+            "com.huawei.bone" -> "华为穿戴"
+            else -> "华为运动健康"
+        }
+    }
+
+    /**
+     * 尝试拉起系统已安装的华为/荣耀运动健康官方应用
      */
     fun openHuaweiHealthApp(context: Context): Boolean {
+        val targetPkg = getInstalledHealthPackage() ?: "com.huawei.health"
         return try {
             val pm = context.packageManager
-            val launchIntent = pm.getLaunchIntentForPackage("com.huawei.health")
+            val launchIntent = pm.getLaunchIntentForPackage(targetPkg)
             if (launchIntent != null) {
                 launchIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
                 context.startActivity(launchIntent)
@@ -295,6 +328,11 @@ class HealthDataManager(private val context: Context) : SensorEventListener {
     }
 
     companion object {
+        val HUAWEI_HEALTH_PACKAGES = listOf(
+            "com.huawei.health",
+            "com.huawei.bone",
+            "com.hihonor.health"
+        )
         private const val KEY_STEP_DATE = "health_step_date"
         private const val KEY_STEP_BASELINE = "health_step_baseline"
         private const val KEY_LAST_HARDWARE_TOTAL = "health_last_hardware_total"
@@ -304,5 +342,16 @@ class HealthDataManager(private val context: Context) : SensorEventListener {
         private const val KEY_DEEP_SLEEP_MINUTES = "health_deep_sleep_minutes"
         private const val KEY_SLEEP_SCORE = "health_sleep_score"
         private const val KEY_HEALTH_UPDATE_TIME = "health_update_time"
+
+        fun formatUpdateTime(time: Long): String {
+            if (time <= 0L) return "暂未同步"
+            val diff = (System.currentTimeMillis() - time).coerceAtLeast(0L)
+            return when {
+                diff < 60_000L -> "刚刚"
+                diff < 3_600_000L -> "${diff / 60_000L}分钟前"
+                diff < 86_400_000L -> SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(time))
+                else -> SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(time))
+            }
+        }
     }
 }
