@@ -325,7 +325,10 @@ fun SettingsScreen(
                                 text = when (selectedSection) {
                                     null -> "设置"
                                     "api_config" -> "API配置"
-                                    "personalization" -> "个性化与全局设定"
+                                    "appearance" -> "界面与外观"
+                                    "model_features" -> "模型辅助与思考"
+                                    "prompts_memory" -> "提示词与记忆"
+                                    "personalization" -> "界面与外观"
                                     "web_search" -> "联网搜索与智能工具箱"
                                     "hidden_conversations" -> "其他对话"
                                     "backup" -> "数据备份"
@@ -355,7 +358,27 @@ fun SettingsScreen(
                     onSectionSelected = { selectedSection = it }
                 )
                 "api_config" -> ApiConfigTab(hazeState = hazeState, modifier = Modifier.padding(paddingValues))
-                "personalization" -> PersonalizationTab(
+                "appearance" -> AppearanceTab(
+                    hazeState = hazeState,
+                    modifier = Modifier.padding(paddingValues),
+                    themeMode = themeMode,
+                    onThemeModeChange = onThemeModeChange,
+                    onUnsavedStateChanged = { hasUnsavedChanges = it },
+                    saveTrigger = saveTrigger
+                )
+                "model_features" -> ModelFeaturesTab(
+                    hazeState = hazeState,
+                    modifier = Modifier.padding(paddingValues),
+                    onUnsavedStateChanged = { hasUnsavedChanges = it },
+                    saveTrigger = saveTrigger
+                )
+                "prompts_memory" -> PromptsMemoryTab(
+                    hazeState = hazeState,
+                    modifier = Modifier.padding(paddingValues),
+                    onUnsavedStateChanged = { hasUnsavedChanges = it },
+                    saveTrigger = saveTrigger
+                )
+                "personalization" -> AppearanceTab(
                     hazeState = hazeState,
                     modifier = Modifier.padding(paddingValues),
                     themeMode = themeMode,
@@ -400,17 +423,35 @@ fun SettingsMenu(
                 hazeState = hazeState,
                 icon = Icons.Default.Key,
                 title = "API配置",
-                subtitle = "管理AI模型API密钥和配置",
+                subtitle = "管理AI模型API密钥和服务商配置",
                 onClick = { onSectionSelected("api_config") }
             )
         }
         item {
             SettingsMenuItem(
                 hazeState = hazeState,
+                icon = Icons.Default.Palette,
+                title = "界面与外观",
+                subtitle = "主题模式、用户头像、字体大小与壁纸设置",
+                onClick = { onSectionSelected("appearance") }
+            )
+        }
+        item {
+            SettingsMenuItem(
+                hazeState = hazeState,
+                icon = Icons.Default.Psychology,
+                title = "模型辅助与思考",
+                subtitle = "全模型自由直选自动命名、思考翻译与思考胶囊",
+                onClick = { onSectionSelected("model_features") }
+            )
+        }
+        item {
+            SettingsMenuItem(
+                hazeState = hazeState,
                 icon = Icons.Default.AutoAwesome,
-                title = "个性化与全局设定",
-                subtitle = "应用主题、字体大小、思考胶囊自定义、全局提示词与长记忆",
-                onClick = { onSectionSelected("personalization") }
+                title = "提示词与记忆",
+                subtitle = "全局提示词、创作规范、关于我画像与长记忆",
+                onClick = { onSectionSelected("prompts_memory") }
             )
         }
         item {
@@ -436,7 +477,7 @@ fun SettingsMenu(
                 hazeState = hazeState,
                 icon = Icons.Default.Backup,
                 title = "数据备份",
-                subtitle = "备份和恢复应用数据",
+                subtitle = "备份和恢复应用数据与角色设定",
                 onClick = { onSectionSelected("backup") }
             )
         }
@@ -529,8 +570,9 @@ fun SettingsMenuItem(
     ) {
         Row(
             modifier = Modifier
-                .padding(horizontal = 16.dp, vertical = 14.dp)
-                .fillMaxWidth(),
+                .align(Alignment.CenterStart)
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
@@ -548,7 +590,10 @@ fun SettingsMenuItem(
                 )
             }
             Spacer(modifier = Modifier.width(14.dp))
-            Column(modifier = Modifier.weight(1f)) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.Center
+            ) {
                 Text(
                     text = title,
                     style = MaterialTheme.typography.titleMedium.copy(
@@ -1570,8 +1615,432 @@ fun HuaweiHealthSyncDialog(
     )
 }
 
+data class FullModelChoice(
+    val configId: Long,
+    val configName: String,
+    val provider: String,
+    val modelName: String,
+    val isDefault: Boolean = false
+)
+
 @Composable
-fun PersonalizationTab(
+fun UniversalModelPickerCard(
+    hazeState: dev.chrisbanes.haze.HazeState,
+    title: String,
+    subtitle: String,
+    selectedConfigId: Long,
+    selectedModel: String,
+    allConfigs: List<ApiConfig>,
+    onSelect: (configId: Long, model: String) -> Unit
+) {
+    var showDialog by remember { mutableStateOf(false) }
+    val currentConfig = remember(selectedConfigId, allConfigs) {
+        if (selectedConfigId > 0L) allConfigs.find { it.id == selectedConfigId }
+        else allConfigs.find { it.isDefault } ?: allConfigs.firstOrNull()
+    }
+
+    val displayTitle = remember(selectedConfigId, selectedModel, currentConfig) {
+        if (selectedConfigId == 0L && selectedModel.isBlank()) {
+            "跟随当前会话模型（自动继承）"
+        } else if (selectedModel.isNotBlank()) {
+            selectedModel
+        } else {
+            currentConfig?.modelName?.ifBlank { "默认模型" } ?: "未指定模型"
+        }
+    }
+
+    val displayBadge = remember(selectedConfigId, selectedModel, currentConfig) {
+        if (selectedConfigId == 0L && selectedModel.isBlank()) {
+            "默认推荐"
+        } else {
+            currentConfig?.let { it.name.ifBlank { it.provider } } ?: "未绑定"
+        }
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = SettingsInnerShape,
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+        border = BorderStroke(1.dp, echoGlassPalette().outline.copy(alpha = 0.5f))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                    Text(subtitle, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                ) {
+                    Text(
+                        text = displayBadge,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            OutlinedButton(
+                onClick = { showDialog = true },
+                modifier = Modifier.fillMaxWidth(),
+                shape = SettingsInnerShape
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = displayTitle,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                }
+            }
+        }
+    }
+
+    if (showDialog) {
+        EchoModelPickerDialog(
+            hazeState = hazeState,
+            title = title,
+            selectedConfigId = selectedConfigId,
+            selectedModel = selectedModel,
+            allConfigs = allConfigs,
+            onDismiss = { showDialog = false },
+            onSelect = { cfgId, model ->
+                onSelect(cfgId, model)
+                showDialog = false
+            }
+        )
+    }
+}
+
+@Composable
+fun EchoModelPickerDialog(
+    hazeState: dev.chrisbanes.haze.HazeState,
+    title: String,
+    selectedConfigId: Long,
+    selectedModel: String,
+    allConfigs: List<ApiConfig>,
+    onDismiss: () -> Unit,
+    onSelect: (configId: Long, model: String) -> Unit
+) {
+    var searchQuery by remember { mutableStateOf("") }
+    var manualInputMode by remember { mutableStateOf(false) }
+    var manualModelName by remember { mutableStateOf(selectedModel) }
+    var manualConfigId by remember { mutableLongStateOf(if (selectedConfigId > 0L) selectedConfigId else allConfigs.firstOrNull()?.id ?: 0L) }
+    val repository = AiAssistantApp.instance.repository
+    val coroutineScope = rememberCoroutineScope()
+    var isRefreshing by remember { mutableStateOf(false) }
+    var refreshStatus by remember { mutableStateOf<String?>(null) }
+
+    val allChoices = remember(allConfigs) {
+        val list = mutableListOf<FullModelChoice>()
+        allConfigs.forEach { cfg ->
+            val cfgName = cfg.name.ifBlank { cfg.provider }
+            val defaultModel = cleanModelName(cfg.modelName)
+            if (!defaultModel.isNullOrBlank()) {
+                list.add(FullModelChoice(cfg.id, cfgName, cfg.provider, defaultModel, isDefault = true))
+            }
+            val parsed = parseModelList(cfg.availableModels)
+            parsed.forEach { m ->
+                if (m.isNotBlank() && m != defaultModel) {
+                    list.add(FullModelChoice(cfg.id, cfgName, cfg.provider, m, isDefault = false))
+                }
+            }
+        }
+        list
+    }
+
+    val filteredChoices = remember(allChoices, searchQuery) {
+        if (searchQuery.isBlank()) allChoices
+        else allChoices.filter {
+            it.modelName.contains(searchQuery.trim(), ignoreCase = true) ||
+            it.configName.contains(searchQuery.trim(), ignoreCase = true) ||
+            it.provider.contains(searchQuery.trim(), ignoreCase = true)
+        }
+    }
+
+    val groupedChoices = remember(filteredChoices) {
+        filteredChoices.groupBy { "${it.configName} (${it.provider})" }
+    }
+
+    EchoGlassDialog(
+        hazeState = hazeState,
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text("自由选择任意服务商下的所有可用模型", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 460.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (manualInputMode) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("手动输入模型名称", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                        OutlinedTextField(
+                            value = manualModelName,
+                            onValueChange = { manualModelName = it },
+                            placeholder = { Text("例如：gpt-4o-mini 或 deepseek-chat") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            shape = SettingsInnerShape
+                        )
+
+                        Text("绑定 API 服务商", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                        allConfigs.forEach { cfg ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .echoShapeClick(SettingsInnerShape) { manualConfigId = cfg.id }
+                                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(
+                                    selected = manualConfigId == cfg.id,
+                                    onClick = { manualConfigId = cfg.id }
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "${cfg.name.ifBlank { cfg.provider }} (${cfg.provider})",
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            TextButton(onClick = { manualInputMode = false }) {
+                                Text("返回模型列表")
+                            }
+                            Button(
+                                onClick = {
+                                    onSelect(manualConfigId, manualModelName.trim())
+                                },
+                                enabled = manualModelName.isNotBlank()
+                            ) {
+                                Text("确定")
+                            }
+                        }
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            placeholder = { Text("搜索模型或服务商...") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                            trailingIcon = {
+                                if (searchQuery.isNotEmpty()) {
+                                    IconButton(onClick = { searchQuery = "" }) {
+                                        Icon(Icons.Default.Close, contentDescription = "清除", modifier = Modifier.size(16.dp))
+                                    }
+                                }
+                            },
+                            shape = RoundedCornerShape(999.dp)
+                        )
+                        IconButton(
+                            onClick = {
+                                coroutineScope.launch {
+                                    isRefreshing = true
+                                    refreshStatus = null
+                                    var updatedCount = 0
+                                    allConfigs.forEach { cfg ->
+                                        val res = repository.fetchAvailableModels(cfg.id)
+                                        if (res.isSuccess) updatedCount++
+                                    }
+                                    isRefreshing = false
+                                    refreshStatus = "已同步 $updatedCount 个服务商模型"
+                                }
+                            },
+                            enabled = !isRefreshing && allConfigs.isNotEmpty()
+                        ) {
+                            if (isRefreshing) {
+                                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                            } else {
+                                Icon(Icons.Default.Refresh, contentDescription = "刷新服务商模型列表", tint = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                    }
+
+                    refreshStatus?.let { status ->
+                        Text(status, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                    }
+
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f, fill = false),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        item {
+                            val isFollowSelected = selectedConfigId == 0L && selectedModel.isBlank()
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .echoShapeClick(SettingsInnerShape) { onSelect(0L, "") },
+                                shape = SettingsInnerShape,
+                                color = if (isFollowSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                                border = if (isFollowSelected) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else BorderStroke(0.5.dp, echoGlassPalette().outline.copy(alpha = 0.3f))
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            "跟随当前会话模型（自动继承）",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = if (isFollowSelected) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (isFollowSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            "根据每个会话正在使用的 API 服务商与模型自动调用，最省心灵活",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    if (isFollowSelected) {
+                                        Icon(Icons.Default.Check, contentDescription = "已选择", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                                    }
+                                }
+                            }
+                        }
+
+                        groupedChoices.forEach { (groupTitle, choices) ->
+                            item {
+                                Text(
+                                    text = groupTitle,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(top = 8.dp, bottom = 2.dp)
+                                )
+                            }
+                            items(choices) { choice ->
+                                val isSelected = selectedConfigId == choice.configId &&
+                                    (selectedModel == choice.modelName || (selectedModel.isBlank() && choice.isDefault))
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .echoShapeClick(RoundedCornerShape(8.dp)) {
+                                            onSelect(choice.configId, choice.modelName)
+                                        },
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color.Transparent,
+                                    border = if (isSelected) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text(
+                                                    text = choice.modelName,
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                                )
+                                                if (choice.isDefault) {
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Surface(
+                                                        shape = RoundedCornerShape(4.dp),
+                                                        color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.15f)
+                                                    ) {
+                                                        Text(
+                                                            "默认",
+                                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = MaterialTheme.colorScheme.secondary
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        if (isSelected) {
+                                            Icon(
+                                                Icons.Default.Check,
+                                                contentDescription = "已选择",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if (allChoices.isEmpty()) {
+                            item {
+                                Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+                                    Text("未检测到已配置的服务商模型，请先在「API配置」中添加", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TextButton(onClick = { manualInputMode = true }) {
+                            Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("自定义输入模型名称", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("关闭")
+            }
+        }
+    )
+}
+
+@Composable
+fun AppearanceTab(
     hazeState: dev.chrisbanes.haze.HazeState,
     modifier: Modifier = Modifier,
     themeMode: AppThemeMode,
@@ -1581,8 +2050,6 @@ fun PersonalizationTab(
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val manager = AiAssistantApp.instance.personalizationManager
-    val repository = AiAssistantApp.instance.repository
-    val coroutineScope = rememberCoroutineScope()
 
     var avatarBase64 by remember { mutableStateOf(AvatarManager.getAvatar(context)) }
     val imagePickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
@@ -1596,59 +2063,12 @@ fun PersonalizationTab(
     }
 
     var settings by remember { mutableStateOf(manager.getSettings()) }
-    var globalPrompt by remember(settings) { mutableStateOf(settings.globalSystemPrompt) }
-    var globalRoleplayPrompt by remember(settings) { mutableStateOf(settings.globalRoleplayPrompt) }
-    var instruction by remember(settings) {
-        mutableStateOf(
-            listOf(
-                settings.aboutUser,
-                settings.responseStyle,
-                settings.preferences,
-                settings.avoid
-            )
-                .filter { it.isNotBlank() }
-                .joinToString("\n\n")
-        )
-    }
-    var autoMemoryEnabled by remember(settings) { mutableStateOf(settings.autoMemoryEnabled) }
-    var thinkingTemplate by remember(settings) { mutableStateOf(settings.thinkingCapsuleTemplate) }
     var chatFontSize by remember(settings) { mutableIntStateOf(settings.chatFontSize) }
     var fontSizeScale by remember(settings) { mutableFloatStateOf(settings.fontSizeScale) }
-
-    var autoNameEnabled by remember(settings) { mutableStateOf(settings.autoNameEnabled) }
-    var autoNameApiConfigId by remember(settings) { mutableLongStateOf(settings.autoNameApiConfigId) }
-    var autoNameModel by remember(settings) { mutableStateOf(settings.autoNameModel) }
-    var autoNamePrompt by remember(settings) { mutableStateOf(settings.autoNamePrompt) }
-    var enableThinkingTranslation by remember(settings) { mutableStateOf(settings.enableThinkingTranslation) }
-    var thinkingTranslationApiConfigId by remember(settings) { mutableLongStateOf(settings.thinkingTranslationApiConfigId) }
-    var thinkingTranslationModel by remember(settings) { mutableStateOf(settings.thinkingTranslationModel) }
-    val allApiConfigs by repository.getAllApiConfigs().collectAsState(initial = emptyList())
-
-    var testAutoNameInput by remember { mutableStateOf("帮我写一个Python快速排序算法") }
-    var testAutoNameResult by remember { mutableStateOf<String?>(null) }
-    var isTestingAutoName by remember { mutableStateOf(false) }
-
     var savedMessage by remember { mutableStateOf<String?>(null) }
 
-    val hasUnsaved = remember(
-        settings, globalPrompt, globalRoleplayPrompt, instruction, autoMemoryEnabled, thinkingTemplate, chatFontSize, fontSizeScale,
-        autoNameEnabled, autoNameApiConfigId, autoNameModel, autoNamePrompt,
-        enableThinkingTranslation, thinkingTranslationApiConfigId, thinkingTranslationModel
-    ) {
-        globalPrompt.trim() != settings.globalSystemPrompt.trim() ||
-        globalRoleplayPrompt.trim() != settings.globalRoleplayPrompt.trim() ||
-        instruction.trim() != settings.aboutUser.trim() ||
-        autoMemoryEnabled != settings.autoMemoryEnabled ||
-        thinkingTemplate.trim() != settings.thinkingCapsuleTemplate.trim() ||
-        chatFontSize != settings.chatFontSize ||
-        fontSizeScale != settings.fontSizeScale ||
-        autoNameEnabled != settings.autoNameEnabled ||
-        autoNameApiConfigId != settings.autoNameApiConfigId ||
-        autoNameModel.trim() != settings.autoNameModel.trim() ||
-        autoNamePrompt.trim() != settings.autoNamePrompt.trim() ||
-        enableThinkingTranslation != settings.enableThinkingTranslation ||
-        thinkingTranslationApiConfigId != settings.thinkingTranslationApiConfigId ||
-        thinkingTranslationModel.trim() != settings.thinkingTranslationModel.trim()
+    val hasUnsaved = remember(settings, chatFontSize, fontSizeScale) {
+        chatFontSize != settings.chatFontSize || fontSizeScale != settings.fontSizeScale
     }
 
     LaunchedEffect(hasUnsaved) {
@@ -1656,29 +2076,14 @@ fun PersonalizationTab(
     }
 
     fun performSave() {
-        val saved = manager.saveSettings(
+        manager.saveSettings(
             settings.copy(
-                globalSystemPrompt = globalPrompt.trim(),
-                globalRoleplayPrompt = globalRoleplayPrompt.trim(),
-                aboutUser = instruction.trim(),
-                responseStyle = "",
-                preferences = "",
-                avoid = "",
-                autoMemoryEnabled = autoMemoryEnabled,
-                thinkingCapsuleTemplate = thinkingTemplate.trim().ifBlank { "{model} {status} {time} {tokens}" },
                 chatFontSize = chatFontSize,
-                fontSizeScale = fontSizeScale,
-                autoNameEnabled = autoNameEnabled,
-                autoNameApiConfigId = autoNameApiConfigId,
-                autoNameModel = autoNameModel.trim(),
-                autoNamePrompt = autoNamePrompt.trim(),
-                enableThinkingTranslation = enableThinkingTranslation,
-                thinkingTranslationApiConfigId = thinkingTranslationApiConfigId,
-                thinkingTranslationModel = thinkingTranslationModel.trim()
+                fontSizeScale = fontSizeScale
             )
         )
         settings = manager.getSettings()
-        savedMessage = if (saved) "已保存个性化与全局设定" else "保存失败，请重试"
+        savedMessage = "已保存界面与外观设定"
     }
 
     LaunchedEffect(saveTrigger) {
@@ -1687,7 +2092,6 @@ fun PersonalizationTab(
         }
     }
 
-    // 背景图片管理
     var backgroundRevision by remember { mutableIntStateOf(0) }
     val hasHomeBackground = remember(backgroundRevision) {
         BackgroundImageManager.hasHomeBackground(context)
@@ -1713,37 +2117,6 @@ fun PersonalizationTab(
             savedMessage = if (saved) "已设置对话页背景" else "背景保存失败，请重试"
         }
     }
-
-    // 记忆管理状态
-    var isMemoriesExpanded by remember { mutableStateOf(false) }
-    var memorySearchQuery by remember { mutableStateOf("") }
-    val allMemories by remember(memorySearchQuery) {
-        if (memorySearchQuery.isBlank()) repository.getAllMemories() else repository.searchMemories(memorySearchQuery.trim())
-    }.collectAsState(initial = emptyList())
-
-    var memoryToEdit by remember { mutableStateOf<MemoryItem?>(null) }
-    var isAddingMemory by remember { mutableStateOf(false) }
-    var showClearAllConfirm by remember { mutableStateOf(false) }
-
-    // 提示词模板状态 (Requirement 7)
-    var isTemplatesExpanded by remember { mutableStateOf(false) }
-    var templateSearchQuery by remember { mutableStateOf("") }
-    val allTemplates by repository.getAllPromptTemplates().collectAsState(initial = emptyList())
-    val filteredTemplates = remember(allTemplates, templateSearchQuery) {
-        if (templateSearchQuery.isBlank()) allTemplates
-        else allTemplates.filter { it.name.contains(templateSearchQuery.trim(), ignoreCase = true) || it.content.contains(templateSearchQuery.trim(), ignoreCase = true) }
-    }
-    var templateToEdit by remember { mutableStateOf<PromptTemplate?>(null) }
-    var isAddingTemplate by remember { mutableStateOf(false) }
-
-    // 环境变量状态 (Requirement 7)
-    var isEnvVarsExpanded by remember { mutableStateOf(false) }
-    val allEnvVars by repository.getAllEnvironmentVariables().collectAsState(initial = emptyList())
-    var envVarToEdit by remember { mutableStateOf<EnvironmentVariable?>(null) }
-    var isAddingEnvVar by remember { mutableStateOf(false) }
-
-    // 机制与优先级说明折叠状态
-    var showPriorityDetails by remember { mutableStateOf(false) }
 
     val glass = echoGlassPalette()
 
@@ -1783,36 +2156,21 @@ fun PersonalizationTab(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(68.dp)
+                            .size(72.dp)
                             .clip(CircleShape)
-                            .border(BorderStroke(1.5.dp, glass.outlineSelected), CircleShape)
-                            .echoShapeClick(CircleShape) {
-                                imagePickerLauncher.launch("image/*")
-                            },
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
                         contentAlignment = Alignment.Center
                     ) {
                         if (avatarBase64 != null) {
-                            val bitmap = remember(avatarBase64) {
-                                try {
-                                    val byteArray = android.util.Base64.decode(avatarBase64, android.util.Base64.NO_WRAP)
-                                    android.graphics.BitmapFactory.decodeByteArray(byteArray, 0, byteArray.size)
-                                } catch (e: Exception) { null }
-                            }
+                            val bitmap = remember(avatarBase64) { AvatarManager.base64ToBitmap(avatarBase64) }
                             if (bitmap != null) {
-                                androidx.compose.foundation.Image(
+                                Image(
                                     bitmap = bitmap.asImageBitmap(),
                                     contentDescription = "用户头像",
-                                    modifier = Modifier.fillMaxSize().clip(CircleShape),
-                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
                                 )
-                            }
-                        } else {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(MaterialTheme.colorScheme.primaryContainer),
-                                contentAlignment = Alignment.Center
-                            ) {
+                            } else {
                                 Icon(
                                     Icons.Default.Person,
                                     contentDescription = null,
@@ -1820,6 +2178,13 @@ fun PersonalizationTab(
                                     modifier = Modifier.size(36.dp)
                                 )
                             }
+                        } else {
+                            Icon(
+                                Icons.Default.Person,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(36.dp)
+                            )
                         }
                     }
 
@@ -1958,6 +2323,351 @@ fun PersonalizationTab(
             }
         }
 
+        // 3. 界面背景设置
+        item {
+            SettingsGlassCard(hazeState = hazeState) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Image,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("界面背景", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "可分别为首页和对话页设置自定义图片背景，未设置时保持原有纯色背景。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                BackgroundPickerRow(
+                    title = "首页背景",
+                    hasImage = hasHomeBackground,
+                    onPick = { homeBackgroundPicker.launch("image/*") },
+                    onClear = {
+                        BackgroundImageManager.deleteHomeBackground(context)
+                        backgroundRevision++
+                        savedMessage = "已恢复首页默认背景"
+                    }
+                )
+                BackgroundPickerRow(
+                    title = "对话页背景",
+                    hasImage = hasChatBackground,
+                    onPick = { chatBackgroundPicker.launch("image/*") },
+                    onClear = {
+                        BackgroundImageManager.deleteChatBackground(context)
+                        backgroundRevision++
+                        savedMessage = "已恢复对话页默认背景"
+                    }
+                )
+            }
+        }
+
+        // 保存反馈消息
+        savedMessage?.let { message ->
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = message,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.padding(12.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ModelFeaturesTab(
+    hazeState: dev.chrisbanes.haze.HazeState,
+    modifier: Modifier = Modifier,
+    onUnsavedStateChanged: (Boolean) -> Unit = {},
+    saveTrigger: Int = 0
+) {
+    val manager = AiAssistantApp.instance.personalizationManager
+    val repository = AiAssistantApp.instance.repository
+    val coroutineScope = rememberCoroutineScope()
+
+    var settings by remember { mutableStateOf(manager.getSettings()) }
+    var autoNameEnabled by remember(settings) { mutableStateOf(settings.autoNameEnabled) }
+    var autoNameApiConfigId by remember(settings) { mutableLongStateOf(settings.autoNameApiConfigId) }
+    var autoNameModel by remember(settings) { mutableStateOf(settings.autoNameModel) }
+    var autoNamePrompt by remember(settings) { mutableStateOf(settings.autoNamePrompt) }
+
+    var enableThinkingTranslation by remember(settings) { mutableStateOf(settings.enableThinkingTranslation) }
+    var thinkingTranslationApiConfigId by remember(settings) { mutableLongStateOf(settings.thinkingTranslationApiConfigId) }
+    var thinkingTranslationModel by remember(settings) { mutableStateOf(settings.thinkingTranslationModel) }
+
+    var thinkingTemplate by remember(settings) { mutableStateOf(settings.thinkingCapsuleTemplate) }
+
+    val allApiConfigs by repository.getAllApiConfigs().collectAsState(initial = emptyList())
+
+    var testAutoNameInput by remember { mutableStateOf("帮我写一个Python快速排序算法") }
+    var testAutoNameResult by remember { mutableStateOf<String?>(null) }
+    var isTestingAutoName by remember { mutableStateOf(false) }
+
+    var savedMessage by remember { mutableStateOf<String?>(null) }
+
+    val hasUnsaved = remember(
+        settings, autoNameEnabled, autoNameApiConfigId, autoNameModel, autoNamePrompt,
+        enableThinkingTranslation, thinkingTranslationApiConfigId, thinkingTranslationModel,
+        thinkingTemplate
+    ) {
+        autoNameEnabled != settings.autoNameEnabled ||
+        autoNameApiConfigId != settings.autoNameApiConfigId ||
+        autoNameModel.trim() != settings.autoNameModel.trim() ||
+        autoNamePrompt.trim() != settings.autoNamePrompt.trim() ||
+        enableThinkingTranslation != settings.enableThinkingTranslation ||
+        thinkingTranslationApiConfigId != settings.thinkingTranslationApiConfigId ||
+        thinkingTranslationModel.trim() != settings.thinkingTranslationModel.trim() ||
+        thinkingTemplate.trim() != settings.thinkingCapsuleTemplate.trim()
+    }
+
+    LaunchedEffect(hasUnsaved) {
+        onUnsavedStateChanged(hasUnsaved)
+    }
+
+    fun performSave() {
+        val saved = manager.saveSettings(
+            settings.copy(
+                autoNameEnabled = autoNameEnabled,
+                autoNameApiConfigId = autoNameApiConfigId,
+                autoNameModel = autoNameModel.trim(),
+                autoNamePrompt = autoNamePrompt.trim(),
+                enableThinkingTranslation = enableThinkingTranslation,
+                thinkingTranslationApiConfigId = thinkingTranslationApiConfigId,
+                thinkingTranslationModel = thinkingTranslationModel.trim(),
+                thinkingCapsuleTemplate = thinkingTemplate.trim().ifBlank { "{model} {status} {time} {tokens}" }
+            )
+        )
+        settings = manager.getSettings()
+        savedMessage = if (saved) "已保存模型辅助与思考设定" else "保存失败，请重试"
+    }
+
+    LaunchedEffect(saveTrigger) {
+        if (saveTrigger > 0) {
+            performSave()
+        }
+    }
+
+    val glass = echoGlassPalette()
+
+    LazyColumn(
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        // 1. 对话智能自动命名模型 (自由选择所有模型)
+        item {
+            SettingsGlassCard(hazeState = hazeState) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.DriveFileRenameOutline,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("对话智能自动命名", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text(
+                            "新对话首轮交互后自动生成简短精炼标题，可直接自由选择所有模型",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Switch(
+                        checked = autoNameEnabled,
+                        onCheckedChange = {
+                            autoNameEnabled = it
+                            savedMessage = null
+                        }
+                    )
+                }
+
+                if (autoNameEnabled) {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                    // 自由直选所有模型
+                    UniversalModelPickerCard(
+                        hazeState = hazeState,
+                        title = "指定命名专用模型",
+                        subtitle = "直接跨服务商自由选择所有模型，无需先切换服务商",
+                        selectedConfigId = autoNameApiConfigId,
+                        selectedModel = autoNameModel,
+                        allConfigs = allApiConfigs,
+                        onSelect = { cfgId, model ->
+                            autoNameApiConfigId = cfgId
+                            autoNameModel = model
+                            savedMessage = null
+                        }
+                    )
+
+                    // 自定义提示词
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            "自定义命名提示词（可选）：",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        OutlinedTextField(
+                            value = autoNamePrompt,
+                            onValueChange = {
+                                autoNamePrompt = it
+                                savedMessage = null
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 90.dp),
+                            placeholder = { Text("留空将使用默认精炼命名提示词...") },
+                            minLines = 2,
+                            maxLines = 6,
+                            shape = SettingsInnerShape
+                        )
+                    }
+
+                    // 实时测试卡片
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = SettingsInnerShape,
+                        color = glass.control,
+                        border = BorderStroke(1.dp, glass.outline)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text("实时测试自动命名效果：", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                            OutlinedTextField(
+                                value = testAutoNameInput,
+                                onValueChange = { testAutoNameInput = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                placeholder = { Text("输入示例文本...") },
+                                singleLine = true
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Button(
+                                    onClick = {
+                                        isTestingAutoName = true
+                                        testAutoNameResult = null
+                                        coroutineScope.launch {
+                                            val targetId = if (autoNameApiConfigId > 0L) autoNameApiConfigId else allApiConfigs.firstOrNull()?.id ?: 0L
+                                            if (targetId == 0L) {
+                                                testAutoNameResult = "未找到可用的 API 配置，请先在模型设置中添加 API"
+                                                isTestingAutoName = false
+                                                return@launch
+                                            }
+                                            val res = repository.testAutoNaming(
+                                                apiConfigId = targetId,
+                                                modelName = autoNameModel,
+                                                testText = testAutoNameInput,
+                                                customPrompt = autoNamePrompt
+                                            )
+                                            isTestingAutoName = false
+                                            testAutoNameResult = res.fold(
+                                                onSuccess = { "生成标题成功: 「$it」" },
+                                                onFailure = { "生成失败: ${it.message}" }
+                                            )
+                                        }
+                                    },
+                                    enabled = !isTestingAutoName && testAutoNameInput.isNotBlank()
+                                ) {
+                                    Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(if (isTestingAutoName) "生成中..." else "测试生成标题")
+                                }
+                            }
+                            testAutoNameResult?.let { resText ->
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(
+                                        text = resText,
+                                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                                        color = if (resText.startsWith("生成标题成功")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.padding(8.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. 深度思考链语言翻译 (自由选择所有模型)
+        item {
+            SettingsGlassCard(hazeState = hazeState) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Translate,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("思考链语言翻译", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text(
+                            "模型输出英文/多语言思考过程时，在消息上方提供「翻译」按钮进行快速中文译制",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Switch(
+                        checked = enableThinkingTranslation,
+                        onCheckedChange = {
+                            enableThinkingTranslation = it
+                            savedMessage = null
+                        }
+                    )
+                }
+
+                if (enableThinkingTranslation) {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                    // 自由直选所有模型
+                    UniversalModelPickerCard(
+                        hazeState = hazeState,
+                        title = "翻译专用模型",
+                        subtitle = "直接跨服务商自由选择所有模型，无需先切换服务商",
+                        selectedConfigId = thinkingTranslationApiConfigId,
+                        selectedModel = thinkingTranslationModel,
+                        allConfigs = allApiConfigs,
+                        onSelect = { cfgId, model ->
+                            thinkingTranslationApiConfigId = cfgId
+                            thinkingTranslationModel = model
+                            savedMessage = null
+                        }
+                    )
+                }
+            }
+        }
+
         // 3. 思考胶囊文案自定义
         item {
             SettingsGlassCard(hazeState = hazeState) {
@@ -2042,45 +2752,133 @@ fun PersonalizationTab(
                         }
                     }
                 }
-
-                // 胶囊实时渲染效果预览
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = SettingsInnerShape,
-                    color = glass.controlSelected,
-                    border = BorderStroke(1.dp, glass.outlineSelected)
-                ) {
-                    val previewText = remember(thinkingTemplate) {
-                        var p = thinkingTemplate
-                            .replace("{model}", "gpt-4o")
-                            .replace("{status}", "思考过程")
-                            .replace("{time}", "2.5s")
-                            .replace("{tokens}", "150 token")
-                            .replace("{token}", "150 token")
-                        p = p.replace(Regex("\\s+"), " ").trim()
-                        if (p.isBlank()) "gpt-4o 思考过程" else p
-                    }
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(Icons.Default.Psychology, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
-                        Text(
-                            text = previewText,
-                            style = MaterialTheme.typography.labelMedium.copy(
-                                fontSize = 12.5.sp,
-                                fontFamily = FontFamily.SansSerif,
-                                fontWeight = FontWeight.SemiBold
-                            ),
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
             }
         }
 
-        // 3.1 提示词与记忆生效机制与优先级说明 (Requirement 4)
+        // 保存反馈消息
+        savedMessage?.let { message ->
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = message,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.padding(12.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun PromptsMemoryTab(
+    hazeState: dev.chrisbanes.haze.HazeState,
+    modifier: Modifier = Modifier,
+    onUnsavedStateChanged: (Boolean) -> Unit = {},
+    saveTrigger: Int = 0
+) {
+    val manager = AiAssistantApp.instance.personalizationManager
+    val repository = AiAssistantApp.instance.repository
+    val coroutineScope = rememberCoroutineScope()
+
+    var settings by remember { mutableStateOf(manager.getSettings()) }
+    var globalPrompt by remember(settings) { mutableStateOf(settings.globalSystemPrompt) }
+    var globalRoleplayPrompt by remember(settings) { mutableStateOf(settings.globalRoleplayPrompt) }
+    var instruction by remember(settings) {
+        mutableStateOf(
+            listOf(
+                settings.aboutUser,
+                settings.responseStyle,
+                settings.preferences,
+                settings.avoid
+            )
+                .filter { it.isNotBlank() }
+                .joinToString("\n\n")
+        )
+    }
+    var autoMemoryEnabled by remember(settings) { mutableStateOf(settings.autoMemoryEnabled) }
+
+    var savedMessage by remember { mutableStateOf<String?>(null) }
+
+    val hasUnsaved = remember(
+        settings, globalPrompt, globalRoleplayPrompt, instruction, autoMemoryEnabled
+    ) {
+        globalPrompt.trim() != settings.globalSystemPrompt.trim() ||
+        globalRoleplayPrompt.trim() != settings.globalRoleplayPrompt.trim() ||
+        instruction.trim() != settings.aboutUser.trim() ||
+        autoMemoryEnabled != settings.autoMemoryEnabled
+    }
+
+    LaunchedEffect(hasUnsaved) {
+        onUnsavedStateChanged(hasUnsaved)
+    }
+
+    fun performSave() {
+        val saved = manager.saveSettings(
+            settings.copy(
+                globalSystemPrompt = globalPrompt.trim(),
+                globalRoleplayPrompt = globalRoleplayPrompt.trim(),
+                aboutUser = instruction.trim(),
+                responseStyle = "",
+                preferences = "",
+                avoid = "",
+                autoMemoryEnabled = autoMemoryEnabled
+            )
+        )
+        settings = manager.getSettings()
+        savedMessage = if (saved) "已保存提示词与记忆设定" else "保存失败，请重试"
+    }
+
+    LaunchedEffect(saveTrigger) {
+        if (saveTrigger > 0) {
+            performSave()
+        }
+    }
+
+    // 记忆管理状态
+    var isMemoriesExpanded by remember { mutableStateOf(false) }
+    var memorySearchQuery by remember { mutableStateOf("") }
+    val allMemories by remember(memorySearchQuery) {
+        if (memorySearchQuery.isBlank()) repository.getAllMemories() else repository.searchMemories(memorySearchQuery.trim())
+    }.collectAsState(initial = emptyList())
+
+    var memoryToEdit by remember { mutableStateOf<MemoryItem?>(null) }
+    var isAddingMemory by remember { mutableStateOf(false) }
+    var showClearAllConfirm by remember { mutableStateOf(false) }
+
+    // 提示词模板状态
+    var isTemplatesExpanded by remember { mutableStateOf(false) }
+    var templateSearchQuery by remember { mutableStateOf("") }
+    val allTemplates by repository.getAllPromptTemplates().collectAsState(initial = emptyList())
+    val filteredTemplates = remember(allTemplates, templateSearchQuery) {
+        if (templateSearchQuery.isBlank()) allTemplates
+        else allTemplates.filter { it.name.contains(templateSearchQuery.trim(), ignoreCase = true) || it.content.contains(templateSearchQuery.trim(), ignoreCase = true) }
+    }
+    var templateToEdit by remember { mutableStateOf<PromptTemplate?>(null) }
+    var isAddingTemplate by remember { mutableStateOf(false) }
+
+    // 环境变量状态
+    var isEnvVarsExpanded by remember { mutableStateOf(false) }
+    val allEnvVars by repository.getAllEnvironmentVariables().collectAsState(initial = emptyList())
+    var envVarToEdit by remember { mutableStateOf<EnvironmentVariable?>(null) }
+    var isAddingEnvVar by remember { mutableStateOf(false) }
+
+    // 机制与优先级说明折叠状态
+    var showPriorityDetails by remember { mutableStateOf(false) }
+
+    val glass = echoGlassPalette()
+
+    LazyColumn(
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        // 1. 提示词与记忆生效机制与优先级说明
         item {
             SettingsGlassCard(hazeState = hazeState) {
                 Row(
@@ -2155,7 +2953,7 @@ fun PersonalizationTab(
             }
         }
 
-        // 4. 全局系统提示词模块
+        // 2. 全局系统提示词模块
         item {
             SettingsGlassCard(hazeState = hazeState) {
                 Row(
@@ -2176,6 +2974,14 @@ fun PersonalizationTab(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+                    TextButton(
+                        onClick = {
+                            globalPrompt = "你是一个专业、严谨、有深度思考能力的 AI 助手。回答问题时逻辑清晰、论证充分，遇到专业问题主动给出高质量的代码或技术解释，语言自然流畅。"
+                            savedMessage = null
+                        }
+                    ) {
+                        Text("填入默认预设", style = MaterialTheme.typography.labelSmall)
+                    }
                 }
 
                 OutlinedTextField(
@@ -2187,14 +2993,17 @@ fun PersonalizationTab(
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = 120.dp),
-                    placeholder = { Text("输入默认全局系统提示词...") },
+                    placeholder = { Text("例如：你是一个专业、富有同理心的全能AI助手...") },
                     minLines = 4,
                     maxLines = 14,
                     shape = SettingsInnerShape
                 )
+            }
+        }
 
-                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-
+        // 3. 故事创作与角色扮演全局教学指引
+        item {
+            SettingsGlassCard(hazeState = hazeState) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -2240,7 +3049,7 @@ fun PersonalizationTab(
             }
         }
 
-        // 4.1 对话智能自动命名模型 (Requirement 2 & 7)
+        // 4. 自定义偏好与关于我画像
         item {
             SettingsGlassCard(hazeState = hazeState) {
                 Row(
@@ -2248,619 +3057,38 @@ fun PersonalizationTab(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        Icons.Default.DriveFileRenameOutline,
+                        Icons.Default.Psychology,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary
                     )
                     Spacer(modifier = Modifier.width(10.dp))
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("对话智能自动命名", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text("“关于我”与自定义偏好", style = MaterialTheme.typography.titleMedium)
                         Text(
-                            "新对话首轮交互后自动生成简短精炼标题，可指定高速低成本专属模型",
+                            "模型在所有普通对话中都会参考这些背景信息，让回答更贴合您的喜好与需求。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Switch(
-                        checked = autoNameEnabled,
-                        onCheckedChange = {
-                            autoNameEnabled = it
-                            savedMessage = null
-                        }
-                    )
                 }
 
-                if (autoNameEnabled) {
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-
-                    // API 配置选择
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(
-                            "命名专用 API 服务商：",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
-
-                        // 选项列表
-                        val configOptions = listOf(0L to "跟随当前会话 API 配置（默认）") +
-                            allApiConfigs.map { it.id to "${it.name.ifBlank { it.provider }} (${it.provider})" }
-
-                        var expandedApiDropdown by remember { mutableStateOf(false) }
-                        val currentConfigLabel = configOptions.find { it.first == autoNameApiConfigId }?.second
-                            ?: "跟随当前会话 API 配置（默认）"
-
-                        Box(modifier = Modifier.fillMaxWidth()) {
-                            OutlinedButton(
-                                onClick = { expandedApiDropdown = true },
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = SettingsInnerShape
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = currentConfigLabel,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    Icon(Icons.Default.ArrowDropDown, contentDescription = null)
-                                }
-                            }
-
-                            DropdownMenu(
-                                expanded = expandedApiDropdown,
-                                onDismissRequest = { expandedApiDropdown = false }
-                            ) {
-                                configOptions.forEach { (cfgId, label) ->
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(
-                                                label,
-                                                fontWeight = if (cfgId == autoNameApiConfigId) FontWeight.Bold else FontWeight.Normal,
-                                                color = if (cfgId == autoNameApiConfigId) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                            )
-                                        },
-                                        onClick = {
-                                            autoNameApiConfigId = cfgId
-                                            expandedApiDropdown = false
-                                            savedMessage = null
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    // 指定模型选择 (Requirement 2: 读取模型列表选择，而不是手动输入模型)
-                    val currentTargetConfig = remember(autoNameApiConfigId, allApiConfigs) {
-                        if (autoNameApiConfigId > 0L) {
-                            allApiConfigs.find { it.id == autoNameApiConfigId }
-                        } else {
-                            allApiConfigs.find { it.isDefault } ?: allApiConfigs.firstOrNull()
-                        }
-                    }
-                    var isFetchingAutoNameModels by remember { mutableStateOf(false) }
-                    var autoNameFetchedModels by remember(currentTargetConfig?.id) { mutableStateOf<List<String>>(emptyList()) }
-                    val autoNameModelOptions = remember(currentTargetConfig, autoNameFetchedModels) {
-                        val fromConfig = parseModelList(currentTargetConfig?.availableModels)
-                        val defaultModel = cleanModelName(currentTargetConfig?.modelName)
-                        (autoNameFetchedModels + fromConfig + listOfNotNull(defaultModel)).distinct().filter { it.isNotBlank() }
-                    }
-                    var expandedModelDropdown by remember { mutableStateOf(false) }
-                    var isManualInputMode by remember { mutableStateOf(false) }
-
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                "指定命名专用模型：",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            if (currentTargetConfig != null && !isManualInputMode) {
-                                TextButton(
-                                    onClick = {
-                                        coroutineScope.launch {
-                                            isFetchingAutoNameModels = true
-                                            val res = repository.fetchAvailableModels(currentTargetConfig.id)
-                                            res.onSuccess { models ->
-                                                autoNameFetchedModels = models
-                                            }
-                                            isFetchingAutoNameModels = false
-                                        }
-                                    },
-                                    enabled = !isFetchingAutoNameModels
-                                ) {
-                                    if (isFetchingAutoNameModels) {
-                                        CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 1.5.dp)
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                    } else {
-                                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                    }
-                                    Text("从服务商获取", style = MaterialTheme.typography.labelSmall)
-                                }
-                            }
-                        }
-
-                        if (!isManualInputMode) {
-                            val selectedModelLabel = if (autoNameModel.isBlank()) {
-                                "跟随配置默认 (${currentTargetConfig?.modelName?.ifBlank { "未指定" } ?: "未指定"})"
-                            } else {
-                                autoNameModel
-                            }
-                            Box(modifier = Modifier.fillMaxWidth()) {
-                                OutlinedButton(
-                                    onClick = { expandedModelDropdown = true },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = SettingsInnerShape
-                                ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = selectedModelLabel,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.onSurface,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                        Icon(Icons.Default.ArrowDropDown, contentDescription = null)
-                                    }
-                                }
-
-                                DropdownMenu(
-                                    expanded = expandedModelDropdown,
-                                    onDismissRequest = { expandedModelDropdown = false },
-                                    modifier = Modifier.heightIn(max = 300.dp)
-                                ) {
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(
-                                                "跟随配置默认 (${currentTargetConfig?.modelName?.ifBlank { "未指定" } ?: "未指定"})",
-                                                fontWeight = if (autoNameModel.isBlank()) FontWeight.Bold else FontWeight.Normal,
-                                                color = if (autoNameModel.isBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                            )
-                                        },
-                                        onClick = {
-                                            autoNameModel = ""
-                                            expandedModelDropdown = false
-                                            savedMessage = null
-                                        }
-                                    )
-                                    autoNameModelOptions.forEach { m ->
-                                        val cap = com.aiassistant.domain.model.ModelCapabilityEngine.evaluateModel(m)
-                                        DropdownMenuItem(
-                                            text = {
-                                                Column {
-                                                    Text(
-                                                        m,
-                                                        fontWeight = if (autoNameModel == m) FontWeight.Bold else FontWeight.Normal,
-                                                        color = if (autoNameModel == m) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                                    )
-                                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                                        if (cap.contextWindowDisplay.isNotBlank()) {
-                                                            Text(cap.contextWindowDisplay, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                                                        }
-                                                        if (cap.supportsVision) Text("视觉", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
-                                                        if (cap.supportsReasoning) Text("思考", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
-                                                    }
-                                                }
-                                            },
-                                            onClick = {
-                                                autoNameModel = m
-                                                expandedModelDropdown = false
-                                                savedMessage = null
-                                            }
-                                        )
-                                    }
-                                    HorizontalDivider()
-                                    DropdownMenuItem(
-                                        text = { Text("手动输入自定义模型名称...", color = MaterialTheme.colorScheme.secondary) },
-                                        onClick = {
-                                            isManualInputMode = true
-                                            expandedModelDropdown = false
-                                        }
-                                    )
-                                }
-                            }
-                        } else {
-                            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                OutlinedTextField(
-                                    value = autoNameModel,
-                                    onValueChange = {
-                                        autoNameModel = it
-                                        savedMessage = null
-                                    },
-                                    modifier = Modifier.weight(1f),
-                                    placeholder = { Text("例如 gpt-4o-mini / deepseek-chat") },
-                                    singleLine = true,
-                                    shape = SettingsInnerShape
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                TextButton(onClick = { isManualInputMode = false }) {
-                                    Text("切换列表")
-                                }
-                            }
-                        }
-                    }
-
-                    // 命名提示词模板
-                    SettingsInputField(
-                        title = "命名提示词指令 (选填)",
-                        value = autoNamePrompt,
-                        onValueChange = {
-                            autoNamePrompt = it
-                            savedMessage = null
-                        },
-                        placeholder = "请根据下面这段对话，生成一个简短精炼的中文标题。严格在12个字以内，不要标点符号与引号。"
-                    )
-
-                    // 测试命名效果
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = SettingsInnerShape,
-                        color = glass.control.copy(alpha = 0.5f),
-                        border = BorderStroke(1.dp, glass.outline.copy(alpha = 0.5f))
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text("实时测试自动命名效果：", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                            OutlinedTextField(
-                                value = testAutoNameInput,
-                                onValueChange = { testAutoNameInput = it },
-                                modifier = Modifier.fillMaxWidth(),
-                                placeholder = { Text("输入示例文本...") },
-                                singleLine = true
-                            )
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Button(
-                                    onClick = {
-                                        isTestingAutoName = true
-                                        testAutoNameResult = null
-                                        coroutineScope.launch {
-                                            val targetId = if (autoNameApiConfigId > 0L) autoNameApiConfigId else allApiConfigs.firstOrNull()?.id ?: 0L
-                                            if (targetId == 0L) {
-                                                testAutoNameResult = "未找到可用的 API 配置，请先在模型设置中添加 API"
-                                                isTestingAutoName = false
-                                                return@launch
-                                            }
-                                            val res = repository.testAutoNaming(
-                                                apiConfigId = targetId,
-                                                modelName = autoNameModel,
-                                                testText = testAutoNameInput,
-                                                customPrompt = autoNamePrompt
-                                            )
-                                            isTestingAutoName = false
-                                            testAutoNameResult = res.fold(
-                                                onSuccess = { "生成标题成功: 「$it」" },
-                                                onFailure = { "生成失败: ${it.message}" }
-                                            )
-                                        }
-                                    },
-                                    enabled = !isTestingAutoName && testAutoNameInput.isNotBlank()
-                                ) {
-                                    Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(if (isTestingAutoName) "生成中..." else "测试生成标题")
-                                }
-                            }
-                            testAutoNameResult?.let { resText ->
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text(
-                                        text = resText,
-                                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-                                        color = if (resText.startsWith("生成标题成功")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
-                                        modifier = Modifier.padding(8.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // 4.5 思考链汉化与翻译 (Requirement 1)
-        item {
-            SettingsGlassCard(hazeState = hazeState) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        Icons.Default.Translate,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("思考链汉化与翻译", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text(
-                            "当模型思考链主要为英文时，在思考胶囊内提供一键汉化，调用指定翻译模型将思考过程翻译为中文并持久化",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Switch(
-                        checked = enableThinkingTranslation,
-                        onCheckedChange = {
-                            enableThinkingTranslation = it
-                            savedMessage = null
-                        }
-                    )
-                }
-
-                if (enableThinkingTranslation) {
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-
-                    // 翻译专用 API 配置选择
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(
-                            "翻译专用 API 服务商：",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
-
-                        val configOptions = listOf(0L to "跟随当前会话 API 配置（默认）") +
-                            allApiConfigs.map { it.id to "${it.name.ifBlank { it.provider }} (${it.provider})" }
-
-                        var expandedApiDropdown by remember { mutableStateOf(false) }
-                        val currentConfigLabel = configOptions.find { it.first == thinkingTranslationApiConfigId }?.second
-                            ?: "跟随当前会话 API 配置（默认）"
-
-                        Box(modifier = Modifier.fillMaxWidth()) {
-                            OutlinedButton(
-                                onClick = { expandedApiDropdown = true },
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = SettingsInnerShape
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = currentConfigLabel,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    Icon(Icons.Default.ArrowDropDown, contentDescription = null)
-                                }
-                            }
-
-                            DropdownMenu(
-                                expanded = expandedApiDropdown,
-                                onDismissRequest = { expandedApiDropdown = false }
-                            ) {
-                                configOptions.forEach { (cfgId, label) ->
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(
-                                                label,
-                                                fontWeight = if (cfgId == thinkingTranslationApiConfigId) FontWeight.Bold else FontWeight.Normal,
-                                                color = if (cfgId == thinkingTranslationApiConfigId) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                            )
-                                        },
-                                        onClick = {
-                                            thinkingTranslationApiConfigId = cfgId
-                                            expandedApiDropdown = false
-                                            savedMessage = null
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    // 翻译专用模型选择
-                    val currentTargetConfig = remember(thinkingTranslationApiConfigId, allApiConfigs) {
-                        if (thinkingTranslationApiConfigId > 0L) {
-                            allApiConfigs.find { it.id == thinkingTranslationApiConfigId }
-                        } else {
-                            allApiConfigs.find { it.isDefault } ?: allApiConfigs.firstOrNull()
-                        }
-                    }
-                    val translationModelOptions = remember(currentTargetConfig) {
-                        val fromConfig = parseModelList(currentTargetConfig?.availableModels)
-                        val defaultModel = cleanModelName(currentTargetConfig?.modelName)
-                        (fromConfig + listOfNotNull(defaultModel)).distinct().filter { it.isNotBlank() }
-                    }
-                    var expandedModelDropdown by remember { mutableStateOf(false) }
-                    var isManualInputMode by remember { mutableStateOf(false) }
-
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                "翻译专用模型：",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            TextButton(
-                                onClick = { isManualInputMode = !isManualInputMode },
-                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Text(
-                                    if (isManualInputMode) "切换为模型下拉选择" else "手动输入模型名称",
-                                    style = MaterialTheme.typography.labelSmall
-                                )
-                            }
-                        }
-
-                        if (!isManualInputMode && translationModelOptions.isNotEmpty()) {
-                            Box(modifier = Modifier.fillMaxWidth()) {
-                                OutlinedButton(
-                                    onClick = { expandedModelDropdown = true },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = SettingsInnerShape
-                                ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = if (thinkingTranslationModel.isBlank()) {
-                                                "跟随配置默认 (${currentTargetConfig?.modelName?.ifBlank { "未指定" } ?: "未指定"})"
-                                            } else {
-                                                thinkingTranslationModel
-                                            },
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.onSurface,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                        Icon(Icons.Default.ArrowDropDown, contentDescription = null)
-                                    }
-                                }
-
-                                DropdownMenu(
-                                    expanded = expandedModelDropdown,
-                                    onDismissRequest = { expandedModelDropdown = false },
-                                    modifier = Modifier.heightIn(max = 300.dp)
-                                ) {
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(
-                                                "跟随配置默认 (${currentTargetConfig?.modelName?.ifBlank { "未指定" } ?: "未指定"})",
-                                                fontWeight = if (thinkingTranslationModel.isBlank()) FontWeight.Bold else FontWeight.Normal,
-                                                color = if (thinkingTranslationModel.isBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                            )
-                                        },
-                                        onClick = {
-                                            thinkingTranslationModel = ""
-                                            expandedModelDropdown = false
-                                            savedMessage = null
-                                        }
-                                    )
-                                    translationModelOptions.forEach { m ->
-                                        DropdownMenuItem(
-                                            text = {
-                                                Text(
-                                                    m,
-                                                    fontWeight = if (thinkingTranslationModel == m) FontWeight.Bold else FontWeight.Normal,
-                                                    color = if (thinkingTranslationModel == m) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                                )
-                                            },
-                                            onClick = {
-                                                thinkingTranslationModel = m
-                                                expandedModelDropdown = false
-                                                savedMessage = null
-                                            }
-                                        )
-                                    }
-                                    HorizontalDivider()
-                                    DropdownMenuItem(
-                                        text = { Text("手动输入自定义模型名称...", color = MaterialTheme.colorScheme.secondary) },
-                                        onClick = {
-                                            isManualInputMode = true
-                                            expandedModelDropdown = false
-                                        }
-                                    )
-                                }
-                            }
-                        } else {
-                            OutlinedTextField(
-                                value = thinkingTranslationModel,
-                                onValueChange = {
-                                    thinkingTranslationModel = it
-                                    savedMessage = null
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                placeholder = { Text("例如 gpt-4o-mini 或留空跟随默认") },
-                                singleLine = true,
-                                shape = SettingsInnerShape
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // 5. 自定义偏好与人设
-        item {
-            SettingsGlassCard(hazeState = hazeState) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        Icons.Default.AutoAwesome,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("个性化偏好", style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            "这些偏好会自动注入普通对话上下文；单个对话的提示词仍可覆盖它们。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Switch(
-                        checked = settings.enabled,
-                        onCheckedChange = { settings = settings.copy(enabled = it) }
-                    )
-                }
-
-                OutlinedTextField(
+                PersonalizationTextField(
+                    title = "用户画像与偏好指令",
                     value = instruction,
+                    placeholder = "例如：\n- 我是一名全栈工程师，主要使用 Kotlin 和 Python\n- 回答请直接切入重点，少说客套话\n- 代码请附带关键行注释",
                     onValueChange = {
                         instruction = it
                         savedMessage = null
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 160.dp),
-                    placeholder = {
-                        Text("例如：默认用中文回答；代码多写注释；少用表格；回答自然一点；复杂问题先给结论。")
-                    },
-                    minLines = 5,
-                    maxLines = 14,
-                    shape = SettingsInnerShape
+                    }
                 )
             }
         }
 
-        // 6. 模型长期记忆库模块 (Requirement 7: 手风琴折叠卡片)
+        // 5. 跨会话长期记忆
         item {
             SettingsGlassCard(hazeState = hazeState) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .echoShapeClick(SettingsInnerShape) { isMemoriesExpanded = !isMemoriesExpanded },
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
@@ -2870,13 +3098,14 @@ fun PersonalizationTab(
                     )
                     Spacer(modifier = Modifier.width(10.dp))
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("模型长期记忆库 (共 ${allMemories.size} 条)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text("跨会话长期记忆", style = MaterialTheme.typography.titleMedium)
                         Text(
-                            if (isMemoriesExpanded) "点击收起记忆库管理" else "点击展开查看、搜索与管理已记住的偏好与事实",
+                            "AI 会在日常对话中识别重要信息，弹出确认条由您决定是否存入记忆库，跨对话持续生效。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+                    Spacer(modifier = Modifier.width(8.dp))
                     Switch(
                         checked = autoMemoryEnabled,
                         onCheckedChange = {
@@ -2884,113 +3113,132 @@ fun PersonalizationTab(
                             savedMessage = null
                         }
                     )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    IconButton(onClick = { isMemoriesExpanded = !isMemoriesExpanded }) {
-                        Icon(
-                            if (isMemoriesExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
                 }
 
-                AnimatedVisibility(visible = isMemoriesExpanded) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Text(
-                            text = if (autoMemoryEnabled) "已开启自动记忆：模型将在对话中智能提炼并弹出确认条" else "自动记忆已暂停：模型不再从新对话中检测新记忆",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (autoMemoryEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                if (autoMemoryEnabled) {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
 
-                        // 搜索栏与操作栏
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .echoShapeClick(SettingsInnerShape) { isMemoriesExpanded = !isMemoriesExpanded },
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                "记忆库管理",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Surface(
+                                shape = RoundedCornerShape(999.dp),
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                            ) {
+                                Text(
+                                    text = "${allMemories.size} 条",
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(onClick = { isAddingMemory = true }, modifier = Modifier.size(32.dp)) {
+                                Icon(Icons.Default.Add, contentDescription = "添加记忆", tint = MaterialTheme.colorScheme.primary)
+                            }
+                            IconButton(onClick = { isMemoriesExpanded = !isMemoriesExpanded }, modifier = Modifier.size(32.dp)) {
+                                Icon(
+                                    if (isMemoriesExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+
+                    AnimatedVisibility(visible = isMemoriesExpanded) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             OutlinedTextField(
                                 value = memorySearchQuery,
                                 onValueChange = { memorySearchQuery = it },
-                                modifier = Modifier.weight(1f),
-                                placeholder = { Text("搜索长期记忆...") },
-                                singleLine = true,
+                                placeholder = { Text("搜索记忆内容或关键词...") },
                                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
                                 trailingIcon = {
                                     if (memorySearchQuery.isNotBlank()) {
                                         IconButton(onClick = { memorySearchQuery = "" }) {
-                                            Icon(Icons.Default.Close, contentDescription = "清除搜索", modifier = Modifier.size(18.dp))
+                                            Icon(Icons.Default.Close, contentDescription = "清除", modifier = Modifier.size(16.dp))
                                         }
                                     }
                                 },
-                                shape = SettingsInnerShape
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(999.dp)
                             )
 
-                            FilledTonalButton(
-                                onClick = { isAddingMemory = true },
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
-                            ) {
-                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("添加", style = MaterialTheme.typography.labelMedium)
-                            }
-
-                            if (allMemories.isNotEmpty()) {
-                                IconButton(onClick = { showClearAllConfirm = true }) {
-                                    Icon(Icons.Default.DeleteSweep, contentDescription = "清空全部记忆", tint = MaterialTheme.colorScheme.error)
-                                }
-                            }
-                        }
-
-                        // 记忆列表
-                        if (allMemories.isEmpty()) {
-                            Surface(
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = SettingsInnerShape,
-                                color = glass.control,
-                                border = androidx.compose.foundation.BorderStroke(1.dp, glass.outline)
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(16.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
+                            if (allMemories.isEmpty()) {
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = SettingsInnerShape,
+                                    color = glass.control
                                 ) {
-                                    Icon(
-                                        Icons.Default.BookmarkBorder,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                        modifier = Modifier.size(32.dp)
-                                    )
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Text(
-                                        if (memorySearchQuery.isBlank()) "暂无长期记忆条目\n点击上方「添加」手动写入，或在聊天中确认自动提炼的记忆。" else "未找到与「$memorySearchQuery」匹配的记忆",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                                    )
+                                    Column(
+                                        modifier = Modifier.padding(20.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Lightbulb,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                            modifier = Modifier.size(32.dp)
+                                        )
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            "暂无记忆条目\n当与 AI 对话提及个人习惯或点击右上角「+」时将在此处列出。",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                        )
+                                    }
                                 }
-                            }
-                        } else {
-                            Column(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                allMemories.forEach { memory ->
-                                    MemoryItemCard(
-                                        memory = memory,
-                                        onToggleEnabled = { enabled ->
-                                            coroutineScope.launch {
-                                                repository.setMemoryEnabled(memory.id, enabled)
+                            } else {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    allMemories.forEach { memory ->
+                                        MemoryItemCard(
+                                            memory = memory,
+                                            onToggleEnabled = { enabled ->
+                                                coroutineScope.launch {
+                                                    repository.saveMemory(memory.copy(isEnabled = enabled, updatedAt = System.currentTimeMillis()))
+                                                }
+                                            },
+                                            onEdit = { memoryToEdit = memory },
+                                            onDelete = {
+                                                coroutineScope.launch {
+                                                    repository.deleteMemory(memory)
+                                                }
                                             }
-                                        },
-                                        onEdit = { memoryToEdit = memory },
-                                        onDelete = {
-                                            coroutineScope.launch {
-                                                repository.deleteMemory(memory.id)
-                                            }
+                                        )
+                                    }
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.End
+                                    ) {
+                                        TextButton(onClick = { showClearAllConfirm = true }) {
+                                            Icon(Icons.Default.DeleteSweep, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error)
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("清空所有记忆", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
                                         }
-                                    )
+                                    }
                                 }
                             }
                         }
@@ -2999,102 +3247,96 @@ fun PersonalizationTab(
             }
         }
 
-        // 6.1 提示词模板库模块 (Requirement 7: 手风琴折叠卡片)
+        // 6. 提示词模板系统
         item {
             SettingsGlassCard(hazeState = hazeState) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .echoShapeClick(SettingsInnerShape) { isTemplatesExpanded = !isTemplatesExpanded },
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        Icons.Default.Bookmarks,
+                        Icons.Default.Widgets,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary
                     )
                     Spacer(modifier = Modifier.width(10.dp))
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("提示词模板库 (共 ${allTemplates.size} 个)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text("提示词模板工作流", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         Text(
-                            if (isTemplatesExpanded) "点击收起模板库管理" else "点击展开管理常用提示词模板与插值变量",
+                            "预设结构化指令与 {{变量}} 占位符，支持聊天输入框快速调用",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    IconButton(onClick = { isTemplatesExpanded = !isTemplatesExpanded }) {
-                        Icon(
-                            if (isTemplatesExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .echoShapeClick(SettingsInnerShape) { isTemplatesExpanded = !isTemplatesExpanded },
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("模板库列表", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Surface(shape = RoundedCornerShape(999.dp), color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)) {
+                            Text("${allTemplates.size} 个", modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { isAddingTemplate = true }, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Default.Add, contentDescription = "新建模板", tint = MaterialTheme.colorScheme.primary)
+                        }
+                        IconButton(onClick = { isTemplatesExpanded = !isTemplatesExpanded }, modifier = Modifier.size(32.dp)) {
+                            Icon(if (isTemplatesExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                 }
 
                 AnimatedVisibility(visible = isTemplatesExpanded) {
                     Column(
-                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Text(
-                            text = "提示词模板支持使用 {{变量}} 占位符，支持在聊天输入框与快捷工作流中秒级调用。",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-
-                        // 搜索与添加
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            OutlinedTextField(
-                                value = templateSearchQuery,
-                                onValueChange = { templateSearchQuery = it },
-                                modifier = Modifier.weight(1f),
-                                placeholder = { Text("搜索模板名称或内容...") },
-                                singleLine = true,
-                                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                                trailingIcon = {
-                                    if (templateSearchQuery.isNotBlank()) {
-                                        IconButton(onClick = { templateSearchQuery = "" }) {
-                                            Icon(Icons.Default.Close, contentDescription = "清除搜索", modifier = Modifier.size(18.dp))
-                                        }
+                        OutlinedTextField(
+                            value = templateSearchQuery,
+                            onValueChange = { templateSearchQuery = it },
+                            placeholder = { Text("搜索模板名称或内容...") },
+                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                            trailingIcon = {
+                                if (templateSearchQuery.isNotBlank()) {
+                                    IconButton(onClick = { templateSearchQuery = "" }) {
+                                        Icon(Icons.Default.Close, contentDescription = "清除", modifier = Modifier.size(16.dp))
                                     }
-                                },
-                                shape = SettingsInnerShape
-                            )
-
-                            FilledTonalButton(
-                                onClick = { isAddingTemplate = true },
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
-                            ) {
-                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("新建", style = MaterialTheme.typography.labelMedium)
-                            }
-                        }
+                                }
+                            },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(999.dp)
+                        )
 
                         if (filteredTemplates.isEmpty()) {
                             Surface(
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = SettingsInnerShape,
-                                color = glass.control,
-                                border = androidx.compose.foundation.BorderStroke(1.dp, glass.outline)
+                                color = glass.control
                             ) {
                                 Column(
-                                    modifier = Modifier.padding(16.dp),
+                                    modifier = Modifier.padding(20.dp),
                                     horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
                                     Icon(
-                                        Icons.Default.Bookmarks,
+                                        Icons.Default.Description,
                                         contentDescription = null,
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                                         modifier = Modifier.size(32.dp)
                                     )
                                     Spacer(modifier = Modifier.height(6.dp))
                                     Text(
-                                        if (templateSearchQuery.isBlank()) "暂无自定义提示词模板\n点击上方「新建」即可创建通用或创作提示词模板。" else "未找到匹配的模板",
+                                        "暂无匹配的提示词模板\n点击右上角「+」新建专属的高效生产力模板。",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -3106,13 +3348,13 @@ fun PersonalizationTab(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                filteredTemplates.forEach { template ->
+                                filteredTemplates.forEach { tpl ->
                                     PromptTemplateItemCard(
-                                        template = template,
-                                        onEdit = { templateToEdit = template },
+                                        template = tpl,
+                                        onEdit = { templateToEdit = tpl },
                                         onDelete = {
                                             coroutineScope.launch {
-                                                repository.deletePromptTemplate(template)
+                                                repository.deletePromptTemplate(tpl)
                                             }
                                         }
                                     )
@@ -3124,74 +3366,68 @@ fun PersonalizationTab(
             }
         }
 
-        // 6.2 环境变量库模块 (Requirement 7: 手风琴折叠卡片)
+        // 7. 环境变量与安全密钥注入
         item {
             SettingsGlassCard(hazeState = hazeState) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .echoShapeClick(SettingsInnerShape) { isEnvVarsExpanded = !isEnvVarsExpanded },
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        Icons.Default.Code,
+                        Icons.Default.DataObject,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary
                     )
                     Spacer(modifier = Modifier.width(10.dp))
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("环境变量库 (共 ${allEnvVars.size} 个)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text("提示词环境变量注入", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         Text(
-                            if (isEnvVarsExpanded) "点击收起环境变量管理" else "点击展开管理提示词动态占位符与安全变量",
+                            "配置自定义环境变量（如 {{PROJECT_NAME}}），发送时自动解密并动态替换",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    IconButton(onClick = { isEnvVarsExpanded = !isEnvVarsExpanded }) {
-                        Icon(
-                            if (isEnvVarsExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .echoShapeClick(SettingsInnerShape) { isEnvVarsExpanded = !isEnvVarsExpanded },
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("环境变量列表", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Surface(shape = RoundedCornerShape(999.dp), color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.15f)) {
+                            Text("${allEnvVars.size} 个", modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { isAddingEnvVar = true }, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Default.Add, contentDescription = "添加变量", tint = MaterialTheme.colorScheme.primary)
+                        }
+                        IconButton(onClick = { isEnvVarsExpanded = !isEnvVarsExpanded }, modifier = Modifier.size(32.dp)) {
+                            Icon(if (isEnvVarsExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                 }
 
                 AnimatedVisibility(visible = isEnvVarsExpanded) {
                     Column(
-                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "提示词中输入 {{变量名}} 可自动替换为变量值；敏感值支持加密安全存储与脱敏隐藏。",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.weight(1f)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            FilledTonalButton(
-                                onClick = { isAddingEnvVar = true },
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
-                            ) {
-                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("添加变量", style = MaterialTheme.typography.labelMedium)
-                            }
-                        }
-
                         if (allEnvVars.isEmpty()) {
                             Surface(
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = SettingsInnerShape,
-                                color = glass.control,
-                                border = androidx.compose.foundation.BorderStroke(1.dp, glass.outline)
+                                color = glass.control
                             ) {
                                 Column(
-                                    modifier = Modifier.padding(16.dp),
+                                    modifier = Modifier.padding(20.dp),
                                     horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
                                     Icon(
@@ -3232,157 +3468,73 @@ fun PersonalizationTab(
             }
         }
 
-        // 7. 界面背景设置
-        item {
-            SettingsGlassCard(hazeState = hazeState) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        Icons.Default.Image,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("界面背景", style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            "可分别为首页和对话页设置自定义图片背景，未设置时保持原有纯色背景。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-                BackgroundPickerRow(
-                    title = "首页背景",
-                    hasImage = hasHomeBackground,
-                    onPick = { homeBackgroundPicker.launch("image/*") },
-                    onClear = {
-                        BackgroundImageManager.deleteHomeBackground(context)
-                        backgroundRevision++
-                        savedMessage = "已恢复首页默认背景"
-                    }
-                )
-                BackgroundPickerRow(
-                    title = "对话页背景",
-                    hasImage = hasChatBackground,
-                    onPick = { chatBackgroundPicker.launch("image/*") },
-                    onClear = {
-                        BackgroundImageManager.deleteChatBackground(context)
-                        backgroundRevision++
-                        savedMessage = "已恢复对话页默认背景"
-                    }
-                )
-            }
-        }
-
-        // 8. 保存反馈消息
+        // 保存反馈消息
         savedMessage?.let { message ->
             item {
                 Card(
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.primaryContainer
-                    )
+                    ),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
                         text = message,
-                        modifier = Modifier.padding(14.dp),
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.padding(12.dp)
                     )
                 }
             }
         }
-
-        // 9. 保存按钮
-        item {
-            Button(
-                onClick = {
-                    performSave()
-                },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(999.dp)
-            ) {
-                Icon(Icons.Default.Save, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("保存全部设定")
-            }
-        }
     }
 
-    // 添加记忆弹窗
-    if (isAddingMemory) {
+    // 记忆编辑弹窗
+    if (isAddingMemory || memoryToEdit != null) {
         MemoryEditDialog(
             hazeState = hazeState,
-            memory = null,
-            onDismiss = { isAddingMemory = false },
-            onConfirm = { newContent, newScope, newKeywords ->
+            memory = memoryToEdit,
+            onDismiss = {
+                isAddingMemory = false
+                memoryToEdit = null
+            },
+            onConfirm = { content, scope, keywords ->
                 coroutineScope.launch {
-                    val item = MemoryItem(
-                        content = newContent.trim(),
-                        scope = newScope,
-                        keywords = newKeywords.trim().takeIf { it.isNotBlank() },
-                        confidence = 1.0f,
-                        isEnabled = true,
-                        createdAt = System.currentTimeMillis(),
+                    val target = memoryToEdit?.copy(
+                        content = content,
+                        scope = scope,
+                        keywords = keywords,
                         updatedAt = System.currentTimeMillis()
+                    ) ?: MemoryItem(
+                        content = content,
+                        scope = scope,
+                        keywords = keywords
                     )
-                    repository.insertMemory(item)
+                    repository.saveMemory(target)
                     isAddingMemory = false
-                    savedMessage = "已添加新长期记忆"
-                }
-            }
-        )
-    }
-
-    // 编辑记忆弹窗
-    memoryToEdit?.let { memory ->
-        MemoryEditDialog(
-            hazeState = hazeState,
-            memory = memory,
-            onDismiss = { memoryToEdit = null },
-            onConfirm = { newContent, newScope, newKeywords ->
-                coroutineScope.launch {
-                    repository.updateMemory(
-                        memory.copy(
-                            content = newContent.trim(),
-                            scope = newScope,
-                            keywords = newKeywords.trim().takeIf { it.isNotBlank() },
-                            updatedAt = System.currentTimeMillis()
-                        )
-                    )
                     memoryToEdit = null
-                    savedMessage = "已更新长期记忆"
+                    savedMessage = "记忆已保存"
                 }
             }
         )
     }
 
-    // 清空全部记忆确认弹窗
+    // 清空记忆确认弹窗
     if (showClearAllConfirm) {
         EchoGlassDialog(
             hazeState = hazeState,
-            title = { Text("清空长期记忆库") },
-            text = {
-                Text(
-                    "确定要清空全部长期记忆条目吗？此操作无法撤销，模型将不再参考先前的偏好记忆。",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            },
+            title = { Text("清空所有记忆") },
+            text = { Text("确定要清空全部长期记忆吗？此操作无法撤销。") },
             confirmButton = {
                 Button(
                     onClick = {
                         coroutineScope.launch {
-                            repository.deleteAllMemories()
+                            repository.clearAllMemories()
                             showClearAllConfirm = false
-                            savedMessage = "已清空全部长期记忆"
+                            savedMessage = "已清空全部记忆"
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                 ) {
-                    Text("确认清空")
+                    Text("清空")
                 }
             },
             dismissButton = {
@@ -3394,101 +3546,88 @@ fun PersonalizationTab(
         )
     }
 
-    // 提示词模板创建与编辑弹窗
-    if (isAddingTemplate) {
+    // 提示词模板新建/编辑弹窗
+    if (isAddingTemplate || templateToEdit != null) {
         PromptTemplateEditDialog(
             hazeState = hazeState,
-            template = null,
-            onDismiss = { isAddingTemplate = false },
+            template = templateToEdit,
+            onDismiss = {
+                isAddingTemplate = false
+                templateToEdit = null
+            },
             onConfirm = { name, content, description, category ->
                 coroutineScope.launch {
-                    val template = PromptTemplate(
+                    val target = templateToEdit?.copy(
                         name = name,
                         content = content,
                         description = description,
                         category = category,
-                        isBuiltIn = false,
-                        useCount = 0,
-                        createdAt = System.currentTimeMillis(),
                         updatedAt = System.currentTimeMillis()
+                    ) ?: PromptTemplate(
+                        name = name,
+                        content = content,
+                        description = description,
+                        category = category
                     )
-                    repository.savePromptTemplate(template)
+                    repository.savePromptTemplate(target)
                     isAddingTemplate = false
-                    savedMessage = "已创建提示词模板「$name」"
-                }
-            }
-        )
-    }
-
-    templateToEdit?.let { template ->
-        PromptTemplateEditDialog(
-            hazeState = hazeState,
-            template = template,
-            onDismiss = { templateToEdit = null },
-            onConfirm = { name, content, description, category ->
-                coroutineScope.launch {
-                    repository.savePromptTemplate(
-                        template.copy(
-                            name = name,
-                            content = content,
-                            description = description,
-                            category = category,
-                            updatedAt = System.currentTimeMillis()
-                        )
-                    )
                     templateToEdit = null
-                    savedMessage = "已更新提示词模板「$name」"
+                    savedMessage = "模板已保存"
                 }
             }
         )
     }
 
-    // 环境变量创建与编辑弹窗
-    if (isAddingEnvVar) {
+    // 环境变量新建/编辑弹窗
+    if (isAddingEnvVar || envVarToEdit != null) {
         EnvironmentVariableEditDialog(
             hazeState = hazeState,
-            variable = null,
-            onDismiss = { isAddingEnvVar = false },
+            variable = envVarToEdit,
+            onDismiss = {
+                isAddingEnvVar = false
+                envVarToEdit = null
+            },
             onConfirm = { name, value, description ->
                 coroutineScope.launch {
-                    val variable = EnvironmentVariable(
+                    val target = envVarToEdit?.copy(
                         name = name,
                         value = value,
                         description = description,
-                        environment = "default",
-                        createdAt = System.currentTimeMillis(),
                         updatedAt = System.currentTimeMillis()
+                    ) ?: EnvironmentVariable(
+                        name = name,
+                        value = value,
+                        description = description
                     )
-                    repository.saveEnvironmentVariable(variable)
+                    repository.saveEnvironmentVariable(target)
                     isAddingEnvVar = false
-                    savedMessage = "已添加环境变量「$name」"
-                }
-            }
-        )
-    }
-
-    envVarToEdit?.let { variable ->
-        EnvironmentVariableEditDialog(
-            hazeState = hazeState,
-            variable = variable,
-            onDismiss = { envVarToEdit = null },
-            onConfirm = { name, value, description ->
-                coroutineScope.launch {
-                    repository.saveEnvironmentVariable(
-                        variable.copy(
-                            name = name,
-                            value = value,
-                            description = description,
-                            updatedAt = System.currentTimeMillis()
-                        )
-                    )
                     envVarToEdit = null
-                    savedMessage = "已更新环境变量「$name」"
+                    savedMessage = "环境变量已保存"
                 }
             }
         )
     }
 }
+
+@Composable
+fun PersonalizationTab(
+    hazeState: dev.chrisbanes.haze.HazeState,
+    modifier: Modifier = Modifier,
+    themeMode: AppThemeMode,
+    onThemeModeChange: (AppThemeMode) -> Unit,
+    onUnsavedStateChanged: (Boolean) -> Unit = {},
+    saveTrigger: Int = 0
+) {
+    AppearanceTab(
+        hazeState = hazeState,
+        modifier = modifier,
+        themeMode = themeMode,
+        onThemeModeChange = onThemeModeChange,
+        onUnsavedStateChanged = onUnsavedStateChanged,
+        saveTrigger = saveTrigger
+    )
+}
+
 
 @Composable
 private fun MemoryItemCard(

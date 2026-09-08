@@ -105,14 +105,19 @@ object AvatarManager {
         return getApiModelAvatarBitmap(context, apiConfigId) ?: getModelAvatarBitmap(context)
     }
 
-    private fun getAvatarBitmap(context: Context, fileName: String): Bitmap? {
-        val base64 = getAvatar(context, fileName) ?: return null
+    fun base64ToBitmap(base64: String?): Bitmap? {
+        if (base64.isNullOrBlank()) return null
         return try {
             val byteArray = Base64.decode(base64, Base64.NO_WRAP)
             BitmapFactory.decodeByteArray(byteArray, 0, byteArray.size)
         } catch (e: Exception) {
             null
         }
+    }
+
+    private fun getAvatarBitmap(context: Context, fileName: String): Bitmap? {
+        val base64 = getAvatar(context, fileName) ?: return null
+        return base64ToBitmap(base64)
     }
 
     // 删除头像

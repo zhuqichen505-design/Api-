@@ -98,6 +98,10 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
         }
     }
 
+    // 当前模型是否所属配置失效
+    private val _isModelConfigInvalid = MutableStateFlow(false)
+    val isModelConfigInvalid: StateFlow<Boolean> = _isModelConfigInvalid.asStateFlow()
+
     private fun loadConversation() {
         viewModelScope.launch {
             conversation = repository.getConversationById(conversationId)
@@ -105,24 +109,32 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                 isPrivateConversation = repository.hasConversationTag(conv, "private")
                 apiConfig = repository.getApiConfigById(conv.apiConfigId)
                 if (apiConfig == null) {
-                    _error.value = "API配置不存在，请重新配置"
+                    _isModelConfigInvalid.value = true
+                    val fallback = repository.getDefaultApiConfig()
+                        ?: repository.getAllApiConfigs().first().firstOrNull()
+                    if (fallback != null) {
+                        apiConfig = fallback
+                    }
+                    _error.value = "当前会话绑定的 API 配置已失效或被删除，请重新选择可用模型"
                 } else {
-                    // 加载可用模型列表
-                    loadAvailableModels()
-                    // 设置当前模型
-                    _currentModel.value = conv.modelName
-                    // 使用对话级别配置，如果没有则使用API配置默认值
-                    _tempSettings.value = TempChatSettings(
-                        temperature = conv.temperature ?: apiConfig?.temperature ?: 0.95f,
-                        maxTokens = conv.maxTokens ?: apiConfig?.maxTokens ?: 8192,
-                        topP = conv.topP ?: apiConfig?.topP ?: 1.0f,
-                        enableThinking = conv.enableThinking ?: apiConfig?.enableThinking ?: true,
-                        thinkingEffort = conv.thinkingEffort ?: apiConfig?.thinkingEffort ?: "high",
-                        enableWebSearch = conv.enableWebSearch ?: apiConfig?.enableWebSearch ?: false
-                    )
-                    // 如果对话有自定义配置，自动启用临时设置
-                    _useTempSettings.value = true
+                    _isModelConfigInvalid.value = false
                 }
+
+                // 无论原配置是否存在，均加载可用模型列表，保证用户能正常切换模型
+                loadAvailableModels()
+                // 设置当前模型
+                _currentModel.value = conv.modelName
+                // 使用对话级别配置，如果没有则使用API配置默认值
+                _tempSettings.value = TempChatSettings(
+                    temperature = conv.temperature ?: apiConfig?.temperature ?: 0.95f,
+                    maxTokens = conv.maxTokens ?: apiConfig?.maxTokens ?: 8192,
+                    topP = conv.topP ?: apiConfig?.topP ?: 1.0f,
+                    enableThinking = conv.enableThinking ?: apiConfig?.enableThinking ?: true,
+                    thinkingEffort = conv.thinkingEffort ?: apiConfig?.thinkingEffort ?: "high",
+                    enableWebSearch = conv.enableWebSearch ?: apiConfig?.enableWebSearch ?: false
+                )
+                // 如果对话有自定义配置，自动启用临时设置
+                _useTempSettings.value = true
 
                 val roleplayRepo = AiAssistantApp.instance.roleplayRepository
                 val rpSession = roleplayRepo.getSessionByConversationId(conversationId)
@@ -163,16 +175,26 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
     private fun loadAvailableModels() {
         viewModelScope.launch {
             val conv = conversation ?: return@launch
-            val currentConfig = apiConfig ?: return@launch
-            val fallbackOption = ChatModelOption(
-                apiConfigId = currentConfig.id,
-                configName = currentConfig.name,
-                provider = currentConfig.provider,
-                apiType = currentConfig.apiType,
-                modelName = conv.modelName.ifBlank { currentConfig.modelName },
-                capability = "auto"
-            )
-            val options = (repository.getAllVisibleChatModelOptions() + fallbackOption)
+            var currentConfig = apiConfig
+            if (currentConfig == null) {
+                currentConfig = repository.getDefaultApiConfig()
+                    ?: repository.getAllApiConfigs().first().firstOrNull()
+                if (currentConfig != null) {
+                    apiConfig = currentConfig
+                }
+            }
+            val fallbackOption = currentConfig?.let { cfg ->
+                ChatModelOption(
+                    apiConfigId = cfg.id,
+                    configName = cfg.name,
+                    provider = cfg.provider,
+                    apiType = cfg.apiType,
+                    modelName = conv.modelName.ifBlank { cfg.modelName },
+                    capability = "auto"
+                )
+            }
+            val visibleOptions = repository.getAllVisibleChatModelOptions()
+            val options = (visibleOptions + listOfNotNull(fallbackOption))
                 .filter { it.modelName.isNotBlank() }
                 .distinctBy { "${it.apiConfigId}:${it.modelName}" }
 
@@ -276,6 +298,10 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                 AiAssistantApp.instance.database.conversationDao().updateConversation(updated)
                 conversation = updated
                 apiConfig = repository.getApiConfigById(option.apiConfigId)
+                _isModelConfigInvalid.value = apiConfig == null
+                if (apiConfig != null) {
+                    _error.value = null
+                }
                 if (!_useTempSettings.value) {
                     apiConfig?.let { cfg ->
                         _tempSettings.value = TempChatSettings(

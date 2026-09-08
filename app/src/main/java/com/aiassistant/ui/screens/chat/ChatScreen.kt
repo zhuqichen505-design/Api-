@@ -44,7 +44,10 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalTextToolbar
 import androidx.compose.ui.platform.LocalUriHandler
+import com.aiassistant.ui.components.EchoTextToolbar
+import com.aiassistant.ui.components.EchoTextToolbarHost
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
@@ -80,6 +83,7 @@ import com.aiassistant.ui.components.SideAnchorItem
 import com.aiassistant.ui.components.SideAnchorNavigator
 import com.aiassistant.ui.components.TransientLazyListScrollbar
 import com.aiassistant.ui.components.EchoPillSlider
+import androidx.compose.runtime.CompositionLocalProvider
 import com.aiassistant.ui.components.EchoGlassDialog
 import com.aiassistant.ui.components.EchoGlassDropdownMenu
 import com.aiassistant.ui.components.echoFilterChipBorder
@@ -296,7 +300,9 @@ fun ChatScreen(
         }
     }
 
-    Scaffold(
+    val textToolbar = remember { EchoTextToolbar() }
+    CompositionLocalProvider(LocalTextToolbar provides textToolbar) {
+        Scaffold(
         topBar = {
             val toolbarShape = RoundedCornerShape(24.dp)
             val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
@@ -882,6 +888,15 @@ fun ChatScreen(
             )
         }
     }
+    EchoTextToolbarHost(toolbar = textToolbar) { quotedText ->
+        val formattedQuote = quotedText.trim().lines().joinToString("\n") { "> $it" }
+        inputText = if (inputText.isBlank()) {
+            "$formattedQuote\n\n"
+        } else {
+            "$inputText\n\n$formattedQuote\n\n"
+        }
+    }
+}
 
     // 设置对话框
     if (showSettingsDialog) {
@@ -2400,15 +2415,6 @@ private fun MessageFooter(
                 onClick = onCopy
             )
 
-            if (onQuote != null && message.content.isNotBlank()) {
-                FooterIconButton(
-                    icon = Icons.Default.FormatQuote,
-                    contentDescription = "引用",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    onClick = onQuote
-                )
-            }
-
             if (!isUser && onRegenerate != null) {
                 FooterIconButton(
                     icon = Icons.Default.Refresh,
@@ -2724,11 +2730,12 @@ fun ChatInputBar(
             .navigationBarsPadding()
             .padding(horizontal = 12.dp, vertical = 8.dp)
     ) {
-        // 深度思考向上展开渐变滑块气泡弹窗 (Requirement 7)
+        // 深度思考向上展开渐变滑块气泡弹窗
         AnimatedVisibility(
             visible = showThinkingPopover,
             enter = fadeIn() + expandVertically(expandFrom = Alignment.Bottom),
-            exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Bottom)
+            exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Bottom),
+            modifier = Modifier.clip(RoundedCornerShape(22.dp))
         ) {
             ReasoningEffortPopupCard(
                 enableThinking = enableThinking,
@@ -2846,11 +2853,11 @@ fun ChatInputBar(
                         item {
                             val effortText = when {
                                 !enableThinking -> "深度思考"
-                                thinkingEffort.equals("low", true) || thinkingEffort.equals("fast", true) -> "快速思考 ⌃"
-                                thinkingEffort.equals("medium", true) || thinkingEffort.equals("balanced", true) -> "平衡思考 ⌃"
-                                thinkingEffort.equals("high", true) || thinkingEffort.equals("deep", true) -> "深入思考 ⌃"
-                                thinkingEffort.equals("ultra", true) || thinkingEffort.equals("max", true) -> "极高思考 ⌃"
-                                else -> "平衡思考 ⌃"
+                                thinkingEffort.equals("low", true) || thinkingEffort.equals("fast", true) -> "快速思考"
+                                thinkingEffort.equals("medium", true) || thinkingEffort.equals("balanced", true) -> "平衡思考"
+                                thinkingEffort.equals("high", true) || thinkingEffort.equals("deep", true) -> "深入思考"
+                                thinkingEffort.equals("ultra", true) || thinkingEffort.equals("max", true) -> "极高思考"
+                                else -> "平衡思考"
                             }
                             val effortAccentColor = when {
                                 !enableThinking -> glass.outline
@@ -2863,6 +2870,7 @@ fun ChatInputBar(
                             InputPillButton(
                                 text = effortText,
                                 icon = null,
+                                trailingIcon = if (showThinkingPopover) Icons.Default.ExpandMore else Icons.Default.ExpandLess,
                                 selected = enableThinking,
                                 onClick = { showThinkingPopover = !showThinkingPopover },
                                 containerColor = if (enableThinking) {
@@ -3190,24 +3198,26 @@ private fun ReasoningEffortPopupCard(
             cap?.reasoningProviderType == "openai" -> "OpenAI 原生推理 · 3档适配"
             cap?.reasoningProviderType == "anthropic" -> "Claude 原生思考 · 4档适配"
             cap?.reasoningProviderType == "deepseek_fixed" || cap?.supportsThinking == true -> "原生推理架构 · 深度思考档位适配"
-            else -> "思维链推演引导 (CoT 增强)"
+            else -> ""
         }
     }
 
+    val popupShape = RoundedCornerShape(22.dp)
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(bottom = 8.dp),
-        shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
-        border = BorderStroke(1.dp, currentLevel.primaryColor.copy(alpha = 0.5f)),
-        shadowElevation = 10.dp
+            .padding(bottom = 8.dp)
+            .clip(popupShape),
+        shape = popupShape,
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+        border = BorderStroke(1.dp, currentLevel.primaryColor.copy(alpha = 0.45f)),
+        shadowElevation = 0.dp
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             // 顶部 Header
             Row(
@@ -3245,18 +3255,20 @@ private fun ReasoningEffortPopupCard(
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
-                            Surface(
-                                shape = RoundedCornerShape(999.dp),
-                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.30f))
-                            ) {
-                                Text(
-                                    text = badgeText,
-                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.5.sp),
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontWeight = FontWeight.Medium,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                )
+                            if (badgeText.isNotBlank()) {
+                                Surface(
+                                    shape = RoundedCornerShape(999.dp),
+                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.30f))
+                                ) {
+                                    Text(
+                                        text = badgeText,
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.5.sp),
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Medium,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
                             }
                         }
                         Text(
@@ -3276,21 +3288,6 @@ private fun ReasoningEffortPopupCard(
                         Text("完成", fontWeight = FontWeight.Bold)
                     }
                 }
-            }
-
-            // 档位详细说明卡片
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                color = currentLevel.primaryColor.copy(alpha = 0.08f),
-                border = BorderStroke(1.dp, currentLevel.primaryColor.copy(alpha = 0.25f))
-            ) {
-                Text(
-                    text = currentLevel.detail,
-                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 17.sp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                )
             }
 
             // 胶囊美观滑块区域 (严格还原 media_1788845280823.jpg)
@@ -3370,19 +3367,49 @@ private fun InputModelSelector(
             .distinctBy { "${it.apiConfigId}:${it.modelName}" }
     }
     val currentLabel = currentOption?.modelName ?: fallbackModel
+    val isCurrentInvalid = remember(currentOption, availableOptions) {
+        currentOption != null && (currentOption.apiConfigId == 0L || availableOptions.none { it.apiConfigId == currentOption.apiConfigId })
+    }
 
     Box {
         InputPillButton(
-            text = currentLabel.shortModelLabel(),
+            text = if (isCurrentInvalid) "${currentLabel.shortModelLabel()} ⚠️" else currentLabel.shortModelLabel(),
             selected = true,
+            trailingIcon = if (isCurrentInvalid) Icons.Default.Warning else Icons.Default.ArrowDropDown,
+            containerColor = if (isCurrentInvalid) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.28f) else null,
+            contentColor = if (isCurrentInvalid) MaterialTheme.colorScheme.error else null,
+            borderColor = if (isCurrentInvalid) MaterialTheme.colorScheme.error.copy(alpha = 0.6f) else null,
             onClick = { expanded = true }
         )
 
         EchoGlassDropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
-            modifier = Modifier.heightIn(max = 280.dp)
+            modifier = Modifier.heightIn(max = 300.dp)
         ) {
+            if (isCurrentInvalid) {
+                DropdownMenuItem(
+                    text = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Default.Warning,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                "当前模型配置已失效，请在下方切换至可用模型",
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    },
+                    onClick = {}
+                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.error.copy(alpha = 0.25f))
+            }
+
             if (options.isEmpty()) {
                 DropdownMenuItem(
                     text = { Text("暂无可切换模型") },
@@ -3470,6 +3497,7 @@ private fun InputPillButton(
     selected: Boolean,
     onClick: () -> Unit,
     icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+    trailingIcon: androidx.compose.ui.graphics.vector.ImageVector? = null,
     containerColor: Color? = null,
     contentColor: Color? = null,
     borderColor: Color? = null
@@ -3501,7 +3529,7 @@ private fun InputPillButton(
         Row(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp)
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             if (icon != null) {
                 Icon(
@@ -3517,6 +3545,14 @@ private fun InputPillButton(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
+            if (trailingIcon != null) {
+                Icon(
+                    imageVector = trailingIcon,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = resolvedContentColor
+                )
+            }
         }
     }
 }

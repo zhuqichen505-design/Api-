@@ -5,6 +5,7 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
@@ -99,7 +100,13 @@ fun EchoPillSlider(
         val maxThumbX = (widthPx - thumbRadiusPx).coerceAtLeast(minThumbX)
         val travelDistance = (maxThumbX - minThumbX).coerceAtLeast(1f)
 
-        val currentProgress = ((animatedValue.value - minVal) / valSpan).coerceIn(0f, 1f)
+        var lastTouchX by remember { mutableFloatStateOf(minThumbX) }
+
+        val currentProgress = if (isDragging) {
+            ((lastTouchX - minThumbX) / travelDistance).coerceIn(0f, 1f)
+        } else {
+            ((animatedValue.value - minVal) / valSpan).coerceIn(0f, 1f)
+        }
         val currentThumbCenterX = minThumbX + currentProgress * travelDistance
 
         fun snapToNearest(rawX: Float) {
@@ -117,11 +124,8 @@ fun EchoPillSlider(
         }
 
         fun updateContinuous(rawX: Float) {
+            lastTouchX = rawX
             val progress = ((rawX - minThumbX) / travelDistance).coerceIn(0f, 1f)
-            val targetVal = minVal + progress * valSpan
-            scope.launch {
-                animatedValue.snapTo(targetVal)
-            }
             val stepIndex = (progress * (totalDiscreteStops - 1)).roundToInt().coerceIn(0, totalDiscreteStops - 1)
             val snappedVal = minVal + (stepIndex.toFloat() / (totalDiscreteStops - 1)) * valSpan
             onValueChange(snappedVal)
@@ -131,30 +135,29 @@ fun EchoPillSlider(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(thumbSize.coerceAtLeast(trackHeight))
-                .pointerInput(totalDiscreteStops, minVal, maxVal) {
-                    detectTapGestures { offset ->
-                        snapToNearest(offset.x)
-                    }
-                }
-                .pointerInput(totalDiscreteStops, minVal, maxVal) {
-                    detectDragGestures(
-                        onDragStart = { offset ->
+                .pointerInput(totalDiscreteStops, minVal, maxVal, minThumbX, travelDistance) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val down = awaitFirstDown(requireUnconsumed = false)
                             isDragging = true
-                            updateContinuous(offset.x)
-                        },
-                        onDrag = { change, _ ->
-                            change.consume()
-                            updateContinuous(change.position.x)
-                        },
-                        onDragEnd = {
-                            isDragging = false
-                            snapToNearest(currentThumbCenterX)
-                        },
-                        onDragCancel = {
-                            isDragging = false
-                            snapToNearest(currentThumbCenterX)
+                            var currentX = down.position.x
+                            updateContinuous(currentX)
+
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull() ?: break
+                                if (!change.pressed) {
+                                    change.consume()
+                                    isDragging = false
+                                    snapToNearest(currentX)
+                                    break
+                                }
+                                change.consume()
+                                currentX = change.position.x
+                                updateContinuous(currentX)
+                            }
                         }
-                    )
+                    }
                 }
         ) {
             // 1. 绘制药丸圆角背景轨道与离散点

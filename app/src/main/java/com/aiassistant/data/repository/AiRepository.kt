@@ -740,7 +740,20 @@ class AiRepository(
 
     suspend fun deleteMemory(id: Long) = memoryDao.deleteMemoryById(id)
 
+    suspend fun deleteMemory(memory: MemoryItem) = deleteMemory(memory.id)
+
     suspend fun deleteAllMemories() = memoryDao.deleteAllMemories()
+
+    suspend fun clearAllMemories() = deleteAllMemories()
+
+    suspend fun saveMemory(memory: MemoryItem): Long {
+        return if (memory.id > 0L) {
+            updateMemory(memory)
+            memory.id
+        } else {
+            insertMemory(memory)
+        }
+    }
 
     suspend fun setMemoryEnabled(id: Long, isEnabled: Boolean) = memoryDao.setMemoryEnabled(id, isEnabled)
 
