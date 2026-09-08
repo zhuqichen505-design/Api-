@@ -20,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -42,6 +43,9 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.foundation.gestures.awaitEachGesture
 
 /**
  * 严格还原参考图 media_1788845280823.jpg 的高精度胶囊圆润滑块组件：
@@ -67,10 +71,18 @@ fun EchoPillSlider(
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val resolvedInactiveColor = inactiveColor ?: if (isDark) Color(0xFF2C2C2E) else Color(0xFFE5E7EB)
 
+    val currentOnValueChange by rememberUpdatedState(onValueChange)
+    val currentOnValueChangeFinished by rememberUpdatedState(onValueChangeFinished)
+
     val minVal = valueRange.start
     val maxVal = valueRange.endInclusive
     val valSpan = (maxVal - minVal).coerceAtLeast(0.001f)
     val totalDiscreteStops = (steps + 2).coerceAtLeast(2)
+
+    val currentMinVal by rememberUpdatedState(minVal)
+    val currentMaxVal by rememberUpdatedState(maxVal)
+    val currentValSpan by rememberUpdatedState(valSpan)
+    val currentTotalStops by rememberUpdatedState(totalDiscreteStops)
 
     val animatedValue = remember { Animatable(value) }
     var isDragging by remember { mutableStateOf(false) }
@@ -100,7 +112,11 @@ fun EchoPillSlider(
         val maxThumbX = (widthPx - thumbRadiusPx).coerceAtLeast(minThumbX)
         val travelDistance = (maxThumbX - minThumbX).coerceAtLeast(1f)
 
+        val currentMinThumbX by rememberUpdatedState(minThumbX)
+        val currentTravelDistance by rememberUpdatedState(travelDistance)
+
         var lastTouchX by remember { mutableFloatStateOf(minThumbX) }
+        var lastReportedStep by remember { mutableIntStateOf(-1) }
 
         val currentProgress = if (isDragging) {
             ((lastTouchX - minThumbX) / travelDistance).coerceIn(0f, 1f)
@@ -110,12 +126,14 @@ fun EchoPillSlider(
         val currentThumbCenterX = minThumbX + currentProgress * travelDistance
 
         fun snapToNearest(rawX: Float) {
-            val progress = ((rawX - minThumbX) / travelDistance).coerceIn(0f, 1f)
-            val stepIndex = (progress * (totalDiscreteStops - 1)).roundToInt().coerceIn(0, totalDiscreteStops - 1)
-            val targetVal = minVal + (stepIndex.toFloat() / (totalDiscreteStops - 1)) * valSpan
-            onValueChange(targetVal)
-            onValueChangeFinished?.invoke()
+            val progress = ((rawX - currentMinThumbX) / currentTravelDistance).coerceIn(0f, 1f)
+            val stepIndex = (progress * (currentTotalStops - 1)).roundToInt().coerceIn(0, currentTotalStops - 1)
+            val targetVal = currentMinVal + (stepIndex.toFloat() / (currentTotalStops - 1)) * currentValSpan
+            lastReportedStep = stepIndex
+            currentOnValueChange(targetVal)
+            currentOnValueChangeFinished?.invoke()
             scope.launch {
+                animatedValue.snapTo(currentMinVal + progress * currentValSpan)
                 animatedValue.animateTo(
                     targetValue = targetVal,
                     animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMedium)
@@ -125,37 +143,38 @@ fun EchoPillSlider(
 
         fun updateContinuous(rawX: Float) {
             lastTouchX = rawX
-            val progress = ((rawX - minThumbX) / travelDistance).coerceIn(0f, 1f)
-            val stepIndex = (progress * (totalDiscreteStops - 1)).roundToInt().coerceIn(0, totalDiscreteStops - 1)
-            val snappedVal = minVal + (stepIndex.toFloat() / (totalDiscreteStops - 1)) * valSpan
-            onValueChange(snappedVal)
+            val progress = ((rawX - currentMinThumbX) / currentTravelDistance).coerceIn(0f, 1f)
+            val stepIndex = (progress * (currentTotalStops - 1)).roundToInt().coerceIn(0, currentTotalStops - 1)
+            val snappedVal = currentMinVal + (stepIndex.toFloat() / (currentTotalStops - 1)) * currentValSpan
+            if (stepIndex != lastReportedStep) {
+                lastReportedStep = stepIndex
+                currentOnValueChange(snappedVal)
+            }
         }
 
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(thumbSize.coerceAtLeast(trackHeight))
-                .pointerInput(totalDiscreteStops, minVal, maxVal, minThumbX, travelDistance) {
-                    awaitPointerEventScope {
-                        while (true) {
-                            val down = awaitFirstDown(requireUnconsumed = false)
-                            isDragging = true
-                            var currentX = down.position.x
-                            updateContinuous(currentX)
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        isDragging = true
+                        var pointerId = down.id
+                        updateContinuous(down.position.x)
 
-                            while (true) {
-                                val event = awaitPointerEvent()
-                                val change = event.changes.firstOrNull() ?: break
-                                if (!change.pressed) {
-                                    change.consume()
-                                    isDragging = false
-                                    snapToNearest(currentX)
-                                    break
-                                }
-                                change.consume()
-                                currentX = change.position.x
-                                updateContinuous(currentX)
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == pointerId } ?: event.changes.firstOrNull()
+                            if (change == null || !change.pressed) {
+                                change?.consume()
+                                isDragging = false
+                                snapToNearest(lastTouchX)
+                                break
                             }
+                            change.consume()
+                            pointerId = change.id
+                            updateContinuous(change.position.x)
                         }
                     }
                 }

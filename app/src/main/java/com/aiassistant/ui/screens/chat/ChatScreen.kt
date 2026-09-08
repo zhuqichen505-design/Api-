@@ -3189,7 +3189,12 @@ private fun ReasoningEffortPopupCard(
         }.coerceIn(0, maxStep)
     }
 
-    var sliderIndex by remember(currentStep) { mutableFloatStateOf(currentStep.toFloat()) }
+    var sliderIndex by remember { mutableFloatStateOf(currentStep.toFloat()) }
+    LaunchedEffect(currentStep) {
+        if (sliderIndex.roundToInt() != currentStep) {
+            sliderIndex = currentStep.toFloat()
+        }
+    }
     val currentLevel = levels[sliderIndex.roundToInt().coerceIn(0, maxStep)]
     val glass = echoGlassPalette()
 

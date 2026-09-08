@@ -4,13 +4,20 @@ package com.aiassistant.ui.screens.settings
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.BasicTextField
+import com.aiassistant.domain.model.ChatModelOption
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -92,7 +99,14 @@ private val CurrentFeatureHighlights = listOf(
 )
 
 internal val CurrentVersionUserUpdates = listOf(
-    "【v1.9.20 本次更新】API 配置多 Key 独立输入框：支持添加多个独立输入框（Key 1 主密钥、Key 2 备用密钥...），支持独立明密文切换、独立删除、粘贴多行自动拆分与自动故障转移轮询",
+    "【v1.9.22 本次更新】思考强度滑块防抽搐平滑优化：重构手势跟踪与状态隔离，滑块 Thumb 紧随手指平滑移动，结束拖拽平滑 Spring 阻尼吸附，彻底解决滑动调档时的抽搐抖动与跳档问题",
+    "内置极低饱和度纯色系护眼背景：新增浅艾绿、浅湖蓝、浅薰紫、浅樱粉、浅暖杏、浅山岚 6 款极低饱和度纯色背景（饱和度 < 5%），完美适配 WCAG AAA 文本超高对比度，支持一键单独或批量应用至首页与对话页",
+    "设置项调整全量即时生效：所有开关、提示词、滑块、配置项调整后立即持久化存盘，彻底移除返回退出时二次提示保存的拦截确认弹窗，退出切换畅通无阻",
+    "跨会话长期记忆状态即时同步：解决跨会话长期记忆开关调整时因未保存导致状态失效的缺陷，开关轻触即刻生效并持久化",
+    "对话自动命名与思考链翻译模型自由选择：完全打通与对话页一致的全局模型选择库，跨服务商自由直选所有已启用模型及自定义模型，彻底解除只能选默认模型的限制",
+    "模型选择 UI 向下展开式折叠面板重构：废除居中模态弹窗，改为按钮下方直接平滑向下展开列表，箭头随状态自动翻转；重新规范搜索框尺寸为 40dp 匀称胶囊搜索栏",
+    "【v1.9.21 更新】已失效模型自动自愈与警示：模型配置被删除时自动标黄告警并提供一键修复切流通道；设置居中导航菜单与 8 Tab 清爽分类架构",
+    "【v1.9.20 更新】API 配置多 Key 独立输入框：支持添加多个独立输入框（Key 1 主密钥、Key 2 备用密钥...），支持独立明密文切换、独立删除、粘贴多行自动拆分与自动故障转移轮询",
     "华为运动健康检测与可读性重构：修复 Android 11+ 包可见性问题，精准检测并拉起华为运动健康与荣耀健康；重构设置页健康卡片，彻底消除原始 epoch 毫秒时间戳与低对比挤压 UI",
     "深度思考按钮精简与极简档位：移除前缀脑图图标，精简文案为“深度思考 / 快速思考 ⌃ / 平衡思考 ⌃ / 深入思考 ⌃ / 极高思考 ⌃”",
     "圆润美观胶囊滑块组件 (EchoPillSlider)：全圆角药丸轨道、吸附圆点、纯白浮雕圆 Thumb 与动态彩色进度轨道",
@@ -194,97 +208,23 @@ fun SettingsScreen(
     onThemeModeChange: (AppThemeMode) -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val glass = echoGlassPalette()
     val settingsBackgroundBitmap = remember(context) {
         BackgroundImageManager.getHomeBackgroundBitmap(context)
     }
     val hazeState = rememberEchoHazeState()
-    val glass = echoGlassPalette()
     var selectedSection by remember { mutableStateOf<String?>(null) }
-    var hasUnsavedChanges by remember { mutableStateOf(false) }
-    var showUnsavedDialog by remember { mutableStateOf(false) }
-    var pendingBackAction by remember { mutableStateOf<(() -> Unit)?>(null) }
-    var saveTrigger by remember { mutableStateOf(0) }
 
     fun executeBack() {
         if (selectedSection != null) {
             selectedSection = null
-            hasUnsavedChanges = false
         } else {
             onNavigateBack()
         }
     }
 
-    fun handleBack() {
-        if (hasUnsavedChanges) {
-            pendingBackAction = { executeBack() }
-            showUnsavedDialog = true
-        } else {
-            executeBack()
-        }
-    }
-
-    BackHandler(enabled = selectedSection != null || hasUnsavedChanges) {
-        handleBack()
-    }
-
-    if (showUnsavedDialog) {
-        EchoGlassDialog(
-            hazeState = hazeState,
-            onDismissRequest = { showUnsavedDialog = false },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Default.WarningAmber,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = "未保存的设置更改",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            },
-            content = {
-                Text(
-                    text = "检测到您修改了设置内容但尚未保存，是否保存后再退出？",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            },
-            buttons = {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    TextButton(onClick = {
-                        showUnsavedDialog = false
-                        hasUnsavedChanges = false
-                        pendingBackAction?.invoke()
-                        pendingBackAction = null
-                    }) {
-                        Text("直接放弃", color = MaterialTheme.colorScheme.error)
-                    }
-                    Spacer(modifier = Modifier.width(6.dp))
-                    TextButton(onClick = { showUnsavedDialog = false }) {
-                        Text("取消")
-                    }
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Button(onClick = {
-                        saveTrigger++
-                        showUnsavedDialog = false
-                        hasUnsavedChanges = false
-                        pendingBackAction?.invoke()
-                        pendingBackAction = null
-                    }) {
-                        Text("保存并返回")
-                    }
-                }
-            }
-        )
+    BackHandler(enabled = selectedSection != null) {
+        executeBack()
     }
 
     Box(
@@ -339,7 +279,7 @@ fun SettingsScreen(
                             )
                         },
                         navigationIcon = {
-                            IconButton(onClick = { handleBack() }) {
+                            IconButton(onClick = { executeBack() }) {
                                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                             }
                         },
@@ -362,35 +302,25 @@ fun SettingsScreen(
                     hazeState = hazeState,
                     modifier = Modifier.padding(paddingValues),
                     themeMode = themeMode,
-                    onThemeModeChange = onThemeModeChange,
-                    onUnsavedStateChanged = { hasUnsavedChanges = it },
-                    saveTrigger = saveTrigger
+                    onThemeModeChange = onThemeModeChange
                 )
                 "model_features" -> ModelFeaturesTab(
                     hazeState = hazeState,
-                    modifier = Modifier.padding(paddingValues),
-                    onUnsavedStateChanged = { hasUnsavedChanges = it },
-                    saveTrigger = saveTrigger
+                    modifier = Modifier.padding(paddingValues)
                 )
                 "prompts_memory" -> PromptsMemoryTab(
                     hazeState = hazeState,
-                    modifier = Modifier.padding(paddingValues),
-                    onUnsavedStateChanged = { hasUnsavedChanges = it },
-                    saveTrigger = saveTrigger
+                    modifier = Modifier.padding(paddingValues)
                 )
                 "personalization" -> AppearanceTab(
                     hazeState = hazeState,
                     modifier = Modifier.padding(paddingValues),
                     themeMode = themeMode,
-                    onThemeModeChange = onThemeModeChange,
-                    onUnsavedStateChanged = { hasUnsavedChanges = it },
-                    saveTrigger = saveTrigger
+                    onThemeModeChange = onThemeModeChange
                 )
                 "web_search" -> WebSearchTab(
                     hazeState = hazeState,
-                    modifier = Modifier.padding(paddingValues),
-                    onUnsavedStateChanged = { hasUnsavedChanges = it },
-                    saveTrigger = saveTrigger
+                    modifier = Modifier.padding(paddingValues)
                 )
                 "hidden_conversations" -> HiddenConversationsTab(
                     hazeState = hazeState,
@@ -832,9 +762,7 @@ fun ApiConfigCard(
 @Composable
 fun WebSearchTab(
     hazeState: dev.chrisbanes.haze.HazeState,
-    modifier: Modifier = Modifier,
-    onUnsavedStateChanged: (Boolean) -> Unit = {},
-    saveTrigger: Int = 0
+    modifier: Modifier = Modifier
 ) {
     val toolHub = AiAssistantApp.instance.echoToolHub
     val tavilyManager = AiAssistantApp.instance.tavilySearchManager
@@ -861,28 +789,7 @@ fun WebSearchTab(
     var showHuaweiHealthSyncDialog by remember { mutableStateOf(false) }
     var savedMessage by remember { mutableStateOf<String?>(null) }
 
-    val hasUnsaved = remember(
-        searchEngine, searchResultCount, exaApiKey, jinaApiKey, deviceToolsEnabled, manualCity,
-        tavilySettings, tavilyApiKey, tavilyEnabled, searchDepth, maxResults, includeAnswer
-    ) {
-        searchEngine != toolHub.getSearchEngine() ||
-        searchResultCount != toolHub.getSearchResultCount() ||
-        exaApiKey != toolHub.getExaApiKey() ||
-        jinaApiKey != toolHub.getJinaApiKey() ||
-        deviceToolsEnabled != toolHub.isDeviceToolsEnabled() ||
-        manualCity != toolHub.locationAddressManager.getManualCity() ||
-        tavilyApiKey != tavilySettings.apiKey ||
-        tavilyEnabled != tavilySettings.enabled ||
-        searchDepth != tavilySettings.searchDepth ||
-        maxResults != tavilySettings.maxResults.toString() ||
-        includeAnswer != tavilySettings.includeAnswer
-    }
-
-    LaunchedEffect(hasUnsaved) {
-        onUnsavedStateChanged(hasUnsaved)
-    }
-
-    fun performSave() {
+    fun syncAllSettings() {
         toolHub.setSearchEngine(searchEngine)
         toolHub.setSearchResultCount(searchResultCount)
         toolHub.setExaApiKey(exaApiKey)
@@ -897,15 +804,8 @@ fun WebSearchTab(
             maxResults = maxResults.toIntOrNull()?.coerceIn(1, 20) ?: 8,
             includeAnswer = includeAnswer
         )
-        val ok = tavilyManager.saveSettings(newTavily)
+        tavilyManager.saveSettings(newTavily)
         tavilySettings = tavilyManager.getSettings()
-        savedMessage = if (ok) "联网搜索与智能工具箱配置已保存" else "保存失败，请重试"
-    }
-
-    LaunchedEffect(saveTrigger) {
-        if (saveTrigger > 0) {
-            performSave()
-        }
     }
 
     val currentTime = remember { toolHub.timeCalendarManager.getCurrentTimeFormatted() }
@@ -940,7 +840,10 @@ fun WebSearchTab(
                         val selected = searchEngine == engine
                         FilterChip(
                             selected = selected,
-                            onClick = { searchEngine = engine },
+                            onClick = {
+                                searchEngine = engine
+                                toolHub.setSearchEngine(engine)
+                            },
                             colors = echoFilterChipColors(),
                             border = echoFilterChipBorder(selected),
                             elevation = echoFilterChipElevation(),
@@ -972,7 +875,10 @@ fun WebSearchTab(
                     SettingsInputField(
                         title = "Exa API Key (选填)",
                         value = exaApiKey,
-                        onValueChange = { exaApiKey = it },
+                        onValueChange = {
+                            exaApiKey = it
+                            toolHub.setExaApiKey(it)
+                        },
                         placeholder = "留空则使用官方免Key通道"
                     )
                 } else {
@@ -982,13 +888,26 @@ fun WebSearchTab(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text("启用 Tavily 搜索", style = MaterialTheme.typography.bodyMedium)
-                        Switch(checked = tavilyEnabled, onCheckedChange = { tavilyEnabled = it })
+                        Switch(
+                            checked = tavilyEnabled,
+                            onCheckedChange = {
+                                tavilyEnabled = it
+                                val newTavily = tavilySettings.copy(enabled = it)
+                                tavilyManager.saveSettings(newTavily)
+                                tavilySettings = tavilyManager.getSettings()
+                            }
+                        )
                     }
 
                     SettingsInputField(
                         title = "Tavily API Key",
                         value = tavilyApiKey,
-                        onValueChange = { tavilyApiKey = it },
+                        onValueChange = {
+                            tavilyApiKey = it
+                            val newTavily = tavilySettings.copy(apiKey = it)
+                            tavilyManager.saveSettings(newTavily)
+                            tavilySettings = tavilyManager.getSettings()
+                        },
                         placeholder = "tvly-..."
                     )
 
@@ -997,7 +916,12 @@ fun WebSearchTab(
                             val selected = searchDepth == depth
                             FilterChip(
                                 selected = selected,
-                                onClick = { searchDepth = depth },
+                                onClick = {
+                                    searchDepth = depth
+                                    val newTavily = tavilySettings.copy(searchDepth = depth)
+                                    tavilyManager.saveSettings(newTavily)
+                                    tavilySettings = tavilyManager.getSettings()
+                                },
                                 colors = echoFilterChipColors(),
                                 border = echoFilterChipBorder(selected),
                                 elevation = echoFilterChipElevation(),
@@ -1009,7 +933,13 @@ fun WebSearchTab(
                     SettingsInputField(
                         title = "最大结果数 (1-20)",
                         value = maxResults,
-                        onValueChange = { v -> maxResults = v.filter { it.isDigit() }.take(2) },
+                        onValueChange = { v ->
+                            val cleaned = v.filter { it.isDigit() }.take(2)
+                            maxResults = cleaned
+                            val newTavily = tavilySettings.copy(maxResults = cleaned.toIntOrNull()?.coerceIn(1, 20) ?: 8)
+                            tavilyManager.saveSettings(newTavily)
+                            tavilySettings = tavilyManager.getSettings()
+                        },
                         placeholder = "8",
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                     )
@@ -1020,7 +950,15 @@ fun WebSearchTab(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text("包含 Tavily 自动摘要", style = MaterialTheme.typography.bodyMedium)
-                        Switch(checked = includeAnswer, onCheckedChange = { includeAnswer = it })
+                        Switch(
+                            checked = includeAnswer,
+                            onCheckedChange = {
+                                includeAnswer = it
+                                val newTavily = tavilySettings.copy(includeAnswer = it)
+                                tavilyManager.saveSettings(newTavily)
+                                tavilySettings = tavilyManager.getSettings()
+                            }
+                        )
                     }
                 }
 
@@ -1045,7 +983,10 @@ fun WebSearchTab(
                             val selected = searchResultCount == count
                             FilterChip(
                                 selected = selected,
-                                onClick = { searchResultCount = count },
+                                onClick = {
+                                    searchResultCount = count
+                                    toolHub.setSearchResultCount(count)
+                                },
                                 colors = echoFilterChipColors(),
                                 border = echoFilterChipBorder(selected),
                                 elevation = echoFilterChipElevation(),
@@ -1081,6 +1022,7 @@ fun WebSearchTab(
                                 Button(onClick = {
                                     val count = customInput.toIntOrNull()?.coerceIn(1, 20) ?: 5
                                     searchResultCount = count
+                                    toolHub.setSearchResultCount(count)
                                     showCustomCountDialog = false
                                 }) {
                                     Text("确定")
@@ -1118,7 +1060,13 @@ fun WebSearchTab(
                         Text("允许模型根据问题读取时间、定位、步数、心率、睡眠及硬件", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Spacer(modifier = Modifier.width(8.dp))
-                    Switch(checked = deviceToolsEnabled, onCheckedChange = { deviceToolsEnabled = it })
+                    Switch(
+                        checked = deviceToolsEnabled,
+                        onCheckedChange = {
+                            deviceToolsEnabled = it
+                            toolHub.setDeviceToolsEnabled(it)
+                        }
+                    )
                 }
 
                 if (deviceToolsEnabled) {
@@ -1157,7 +1105,10 @@ fun WebSearchTab(
                         SettingsInputField(
                             title = "手动指定常驻城市（选填，留空自动定位）",
                             value = manualCity,
-                            onValueChange = { manualCity = it },
+                            onValueChange = {
+                                manualCity = it
+                                toolHub.locationAddressManager.setManualCity(it)
+                            },
                             placeholder = "例如：深圳 / 北京 / 上海"
                         )
                     }
@@ -1440,22 +1391,41 @@ fun WebSearchTab(
                     SettingsInputField(
                         title = "Jina API Key (选填)",
                         value = jinaApiKey,
-                        onValueChange = { jinaApiKey = it },
+                        onValueChange = {
+                            jinaApiKey = it
+                            toolHub.setJinaApiKey(it)
+                        },
                         placeholder = "留空使用免费通道，填入可避免数据中心限制"
                     )
                 }
             }
         }
 
-        // 保存按键
+        // 自动存盘提示
         item {
-            Button(
-                onClick = { performSave() },
-                modifier = Modifier.fillMaxWidth()
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = com.aiassistant.ui.theme.EchoTokens.Radius.shapeMd,
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
             ) {
-                Icon(Icons.Default.Save, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("保存联网搜索与工具配置")
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.CheckCircle,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        "所有联网搜索与工具配置修改后均已实时自动存盘生效，无需手动保存",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
             }
         }
 
@@ -1633,7 +1603,19 @@ fun UniversalModelPickerCard(
     allConfigs: List<ApiConfig>,
     onSelect: (configId: Long, model: String) -> Unit
 ) {
-    var showDialog by remember { mutableStateOf(false) }
+    var isExpanded by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    var manualInputMode by remember { mutableStateOf(false) }
+    var manualModelName by remember { mutableStateOf(selectedModel) }
+    var manualConfigId by remember { mutableLongStateOf(if (selectedConfigId > 0L) selectedConfigId else allConfigs.firstOrNull()?.id ?: 0L) }
+    val repository = AiAssistantApp.instance.repository
+    val glass = echoGlassPalette()
+
+    // 读取与聊天对话页完全一致的全部已启用模型列表 (跨服务商)
+    val visibleChatOptions by produceState<List<ChatModelOption>>(initialValue = emptyList(), allConfigs) {
+        value = repository.getAllVisibleChatModelOptions()
+    }
+
     val currentConfig = remember(selectedConfigId, allConfigs) {
         if (selectedConfigId > 0L) allConfigs.find { it.id == selectedConfigId }
         else allConfigs.find { it.isDefault } ?: allConfigs.firstOrNull()
@@ -1657,11 +1639,55 @@ fun UniversalModelPickerCard(
         }
     }
 
+    val allChoices = remember(allConfigs, visibleChatOptions) {
+        val list = mutableListOf<FullModelChoice>()
+        // 1. 优先加入所有在 API 配置中启用的模型 (和对话页完全一致)
+        visibleChatOptions.forEach { opt ->
+            list.add(
+                FullModelChoice(
+                    configId = opt.apiConfigId,
+                    configName = opt.configName.ifBlank { opt.provider },
+                    provider = opt.provider,
+                    modelName = opt.modelName,
+                    isDefault = false
+                )
+            )
+        }
+        // 2. 补充服务商默认模型和 availableModels 中尚未添加的模型
+        allConfigs.forEach { cfg ->
+            val cfgName = cfg.name.ifBlank { cfg.provider }
+            val defaultModel = cleanModelName(cfg.modelName)
+            if (!defaultModel.isNullOrBlank() && list.none { it.configId == cfg.id && it.modelName == defaultModel }) {
+                list.add(FullModelChoice(cfg.id, cfgName, cfg.provider, defaultModel, isDefault = true))
+            }
+            val parsed = parseModelList(cfg.availableModels)
+            parsed.forEach { m ->
+                if (m.isNotBlank() && list.none { it.configId == cfg.id && it.modelName == m }) {
+                    list.add(FullModelChoice(cfg.id, cfgName, cfg.provider, m, isDefault = false))
+                }
+            }
+        }
+        list.distinctBy { "${it.configId}:${it.modelName}" }
+    }
+
+    val filteredChoices = remember(allChoices, searchQuery) {
+        if (searchQuery.isBlank()) allChoices
+        else allChoices.filter {
+            it.modelName.contains(searchQuery.trim(), ignoreCase = true) ||
+            it.configName.contains(searchQuery.trim(), ignoreCase = true) ||
+            it.provider.contains(searchQuery.trim(), ignoreCase = true)
+        }
+    }
+
+    val groupedChoices = remember(filteredChoices) {
+        filteredChoices.groupBy { "${it.configName} (${it.provider})" }
+    }
+
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = SettingsInnerShape,
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-        border = BorderStroke(1.dp, echoGlassPalette().outline.copy(alpha = 0.5f))
+        border = BorderStroke(1.dp, glass.outline.copy(alpha = 0.5f))
     ) {
         Column(
             modifier = Modifier
@@ -1692,10 +1718,15 @@ fun UniversalModelPickerCard(
                 }
             }
 
+            // 主下拉按键：向下展开
             OutlinedButton(
-                onClick = { showDialog = true },
+                onClick = { isExpanded = !isExpanded },
                 modifier = Modifier.fillMaxWidth(),
-                shape = SettingsInnerShape
+                shape = SettingsInnerShape,
+                border = BorderStroke(
+                    1.dp,
+                    if (isExpanded) MaterialTheme.colorScheme.primary else glass.outline
+                )
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -1705,338 +1736,308 @@ fun UniversalModelPickerCard(
                     Text(
                         text = displayTitle,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        color = if (isExpanded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
                     )
-                    Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                    Icon(
+                        imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                        contentDescription = if (isExpanded) "收起模型列表" else "展开模型列表",
+                        tint = if (isExpanded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
-        }
-    }
 
-    if (showDialog) {
-        EchoModelPickerDialog(
-            hazeState = hazeState,
-            title = title,
-            selectedConfigId = selectedConfigId,
-            selectedModel = selectedModel,
-            allConfigs = allConfigs,
-            onDismiss = { showDialog = false },
-            onSelect = { cfgId, model ->
-                onSelect(cfgId, model)
-                showDialog = false
-            }
-        )
-    }
-}
-
-@Composable
-fun EchoModelPickerDialog(
-    hazeState: dev.chrisbanes.haze.HazeState,
-    title: String,
-    selectedConfigId: Long,
-    selectedModel: String,
-    allConfigs: List<ApiConfig>,
-    onDismiss: () -> Unit,
-    onSelect: (configId: Long, model: String) -> Unit
-) {
-    var searchQuery by remember { mutableStateOf("") }
-    var manualInputMode by remember { mutableStateOf(false) }
-    var manualModelName by remember { mutableStateOf(selectedModel) }
-    var manualConfigId by remember { mutableLongStateOf(if (selectedConfigId > 0L) selectedConfigId else allConfigs.firstOrNull()?.id ?: 0L) }
-    val repository = AiAssistantApp.instance.repository
-    val coroutineScope = rememberCoroutineScope()
-    var isRefreshing by remember { mutableStateOf(false) }
-    var refreshStatus by remember { mutableStateOf<String?>(null) }
-
-    val allChoices = remember(allConfigs) {
-        val list = mutableListOf<FullModelChoice>()
-        allConfigs.forEach { cfg ->
-            val cfgName = cfg.name.ifBlank { cfg.provider }
-            val defaultModel = cleanModelName(cfg.modelName)
-            if (!defaultModel.isNullOrBlank()) {
-                list.add(FullModelChoice(cfg.id, cfgName, cfg.provider, defaultModel, isDefault = true))
-            }
-            val parsed = parseModelList(cfg.availableModels)
-            parsed.forEach { m ->
-                if (m.isNotBlank() && m != defaultModel) {
-                    list.add(FullModelChoice(cfg.id, cfgName, cfg.provider, m, isDefault = false))
-                }
-            }
-        }
-        list
-    }
-
-    val filteredChoices = remember(allChoices, searchQuery) {
-        if (searchQuery.isBlank()) allChoices
-        else allChoices.filter {
-            it.modelName.contains(searchQuery.trim(), ignoreCase = true) ||
-            it.configName.contains(searchQuery.trim(), ignoreCase = true) ||
-            it.provider.contains(searchQuery.trim(), ignoreCase = true)
-        }
-    }
-
-    val groupedChoices = remember(filteredChoices) {
-        filteredChoices.groupBy { "${it.configName} (${it.provider})" }
-    }
-
-    EchoGlassDialog(
-        hazeState = hazeState,
-        onDismissRequest = onDismiss,
-        title = {
-            Column {
-                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Text("自由选择任意服务商下的所有可用模型", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 460.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+            // 向下直接展开列表
+            AnimatedVisibility(
+                visible = isExpanded,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
             ) {
-                if (manualInputMode) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = glass.control,
+                    border = BorderStroke(1.dp, glass.outline.copy(alpha = 0.4f))
+                ) {
                     Column(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text("手动输入模型名称", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                        OutlinedTextField(
-                            value = manualModelName,
-                            onValueChange = { manualModelName = it },
-                            placeholder = { Text("例如：gpt-4o-mini 或 deepseek-chat") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            shape = SettingsInnerShape
-                        )
-
-                        Text("绑定 API 服务商", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                        allConfigs.forEach { cfg ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .echoShapeClick(SettingsInnerShape) { manualConfigId = cfg.id }
-                                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                RadioButton(
-                                    selected = manualConfigId == cfg.id,
-                                    onClick = { manualConfigId = cfg.id }
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "${cfg.name.ifBlank { cfg.provider }} (${cfg.provider})",
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-                            }
-                        }
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            TextButton(onClick = { manualInputMode = false }) {
-                                Text("返回模型列表")
-                            }
-                            Button(
-                                onClick = {
-                                    onSelect(manualConfigId, manualModelName.trim())
-                                },
-                                enabled = manualModelName.isNotBlank()
-                            ) {
-                                Text("确定")
-                            }
-                        }
-                    }
-                } else {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        OutlinedTextField(
-                            value = searchQuery,
-                            onValueChange = { searchQuery = it },
-                            placeholder = { Text("搜索模型或服务商...") },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true,
-                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                            trailingIcon = {
-                                if (searchQuery.isNotEmpty()) {
-                                    IconButton(onClick = { searchQuery = "" }) {
-                                        Icon(Icons.Default.Close, contentDescription = "清除", modifier = Modifier.size(16.dp))
-                                    }
-                                }
-                            },
-                            shape = RoundedCornerShape(999.dp)
-                        )
-                        IconButton(
-                            onClick = {
-                                coroutineScope.launch {
-                                    isRefreshing = true
-                                    refreshStatus = null
-                                    var updatedCount = 0
-                                    allConfigs.forEach { cfg ->
-                                        val res = repository.fetchAvailableModels(cfg.id)
-                                        if (res.isSuccess) updatedCount++
-                                    }
-                                    isRefreshing = false
-                                    refreshStatus = "已同步 $updatedCount 个服务商模型"
-                                }
-                            },
-                            enabled = !isRefreshing && allConfigs.isNotEmpty()
-                        ) {
-                            if (isRefreshing) {
-                                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                            } else {
-                                Icon(Icons.Default.Refresh, contentDescription = "刷新服务商模型列表", tint = MaterialTheme.colorScheme.primary)
-                            }
-                        }
-                    }
-
-                    refreshStatus?.let { status ->
-                        Text(status, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                    }
-
-                    LazyColumn(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .weight(1f, fill = false),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                            .padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        item {
-                            val isFollowSelected = selectedConfigId == 0L && selectedModel.isBlank()
-                            Surface(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .echoShapeClick(SettingsInnerShape) { onSelect(0L, "") },
-                                shape = SettingsInnerShape,
-                                color = if (isFollowSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-                                border = if (isFollowSelected) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else BorderStroke(0.5.dp, echoGlassPalette().outline.copy(alpha = 0.3f))
+                        if (manualInputMode) {
+                            // 手动输入模式
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Row(
-                                    modifier = Modifier.padding(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            "跟随当前会话模型（自动继承）",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = if (isFollowSelected) FontWeight.Bold else FontWeight.Normal,
-                                            color = if (isFollowSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                        )
-                                        Text(
-                                            "根据每个会话正在使用的 API 服务商与模型自动调用，最省心灵活",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                    if (isFollowSelected) {
-                                        Icon(Icons.Default.Check, contentDescription = "已选择", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-                                    }
-                                }
-                            }
-                        }
-
-                        groupedChoices.forEach { (groupTitle, choices) ->
-                            item {
-                                Text(
-                                    text = groupTitle,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.padding(top = 8.dp, bottom = 2.dp)
+                                Text("自定义手动输入模型名称：", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                                OutlinedTextField(
+                                    value = manualModelName,
+                                    onValueChange = { manualModelName = it },
+                                    placeholder = { Text("例如：gpt-4o-mini 或 deepseek-chat", fontSize = 13.sp) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(8.dp)
                                 )
-                            }
-                            items(choices) { choice ->
-                                val isSelected = selectedConfigId == choice.configId &&
-                                    (selectedModel == choice.modelName || (selectedModel.isBlank() && choice.isDefault))
-                                Surface(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .echoShapeClick(RoundedCornerShape(8.dp)) {
-                                            onSelect(choice.configId, choice.modelName)
-                                        },
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color.Transparent,
-                                    border = if (isSelected) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null
-                                ) {
+
+                                Text("绑定服务商：", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                                allConfigs.forEach { cfg ->
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .clickable { manualConfigId = cfg.id }
+                                            .padding(horizontal = 6.dp, vertical = 4.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Text(
-                                                    text = choice.modelName,
-                                                    style = MaterialTheme.typography.bodyMedium,
-                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                                )
-                                                if (choice.isDefault) {
-                                                    Spacer(modifier = Modifier.width(6.dp))
-                                                    Surface(
-                                                        shape = RoundedCornerShape(4.dp),
-                                                        color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.15f)
-                                                    ) {
-                                                        Text(
-                                                            "默认",
-                                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
-                                                            style = MaterialTheme.typography.labelSmall,
-                                                            color = MaterialTheme.colorScheme.secondary
-                                                        )
-                                                    }
-                                                }
+                                        RadioButton(
+                                            selected = manualConfigId == cfg.id,
+                                            onClick = { manualConfigId = cfg.id }
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "${cfg.name.ifBlank { cfg.provider }} (${cfg.provider})",
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                    }
+                                }
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    TextButton(onClick = { manualInputMode = false }) {
+                                        Text("返回列表", fontSize = 12.sp)
+                                    }
+                                    Button(
+                                        onClick = {
+                                            if (manualModelName.isNotBlank()) {
+                                                onSelect(manualConfigId, manualModelName.trim())
+                                                isExpanded = false
+                                                manualInputMode = false
                                             }
+                                        },
+                                        enabled = manualModelName.isNotBlank(),
+                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp)
+                                    ) {
+                                        Text("确认选择", fontSize = 12.sp)
+                                    }
+                                }
+                            }
+                        } else {
+                            // 搜索栏 (高度 40dp，匀称美观)
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(40.dp),
+                                shape = RoundedCornerShape(999.dp),
+                                color = MaterialTheme.colorScheme.surface,
+                                border = BorderStroke(1.dp, glass.outline)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(horizontal = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Default.Search,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(17.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    BasicTextField(
+                                        value = searchQuery,
+                                        onValueChange = { searchQuery = it },
+                                        modifier = Modifier.weight(1f),
+                                        singleLine = true,
+                                        textStyle = MaterialTheme.typography.bodySmall.copy(
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        ),
+                                        decorationBox = { innerTextField ->
+                                            if (searchQuery.isEmpty()) {
+                                                Text(
+                                                    "搜索模型名称或服务商...",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                                )
+                                            }
+                                            innerTextField()
                                         }
-                                        if (isSelected) {
+                                    )
+                                    if (searchQuery.isNotEmpty()) {
+                                        IconButton(
+                                            onClick = { searchQuery = "" },
+                                            modifier = Modifier.size(24.dp)
+                                        ) {
                                             Icon(
-                                                Icons.Default.Check,
-                                                contentDescription = "已选择",
-                                                tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.size(18.dp)
+                                                Icons.Default.Close,
+                                                contentDescription = "清除",
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.size(15.dp)
                                             )
                                         }
                                     }
                                 }
                             }
-                        }
 
-                        if (allChoices.isEmpty()) {
-                            item {
-                                Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                                    Text("未检测到已配置的服务商模型，请先在「API配置」中添加", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            // 滚动模型列表
+                            LazyColumn(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 280.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                // 1. 跟随当前会话模型
+                                item {
+                                    val isFollowSelected = selectedConfigId == 0L && selectedModel.isBlank()
+                                    Surface(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .clickable {
+                                                onSelect(0L, "")
+                                                isExpanded = false
+                                            },
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = if (isFollowSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else Color.Transparent,
+                                        border = if (isFollowSelected) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else BorderStroke(0.5.dp, glass.outline.copy(alpha = 0.3f))
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    "跟随当前会话模型（自动继承）",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    fontWeight = if (isFollowSelected) FontWeight.Bold else FontWeight.Medium,
+                                                    color = if (isFollowSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                                )
+                                                Text(
+                                                    "按每个会话各自绑定的模型与配置自动调用",
+                                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.5.sp),
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                            if (isFollowSelected) {
+                                                Icon(Icons.Default.Check, contentDescription = "已选择", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // 2. 分组显示所有服务商与模型
+                                groupedChoices.forEach { (groupTitle, choices) ->
+                                    item {
+                                        Text(
+                                            text = groupTitle,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.padding(top = 6.dp, bottom = 2.dp, start = 4.dp)
+                                        )
+                                    }
+                                    items(choices) { choice ->
+                                        val isSelected = selectedConfigId == choice.configId &&
+                                            (selectedModel == choice.modelName || (selectedModel.isBlank() && choice.isDefault))
+                                        Surface(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .clickable {
+                                                    onSelect(choice.configId, choice.modelName)
+                                                    isExpanded = false
+                                                },
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color.Transparent,
+                                            border = if (isSelected) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null
+                                        ) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        Text(
+                                                            text = choice.modelName,
+                                                            style = MaterialTheme.typography.bodySmall,
+                                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                                        )
+                                                        if (choice.isDefault) {
+                                                            Spacer(modifier = Modifier.width(6.dp))
+                                                            Surface(
+                                                                shape = RoundedCornerShape(4.dp),
+                                                                color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.15f)
+                                                            ) {
+                                                                Text(
+                                                                    "默认",
+                                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                                                    color = MaterialTheme.colorScheme.secondary
+                                                                )
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                if (isSelected) {
+                                                    Icon(
+                                                        Icons.Default.Check,
+                                                        contentDescription = "已选择",
+                                                        tint = MaterialTheme.colorScheme.primary,
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if (allChoices.isEmpty()) {
+                                    item {
+                                        Box(modifier = Modifier.fillMaxWidth().padding(12.dp), contentAlignment = Alignment.Center) {
+                                            Text("未检测到已配置的服务商模型，请先在「API配置」中添加", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 底部操作区
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                TextButton(
+                                    onClick = { manualInputMode = true },
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(13.dp))
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Text("自定义输入模型", style = MaterialTheme.typography.labelSmall)
+                                }
+
+                                TextButton(
+                                    onClick = { isExpanded = false },
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text("收起", style = MaterialTheme.typography.labelSmall)
                                 }
                             }
                         }
                     }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        TextButton(onClick = { manualInputMode = true }) {
-                            Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("自定义输入模型名称", style = MaterialTheme.typography.labelSmall)
-                        }
-                    }
                 }
             }
-        },
-        confirmButton = {},
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("关闭")
-            }
         }
-    )
+    }
 }
 
 @Composable
@@ -2044,9 +2045,7 @@ fun AppearanceTab(
     hazeState: dev.chrisbanes.haze.HazeState,
     modifier: Modifier = Modifier,
     themeMode: AppThemeMode,
-    onThemeModeChange: (AppThemeMode) -> Unit,
-    onUnsavedStateChanged: (Boolean) -> Unit = {},
-    saveTrigger: Int = 0
+    onThemeModeChange: (AppThemeMode) -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val manager = AiAssistantApp.instance.personalizationManager
@@ -2067,14 +2066,6 @@ fun AppearanceTab(
     var fontSizeScale by remember(settings) { mutableFloatStateOf(settings.fontSizeScale) }
     var savedMessage by remember { mutableStateOf<String?>(null) }
 
-    val hasUnsaved = remember(settings, chatFontSize, fontSizeScale) {
-        chatFontSize != settings.chatFontSize || fontSizeScale != settings.fontSizeScale
-    }
-
-    LaunchedEffect(hasUnsaved) {
-        onUnsavedStateChanged(hasUnsaved)
-    }
-
     fun performSave() {
         manager.saveSettings(
             settings.copy(
@@ -2084,12 +2075,6 @@ fun AppearanceTab(
         )
         settings = manager.getSettings()
         savedMessage = "已保存界面与外观设定"
-    }
-
-    LaunchedEffect(saveTrigger) {
-        if (saveTrigger > 0) {
-            performSave()
-        }
     }
 
     var backgroundRevision by remember { mutableIntStateOf(0) }
@@ -2265,7 +2250,9 @@ fun AppearanceTab(
                         value = chatFontSize.toFloat(),
                         onValueChange = {
                             chatFontSize = it.toInt()
-                            savedMessage = null
+                        },
+                        onValueChangeFinished = {
+                            performSave()
                         },
                         valueRange = 13f..22f,
                         steps = 8,
@@ -2284,7 +2271,9 @@ fun AppearanceTab(
                                 selected = selected,
                                 onClick = {
                                     fontSizeScale = scale
-                                    savedMessage = null
+                                    manager.saveSettings(settings.copy(chatFontSize = chatFontSize, fontSizeScale = scale))
+                                    settings = manager.getSettings()
+                                    savedMessage = "已保存界面字体缩放"
                                 },
                                 shape = SegmentedButtonDefaults.itemShape(index = index, count = scales.size),
                                 colors = echoSegmentedButtonColors(),
@@ -2339,12 +2328,154 @@ fun AppearanceTab(
                     Column(modifier = Modifier.weight(1f)) {
                         Text("界面背景", style = MaterialTheme.typography.titleMedium)
                         Text(
-                            "可分别为首页和对话页设置自定义图片背景，未设置时保持原有纯色背景。",
+                            "可为首页和对话页选择内置低饱和护眼纯色或自定义相册图片背景。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
+
+                // 内置低饱和度纯色背景选择区
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "内置极低饱和纯色背景（护眼高可读性）",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        "精选极低饱和度（<5%）淡雅纯色，完全不影响文字清晰度与对比度（符合 WCAG AAA）。轻触选择并一键应用：",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    var selectedColorPreset by remember { mutableStateOf<BackgroundImageManager.SolidColorPreset?>(null) }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        BackgroundImageManager.PRESET_SOLID_COLORS.forEach { preset ->
+                            val isDark = themeMode == AppThemeMode.Dark || (themeMode == AppThemeMode.System && androidx.compose.foundation.isSystemInDarkTheme())
+                            val displayColorInt = if (isDark) preset.darkColorInt else preset.lightColorInt
+                            val isSelected = selectedColorPreset?.id == preset.id
+
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        selectedColorPreset = if (isSelected) null else preset
+                                    }
+                                    .padding(4.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(displayColorInt))
+                                        .border(
+                                            BorderStroke(
+                                                if (isSelected) 2.5.dp else 1.dp,
+                                                if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+                                            ),
+                                            CircleShape
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (isSelected) {
+                                        Icon(
+                                            Icons.Default.Check,
+                                            contentDescription = null,
+                                            tint = if (isDark) Color.White else MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    preset.name,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+
+                    selectedColorPreset?.let { preset ->
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = SettingsInnerShape,
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    "应用「${preset.name}」到：",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    val isDark = themeMode == AppThemeMode.Dark || (themeMode == AppThemeMode.System && androidx.compose.foundation.isSystemInDarkTheme())
+                                    val targetColorInt = if (isDark) preset.darkColorInt else preset.lightColorInt
+
+                                    FilledTonalButton(
+                                        onClick = {
+                                            BackgroundImageManager.saveHomeBackgroundSolidColor(context, targetColorInt)
+                                            backgroundRevision++
+                                            savedMessage = "已将「${preset.name}」应用为首页背景"
+                                            selectedColorPreset = null
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
+                                    ) {
+                                        Text("设为首页", style = MaterialTheme.typography.labelSmall)
+                                    }
+
+                                    FilledTonalButton(
+                                        onClick = {
+                                            BackgroundImageManager.saveChatBackgroundSolidColor(context, targetColorInt)
+                                            backgroundRevision++
+                                            savedMessage = "已将「${preset.name}」应用为对话页背景"
+                                            selectedColorPreset = null
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
+                                    ) {
+                                        Text("设为对话页", style = MaterialTheme.typography.labelSmall)
+                                    }
+
+                                    Button(
+                                        onClick = {
+                                            BackgroundImageManager.saveHomeBackgroundSolidColor(context, targetColorInt)
+                                            BackgroundImageManager.saveChatBackgroundSolidColor(context, targetColorInt)
+                                            backgroundRevision++
+                                            savedMessage = "已将「${preset.name}」应用为全局背景"
+                                            selectedColorPreset = null
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
+                                    ) {
+                                        Text("全部应用", style = MaterialTheme.typography.labelSmall)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                // 自定义相册背景图片
+                Text("自定义相册图片背景", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
 
                 BackgroundPickerRow(
                     title = "首页背景",
@@ -2392,9 +2523,7 @@ fun AppearanceTab(
 @Composable
 fun ModelFeaturesTab(
     hazeState: dev.chrisbanes.haze.HazeState,
-    modifier: Modifier = Modifier,
-    onUnsavedStateChanged: (Boolean) -> Unit = {},
-    saveTrigger: Int = 0
+    modifier: Modifier = Modifier
 ) {
     val manager = AiAssistantApp.instance.personalizationManager
     val repository = AiAssistantApp.instance.repository
@@ -2420,45 +2549,42 @@ fun ModelFeaturesTab(
 
     var savedMessage by remember { mutableStateOf<String?>(null) }
 
-    val hasUnsaved = remember(
-        settings, autoNameEnabled, autoNameApiConfigId, autoNameModel, autoNamePrompt,
-        enableThinkingTranslation, thinkingTranslationApiConfigId, thinkingTranslationModel,
-        thinkingTemplate
+    fun persistSettings(
+        newAutoNameEnabled: Boolean = autoNameEnabled,
+        newAutoNameConfigId: Long = autoNameApiConfigId,
+        newAutoNameModel: String = autoNameModel,
+        newAutoNamePrompt: String = autoNamePrompt,
+        newEnableThinkingTranslation: Boolean = enableThinkingTranslation,
+        newThinkingConfigId: Long = thinkingTranslationApiConfigId,
+        newThinkingModel: String = thinkingTranslationModel,
+        newThinkingTemplate: String = thinkingTemplate
     ) {
-        autoNameEnabled != settings.autoNameEnabled ||
-        autoNameApiConfigId != settings.autoNameApiConfigId ||
-        autoNameModel.trim() != settings.autoNameModel.trim() ||
-        autoNamePrompt.trim() != settings.autoNamePrompt.trim() ||
-        enableThinkingTranslation != settings.enableThinkingTranslation ||
-        thinkingTranslationApiConfigId != settings.thinkingTranslationApiConfigId ||
-        thinkingTranslationModel.trim() != settings.thinkingTranslationModel.trim() ||
-        thinkingTemplate.trim() != settings.thinkingCapsuleTemplate.trim()
-    }
-
-    LaunchedEffect(hasUnsaved) {
-        onUnsavedStateChanged(hasUnsaved)
-    }
-
-    fun performSave() {
-        val saved = manager.saveSettings(
+        manager.saveSettings(
             settings.copy(
-                autoNameEnabled = autoNameEnabled,
-                autoNameApiConfigId = autoNameApiConfigId,
-                autoNameModel = autoNameModel.trim(),
-                autoNamePrompt = autoNamePrompt.trim(),
-                enableThinkingTranslation = enableThinkingTranslation,
-                thinkingTranslationApiConfigId = thinkingTranslationApiConfigId,
-                thinkingTranslationModel = thinkingTranslationModel.trim(),
-                thinkingCapsuleTemplate = thinkingTemplate.trim().ifBlank { "{model} {status} {time} {tokens}" }
+                autoNameEnabled = newAutoNameEnabled,
+                autoNameApiConfigId = newAutoNameConfigId,
+                autoNameModel = newAutoNameModel.trim(),
+                autoNamePrompt = newAutoNamePrompt.trim(),
+                enableThinkingTranslation = newEnableThinkingTranslation,
+                thinkingTranslationApiConfigId = newThinkingConfigId,
+                thinkingTranslationModel = newThinkingModel.trim(),
+                thinkingCapsuleTemplate = newThinkingTemplate.trim().ifBlank { "{model} {status} {time} {tokens}" }
             )
         )
         settings = manager.getSettings()
-        savedMessage = if (saved) "已保存模型辅助与思考设定" else "保存失败，请重试"
     }
 
-    LaunchedEffect(saveTrigger) {
-        if (saveTrigger > 0) {
-            performSave()
+    LaunchedEffect(autoNamePrompt) {
+        if (autoNamePrompt.trim() != settings.autoNamePrompt.trim()) {
+            kotlinx.coroutines.delay(400)
+            persistSettings(newAutoNamePrompt = autoNamePrompt)
+        }
+    }
+
+    LaunchedEffect(thinkingTemplate) {
+        if (thinkingTemplate.trim() != settings.thinkingCapsuleTemplate.trim()) {
+            kotlinx.coroutines.delay(400)
+            persistSettings(newThinkingTemplate = thinkingTemplate)
         }
     }
 
@@ -2495,7 +2621,8 @@ fun ModelFeaturesTab(
                         checked = autoNameEnabled,
                         onCheckedChange = {
                             autoNameEnabled = it
-                            savedMessage = null
+                            persistSettings(newAutoNameEnabled = it)
+                            savedMessage = if (it) "已开启对话自动命名" else "已关闭对话自动命名"
                         }
                     )
                 }
@@ -2514,7 +2641,8 @@ fun ModelFeaturesTab(
                         onSelect = { cfgId, model ->
                             autoNameApiConfigId = cfgId
                             autoNameModel = model
-                            savedMessage = null
+                            persistSettings(newAutoNameConfigId = cfgId, newAutoNameModel = model)
+                            savedMessage = "已更新自动命名模型"
                         }
                     )
 
@@ -2642,7 +2770,8 @@ fun ModelFeaturesTab(
                         checked = enableThinkingTranslation,
                         onCheckedChange = {
                             enableThinkingTranslation = it
-                            savedMessage = null
+                            persistSettings(newEnableThinkingTranslation = it)
+                            savedMessage = if (it) "已开启思考链翻译" else "已关闭思考链翻译"
                         }
                     )
                 }
@@ -2661,7 +2790,8 @@ fun ModelFeaturesTab(
                         onSelect = { cfgId, model ->
                             thinkingTranslationApiConfigId = cfgId
                             thinkingTranslationModel = model
-                            savedMessage = null
+                            persistSettings(newThinkingConfigId = cfgId, newThinkingModel = model)
+                            savedMessage = "已更新思考链翻译模型"
                         }
                     )
                 }
@@ -2717,7 +2847,8 @@ fun ModelFeaturesTab(
                                 selected = thinkingTemplate == tpl,
                                 onClick = {
                                     thinkingTemplate = tpl
-                                    savedMessage = null
+                                    persistSettings(newThinkingTemplate = tpl)
+                                    savedMessage = "已应用胶囊模板"
                                 },
                                 label = { Text(name) },
                                 colors = echoFilterChipColors(),
@@ -2743,8 +2874,10 @@ fun ModelFeaturesTab(
                             AssistChip(
                                 onClick = {
                                     if (!thinkingTemplate.contains(varKey)) {
-                                        thinkingTemplate = if (thinkingTemplate.isBlank()) varKey else "$thinkingTemplate $varKey"
-                                        savedMessage = null
+                                        val newTpl = if (thinkingTemplate.isBlank()) varKey else "$thinkingTemplate $varKey"
+                                        thinkingTemplate = newTpl
+                                        persistSettings(newThinkingTemplate = newTpl)
+                                        savedMessage = "已插入 $varKey"
                                     }
                                 },
                                 label = { Text(varKey, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
@@ -2778,9 +2911,7 @@ fun ModelFeaturesTab(
 @Composable
 fun PromptsMemoryTab(
     hazeState: dev.chrisbanes.haze.HazeState,
-    modifier: Modifier = Modifier,
-    onUnsavedStateChanged: (Boolean) -> Unit = {},
-    saveTrigger: Int = 0
+    modifier: Modifier = Modifier
 ) {
     val manager = AiAssistantApp.instance.personalizationManager
     val repository = AiAssistantApp.instance.repository
@@ -2805,38 +2936,44 @@ fun PromptsMemoryTab(
 
     var savedMessage by remember { mutableStateOf<String?>(null) }
 
-    val hasUnsaved = remember(
-        settings, globalPrompt, globalRoleplayPrompt, instruction, autoMemoryEnabled
+    fun persistPromptSettings(
+        newGlobalPrompt: String = globalPrompt,
+        newGlobalRoleplayPrompt: String = globalRoleplayPrompt,
+        newInstruction: String = instruction,
+        newAutoMemoryEnabled: Boolean = autoMemoryEnabled
     ) {
-        globalPrompt.trim() != settings.globalSystemPrompt.trim() ||
-        globalRoleplayPrompt.trim() != settings.globalRoleplayPrompt.trim() ||
-        instruction.trim() != settings.aboutUser.trim() ||
-        autoMemoryEnabled != settings.autoMemoryEnabled
-    }
-
-    LaunchedEffect(hasUnsaved) {
-        onUnsavedStateChanged(hasUnsaved)
-    }
-
-    fun performSave() {
-        val saved = manager.saveSettings(
+        manager.saveSettings(
             settings.copy(
-                globalSystemPrompt = globalPrompt.trim(),
-                globalRoleplayPrompt = globalRoleplayPrompt.trim(),
-                aboutUser = instruction.trim(),
+                globalSystemPrompt = newGlobalPrompt.trim(),
+                globalRoleplayPrompt = newGlobalRoleplayPrompt.trim(),
+                aboutUser = newInstruction.trim(),
                 responseStyle = "",
                 preferences = "",
                 avoid = "",
-                autoMemoryEnabled = autoMemoryEnabled
+                autoMemoryEnabled = newAutoMemoryEnabled
             )
         )
         settings = manager.getSettings()
-        savedMessage = if (saved) "已保存提示词与记忆设定" else "保存失败，请重试"
     }
 
-    LaunchedEffect(saveTrigger) {
-        if (saveTrigger > 0) {
-            performSave()
+    LaunchedEffect(globalPrompt) {
+        if (globalPrompt.trim() != settings.globalSystemPrompt.trim()) {
+            kotlinx.coroutines.delay(400)
+            persistPromptSettings(newGlobalPrompt = globalPrompt)
+        }
+    }
+
+    LaunchedEffect(globalRoleplayPrompt) {
+        if (globalRoleplayPrompt.trim() != settings.globalRoleplayPrompt.trim()) {
+            kotlinx.coroutines.delay(400)
+            persistPromptSettings(newGlobalRoleplayPrompt = globalRoleplayPrompt)
+        }
+    }
+
+    LaunchedEffect(instruction) {
+        if (instruction.trim() != settings.aboutUser.trim()) {
+            kotlinx.coroutines.delay(400)
+            persistPromptSettings(newInstruction = instruction)
         }
     }
 
@@ -2976,8 +3113,10 @@ fun PromptsMemoryTab(
                     }
                     TextButton(
                         onClick = {
-                            globalPrompt = "你是一个专业、严谨、有深度思考能力的 AI 助手。回答问题时逻辑清晰、论证充分，遇到专业问题主动给出高质量的代码或技术解释，语言自然流畅。"
-                            savedMessage = null
+                            val defaultPrompt = "你是一个专业、严谨、有深度思考能力的 AI 助手。回答问题时逻辑清晰、论证充分，遇到专业问题主动给出高质量的代码或技术解释，语言自然流畅。"
+                            globalPrompt = defaultPrompt
+                            persistPromptSettings(newGlobalPrompt = defaultPrompt)
+                            savedMessage = "已填入并保存默认提示词"
                         }
                     ) {
                         Text("填入默认预设", style = MaterialTheme.typography.labelSmall)
@@ -3024,8 +3163,10 @@ fun PromptsMemoryTab(
                     }
                     TextButton(
                         onClick = {
-                            globalRoleplayPrompt = com.aiassistant.data.repository.RoleplayRepository.DEFAULT_FICTION_TEACHING_GUIDELINES
-                            savedMessage = null
+                            val defaultGuidelines = com.aiassistant.data.repository.RoleplayRepository.DEFAULT_FICTION_TEACHING_GUIDELINES
+                            globalRoleplayPrompt = defaultGuidelines
+                            persistPromptSettings(newGlobalRoleplayPrompt = defaultGuidelines)
+                            savedMessage = "已填入并保存创作规范"
                         }
                     ) {
                         Text("填入默认规范", style = MaterialTheme.typography.labelSmall)
@@ -3110,7 +3251,8 @@ fun PromptsMemoryTab(
                         checked = autoMemoryEnabled,
                         onCheckedChange = {
                             autoMemoryEnabled = it
-                            savedMessage = null
+                            persistPromptSettings(newAutoMemoryEnabled = it)
+                            savedMessage = if (it) "已开启跨会话长期记忆" else "已关闭跨会话长期记忆"
                         }
                     )
                 }
@@ -3614,17 +3756,13 @@ fun PersonalizationTab(
     hazeState: dev.chrisbanes.haze.HazeState,
     modifier: Modifier = Modifier,
     themeMode: AppThemeMode,
-    onThemeModeChange: (AppThemeMode) -> Unit,
-    onUnsavedStateChanged: (Boolean) -> Unit = {},
-    saveTrigger: Int = 0
+    onThemeModeChange: (AppThemeMode) -> Unit
 ) {
     AppearanceTab(
         hazeState = hazeState,
         modifier = modifier,
         themeMode = themeMode,
-        onThemeModeChange = onThemeModeChange,
-        onUnsavedStateChanged = onUnsavedStateChanged,
-        saveTrigger = saveTrigger
+        onThemeModeChange = onThemeModeChange
     )
 }
 
