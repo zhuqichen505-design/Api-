@@ -730,6 +730,29 @@ class AiRepository(
 
     fun getAllMemories(): Flow<List<MemoryItem>> = memoryDao.getAllMemories()
 
+    fun getConversationMemories(conversationId: Long): Flow<List<MemoryItem>> =
+        memoryDao.getConversationMemoriesFlow(conversationId)
+
+    suspend fun addConversationMemory(conversationId: Long, content: String): Long {
+        val now = System.currentTimeMillis()
+        val trimmed = content.trim()
+        val item = MemoryItem(
+            scope = "conversation",
+            conversationId = conversationId,
+            content = trimmed,
+            keywords = tokenizeForMemory(trimmed).take(18).joinToString(",").ifBlank { null },
+            confidence = 1.0f,
+            isEnabled = true,
+            createdAt = now,
+            updatedAt = now
+        )
+        return memoryDao.insertMemory(item)
+    }
+
+    suspend fun clearConversationMemories(conversationId: Long) {
+        memoryDao.deleteConversationMemories(conversationId)
+    }
+
     fun searchMemories(query: String): Flow<List<MemoryItem>> = memoryDao.searchMemories(query)
 
     suspend fun getMemoryById(id: Long): MemoryItem? = memoryDao.getMemoryById(id)
@@ -2252,14 +2275,20 @@ class AiRepository(
             hasConversationTag(conversation, "story")
         ) return
 
-        val memoryContent = extractMemoryContent(message.content) ?: return
-        val scope = if (isConversationScopedMemory(memoryContent)) "conversation" else "user"
+        val candidate = com.aiassistant.utils.SmartMemoryExtractor.extractCandidate(
+            content = message.content,
+            conversationId = message.conversationId,
+            messageId = message.id
+        ) ?: return
+
+        val memoryContent = candidate.distilledContent
+        val scope = candidate.suggestedScope
         val scopedConversationId = if (scope == "conversation") message.conversationId else null
         val keywords = tokenizeForMemory(memoryContent).take(18).joinToString(",")
         val existing = memoryDao.getByScopeAndContent(scope, memoryContent)
         val now = System.currentTimeMillis()
 
-        // 目前只自动保存明确表达的偏好或项目背景，避免把普通聊天误记成长期事实。
+        // 仅自动保存经 SmartMemoryExtractor 结构化提炼的高置信度偏好或项目背景，彻底杜绝噪音
         if (existing != null) {
             memoryDao.updateMemory(
                 existing.copy(
@@ -2283,51 +2312,6 @@ class AiRepository(
                 updatedAt = now
             )
         )
-    }
-
-    private fun extractMemoryContent(rawContent: String): String? {
-        val content = rawContent.trim()
-        if (content.length < 8) return null
-        val lower = content.lowercase()
-        val negativeMarkers = listOf("不要记住", "别记住", "不用记住", "不要保存", "do not remember", "don't remember")
-        if (negativeMarkers.any { lower.contains(it) }) return null
-
-        val durableMarkers = listOf(
-            "记住",
-            "以后",
-            "下次",
-            "默认",
-            "始终",
-            "我喜欢",
-            "我不喜欢",
-            "我希望",
-            "我的",
-            "请用",
-            "不要用",
-            "这个项目",
-            "当前项目",
-            "这个应用",
-            "这个app",
-            "本项目",
-            "remember",
-            "prefer",
-            "always",
-            "never",
-            "default",
-            "my "
-        )
-        if (durableMarkers.none { lower.contains(it) }) return null
-
-        return compactMessageForHistory(content, 360)
-            .replace('\n', ' ')
-            .trim()
-            .takeIf { it.isNotBlank() }
-    }
-
-    private fun isConversationScopedMemory(content: String): Boolean {
-        val lower = content.lowercase()
-        return listOf("这个项目", "当前项目", "这个应用", "这个app", "本项目", "this project", "this app")
-            .any { lower.contains(it) }
     }
 
     private suspend fun buildRelevantMemoryBlock(

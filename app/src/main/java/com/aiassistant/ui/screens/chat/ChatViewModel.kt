@@ -73,6 +73,14 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
     private val _translatingMessageIds = MutableStateFlow<Set<Long>>(emptySet())
     val translatingMessageIds: StateFlow<Set<Long>> = _translatingMessageIds.asStateFlow()
 
+    // 本会话专属记忆列表
+    val sessionMemories: StateFlow<List<MemoryItem>> = repository.getConversationMemories(conversationId)
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
     private var activeAssistantVariantGroupId: String? = null
     private var activeAssistantVariantIndex: Int = 1
 
@@ -916,6 +924,43 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
 
     fun dismissPendingMemory() {
         _pendingMemoryCandidate.value = null
+    }
+
+    fun addSessionMemory(content: String) {
+        val trimmed = content.trim()
+        if (trimmed.isBlank()) return
+        viewModelScope.launch {
+            repository.addConversationMemory(conversationId, trimmed)
+            loadConversation()
+        }
+    }
+
+    fun updateSessionMemory(memory: MemoryItem) {
+        viewModelScope.launch {
+            repository.updateMemory(memory.copy(updatedAt = System.currentTimeMillis()))
+            loadConversation()
+        }
+    }
+
+    fun toggleSessionMemory(id: Long, isEnabled: Boolean) {
+        viewModelScope.launch {
+            repository.setMemoryEnabled(id, isEnabled)
+            loadConversation()
+        }
+    }
+
+    fun deleteSessionMemory(id: Long) {
+        viewModelScope.launch {
+            repository.deleteMemory(id)
+            loadConversation()
+        }
+    }
+
+    fun clearSessionMemories() {
+        viewModelScope.launch {
+            repository.clearConversationMemories(conversationId)
+            loadConversation()
+        }
     }
 
     fun convertToRoleplay(

@@ -1,5 +1,49 @@
 # Echo AI 助手更新日志 (Update Log)
 
+## [v1.9.23] - 2026-09-08
+
+### 1. 本次升级与需求 100% 落实
+1. **会话内专属记忆功能落地（Req 1）**：
+   - 打通会话内专属记忆（CRUD、开/关、上下文无缝注入）完整链路；
+   - 在 `Daos.kt` 中为 `MemoryDao` 增加 `getConversationMemoriesFlow(conversationId)` 与 `getConversationMemories(conversationId)`；
+   - 在 `AiRepository.kt` 与 `ChatViewModel.kt` 中打通 `sessionMemories` 状态流及 `addSessionMemory`、`updateSessionMemory`、`toggleSessionMemory`、`deleteSessionMemory`、`clearSessionMemories`；
+   - 在 `ChatScreen.kt` 对话设置弹窗（`ChatSettingsDialog`）中新增 `ChatSettingsSessionMemorySection` 会话专属记忆管理面板，用户可直观查看、添加、编辑、切换启用状态与清空当前会话记忆；
+   - 上下文注入机制保持物理隔离：会话专属记忆仅在当前会话的上下文构建中生效，杜绝跨会话污染。
+2. **高信噪比智能记忆提取重构（Req 2）**：
+   - 彻底重构 `SmartMemoryExtractor.kt` 与 `AiRepository.captureMemoryCandidate`，根除提取无关对话、疑问句、客套寒暄与单次任务的问题；
+   - 引入完善的多层过滤管道：否定词过滤、完整疑问句与求助句过滤（`吗`、`？`、`怎么`、`为什么`、`如何`等）、瞬态寒暄过滤（`刚刚`、`你好`、`谢谢`等）以及单次临时任务动作词过滤（`帮我`、`优化一下`、`写一个`等）；
+   - 严密甄别高信噪比结构化事实与持久偏好：仅对显式记忆指令（`请记住：...`）、长期持久偏好（含`以后`、`每次`、`始终`等修饰的语言/注释/简练规范）、真实持久身份（姓名/职业）以及项目架构事实提炼记忆候选。
+3. **展开提示词优先级说明防闪烁优化（Req 3）**：
+   - 优化 `SettingsScreen.kt` 中系统提示词优先级手风琴卡片的 `AnimatedVisibility` 展开与收起动画规格，加入 `clipToBounds()` 防止溢出；
+   - 重构 `PriorityRuleRow` 布局结构，移除易引起多层重绘抖动的双层嵌套 `Surface`，改用轻量级 `Box + clip + background` 结构，彻底消除展开和折叠时的瞬间布局抖动与重绘闪烁。
+4. **模型回复完成后高对比微光分割线（Req 4）**：
+   - 在 `ChatScreen.kt` 消息气泡底部重构模型回复结束分割线：在 AI 回复生成完毕后呈现高对比度雅致微光横向分割线（0.5dp 渐变青蓝微光），明确划分多轮问答对话流，提升视觉节奏感与舒适度。
+5. **思考强度全阶统一蓝色系色彩体系（Req 5）**：
+   - 重构 `effortAccentColor` 及 `ReasoningEffortPopupCard` 中的 0~4 档色彩体系，全面统一为递进纯正蓝色系：
+     - 0 档（关闭）：板岩灰蓝（`#64748B`）
+     - 1 档（快速）：浅冰蓝（`#38BDF8`）
+     - 2 档（平衡）：道奇蓝（`#0284C7`）
+     - 3 档（深入）：深海蓝（`#0369A1`）
+     - 4 档（极高）：皇家宝石蓝（`#1D4ED8`）
+   - 胶囊按钮、弹窗档位卡片、选中高亮背景与边框全链路统一，视觉纯净专业。
+6. **文字划选浮动工具栏防闪烁与一键引用稳定化（Req 6）**：
+   - 修复 `EchoTextToolbar.kt` 中 Compose `Popup` 的属性配置，显式声明 `PopupProperties(focusable = false, dismissOnClickOutside = false, dismissOnBackPress = true)`，彻底消除拖拽手柄及选区变更时点击外部导致 Popup 被反复销毁又重绘的死循环闪烁；
+   - 优化“引用”动作执行流程，增加 60ms 剪贴板读取协程缓冲，确保精准捕获系统剪贴板选中文本并无缝回填至主输入框。
+7. **对话页顶部悬浮栏纯色外框消除（Req 7）**：
+   - 重构 `ChatScreen.kt` 界面层级结构：将底层壁纸背景与 `Haze` 毛玻璃源提升至整屏根节点 `Box`；
+   - 将 `Scaffold` 的 `containerColor` 设为 `Color.Transparent`，顶部悬浮栏采用 `echoHazePanel(tint = glass.panel)` 直接穿透毛玻璃；
+   - 彻底移除悬浮栏外围包裹的 0.96f 纯色背景框，呈现纯正全景液态毛玻璃视觉效果。
+
+### 2. 自动化测试核验
+- 全量 102 项单元测试 100% 全部通过（退出码 0，新增 `V1923FeaturesTest` 专项验证记忆过滤、高信噪比提取、会话记忆隔离、全阶蓝色系色彩及更新日志规范）。
+
+### 3. 历史安装包永久保留准则（最高铁律）
+- 构建前历史版本：102 个，构建后增至 103 个，严格遵守历史包永久保留最高铁律，未执行任何删除/清理操作；
+- 增量输出安装包：`Echo-v1.9.23-arm64-v8a.apk`
+  - 路径：`D:\Agent\APP-烧\app\releases\Echo-v1.9.23-arm64-v8a.apk`
+  - 体积：16,025,597 字节 (~15.28 MB)
+  - SHA-256：`5E5E07FDEF9AEDACF1EC0236324472FEDE1F9F64D071532FBB77D3056B27A621`
+
 ## [v1.9.22] - 2026-09-08
 
 ### 1. 本次升级与需求 100% 落实

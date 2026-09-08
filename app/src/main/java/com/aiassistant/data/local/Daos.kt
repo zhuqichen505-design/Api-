@@ -403,6 +403,12 @@ interface MemoryDao {
     @Query("UPDATE memory_items SET isEnabled = 0, updatedAt = :timestamp WHERE id = :id")
     suspend fun disableMemory(id: Long, timestamp: Long = System.currentTimeMillis())
 
+    @Query("SELECT * FROM memory_items WHERE conversationId = :conversationId AND scope = 'conversation' ORDER BY updatedAt DESC")
+    fun getConversationMemoriesFlow(conversationId: Long): Flow<List<MemoryItem>>
+
+    @Query("SELECT * FROM memory_items WHERE conversationId = :conversationId AND scope = 'conversation' ORDER BY updatedAt DESC")
+    suspend fun getConversationMemories(conversationId: Long): List<MemoryItem>
+
     @Query("DELETE FROM memory_items WHERE conversationId = :conversationId AND scope = 'conversation'")
     suspend fun deleteConversationMemories(conversationId: Long)
 }

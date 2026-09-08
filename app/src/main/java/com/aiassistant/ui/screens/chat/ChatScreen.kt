@@ -35,6 +35,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.SolidColor
@@ -77,6 +78,7 @@ import com.aiassistant.domain.model.Attachment
 import com.aiassistant.domain.model.ChatModelOption
 import com.aiassistant.domain.model.ConversationContextUsage
 import com.aiassistant.domain.model.Message
+import com.aiassistant.domain.model.MemoryItem
 import com.aiassistant.domain.model.PromptTemplate
 import com.aiassistant.ui.components.MarkdownText
 import com.aiassistant.ui.components.SideAnchorItem
@@ -161,6 +163,7 @@ fun ChatScreen(
     val clipboardManager = LocalClipboardManager.current
     val promptTemplates by viewModel.promptTemplates.collectAsState()
     val translatingMessageIds by viewModel.translatingMessageIds.collectAsState()
+    val sessionMemories by viewModel.sessionMemories.collectAsState()
 
     val roleplayRepo = remember { com.aiassistant.AiAssistantApp.instance.roleplayRepository }
     val allAvailableCharacters by roleplayRepo.getAllCharacters().collectAsState(initial = emptyList())
@@ -302,28 +305,58 @@ fun ChatScreen(
 
     val textToolbar = remember { EchoTextToolbar() }
     CompositionLocalProvider(LocalTextToolbar provides textToolbar) {
-        Scaffold(
-        topBar = {
-            val toolbarShape = RoundedCornerShape(24.dp)
-            val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-            val topBarBg = MaterialTheme.colorScheme.surface.copy(alpha = if (isDark) 0.92f else 0.96f)
-            val toolbarContentColor = readableTextColorFor(
-                background = topBarBg,
-                fallbackSurface = readableBackdrops.top
-            )
-
-            Surface(
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+        ) {
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                shape = toolbarShape,
-                color = topBarBg,
-                contentColor = toolbarContentColor,
-                border = null,
-                tonalElevation = 0.dp,
-                shadowElevation = 0.dp
+                    .matchParentSize()
+                    .background(MaterialTheme.colorScheme.background)
+                    .echoHazeSource(hazeState)
             ) {
+                chatBackgroundBitmap?.let { bitmap ->
+                    Image(
+                        bitmap = bitmap.asImageBitmap(),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                }
+            }
+
+            Scaffold(
+                containerColor = Color.Transparent,
+                contentColor = MaterialTheme.colorScheme.onBackground,
+                topBar = {
+                    val toolbarShape = RoundedCornerShape(24.dp)
+                    val glass = echoGlassPalette()
+                    val toolbarBg = glass.panel
+                    val toolbarContentColor = readableTextColorFor(
+                        background = toolbarBg,
+                        fallbackSurface = readableBackdrops.top
+                    )
+
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .statusBarsPadding()
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                            .echoHazePanel(
+                                hazeState = hazeState,
+                                shape = toolbarShape,
+                                tint = toolbarBg,
+                                blurRadius = 18.dp,
+                                highlightAlpha = 0.035f
+                            ),
+                        shape = toolbarShape,
+                        color = toolbarBg,
+                        contentColor = toolbarContentColor,
+                        border = BorderStroke(1.dp, glass.outline),
+                        tonalElevation = 0.dp,
+                        shadowElevation = 0.dp
+                    ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -547,25 +580,8 @@ fun ChatScreen(
         }
 ) { paddingValues ->
         Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background)
+            modifier = Modifier.fillMaxSize()
         ) {
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .background(MaterialTheme.colorScheme.background)
-                    .echoHazeSource(hazeState)
-            ) {
-                chatBackgroundBitmap?.let { bitmap ->
-                    Image(
-                        bitmap = bitmap.asImageBitmap(),
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
-                }
-            }
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -888,6 +904,7 @@ fun ChatScreen(
             )
         }
     }
+    }
     EchoTextToolbarHost(toolbar = textToolbar) { quotedText ->
         val formattedQuote = quotedText.trim().lines().joinToString("\n") { "> $it" }
         inputText = if (inputText.isBlank()) {
@@ -908,6 +925,12 @@ fun ChatScreen(
             fallbackModel = currentModel ?: uiState.modelName,
             availableOptions = availableModelOptions,
             templates = promptTemplates,
+            sessionMemories = sessionMemories,
+            onAddSessionMemory = { viewModel.addSessionMemory(it) },
+            onUpdateSessionMemory = { viewModel.updateSessionMemory(it) },
+            onToggleSessionMemory = { id, enabled -> viewModel.toggleSessionMemory(id, enabled) },
+            onDeleteSessionMemory = { viewModel.deleteSessionMemory(it) },
+            onClearSessionMemories = { viewModel.clearSessionMemories() },
             onDismiss = { showSettingsDialog = false },
             onSave = { settings, prompt ->
                 viewModel.updateChatSettings(settings, prompt)
@@ -2311,14 +2334,19 @@ private fun MessageBubble(
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    if (!isGenerating) {
+                    if (!isGenerating && (message.content.isNotBlank() || hasThinking)) {
                         val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
+                        val dividerColor = if (isDarkTheme) {
+                            Color.White.copy(alpha = 0.16f)
+                        } else {
+                            Color.Black.copy(alpha = 0.12f)
+                        }
                         HorizontalDivider(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(top = 10.dp, bottom = 4.dp),
+                                .padding(top = 14.dp, bottom = 6.dp),
                             thickness = 1.dp,
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDarkTheme) 0.35f else 0.50f)
+                            color = dividerColor
                         )
                     }
                 }
@@ -2861,11 +2889,11 @@ fun ChatInputBar(
                             }
                             val effortAccentColor = when {
                                 !enableThinking -> glass.outline
-                                thinkingEffort.equals("low", true) -> Color(0xFF2ECC71)
-                                thinkingEffort.equals("medium", true) -> Color(0xFF3498DB)
-                                thinkingEffort.equals("high", true) -> Color(0xFF9B59B6)
-                                thinkingEffort.equals("ultra", true) || thinkingEffort.equals("max", true) -> Color(0xFFB950FD)
-                                else -> MaterialTheme.colorScheme.primary
+                                thinkingEffort.equals("low", true) || thinkingEffort.equals("fast", true) -> Color(0xFF38BDF8) // 浅冰蓝
+                                thinkingEffort.equals("medium", true) || thinkingEffort.equals("balanced", true) -> Color(0xFF2563EB) // 蔚蓝
+                                thinkingEffort.equals("high", true) || thinkingEffort.equals("deep", true) -> Color(0xFF1D4ED8) // 深海蓝
+                                thinkingEffort.equals("ultra", true) || thinkingEffort.equals("max", true) -> Color(0xFF1E40AF) // 皇家宝石蓝
+                                else -> Color(0xFF2563EB)
                             }
                             InputPillButton(
                                 text = effortText,
@@ -3087,8 +3115,8 @@ private fun ReasoningEffortPopupCard(
                     name = "关闭",
                     subtitle = "极速直答 · 无思考",
                     detail = "跳过深度思维链推演，以模型原生最高速度直接生成最终回复内容。",
-                    primaryColor = Color(0xFF7F8C8D),
-                    gradientColors = listOf(Color(0xFF7F8C8D), Color(0xFF95A5A6))
+                    primaryColor = Color(0xFF64748B),
+                    gradientColors = listOf(Color(0xFF64748B), Color(0xFF94A3B8))
                 ),
                 ThinkingEffortLevel(
                     step = 1,
@@ -3097,8 +3125,8 @@ private fun ReasoningEffortPopupCard(
                     name = "快速",
                     subtitle = "快速思考 · 低延迟响应",
                     detail = "分配精简思考预算进行关键逻辑检查，适合日常交流与常规问答。",
-                    primaryColor = Color(0xFF2ECC71),
-                    gradientColors = listOf(Color(0xFF2ECC71), Color(0xFF27AE60))
+                    primaryColor = Color(0xFF38BDF8),
+                    gradientColors = listOf(Color(0xFF38BDF8), Color(0xFF0EA5E9))
                 ),
                 ThinkingEffortLevel(
                     step = 2,
@@ -3107,8 +3135,8 @@ private fun ReasoningEffortPopupCard(
                     name = "平衡",
                     subtitle = "平衡思考 · 兼顾深度与速度",
                     detail = "投入适度思考预算，严密推演逻辑与代码设计（推荐默认）。",
-                    primaryColor = Color(0xFF3498DB),
-                    gradientColors = listOf(Color(0xFF3498DB), Color(0xFF2980B9))
+                    primaryColor = Color(0xFF2563EB),
+                    gradientColors = listOf(Color(0xFF3B82F6), Color(0xFF1D4ED8))
                 ),
                 ThinkingEffortLevel(
                     step = 3,
@@ -3117,8 +3145,8 @@ private fun ReasoningEffortPopupCard(
                     name = "深入",
                     subtitle = "深入思考 · 严密严苛推导",
                     detail = "投入最大上限思考预算进行多轮反思、边界穷举与高难论证。",
-                    primaryColor = Color(0xFF9B59B6),
-                    gradientColors = listOf(Color(0xFF9B59B6), Color(0xFF8E44AD))
+                    primaryColor = Color(0xFF1D4ED8),
+                    gradientColors = listOf(Color(0xFF1D4ED8), Color(0xFF1E3A8A))
                 )
             )
         } else {
@@ -3130,8 +3158,8 @@ private fun ReasoningEffortPopupCard(
                     name = "关闭",
                     subtitle = "极速直答 · 无思考",
                     detail = "跳过深度思维链推演，以模型原生最高速度直接生成最终回复内容。",
-                    primaryColor = Color(0xFF7F8C8D),
-                    gradientColors = listOf(Color(0xFF7F8C8D), Color(0xFF95A5A6))
+                    primaryColor = Color(0xFF64748B),
+                    gradientColors = listOf(Color(0xFF64748B), Color(0xFF94A3B8))
                 ),
                 ThinkingEffortLevel(
                     step = 1,
@@ -3140,8 +3168,8 @@ private fun ReasoningEffortPopupCard(
                     name = "快速",
                     subtitle = "轻度思考 · 快速响应",
                     detail = "分配少量思考预算进行简要推理，适合常规闲聊、翻译与基础问答。",
-                    primaryColor = Color(0xFF2ECC71),
-                    gradientColors = listOf(Color(0xFF2ECC71), Color(0xFF27AE60))
+                    primaryColor = Color(0xFF38BDF8),
+                    gradientColors = listOf(Color(0xFF38BDF8), Color(0xFF0EA5E9))
                 ),
                 ThinkingEffortLevel(
                     step = 2,
@@ -3150,8 +3178,8 @@ private fun ReasoningEffortPopupCard(
                     name = "平衡",
                     subtitle = "适中思考 · 兼顾速度与深度",
                     detail = "兼顾逻辑严谨性与响应耗时，应对大多数日常工作、分析与创作场景（推荐）。",
-                    primaryColor = Color(0xFF3498DB),
-                    gradientColors = listOf(Color(0xFF3498DB), Color(0xFF2980B9))
+                    primaryColor = Color(0xFF2563EB),
+                    gradientColors = listOf(Color(0xFF3B82F6), Color(0xFF1D4ED8))
                 ),
                 ThinkingEffortLevel(
                     step = 3,
@@ -3160,8 +3188,8 @@ private fun ReasoningEffortPopupCard(
                     name = "深入",
                     subtitle = "深度思考 · 严密推演",
                     detail = "投入大量思考预算进行多步论证、边界检查与代码架构推演，适合复杂技术任务。",
-                    primaryColor = Color(0xFF9B59B6),
-                    gradientColors = listOf(Color(0xFF9B59B6), Color(0xFF8E44AD))
+                    primaryColor = Color(0xFF1D4ED8),
+                    gradientColors = listOf(Color(0xFF1D4ED8), Color(0xFF1E3A8A))
                 ),
                 ThinkingEffortLevel(
                     step = 4,
@@ -3170,8 +3198,8 @@ private fun ReasoningEffortPopupCard(
                     name = "极高",
                     subtitle = "极限思考 · 极致推理",
                     detail = "释放最大思考预算上限，全力攻坚数学证明、高难度算法与复杂多维哲学推理。",
-                    primaryColor = Color(0xFFB950FD),
-                    gradientColors = listOf(Color(0xFF8E44AD), Color(0xFFE056FD))
+                    primaryColor = Color(0xFF1E40AF),
+                    gradientColors = listOf(Color(0xFF1E40AF), Color(0xFF0F172A))
                 )
             )
         }
@@ -4528,6 +4556,339 @@ private fun ChatSettingsSystemPromptSection(
 }
 
 @Composable
+fun ChatSettingsSessionMemorySection(
+    sessionMemories: List<MemoryItem>,
+    contentColor: Color,
+    secondaryColor: Color,
+    onAddMemory: (String) -> Unit,
+    onUpdateMemory: (MemoryItem) -> Unit,
+    onToggleMemory: (Long, Boolean) -> Unit,
+    onDeleteMemory: (Long) -> Unit,
+    onClearMemories: () -> Unit
+) {
+    var showAddDialog by remember { mutableStateOf(false) }
+    var memoryToEdit by remember { mutableStateOf<MemoryItem?>(null) }
+    var showClearConfirmDialog by remember { mutableStateOf(false) }
+    var addMemoryText by remember { mutableStateOf("") }
+    var editMemoryText by remember { mutableStateOf("") }
+
+    val glass = echoGlassPalette()
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = glass.control,
+        border = BorderStroke(1.dp, glass.outline)
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Psychology,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "本会话专属记忆",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = contentColor
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(999.dp),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                    ) {
+                        Text(
+                            text = "${sessionMemories.size} 条",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(
+                        onClick = {
+                            addMemoryText = ""
+                            showAddDialog = true
+                        },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(2.dp))
+                        Text("添加", style = MaterialTheme.typography.labelMedium)
+                    }
+                    if (sessionMemories.isNotEmpty()) {
+                        TextButton(
+                            onClick = { showClearConfirmDialog = true },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                        ) {
+                            Text("清空", style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+                }
+            }
+
+            Text(
+                text = "仅在此会话生效。发送消息时会自动拼入专属提示词，防止污染全局长期偏好。",
+                style = MaterialTheme.typography.bodySmall,
+                color = secondaryColor
+            )
+
+            if (sessionMemories.isEmpty()) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.32f),
+                    border = BorderStroke(1.dp, glass.outline.copy(alpha = 0.4f))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = "当前会话暂无专属记忆设定",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = secondaryColor
+                        )
+                        OutlinedButton(
+                            onClick = {
+                                addMemoryText = ""
+                                showAddDialog = true
+                            },
+                            shape = RoundedCornerShape(999.dp),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f))
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("+ 添加第一条会话记忆", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    sessionMemories.forEach { memory ->
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                            border = BorderStroke(1.dp, glass.outline.copy(alpha = 0.5f))
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Switch(
+                                    checked = memory.isEnabled,
+                                    onCheckedChange = { onToggleMemory(memory.id, it) },
+                                    modifier = Modifier.scale(0.82f)
+                                )
+                                Text(
+                                    text = memory.content,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (memory.isEnabled) contentColor else secondaryColor,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                IconButton(
+                                    onClick = {
+                                        memoryToEdit = memory
+                                        editMemoryText = memory.content
+                                    },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Edit,
+                                        contentDescription = "编辑",
+                                        modifier = Modifier.size(14.dp),
+                                        tint = secondaryColor
+                                    )
+                                }
+                                IconButton(
+                                    onClick = { onDeleteMemory(memory.id) },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.DeleteOutline,
+                                        contentDescription = "删除",
+                                        modifier = Modifier.size(14.dp),
+                                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 添加记忆弹窗
+    if (showAddDialog) {
+        Dialog(onDismissRequest = { showAddDialog = false }) {
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 6.dp,
+                modifier = Modifier
+                    .fillMaxWidth(0.92f)
+                    .widthIn(max = 400.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Text("添加会话专属记忆", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        "例如：本项目为 Kotlin+Compose 移动端项目，所有返回请提供带详细中文注释的代码。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedTextField(
+                        value = addMemoryText,
+                        onValueChange = { addMemoryText = it },
+                        placeholder = { Text("输入此会话的专属设定或约束...") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 100.dp),
+                        maxLines = 5,
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TextButton(onClick = { showAddDialog = false }) {
+                            Text("取消")
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = {
+                                if (addMemoryText.isNotBlank()) {
+                                    onAddMemory(addMemoryText.trim())
+                                    showAddDialog = false
+                                }
+                            },
+                            enabled = addMemoryText.isNotBlank()
+                        ) {
+                            Text("保存")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 编辑记忆弹窗
+    memoryToEdit?.let { memory ->
+        Dialog(onDismissRequest = { memoryToEdit = null }) {
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 6.dp,
+                modifier = Modifier
+                    .fillMaxWidth(0.92f)
+                    .widthIn(max = 400.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Text("编辑会话专属记忆", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    OutlinedTextField(
+                        value = editMemoryText,
+                        onValueChange = { editMemoryText = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 100.dp),
+                        maxLines = 5,
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TextButton(onClick = { memoryToEdit = null }) {
+                            Text("取消")
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = {
+                                if (editMemoryText.isNotBlank()) {
+                                    onUpdateMemory(memory.copy(content = editMemoryText.trim()))
+                                    memoryToEdit = null
+                                }
+                            },
+                            enabled = editMemoryText.isNotBlank()
+                        ) {
+                            Text("更新")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 清空确认弹窗
+    if (showClearConfirmDialog) {
+        Dialog(onDismissRequest = { showClearConfirmDialog = false }) {
+            Surface(
+                shape = RoundedCornerShape(18.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 6.dp,
+                modifier = Modifier.fillMaxWidth(0.88f)
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text("清空本会话记忆", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("确定要清空当前会话的所有专属记忆吗？此操作无法撤销。", style = MaterialTheme.typography.bodyMedium)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(onClick = { showClearConfirmDialog = false }) {
+                            Text("取消")
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = {
+                                onClearMemories()
+                                showClearConfirmDialog = false
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                        ) {
+                            Text("确认清空")
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun glassTextFieldColors(
     contentColor: Color,
     secondaryColor: Color,
@@ -4556,6 +4917,12 @@ fun ChatSettingsDialog(
     fallbackModel: String,
     availableOptions: List<ChatModelOption>,
     templates: List<PromptTemplate>,
+    sessionMemories: List<MemoryItem> = emptyList(),
+    onAddSessionMemory: (String) -> Unit = {},
+    onUpdateSessionMemory: (MemoryItem) -> Unit = {},
+    onToggleSessionMemory: (Long, Boolean) -> Unit = { _, _ -> },
+    onDeleteSessionMemory: (Long) -> Unit = {},
+    onClearSessionMemories: () -> Unit = {},
     onDismiss: () -> Unit,
     onSave: (TempChatSettings, String?) -> Unit,
     onModelSelected: (ChatModelOption) -> Unit,
@@ -4680,6 +5047,19 @@ fun ChatSettingsDialog(
                         secondaryColor = dialogSecondaryColor,
                         onChooseTemplate = { showTemplates = true },
                         onSaveTemplate = { showSaveDialog = true }
+                    )
+                }
+
+                item {
+                    ChatSettingsSessionMemorySection(
+                        sessionMemories = sessionMemories,
+                        contentColor = dialogContentColor,
+                        secondaryColor = dialogSecondaryColor,
+                        onAddMemory = onAddSessionMemory,
+                        onUpdateMemory = onUpdateSessionMemory,
+                        onToggleMemory = onToggleSessionMemory,
+                        onDeleteMemory = onDeleteSessionMemory,
+                        onClearMemories = onClearSessionMemories
                     )
                 }
 

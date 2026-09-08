@@ -32,6 +32,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
@@ -99,7 +100,14 @@ private val CurrentFeatureHighlights = listOf(
 )
 
 internal val CurrentVersionUserUpdates = listOf(
-    "【v1.9.22 本次更新】思考强度滑块防抽搐平滑优化：重构手势跟踪与状态隔离，滑块 Thumb 紧随手指平滑移动，结束拖拽平滑 Spring 阻尼吸附，彻底解决滑动调档时的抽搐抖动与跳档问题",
+    "【v1.9.23 本次更新】会话专属记忆管理系统：在对话设置中完整实现会话专属记忆的查看、添加、编辑、启用/停用与一键清空，随会话严格隔离并精准注入上下文",
+    "高信噪比智能记忆提取重构：彻底重构记忆提取引擎，过滤疑问句、单次任务动词及客套寒暄，仅提炼持久偏好、人物设定与关键事实，杜绝提取无关对话",
+    "提示词优先级手风琴展开平滑防闪烁：优化手风琴动画规格与组件布局结构，彻底消除展开优先级说明时的瞬间布局抖动与重绘闪烁",
+    "回复完成分割线高对比微光美化：模型回复生成完毕后呈现高对比度雅致微光分割线，强化消息流轮次层级与层次感",
+    "思考强度全阶递进蓝色系视觉规范：0~4 档思考强度胶囊按钮与弹窗档位全面重构为板岩灰蓝 -> 浅冰蓝 -> 道奇蓝 -> 深海蓝 -> 皇家宝石蓝递进蓝调，视觉统一纯净",
+    "文字划选浮动工具栏防闪烁与引用优化：修复选中文本时浮动工具栏反复关闭重开闪烁的缺陷，增加剪贴板缓冲确保一键引用与复制稳定可靠",
+    "对话页顶部悬浮栏纯色外框消除：重构全屏背景图层与毛玻璃面板穿透，彻底移除悬浮栏外围纯色背景包裹，呈现纯正全景液态毛玻璃视觉",
+    "【v1.9.22 更新】思考强度滑块防抽搐平滑优化：重构手势跟踪与状态隔离，滑块 Thumb 紧随手指平滑移动，结束拖拽平滑 Spring 阻尼吸附，彻底解决滑动调档时的抽搐抖动与跳档问题",
     "内置极低饱和度纯色系护眼背景：新增浅艾绿、浅湖蓝、浅薰紫、浅樱粉、浅暖杏、浅山岚 6 款极低饱和度纯色背景（饱和度 < 5%），完美适配 WCAG AAA 文本超高对比度，支持一键单独或批量应用至首页与对话页",
     "设置项调整全量即时生效：所有开关、提示词、滑块、配置项调整后立即持久化存盘，彻底移除返回退出时二次提示保存的拦截确认弹窗，退出切换畅通无阻",
     "跨会话长期记忆状态即时同步：解决跨会话长期记忆开关调整时因未保存导致状态失效的缺陷，开关轻触即刻生效并持久化",
@@ -3050,9 +3058,28 @@ fun PromptsMemoryTab(
                     }
                 }
 
-                AnimatedVisibility(visible = showPriorityDetails) {
+                AnimatedVisibility(
+                    visible = showPriorityDetails,
+                    enter = expandVertically(
+                        animationSpec = androidx.compose.animation.core.tween(220),
+                        expandFrom = Alignment.Top
+                    ) + fadeIn(
+                        animationSpec = androidx.compose.animation.core.tween(180)
+                    ),
+                    exit = shrinkVertically(
+                        animationSpec = androidx.compose.animation.core.tween(200),
+                        shrinkTowards = Alignment.Top
+                    ) + fadeOut(
+                        animationSpec = androidx.compose.animation.core.tween(150)
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clipToBounds()
+                ) {
                     Column(
-                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 6.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         PriorityRuleRow(
@@ -3961,23 +3988,26 @@ private fun PriorityRuleRow(
     description: String,
     badgeColor: Color
 ) {
-    Surface(
-        shape = SettingsInnerShape,
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-        modifier = Modifier.fillMaxWidth()
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(SettingsInnerShape)
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f))
+            .padding(10.dp)
     ) {
         Row(
-            modifier = Modifier.padding(10.dp),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.Top,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Surface(
-                shape = RoundedCornerShape(4.dp),
-                color = badgeColor.copy(alpha = 0.2f)
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(badgeColor.copy(alpha = 0.18f))
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
             ) {
                 Text(
                     text = badge,
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
                     color = badgeColor

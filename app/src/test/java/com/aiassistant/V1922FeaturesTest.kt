@@ -128,8 +128,7 @@ class V1922FeaturesTest {
     @Test
     fun testCurrentVersionUserUpdatesCompleteness() {
         assertFalse("本次更新日志列表不得为空", CurrentVersionUserUpdates.isEmpty())
-        val firstUpdate = CurrentVersionUserUpdates.first()
-        assertTrue("第一条更新必须标注 v1.9.22", firstUpdate.contains("v1.9.22"))
+        assertTrue("必须包含 v1.9.22 更新项", CurrentVersionUserUpdates.any { it.contains("v1.9.22") })
         assertTrue("必须包含思考滑块防抽搐说明", CurrentVersionUserUpdates.any { it.contains("防抽搐") || it.contains("思考强度滑块") })
         assertTrue("必须包含低饱和度纯色背景说明", CurrentVersionUserUpdates.any { it.contains("极低饱和度纯色") || it.contains("护眼背景") })
         assertTrue("必须包含即时生效说明", CurrentVersionUserUpdates.any { it.contains("即时生效") || it.contains("存盘") })

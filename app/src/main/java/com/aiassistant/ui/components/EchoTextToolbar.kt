@@ -35,8 +35,12 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 data class EchoTextToolbarState(
@@ -62,6 +66,10 @@ class EchoTextToolbar : TextToolbar {
         onCutRequested: (() -> Unit)?,
         onSelectAllRequested: (() -> Unit)?
     ) {
+        val current = activeMenu
+        if (current != null && current.rect == rect && current.onCopy == onCopyRequested && current.onSelectAll == onSelectAllRequested) {
+            return
+        }
         activeMenu = EchoTextToolbarState(
             rect = rect,
             onCopy = onCopyRequested,
@@ -79,6 +87,7 @@ fun EchoTextToolbarHost(
     val clipboardManager = LocalClipboardManager.current
     val density = LocalDensity.current
     val glass = echoGlassPalette()
+    val coroutineScope = rememberCoroutineScope()
 
     val popupPositionProvider = remember(menu.rect, density) {
         object : PopupPositionProvider {
@@ -102,7 +111,12 @@ fun EchoTextToolbarHost(
 
     Popup(
         popupPositionProvider = popupPositionProvider,
-        onDismissRequest = { toolbar.hide() }
+        onDismissRequest = { toolbar.hide() },
+        properties = PopupProperties(
+            focusable = false,
+            dismissOnBackPress = true,
+            dismissOnClickOutside = false
+        )
     ) {
         val pillShape = RoundedCornerShape(999.dp)
         Surface(
@@ -130,11 +144,14 @@ fun EchoTextToolbarHost(
                         text = "引用",
                         onClick = {
                             menu.onCopy.invoke()
-                            val copiedText = clipboardManager.getText()?.text.orEmpty()
-                            if (copiedText.isNotBlank()) {
-                                onQuoteSelected(copiedText)
+                            coroutineScope.launch {
+                                delay(60)
+                                val copiedText = clipboardManager.getText()?.text.orEmpty()
+                                if (copiedText.isNotBlank()) {
+                                    onQuoteSelected(copiedText)
+                                }
+                                toolbar.hide()
                             }
-                            toolbar.hide()
                         }
                     )
                 }
