@@ -10,7 +10,7 @@ import java.util.Locale
 class ChatEnhancementsTest {
 
     @Test
-    fun testDefaultMaxTokensIs8192() {
+    fun testDefaultMaxTokensIs50000() {
         val config = ApiConfig(
             id = 1L,
             name = "Test API",
@@ -19,7 +19,7 @@ class ChatEnhancementsTest {
             apiKey = "sk-test",
             modelName = "gpt-4o"
         )
-        assertEquals("默认 ApiConfig 的 maxTokens 必须为 8192", 8192, config.maxTokens)
+        assertEquals("默认 ApiConfig 的 maxTokens 必须为 50000", 50000, config.maxTokens)
     }
 
     @Test

@@ -64,8 +64,8 @@ fun TransientLazyListScrollbar(
     listState: LazyListState,
     visible: Boolean,
     modifier: Modifier = Modifier,
-    thumbColor: Color = MaterialTheme.colorScheme.primary.copy(alpha = 0.42f),
-    trackColor: Color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.20f)
+    thumbColor: Color = MaterialTheme.colorScheme.primary.copy(alpha = 0.50f),
+    trackColor: Color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.22f)
 ) {
     val scope = rememberCoroutineScope()
     var scrollJob by remember { mutableStateOf<Job?>(null) }
@@ -76,11 +76,13 @@ fun TransientLazyListScrollbar(
     val shouldShow = visible && totalItems > visibleItems
     var stableVisibleItems by remember(totalItems, heightPx) { mutableIntStateOf(0) }
     var dragProgress by remember { mutableStateOf<Float?>(null) }
+    var isDragging by remember { mutableStateOf(false) }
 
     LaunchedEffect(shouldShow, totalItems, heightPx) {
         if (!shouldShow) {
             stableVisibleItems = 0
             dragProgress = null
+            isDragging = false
         } else if (stableVisibleItems == 0) {
             stableVisibleItems = visibleItems
         }
@@ -93,7 +95,7 @@ fun TransientLazyListScrollbar(
         enter = fadeIn(),
         exit = fadeOut(),
         modifier = modifier
-            .width(28.dp)
+            .width(36.dp)
             .fillMaxHeight()
             .onSizeChanged { heightPx = it.height }
             .pointerInput(shouldShow, totalItems, heightPx) {
@@ -102,20 +104,28 @@ fun TransientLazyListScrollbar(
                         val progress = (y / heightPx).coerceIn(0f, 1f)
                         dragProgress = progress
                         val maxIndex = (totalItems - effectiveVisibleItems).coerceAtLeast(0)
-                        val targetIndex = (progress * maxIndex).roundToInt().coerceIn(0, maxIndex)
+                        val exactIndex = progress * maxIndex
+                        val targetIndex = exactIndex.toInt().coerceIn(0, maxIndex)
+                        val offsetFraction = exactIndex - targetIndex
+                        val estimatedOffsetPx = (offsetFraction * 150).roundToInt()
                         scrollJob?.cancel()
                         scrollJob = scope.launch {
-                            listState.scrollToItem(targetIndex)
+                            listState.scrollToItem(targetIndex, estimatedOffsetPx)
                         }
                     }
 
                     detectVerticalDragGestures(
-                        onDragStart = { offset -> scrollTo(offset.y) },
+                        onDragStart = { offset ->
+                            isDragging = true
+                            scrollTo(offset.y)
+                        },
                         onDragEnd = {
+                            isDragging = false
                             scrollJob = null
                             dragProgress = null
                         },
                         onDragCancel = {
+                            isDragging = false
                             scrollJob = null
                             dragProgress = null
                         },
@@ -131,15 +141,20 @@ fun TransientLazyListScrollbar(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.CenterEnd
         ) {
+            val activeThumbColor = if (isDragging) {
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.88f)
+            } else {
+                thumbColor
+            }
             Canvas(
                 modifier = Modifier
                     .fillMaxHeight()
-                    .width(18.dp)
+                    .width(22.dp)
                     .padding(vertical = 8.dp)
             ) {
-                val trackWidth = 3.dp.toPx()
-                val thumbWidth = 5.dp.toPx()
-                val minThumbHeight = 36.dp.toPx()
+                val trackWidth = 4.dp.toPx()
+                val thumbWidth = 8.dp.toPx()
+                val minThumbHeight = 44.dp.toPx()
                 val thumbHeight = (size.height * (effectiveVisibleItems / totalItems.toFloat()))
                     .coerceIn(minThumbHeight, size.height)
                 val maxFirstIndex = (totalItems - effectiveVisibleItems).coerceAtLeast(1)
@@ -156,7 +171,7 @@ fun TransientLazyListScrollbar(
                     cornerRadius = CornerRadius(trackWidth, trackWidth)
                 )
                 drawRoundRect(
-                    color = thumbColor,
+                    color = activeThumbColor,
                     topLeft = Offset(thumbLeft, thumbTop),
                     size = Size(thumbWidth, thumbHeight),
                     cornerRadius = CornerRadius(thumbWidth, thumbWidth)

@@ -650,7 +650,7 @@ class AiRepository(
             apiConfigId = apiConfigId,
             modelName = modelName,
             temperature = config?.temperature ?: 0.95f,
-            maxTokens = config?.maxTokens ?: 8192,
+            maxTokens = config?.maxTokens ?: 50000,
             topP = config?.topP ?: 1.0f,
             enableThinking = config?.enableThinking ?: true,
             thinkingEffort = config?.thinkingEffort ?: "high",
@@ -1152,7 +1152,8 @@ class AiRepository(
             modelName = requestModel,
             maxOutputTokens = effectiveOptions.maxTokens,
             contextWindowOverrideTokens = effectiveOptions.contextWindowOverrideTokens,
-            currentUserMessage = userMessage
+            currentUserMessage = userMessage,
+            options = effectiveOptions
         )
         val enrichedResult = enrichUserMessageWithWebSearch(userMessage, effectiveOptions)
         val enrichedUserMessage = enrichedResult.enrichedPrompt
@@ -1468,7 +1469,8 @@ class AiRepository(
             modelName = requestModel,
             maxOutputTokens = effectiveOptions.maxTokens,
             contextWindowOverrideTokens = effectiveOptions.contextWindowOverrideTokens,
-            currentUserMessage = userMessage
+            currentUserMessage = userMessage,
+            options = effectiveOptions
         )
         val isRoleplayConv = conversation != null && (hasConversationTag(conversation, "roleplay") || hasConversationTag(conversation, "story"))
         val promptResolution = resolveSystemPromptWithPriority(conversation, effectiveOptions, isRoleplayConv)
@@ -1693,6 +1695,7 @@ class AiRepository(
             enableThinking = overrides?.enableThinking ?: config.enableThinking,
             thinkingEffort = normalizeThinkingEffort(overrides?.thinkingEffort ?: config.thinkingEffort, config),
             enableWebSearch = overrides?.enableWebSearch ?: config.enableWebSearch,
+            enableSessionMemory = overrides?.enableSessionMemory,
             overrideSystemPrompt = overrides?.overrideSystemPrompt == true,
             systemPromptOverride = overrides?.systemPromptOverride,
             contextWindowOverrideTokens = overrides?.contextWindowOverrideTokens
@@ -1894,7 +1897,8 @@ class AiRepository(
         modelName: String,
         maxOutputTokens: Int?,
         contextWindowOverrideTokens: Int? = null,
-        currentUserMessage: String
+        currentUserMessage: String,
+        options: ChatRequestOptions? = null
     ): ContextBundle {
         val usableMessages = messages.filter { message ->
             (message.role == "user" || message.role == "assistant") && message.content.isNotBlank()
@@ -1913,7 +1917,7 @@ class AiRepository(
 
         // 上下文按固定优先级组装：长期记忆和滚动摘要先占预算，剩余预算留给最近原文。
         val memoryBlock = conversation?.let {
-            buildRelevantMemoryBlock(it, currentUserMessage, memoryBudget)
+            buildRelevantMemoryBlock(it, currentUserMessage, memoryBudget, options)
         }
 
         var usedTokens = 0
@@ -2317,7 +2321,8 @@ class AiRepository(
     private suspend fun buildRelevantMemoryBlock(
         conversation: Conversation,
         currentUserMessage: String,
-        tokenBudget: Int
+        tokenBudget: Int,
+        options: ChatRequestOptions? = null
     ): String? {
         // 严格隔离：私密对话与故事创作/角色扮演会话均不注入全局长期记忆，防止外部记忆干扰新故事设定
         if (hasConversationTag(conversation, "private") ||
@@ -2328,7 +2333,11 @@ class AiRepository(
         val candidates = memoryDao.getCandidateMemories(conversation.id).filter { it.isEnabled }
         if (candidates.isEmpty()) return null
 
-        val sessionMemories = candidates.filter { it.scope == "conversation" && it.conversationId == conversation.id }
+        val sessionMemories = if (options?.enableSessionMemory == false) {
+            emptyList()
+        } else {
+            candidates.filter { it.scope == "conversation" && it.conversationId == conversation.id }
+        }
         val longTermMemories = candidates.filter { it.scope == "user" }
 
         val blocks = mutableListOf<String>()

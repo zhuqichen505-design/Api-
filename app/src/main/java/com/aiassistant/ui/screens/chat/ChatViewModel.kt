@@ -135,7 +135,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                 // 使用对话级别配置，如果没有则使用API配置默认值
                 _tempSettings.value = TempChatSettings(
                     temperature = conv.temperature ?: apiConfig?.temperature ?: 0.95f,
-                    maxTokens = conv.maxTokens ?: apiConfig?.maxTokens ?: 8192,
+                    maxTokens = conv.maxTokens ?: apiConfig?.maxTokens ?: 50000,
                     topP = conv.topP ?: apiConfig?.topP ?: 1.0f,
                     enableThinking = conv.enableThinking ?: apiConfig?.enableThinking ?: true,
                     thinkingEffort = conv.thinkingEffort ?: apiConfig?.thinkingEffort ?: "high",
@@ -161,7 +161,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                         conversationTitle = conv.title,
                         modelName = conv.modelName,
                         systemPrompt = conv.systemPrompt,
-                        enableThinking = conversation?.enableThinking ?: false,
+                        enableThinking = conversation?.enableThinking ?: true,
                         isRoleplay = rpSession != null,
                         roleplaySession = rpSession,
                         roleplayCharacter = rpCharacter,
@@ -558,8 +558,8 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                     )
                     val savedMsgId = repository.saveMessage(userMessage)
 
-                    // 智能记忆提取（仅在普通会话生效，需用户在界面主动确认才入库）
-                    if (_uiState.value.roleplaySession == null && content.isNotBlank()) {
+                    // 智能记忆提取（仅在普通会话生效，且在开启会话记忆时，需用户在界面主动确认才入库）
+                    if (_uiState.value.roleplaySession == null && content.isNotBlank() && settings?.enableSessionMemory != false) {
                         val candidate = com.aiassistant.utils.SmartMemoryExtractor.extractCandidate(
                             content = content,
                             conversationId = conversationId,
@@ -597,6 +597,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                     enableThinking = settings?.enableThinking,
                     thinkingEffort = settings?.thinkingEffort,
                     enableWebSearch = settings?.enableWebSearch,
+                    enableSessionMemory = settings?.enableSessionMemory,
                     overrideSystemPrompt = true,
                     systemPromptOverride = effectiveSystemPrompt
                 )
@@ -1681,7 +1682,7 @@ data class ChatUiState(
     val conversationTitle: String = "新对话",
     val modelName: String = "",
     val systemPrompt: String? = null,
-    val enableThinking: Boolean = false,
+    val enableThinking: Boolean = true,
     val isLoading: Boolean = false,
     val isRoleplay: Boolean = false,
     val roleplaySession: RoleplaySession? = null,
@@ -1701,9 +1702,10 @@ data class ContextUsageUiState(
 // 临时聊天设置（仅当前对话有效）
 data class TempChatSettings(
     val temperature: Float = 0.95f,
-    val maxTokens: Int = 8192,
+    val maxTokens: Int = 50000,
     val topP: Float = 1.0f,
     val enableThinking: Boolean = true,
     val thinkingEffort: String = "high",
-    val enableWebSearch: Boolean = false
+    val enableWebSearch: Boolean = false,
+    val enableSessionMemory: Boolean = true
 )

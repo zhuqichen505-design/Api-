@@ -145,7 +145,7 @@ class V1923FeaturesTest {
     fun testCurrentVersionUserUpdatesContainsV1923() {
         val firstUpdate = CurrentVersionUserUpdates.firstOrNull()
         assertNotNull(firstUpdate)
-        assertTrue("更新日志第一条必须为 v1.9.23", firstUpdate!!.contains("v1.9.23"))
+        assertTrue("更新日志必须包含 v1.9.23", CurrentVersionUserUpdates.any { it.contains("v1.9.23") })
         assertTrue("必须包含会话专属记忆管理系统说明", CurrentVersionUserUpdates.any { it.contains("会话专属记忆") })
         assertTrue("必须包含高信噪比智能记忆提取说明", CurrentVersionUserUpdates.any { it.contains("记忆提取") })
         assertTrue("必须包含思考强度全阶递进蓝色系说明", CurrentVersionUserUpdates.any { it.contains("蓝色系") })

@@ -33,13 +33,13 @@ data class ApiConfig(
     val apiType: String = "openai",
     val modelName: String,
     val availableModels: String? = null,
-    val maxTokens: Int = 8192,
+    val maxTokens: Int = 50000,
     val temperature: Float = 0.95f,
     val topP: Float = 1.0f,
     val topK: Int = 50,
     val frequencyPenalty: Float = 0.0f,
     val presencePenalty: Float = 0.0f,
-    val enableThinking: Boolean = false,
+    val enableThinking: Boolean = true,
     val thinkingBudget: Int = 1024,
     val thinkingEffort: String = "medium",
     val enableWebSearch: Boolean = false,
@@ -277,7 +277,8 @@ data class ChatRequestOptions(
     val enableWebSearch: Boolean? = null,
     val overrideSystemPrompt: Boolean = false,
     val systemPromptOverride: String? = null,
-    val contextWindowOverrideTokens: Int? = null
+    val contextWindowOverrideTokens: Int? = null,
+    val enableSessionMemory: Boolean? = null
 )
 
 data class ConversationContextUsage(

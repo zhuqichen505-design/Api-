@@ -1,5 +1,60 @@
 # Echo AI 助手更新日志 (Update Log)
 
+## [v1.9.24] - 2026-09-08
+
+### 1. 本次升级与 16 项用户需求 100% 落实
+1. **模型回复底部分割线微距贴合（Req 1）**：上移回复完成微光分割线间距，减少顶部冗余空白（`padding(top = 2.dp, bottom = 4.dp)`），布局紧凑精致。
+2. **对话页顶部悬浮栏无瑕全景毛玻璃（Req 2）**：彻底修复白色胶囊外圈矩形背景和液态玻璃失真，外层采用透明 Column 包裹，内层 Surface 严格贴合 56dp 胶囊形状，消除背景溢出与模糊失效。
+3. **会话内专属记忆独立控制总开关（Req 3）**：在对话设置弹窗中增加会话专属记忆总开关（`enableSessionMemory`），打通 `TempChatSettings`、`ChatViewModel`、`AiRepository` 与 `ChatRequestOptions`，支持完全关闭或开启注入。
+4. **思考强度全链路即时双向同步与真实参数注入（Req 4）**：底部输入栏思考强度弹窗与对话设置中思考强度完全双向同步（`reasoningEffort`），即时存盘并保证在 API 发送层精准映射下发（OpenAI `reasoning_effort` / Claude `budget_tokens` / Gemini `thinkingConfig`）。
+5. **思考强度配色重调与真实参数详情弹窗（Req 5）**：重调快速档饱和度（雅致柔和 `#5FA8D3`），拉开深入（`#1D4ED8`）与极高（`#4F46E5` / `#6366F1`）的色相辨识度；在标题右侧增加 `ⓘ` 说明按钮，点击弹出各服务商在各档位下发的具体 API 参数。
+6. **思考强度展开窗口全屏点击外部折叠（Req 6）**：在主输入栏思考调节弹窗展开时，增加全屏无感透明拦截遮罩与 BackHandler，点击弹窗外任意位置或按返回键平滑折叠。
+7. **全屏状态栏阴影覆盖与液态玻璃弹窗统一（Req 7）**：全面升级 `EchoGlassDialog`，引入全屏 `FLAG_LAYOUT_NO_LIMITS`、`MATCH_PARENT` 及透明状态栏/导航栏标志，实现 100% 全屏无死角 40% 深色遮罩；迁移 `ChatScreen` 中的原生 `Dialog` 与 `AlertDialog` 至 `EchoGlassDialog`。
+8. **全局平滑页面转场过渡动画（Req 8）**：在 `MainActivity.kt` 的 `NavHost` 中为所有页面配置全局平滑横向滑入滑出与渐变动画（`slideInHorizontally` + `fadeIn` / `slideOutHorizontally` + `fadeOut`），采用 `FastOutSlowInEasing` 曲线，页面切换优雅自然。
+9. **进入对话默认瞬间滚动到底部（Req 9）**：会话首次加载后检测到首批历史消息时，自动瞬间精准锚定到底部最新消息，杜绝从顶部下移的突兀感。
+10. **一键快速回到顶部/底部极速预跳加速（Req 10）**：重构 `ChatScrollJumpButtons` 滚动逻辑，距离大于 8 条消息时先静默预定位至邻近位置再短距平滑滚入，彻底解决超长会话中滚动速度过慢的问题。
+11. **右侧全局滚动条加粗与平滑跟手优化（Req 11）**：在 `ScrollAssist.kt` 中将滚动条滑块宽度增至 8dp，触控热区增至 36dp，最小高度 44dp，并增加拖拽高亮态与平滑手势位移映射，解决卡顿断触。
+12. **全局默认最大生成 Token 提升至 50,000（Req 12）**：将 `ApiConfig`、`TempChatSettings`、`RoleplayViewModel`、`SettingsScreen` 等全局层面的默认及回退最大输出长度统一提升至 50,000。
+13. **全局默认开启深度思考模式（Req 13）**：统一将全局各层级 `enableThinking` 默认值设为 `true`。
+14. **移除胶囊下方多余英语检测，翻译按钮内嵌至思考区右上角（Req 14）**：彻底移除思考胶囊下方冗余的英语检测小按钮，将翻译按钮移至展开后的思考框标题栏右上角（复制按钮左侧），操作更集中直观。
+15. **正在思考胶囊动态显示模型名称（Req 15）**：思考状态胶囊文案更新为 `"${model.displayModelShortName()} 正在思考中..."`，让用户明确知晓当前推理的模型。
+16. **模型选择列表智能过滤前缀仅显示核心名称（Req 16）**：统一调用 `displayModelShortName()`，自动过滤供应商路径（如 `z-ai/glm-5.2` -> `glm-5.2`），输入栏模型选择与设置页模型下拉全部生效。
+
+### 2. 自动化测试核验
+- 全量 106 项单元测试 100% 全部通过（退出码 0，新增 `V1924FeaturesTest` 专项验证模型名称裁剪、会话记忆开关选项、默认 50000 Token 及更新说明完整性）。
+
+### 3. 改动涉及文件列表
+- `app/src/main/java/com/aiassistant/ui/components/EchoHaze.kt`: `EchoGlassDialog` 全面升级为系统级无界沉浸弹窗（`FLAG_LAYOUT_NO_LIMITS`、`MATCH_PARENT`、状态栏透明、40% 全屏遮罩无暗角死区穿透）。
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatScreen.kt`:
+  - 顶部悬浮胶囊栏采用透明包裹外框与精确内层 Surface，根除方框背景与液态玻璃模糊损坏；
+  - 思考强度弹窗与对话设置完全双向即时同步，思考模式默认开启；
+  - 思考强度快速/深入/极高配色重新调校，新增 ⓘ 实际参数说明弹窗（`ThinkingParamsExplanationDialog`）；
+  - 全屏透明点击拦截器与返回键一键折叠思考弹窗；
+  - 对话消息底部分割线贴合微调（`padding(top = 2.dp, bottom = 4.dp)`）；
+  - 进入会话首次即时定位最新底部消息；
+  - 一键快速回到顶部/底部智能预跳加速算法；
+  - 思考胶囊文案动态显示模型名称，移除下方英语检测按钮，翻译按钮移入思考区右上角；
+  - 模型下拉与输入栏模型选择统一切除供应商路径前缀（`displayModelShortName()`）；
+  - 会话专属记忆管理面板（`ChatSettingsSessionMemorySection`）新增启用/停用总开关。
+- `app/src/main/java/com/aiassistant/ui/components/ScrollAssist.kt`: `TransientLazyListScrollbar` 宽度增至 8dp，触控热区增至 36dp，最小高度 44dp，平滑手势位移与拖拽高亮态。
+- `app/src/main/java/com/aiassistant/domain/model/Models.kt`: `ApiConfig.maxTokens` 默认提升至 50,000，`enableThinking` 默认 `true`，`ChatRequestOptions` 增加 `enableSessionMemory: Boolean?`。
+- `app/src/main/java/com/aiassistant/data/repository/AiRepository.kt`: 上下文组装 `buildContextBundle` 与 `resolveChatRequestOptions` 严格响应会话专属记忆开关 `enableSessionMemory`。
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatViewModel.kt`: `TempChatSettings` 默认 `maxTokens = 50000`、`enableThinking = true`、`enableSessionMemory = true`，`sendMessageInternal` 携带该配置。
+- `app/src/main/java/com/aiassistant/ui/screens/roleplay/RoleplayViewModel.kt`: 角色扮演默认及回退 `maxTokens` 统一提升至 50,000。
+- `app/src/main/java/com/aiassistant/ui/screens/settings/SettingsScreen.kt`: 默认配置更新，同步更新 `CurrentVersionUserUpdates`。
+- `app/src/main/java/com/aiassistant/MainActivity.kt`: `NavHost` 引入平滑横向位移与渐变混合转场（`slideInHorizontally` + `fadeIn` / `slideOutHorizontally` + `fadeOut`，`FastOutSlowInEasing`）。
+- `app/src/test/java/com/aiassistant/V1924FeaturesTest.kt`: 新增测试套件。
+- `app/src/test/java/com/aiassistant/V1923FeaturesTest.kt`: 适配更新日志列表断言。
+- `app/src/test/java/com/aiassistant/ChatEnhancementsTest.kt`: 默认 maxTokens 断言同步更新为 50,000。
+- `app/build.gradle.kts`: `versionCode = 104`, `versionName = "1.9.24"`。
+
+### 4. 历史安装包永久保留准则（最高铁律）
+- 构建前历史版本：102 个，构建后增至 103 个，严格遵守历史包永久保留最高铁律，未执行任何删除/清理操作；
+- 增量输出安装包：`Echo-v1.9.24-arm64-v8a.apk`
+  - 路径：`D:\Agent\APP-烧\app\releases\Echo-v1.9.24-arm64-v8a.apk`
+  - 体积：16,025,597 字节 (~15.28 MB)
+  - SHA-256：`8A5E8CC61F4A35FDD106FA51DB45358627DFCE781974BEA5287A9BFCD2C36EF2`
+
 ## [v1.9.23] - 2026-09-08
 
 ### 1. 本次升级与需求 100% 落实

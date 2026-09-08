@@ -278,8 +278,21 @@ fun EchoGlassDialog(
             var parent = view.parent
             while (parent != null) {
                 if (parent is androidx.compose.ui.window.DialogWindowProvider) {
-                    parent.window.setBackgroundDrawableResource(android.R.color.transparent)
-                    parent.window.setDimAmount(0f)
+                    parent.window.apply {
+                        setLayout(
+                            android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                            android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                        )
+                        setBackgroundDrawableResource(android.R.color.transparent)
+                        statusBarColor = android.graphics.Color.TRANSPARENT
+                        navigationBarColor = android.graphics.Color.TRANSPARENT
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                            isNavigationBarContrastEnforced = false
+                        }
+                        addFlags(android.view.WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
+                        addFlags(android.view.WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
+                        setDimAmount(0f)
+                    }
                     break
                 }
                 parent = parent.parent
@@ -293,7 +306,7 @@ fun EchoGlassDialog(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFF1E293B).copy(alpha = 0.26f))
+                .background(Color(0xFF0F172A).copy(alpha = 0.40f))
                 .clickable(
                     interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                     indication = null,

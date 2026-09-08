@@ -178,6 +178,7 @@ fun ChatScreen(
     var showStoryManagerDialog by remember { mutableStateOf(false) }
     var showStorySmartAnalyzeDialog by remember { mutableStateOf(false) }
     var showPlotActionDialog by remember { mutableStateOf(false) }
+    var showThinkingPopover by remember { mutableStateOf(false) }
     var selectedAttachments by remember { mutableStateOf<List<Attachment>>(emptyList()) }
     var isProcessingAttachments by remember { mutableStateOf(false) }
     var attachmentStatus by remember { mutableStateOf<String?>(null) }
@@ -203,7 +204,11 @@ fun ChatScreen(
     }
 
     BackHandler {
-        viewModel.leaveConversation(onNavigateBack)
+        if (showThinkingPopover) {
+            showThinkingPopover = false
+        } else {
+            viewModel.leaveConversation(onNavigateBack)
+        }
     }
 
     fun addAttachments(uris: List<Uri>, forceOcr: Boolean = false) {
@@ -268,6 +273,16 @@ fun ChatScreen(
             }
         }.collect { atBottom ->
             autoFollowOutput = atBottom
+        }
+    }
+
+    var hasInitialScrolledToBottom by remember(conversationId) { mutableStateOf(false) }
+    LaunchedEffect(conversationId, displayMessages.size) {
+        if (!hasInitialScrolledToBottom && displayMessages.isNotEmpty()) {
+            hasInitialScrolledToBottom = true
+            try {
+                listState.scrollToItem(displayMessages.size - 1)
+            } catch (_: Exception) {}
         }
     }
 
@@ -338,82 +353,87 @@ fun ChatScreen(
                         fallbackSurface = readableBackdrops.top
                     )
 
-                    Surface(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .statusBarsPadding()
                             .padding(horizontal = 12.dp, vertical = 6.dp)
-                            .echoHazePanel(
-                                hazeState = hazeState,
-                                shape = toolbarShape,
-                                tint = toolbarBg,
-                                blurRadius = 18.dp,
-                                highlightAlpha = 0.035f
-                            ),
-                        shape = toolbarShape,
-                        color = toolbarBg,
-                        contentColor = toolbarContentColor,
-                        border = BorderStroke(1.dp, glass.outline),
-                        tonalElevation = 0.dp,
-                        shadowElevation = 0.dp
                     ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp)
-                        .padding(horizontal = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(
-                        onClick = { viewModel.leaveConversation(onNavigateBack) },
-                        modifier = Modifier.size(48.dp)
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                    ChatHeaderTitle(
-                        title = uiState.conversationTitle.ifBlank { "新对话" },
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight(),
-                        onLongClick = {
-                            renameText = uiState.conversationTitle
-                            showRenameDialog = true
-                        }
-                    )
-                    ContextUsageButton(
-                        usage = contextUsage.usage,
-                        canCompress = contextUsage.usage?.canCompress == true,
-                        onClick = {
-                            viewModel.refreshContextUsage()
-                            showContextUsageDialog = true
-                        }
-                    )
-                    if (uiState.isRoleplay) {
-                        IconButton(
-                            onClick = { showStoryManagerDialog = true },
-                            modifier = Modifier.size(48.dp)
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .echoHazePanel(
+                                    hazeState = hazeState,
+                                    shape = toolbarShape,
+                                    tint = toolbarBg,
+                                    blurRadius = 18.dp,
+                                    highlightAlpha = 0.035f
+                                ),
+                            shape = toolbarShape,
+                            color = toolbarBg,
+                            contentColor = toolbarContentColor,
+                            border = BorderStroke(1.dp, glass.outline),
+                            tonalElevation = 0.dp,
+                            shadowElevation = 0.dp
                         ) {
-                            Icon(
-                                Icons.Default.AutoStories,
-                                contentDescription = "故事创作与参数设置",
-                                tint = toolbarContentColor
-                            )
-                        }
-                    } else {
-                        IconButton(
-                            onClick = { showSettingsDialog = true },
-                            modifier = Modifier.size(48.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.Tune,
-                                contentDescription = "对话设置",
-                                tint = toolbarContentColor
-                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(56.dp)
+                                    .padding(horizontal = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                IconButton(
+                                    onClick = { viewModel.leaveConversation(onNavigateBack) },
+                                    modifier = Modifier.size(48.dp)
+                                ) {
+                                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                                }
+                                ChatHeaderTitle(
+                                    title = uiState.conversationTitle.ifBlank { "新对话" },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight(),
+                                    onLongClick = {
+                                        renameText = uiState.conversationTitle
+                                        showRenameDialog = true
+                                    }
+                                )
+                                ContextUsageButton(
+                                    usage = contextUsage.usage,
+                                    canCompress = contextUsage.usage?.canCompress == true,
+                                    onClick = {
+                                        viewModel.refreshContextUsage()
+                                        showContextUsageDialog = true
+                                    }
+                                )
+                                if (uiState.isRoleplay) {
+                                    IconButton(
+                                        onClick = { showStoryManagerDialog = true },
+                                        modifier = Modifier.size(48.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.AutoStories,
+                                            contentDescription = "故事创作与参数设置",
+                                            tint = toolbarContentColor
+                                        )
+                                    }
+                                } else {
+                                    IconButton(
+                                        onClick = { showSettingsDialog = true },
+                                        modifier = Modifier.size(48.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Tune,
+                                            contentDescription = "对话设置",
+                                            tint = toolbarContentColor
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
-                }
-            }
-        },
+                },
         bottomBar = {
             Column(modifier = Modifier.fillMaxWidth()) {
                 androidx.compose.animation.AnimatedVisibility(
@@ -571,6 +591,8 @@ fun ChatScreen(
                     onThinkingChange = { enabled, effort ->
                         viewModel.updateTempSettings(tempSettings.copy(enableThinking = enabled, thinkingEffort = effort))
                     },
+                    showThinkingPopover = showThinkingPopover,
+                    onThinkingPopoverChange = { showThinkingPopover = it },
                     isRoleplay = uiState.isRoleplay,
                     onPlotActionClick = { showPlotActionDialog = true },
                     readableBackdrop = readableBackdrops.bottom,
@@ -885,6 +907,10 @@ fun ChatScreen(
                 onJumpToTop = {
                     autoFollowOutput = false
                     scope.launch {
+                        val firstVisible = listState.firstVisibleItemIndex
+                        if (firstVisible > 8) {
+                            listState.scrollToItem(6)
+                        }
                         listState.animateScrollToItem(0)
                     }
                 },
@@ -892,6 +918,10 @@ fun ChatScreen(
                     autoFollowOutput = true
                     scope.launch {
                         val lastIndex = (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)
+                        val firstVisible = listState.firstVisibleItemIndex
+                        if (lastIndex - firstVisible > 8) {
+                            listState.scrollToItem((lastIndex - 6).coerceAtLeast(0))
+                        }
                         listState.animateScrollToItem(lastIndex)
                     }
                 },
@@ -902,6 +932,19 @@ fun ChatScreen(
                         bottom = paddingValues.calculateBottomPadding() + 18.dp
                     )
             )
+
+            if (showThinkingPopover) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clickable(
+                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            showThinkingPopover = false
+                        }
+                )
+            }
         }
     }
     }
@@ -931,6 +974,7 @@ fun ChatScreen(
             onToggleSessionMemory = { id, enabled -> viewModel.toggleSessionMemory(id, enabled) },
             onDeleteSessionMemory = { viewModel.deleteSessionMemory(it) },
             onClearSessionMemories = { viewModel.clearSessionMemories() },
+            onTempSettingsChange = { viewModel.updateTempSettings(it) },
             onDismiss = { showSettingsDialog = false },
             onSave = { settings, prompt ->
                 viewModel.updateChatSettings(settings, prompt)
@@ -1975,10 +2019,11 @@ private fun MessageBubble(
                         message.tokenCount,
                         personalizationSettings.thinkingCapsuleTemplate
                     ) {
-                        val model = assistantModelName.ifBlank { "AI" }
+                        val rawModel = assistantModelName.ifBlank { "AI" }
+                        val model = rawModel.displayModelShortName()
                         when {
                             isConnecting -> "正在连接 $model..."
-                            isThinkingActive -> "模型正在思考中"
+                            isThinkingActive -> "$model 正在思考中..."
                             hasThinking -> formatThinkingCapsuleText(
                                 template = personalizationSettings.thinkingCapsuleTemplate,
                                 modelName = model,
@@ -2082,38 +2127,6 @@ private fun MessageBubble(
                     }
                 }
 
-                if (!isGenerating && isThinkingEnglish && !hasTranslation) {
-                    Surface(
-                        modifier = Modifier
-                            .padding(top = 4.dp, start = 40.dp)
-                            .clickable {
-                                showThinking = true
-                                onTranslateThinking?.invoke(message)
-                            },
-                        shape = RoundedCornerShape(999.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.Translate,
-                                contentDescription = null,
-                                modifier = Modifier.size(13.dp),
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                            Text(
-                                text = if (translatingThinking) "正在翻译思考链..." else "检测到英文思考 · 点击汉化",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-                }
-
                 if (hasThinking) {
                     AnimatedVisibility(visible = showThinking && hasThinkingContent) {
                         Surface(
@@ -2184,7 +2197,7 @@ private fun MessageBubble(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                                     ) {
-                                        if (!hasTranslation && isThinkingEnglish && !isGenerating) {
+                                        if (!isGenerating) {
                                             if (translatingThinking) {
                                                 Row(
                                                     verticalAlignment = Alignment.CenterVertically,
@@ -2203,32 +2216,17 @@ private fun MessageBubble(
                                                     )
                                                 }
                                             } else {
-                                                Surface(
-                                                    shape = RoundedCornerShape(999.dp),
-                                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
-                                                    modifier = Modifier.clickable { onTranslateThinking?.invoke(message) }
+                                                IconButton(
+                                                    onClick = { onTranslateThinking?.invoke(message) },
+                                                    modifier = Modifier.size(24.dp)
                                                 ) {
-                                                    Row(
-                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                                                        verticalAlignment = Alignment.CenterVertically,
-                                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                                    ) {
-                                                        Icon(Icons.Default.Translate, contentDescription = null, modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.primary)
-                                                        Text("翻译为中文", style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.5.sp), color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
-                                                    }
+                                                    Icon(
+                                                        Icons.Default.Translate,
+                                                        contentDescription = if (hasTranslation) "重新翻译思考" else "翻译思考为中文",
+                                                        modifier = Modifier.size(15.dp),
+                                                        tint = if (hasTranslation) MaterialTheme.colorScheme.primary else thinkingHeaderColor.copy(alpha = 0.78f)
+                                                    )
                                                 }
-                                            }
-                                        } else if (hasTranslation && !isGenerating) {
-                                            IconButton(
-                                                onClick = { onTranslateThinking?.invoke(message) },
-                                                modifier = Modifier.size(24.dp)
-                                            ) {
-                                                Icon(
-                                                    Icons.Default.Refresh,
-                                                    contentDescription = "重新翻译",
-                                                    modifier = Modifier.size(14.dp),
-                                                    tint = thinkingHeaderColor.copy(alpha = 0.78f)
-                                                )
                                             }
                                         }
 
@@ -2344,7 +2342,7 @@ private fun MessageBubble(
                         HorizontalDivider(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(top = 14.dp, bottom = 6.dp),
+                                .padding(top = 2.dp, bottom = 4.dp),
                             thickness = 1.dp,
                             color = dividerColor
                         )
@@ -2729,9 +2727,11 @@ fun ChatInputBar(
     onOcrImages: () -> Unit,
     enableWebSearch: Boolean,
     onWebSearchChange: (Boolean) -> Unit,
-    enableThinking: Boolean = false,
+    enableThinking: Boolean = true,
     thinkingEffort: String = "medium",
     onThinkingChange: (Boolean, String) -> Unit = { _, _ -> },
+    showThinkingPopover: Boolean = false,
+    onThinkingPopoverChange: (Boolean) -> Unit = {},
     isRoleplay: Boolean = false,
     onPlotActionClick: () -> Unit = {},
     readableBackdrop: Color = Color.Unspecified,
@@ -2739,7 +2739,6 @@ fun ChatInputBar(
 ) {
     var showToolMenu by remember { mutableStateOf(false) }
     var isInputExpanded by remember { mutableStateOf(false) }
-    var showThinkingPopover by remember { mutableStateOf(false) }
     val inputShape = if (isInputExpanded) RoundedCornerShape(22.dp) else RoundedCornerShape(30.dp)
     val resolvedReadableBackdrop = readableBackdrop.takeOrElse {
         MaterialTheme.colorScheme.background
@@ -2772,7 +2771,7 @@ fun ChatInputBar(
                 onEffortSelected = { enabled, effort ->
                     onThinkingChange(enabled, effort)
                 },
-                onClose = { showThinkingPopover = false }
+                onClose = { onThinkingPopoverChange(false) }
             )
         }
 
@@ -2889,10 +2888,10 @@ fun ChatInputBar(
                             }
                             val effortAccentColor = when {
                                 !enableThinking -> glass.outline
-                                thinkingEffort.equals("low", true) || thinkingEffort.equals("fast", true) -> Color(0xFF38BDF8) // 浅冰蓝
+                                thinkingEffort.equals("low", true) || thinkingEffort.equals("fast", true) -> Color(0xFF5FA8D3) // 柔和冰蓝
                                 thinkingEffort.equals("medium", true) || thinkingEffort.equals("balanced", true) -> Color(0xFF2563EB) // 蔚蓝
                                 thinkingEffort.equals("high", true) || thinkingEffort.equals("deep", true) -> Color(0xFF1D4ED8) // 深海蓝
-                                thinkingEffort.equals("ultra", true) || thinkingEffort.equals("max", true) -> Color(0xFF1E40AF) // 皇家宝石蓝
+                                thinkingEffort.equals("ultra", true) || thinkingEffort.equals("max", true) -> Color(0xFF4338CA) // 靛青紫蓝
                                 else -> Color(0xFF2563EB)
                             }
                             InputPillButton(
@@ -2900,7 +2899,7 @@ fun ChatInputBar(
                                 icon = null,
                                 trailingIcon = if (showThinkingPopover) Icons.Default.ExpandMore else Icons.Default.ExpandLess,
                                 selected = enableThinking,
-                                onClick = { showThinkingPopover = !showThinkingPopover },
+                                onClick = { onThinkingPopoverChange(!showThinkingPopover) },
                                 containerColor = if (enableThinking) {
                                     effortAccentColor.copy(alpha = 0.16f)
                                 } else {
@@ -3100,6 +3099,7 @@ private fun ReasoningEffortPopupCard(
     onEffortSelected: (Boolean, String) -> Unit,
     onClose: () -> Unit
 ) {
+    var showParamsExplanationDialog by remember { mutableStateOf(false) }
     val cap = remember(modelName) {
         if (modelName.isNotBlank()) com.aiassistant.domain.model.ModelCapabilityEngine.resolveCapabilities(modelName) else null
     }
@@ -3125,8 +3125,8 @@ private fun ReasoningEffortPopupCard(
                     name = "快速",
                     subtitle = "快速思考 · 低延迟响应",
                     detail = "分配精简思考预算进行关键逻辑检查，适合日常交流与常规问答。",
-                    primaryColor = Color(0xFF38BDF8),
-                    gradientColors = listOf(Color(0xFF38BDF8), Color(0xFF0EA5E9))
+                    primaryColor = Color(0xFF5FA8D3),
+                    gradientColors = listOf(Color(0xFF67B0DC), Color(0xFF4A95C7))
                 ),
                 ThinkingEffortLevel(
                     step = 2,
@@ -3168,8 +3168,8 @@ private fun ReasoningEffortPopupCard(
                     name = "快速",
                     subtitle = "轻度思考 · 快速响应",
                     detail = "分配少量思考预算进行简要推理，适合常规闲聊、翻译与基础问答。",
-                    primaryColor = Color(0xFF38BDF8),
-                    gradientColors = listOf(Color(0xFF38BDF8), Color(0xFF0EA5E9))
+                    primaryColor = Color(0xFF5FA8D3),
+                    gradientColors = listOf(Color(0xFF67B0DC), Color(0xFF4A95C7))
                 ),
                 ThinkingEffortLevel(
                     step = 2,
@@ -3198,8 +3198,8 @@ private fun ReasoningEffortPopupCard(
                     name = "极高",
                     subtitle = "极限思考 · 极致推理",
                     detail = "释放最大思考预算上限，全力攻坚数学证明、高难度算法与复杂多维哲学推理。",
-                    primaryColor = Color(0xFF1E40AF),
-                    gradientColors = listOf(Color(0xFF1E40AF), Color(0xFF0F172A))
+                    primaryColor = Color(0xFF4F46E5),
+                    gradientColors = listOf(Color(0xFF6366F1), Color(0xFF4338CA))
                 )
             )
         }
@@ -3288,6 +3288,17 @@ private fun ReasoningEffortPopupCard(
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
+                            IconButton(
+                                onClick = { showParamsExplanationDialog = true },
+                                modifier = Modifier.size(22.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Info,
+                                    contentDescription = "思考参数说明",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
                             if (badgeText.isNotBlank()) {
                                 Surface(
                                     shape = RoundedCornerShape(999.dp),
@@ -3372,6 +3383,216 @@ private fun ReasoningEffortPopupCard(
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                             )
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showParamsExplanationDialog) {
+        ThinkingParamsExplanationDialog(
+            onDismiss = { showParamsExplanationDialog = false }
+        )
+    }
+}
+
+@Composable
+private fun ThinkingParamsExplanationDialog(
+    onDismiss: () -> Unit
+) {
+    val containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)
+    val contentColor = readableTextColorFor(containerColor, MaterialTheme.colorScheme.background)
+    val secondaryColor = contentColor.copy(alpha = 0.72f)
+
+    EchoGlassDialog(
+        onDismissRequest = onDismiss,
+        modifier = Modifier
+            .fillMaxWidth(0.92f)
+            .widthIn(max = 440.dp),
+        tint = containerColor,
+        containerColor = containerColor,
+        contentColor = contentColor,
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Info,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+                Column {
+                    Text(
+                        text = "思考强度与实际参数说明",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = contentColor
+                    )
+                    Text(
+                        text = "各档位在不同模型与 API 架构中传入的底层参数",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = secondaryColor
+                    )
+                }
+            }
+        },
+        content = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                ThinkingParamCard(
+                    title = "关闭 (none)",
+                    badge = "无思考预算",
+                    badgeColor = Color(0xFF64748B),
+                    desc = "跳过思维链推演，以模型原生最高速度直接生成最终回复内容。",
+                    params = listOf(
+                        "OpenAI / o系列" to "不传 reasoning_effort",
+                        "Claude / Anthropic" to "不启用 thinking 模块",
+                        "DeepSeek 官方" to "切换为 deepseek-chat"
+                    )
+                )
+
+                ThinkingParamCard(
+                    title = "快速 (low)",
+                    badge = "精简推演",
+                    badgeColor = Color(0xFF5FA8D3),
+                    desc = "分配精简思考预算进行关键逻辑检查，低延迟极速响应。",
+                    params = listOf(
+                        "OpenAI / o系列" to "reasoning_effort = \"low\"",
+                        "Claude / Anthropic" to "thinking.budget_tokens = 2048",
+                        "通用兼容 API" to "thinking_effort = \"low\""
+                    )
+                )
+
+                ThinkingParamCard(
+                    title = "平衡 (medium)",
+                    badge = "推荐默认",
+                    badgeColor = Color(0xFF2563EB),
+                    desc = "投入适度思考预算，严密推演逻辑与代码设计（日常最佳平衡点）。",
+                    params = listOf(
+                        "OpenAI / o系列" to "reasoning_effort = \"medium\"",
+                        "Claude / Anthropic" to "thinking.budget_tokens = 8192",
+                        "通用兼容 API" to "thinking_effort = \"medium\""
+                    )
+                )
+
+                ThinkingParamCard(
+                    title = "深入 (high)",
+                    badge = "深度推理",
+                    badgeColor = Color(0xFF1D4ED8),
+                    desc = "投入大量思考预算进行多步论证、边界检查与复杂代码推演。",
+                    params = listOf(
+                        "OpenAI / o系列" to "reasoning_effort = \"high\"",
+                        "Claude / Anthropic" to "thinking.budget_tokens = 16384",
+                        "通用兼容 API" to "thinking_effort = \"high\""
+                    )
+                )
+
+                ThinkingParamCard(
+                    title = "极高 (ultra)",
+                    badge = "极限预算",
+                    badgeColor = Color(0xFF4F46E5),
+                    desc = "释放最大思考预算上限，全力攻坚高难算法、数学定理与复杂多维哲学推理。",
+                    params = listOf(
+                        "OpenAI / o系列" to "reasoning_effort = \"high\" (对齐上限)",
+                        "Claude / Anthropic" to "thinking.budget_tokens = 32768 (满额)",
+                        "通用兼容 API" to "thinking_effort = \"max\""
+                    )
+                )
+            }
+        },
+        buttons = {
+            Button(
+                onClick = onDismiss,
+                shape = RoundedCornerShape(999.dp)
+            ) {
+                Text("我知道了")
+            }
+        }
+    )
+}
+
+@Composable
+private fun ThinkingParamCard(
+    title: String,
+    badge: String,
+    badgeColor: Color,
+    desc: String,
+    params: List<Pair<String, String>>
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f),
+        border = BorderStroke(1.dp, badgeColor.copy(alpha = 0.35f))
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Surface(
+                    shape = RoundedCornerShape(999.dp),
+                    color = badgeColor.copy(alpha = 0.16f),
+                    border = BorderStroke(1.dp, badgeColor.copy(alpha = 0.4f))
+                ) {
+                    Text(
+                        text = badge,
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                        color = badgeColor,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                    )
+                }
+            }
+
+            Text(
+                text = desc,
+                style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                params.forEach { (label, value) ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = label,
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = value,
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace),
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
                     }
                 }
             }
@@ -3482,7 +3703,7 @@ private fun ModelOptionText(option: ChatModelOption) {
     Column {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = option.modelName,
+                text = option.modelName.displayModelShortName(),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f, fill = false)
@@ -3590,11 +3811,17 @@ private fun InputPillButton(
     }
 }
 
+fun String.displayModelShortName(): String {
+    val trimmed = this.trim()
+    return if (trimmed.contains("/")) trimmed.substringAfterLast("/") else trimmed
+}
+
 private fun String.shortModelLabel(): String {
-    if (isBlank()) return "选择模型"
+    val clean = this.displayModelShortName()
+    if (clean.isBlank()) return "选择模型"
     return when {
-        length <= 18 -> this
-        else -> take(8) + "..." + takeLast(7)
+        clean.length <= 18 -> clean
+        else -> clean.take(8) + "..." + clean.takeLast(7)
     }
 }
 
@@ -4253,17 +4480,18 @@ private fun chatTuningProfile(
         val gears = if (cap.supportedThinkingGears.isNotEmpty()) {
             cap.supportedThinkingGears
         } else {
-            listOf("low", "medium", "high", "max")
+            listOf("low", "medium", "high", "ultra")
         }
         gears.map { gear ->
-            val gearLabel = when (gear) {
-                "low" -> "低"
-                "medium" -> "中"
-                "high" -> "高"
-                "max" -> "最大"
+            val mappedGear = if (gear == "max") "ultra" else gear
+            val gearLabel = when (mappedGear) {
+                "low" -> "快速"
+                "medium" -> "平衡"
+                "high" -> "深入"
+                "ultra", "max" -> "极高"
                 else -> gear
             }
-            ThinkingEffortOption(gear, gearLabel)
+            ThinkingEffortOption(mappedGear, gearLabel)
         }
     } else {
         emptyList()
@@ -4316,7 +4544,7 @@ private fun ChatSettingsModelSelector(
                 Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = currentLabel.ifBlank { "未选择模型" },
+                    text = currentLabel.displayModelShortName().ifBlank { "未选择模型" },
                     modifier = Modifier.weight(1f),
                     color = contentColor,
                     maxLines = 1,
@@ -4560,6 +4788,9 @@ fun ChatSettingsSessionMemorySection(
     sessionMemories: List<MemoryItem>,
     contentColor: Color,
     secondaryColor: Color,
+    enableSessionMemory: Boolean = true,
+    onEnableSessionMemoryChange: (Boolean) -> Unit = {},
+    hazeState: dev.chrisbanes.haze.HazeState? = null,
     onAddMemory: (String) -> Unit,
     onUpdateMemory: (MemoryItem) -> Unit,
     onToggleMemory: (Long, Boolean) -> Unit,
@@ -4597,34 +4828,43 @@ fun ChatSettingsSessionMemorySection(
                         imageVector = Icons.Default.Psychology,
                         contentDescription = null,
                         modifier = Modifier.size(18.dp),
-                        tint = MaterialTheme.colorScheme.primary
+                        tint = if (enableSessionMemory) MaterialTheme.colorScheme.primary else secondaryColor
                     )
                     Text(
                         text = "本会话专属记忆",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
-                        color = contentColor
+                        color = if (enableSessionMemory) contentColor else secondaryColor
                     )
                     Surface(
                         shape = RoundedCornerShape(999.dp),
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                        color = if (enableSessionMemory) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else secondaryColor.copy(alpha = 0.15f)
                     ) {
                         Text(
                             text = "${sessionMemories.size} 条",
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
+                            color = if (enableSessionMemory) MaterialTheme.colorScheme.primary else secondaryColor,
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                         )
                     }
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Switch(
+                        checked = enableSessionMemory,
+                        onCheckedChange = onEnableSessionMemoryChange,
+                        modifier = Modifier.scale(0.82f)
+                    )
                     TextButton(
                         onClick = {
                             addMemoryText = ""
                             showAddDialog = true
                         },
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                        enabled = enableSessionMemory
                     ) {
                         Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(2.dp))
@@ -4634,6 +4874,7 @@ fun ChatSettingsSessionMemorySection(
                         TextButton(
                             onClick = { showClearConfirmDialog = true },
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                            enabled = enableSessionMemory,
                             colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
                         ) {
                             Text("清空", style = MaterialTheme.typography.labelMedium)
@@ -4643,7 +4884,11 @@ fun ChatSettingsSessionMemorySection(
             }
 
             Text(
-                text = "仅在此会话生效。发送消息时会自动拼入专属提示词，防止污染全局长期偏好。",
+                text = if (enableSessionMemory) {
+                    "已开启：发送消息时会自动拼入专属提示词，防止污染全局长期偏好。"
+                } else {
+                    "已关闭：本会话发送消息时将暂时不附带记忆设定。"
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = secondaryColor
             )
@@ -4673,7 +4918,8 @@ fun ChatSettingsSessionMemorySection(
                                 showAddDialog = true
                             },
                             shape = RoundedCornerShape(999.dp),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f))
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
+                            enabled = enableSessionMemory
                         ) {
                             Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp))
                             Spacer(modifier = Modifier.width(4.dp))
@@ -4687,8 +4933,8 @@ fun ChatSettingsSessionMemorySection(
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                            border = BorderStroke(1.dp, glass.outline.copy(alpha = 0.5f))
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (enableSessionMemory) 0.45f else 0.22f),
+                            border = BorderStroke(1.dp, glass.outline.copy(alpha = if (enableSessionMemory) 0.5f else 0.25f))
                         ) {
                             Row(
                                 modifier = Modifier
@@ -4698,14 +4944,15 @@ fun ChatSettingsSessionMemorySection(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Switch(
-                                    checked = memory.isEnabled,
+                                    checked = memory.isEnabled && enableSessionMemory,
                                     onCheckedChange = { onToggleMemory(memory.id, it) },
+                                    enabled = enableSessionMemory,
                                     modifier = Modifier.scale(0.82f)
                                 )
                                 Text(
                                     text = memory.content,
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = if (memory.isEnabled) contentColor else secondaryColor,
+                                    color = if (memory.isEnabled && enableSessionMemory) contentColor else secondaryColor,
                                     modifier = Modifier.weight(1f)
                                 )
                                 IconButton(
@@ -4713,6 +4960,7 @@ fun ChatSettingsSessionMemorySection(
                                         memoryToEdit = memory
                                         editMemoryText = memory.content
                                     },
+                                    enabled = enableSessionMemory,
                                     modifier = Modifier.size(28.dp)
                                 ) {
                                     Icon(
@@ -4741,22 +4989,19 @@ fun ChatSettingsSessionMemorySection(
         }
     }
 
-    // 添加记忆弹窗
+    // 添加记忆弹窗 (EchoGlassDialog 保证全屏阴影遮罩覆盖状态栏)
     if (showAddDialog) {
-        Dialog(onDismissRequest = { showAddDialog = false }) {
-            Surface(
-                shape = RoundedCornerShape(20.dp),
-                color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 6.dp,
-                modifier = Modifier
-                    .fillMaxWidth(0.92f)
-                    .widthIn(max = 400.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    Text("添加会话专属记忆", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        EchoGlassDialog(
+            hazeState = hazeState,
+            onDismissRequest = { showAddDialog = false },
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .widthIn(max = 400.dp),
+            title = {
+                Text("添加会话专属记忆", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            },
+            content = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
                         "例如：本项目为 Kotlin+Compose 移动端项目，所有返回请提供带详细中文注释的代码。",
                         style = MaterialTheme.typography.bodySmall,
@@ -4772,119 +5017,118 @@ fun ChatSettingsSessionMemorySection(
                         maxLines = 5,
                         shape = RoundedCornerShape(12.dp)
                     )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically
+                }
+            },
+            buttons = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(onClick = { showAddDialog = false }) {
+                        Text("取消")
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            if (addMemoryText.isNotBlank()) {
+                                onAddMemory(addMemoryText.trim())
+                                showAddDialog = false
+                            }
+                        },
+                        enabled = addMemoryText.isNotBlank()
                     ) {
-                        TextButton(onClick = { showAddDialog = false }) {
-                            Text("取消")
-                        }
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Button(
-                            onClick = {
-                                if (addMemoryText.isNotBlank()) {
-                                    onAddMemory(addMemoryText.trim())
-                                    showAddDialog = false
-                                }
-                            },
-                            enabled = addMemoryText.isNotBlank()
-                        ) {
-                            Text("保存")
-                        }
+                        Text("保存")
                     }
                 }
             }
-        }
+        )
     }
 
     // 编辑记忆弹窗
     memoryToEdit?.let { memory ->
-        Dialog(onDismissRequest = { memoryToEdit = null }) {
-            Surface(
-                shape = RoundedCornerShape(20.dp),
-                color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 6.dp,
-                modifier = Modifier
-                    .fillMaxWidth(0.92f)
-                    .widthIn(max = 400.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
+        EchoGlassDialog(
+            hazeState = hazeState,
+            onDismissRequest = { memoryToEdit = null },
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .widthIn(max = 400.dp),
+            title = {
+                Text("编辑会话专属记忆", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            },
+            content = {
+                OutlinedTextField(
+                    value = editMemoryText,
+                    onValueChange = { editMemoryText = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 100.dp),
+                    maxLines = 5,
+                    shape = RoundedCornerShape(12.dp)
+                )
+            },
+            buttons = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("编辑会话专属记忆", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    OutlinedTextField(
-                        value = editMemoryText,
-                        onValueChange = { editMemoryText = it },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 100.dp),
-                        maxLines = 5,
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically
+                    TextButton(onClick = { memoryToEdit = null }) {
+                        Text("取消")
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            if (editMemoryText.isNotBlank()) {
+                                onUpdateMemory(memory.copy(content = editMemoryText.trim()))
+                                memoryToEdit = null
+                            }
+                        },
+                        enabled = editMemoryText.isNotBlank()
                     ) {
-                        TextButton(onClick = { memoryToEdit = null }) {
-                            Text("取消")
-                        }
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Button(
-                            onClick = {
-                                if (editMemoryText.isNotBlank()) {
-                                    onUpdateMemory(memory.copy(content = editMemoryText.trim()))
-                                    memoryToEdit = null
-                                }
-                            },
-                            enabled = editMemoryText.isNotBlank()
-                        ) {
-                            Text("更新")
-                        }
+                        Text("更新")
                     }
                 }
             }
-        }
+        )
     }
 
     // 清空确认弹窗
     if (showClearConfirmDialog) {
-        Dialog(onDismissRequest = { showClearConfirmDialog = false }) {
-            Surface(
-                shape = RoundedCornerShape(18.dp),
-                color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 6.dp,
-                modifier = Modifier.fillMaxWidth(0.88f)
-            ) {
-                Column(
-                    modifier = Modifier.padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+        EchoGlassDialog(
+            hazeState = hazeState,
+            onDismissRequest = { showClearConfirmDialog = false },
+            modifier = Modifier
+                .fillMaxWidth(0.88f)
+                .widthIn(max = 380.dp),
+            title = {
+                Text("清空本会话记忆", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            },
+            content = {
+                Text("确定要清空当前会话的所有专属记忆吗？此操作无法撤销。", style = MaterialTheme.typography.bodyMedium)
+            },
+            buttons = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("清空本会话记忆", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text("确定要清空当前会话的所有专属记忆吗？此操作无法撤销。", style = MaterialTheme.typography.bodyMedium)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End
+                    TextButton(onClick = { showClearConfirmDialog = false }) {
+                        Text("取消")
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            onClearMemories()
+                            showClearConfirmDialog = false
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                     ) {
-                        TextButton(onClick = { showClearConfirmDialog = false }) {
-                            Text("取消")
-                        }
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Button(
-                            onClick = {
-                                onClearMemories()
-                                showClearConfirmDialog = false
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                        ) {
-                            Text("确认清空")
-                        }
+                        Text("确认清空")
                     }
                 }
             }
-        }
+        )
     }
 }
 
@@ -4923,6 +5167,7 @@ fun ChatSettingsDialog(
     onToggleSessionMemory: (Long, Boolean) -> Unit = { _, _ -> },
     onDeleteSessionMemory: (Long) -> Unit = {},
     onClearSessionMemories: () -> Unit = {},
+    onTempSettingsChange: ((TempChatSettings) -> Unit)? = null,
     onDismiss: () -> Unit,
     onSave: (TempChatSettings, String?) -> Unit,
     onModelSelected: (ChatModelOption) -> Unit,
@@ -4942,6 +5187,7 @@ fun ChatSettingsDialog(
     var enableThinking by remember { mutableStateOf(tempSettings.enableThinking) }
     var thinkingEffort by remember { mutableStateOf(tempSettings.thinkingEffort) }
     var enableWebSearch by remember { mutableStateOf(tempSettings.enableWebSearch) }
+    var enableSessionMemory by remember { mutableStateOf(tempSettings.enableSessionMemory) }
     var promptTextFieldValue by remember(currentPrompt) {
         mutableStateOf(
             TextFieldValue(
@@ -4972,6 +5218,29 @@ fun ChatSettingsDialog(
     var temperature by remember(tuningProfile.temperatureMax) {
         mutableStateOf(tempSettings.temperature.coerceIn(0f, tuningProfile.temperatureMax))
     }
+
+    LaunchedEffect(tempSettings) {
+        maxTokens = tempSettings.maxTokens.toString()
+        topP = tempSettings.topP
+        enableThinking = tempSettings.enableThinking
+        thinkingEffort = tempSettings.thinkingEffort
+        enableWebSearch = tempSettings.enableWebSearch
+        enableSessionMemory = tempSettings.enableSessionMemory
+    }
+
+    fun notifyTempSettingsChange() {
+        val updated = TempChatSettings(
+            temperature = temperature.coerceIn(0f, tuningProfile.temperatureMax),
+            maxTokens = maxTokens.toIntOrNull() ?: 50000,
+            topP = topP,
+            enableThinking = enableThinking,
+            thinkingEffort = thinkingEffort,
+            enableWebSearch = enableWebSearch,
+            enableSessionMemory = enableSessionMemory
+        )
+        onTempSettingsChange?.invoke(updated)
+    }
+
     LaunchedEffect(tuningProfile.temperatureMax) {
         temperature = temperature.coerceIn(0f, tuningProfile.temperatureMax)
     }
@@ -5055,6 +5324,12 @@ fun ChatSettingsDialog(
                         sessionMemories = sessionMemories,
                         contentColor = dialogContentColor,
                         secondaryColor = dialogSecondaryColor,
+                        enableSessionMemory = enableSessionMemory,
+                        onEnableSessionMemoryChange = {
+                            enableSessionMemory = it
+                            notifyTempSettingsChange()
+                        },
+                        hazeState = hazeState,
                         onAddMemory = onAddSessionMemory,
                         onUpdateMemory = onUpdateSessionMemory,
                         onToggleMemory = onToggleSessionMemory,
@@ -5134,7 +5409,7 @@ fun ChatSettingsDialog(
                                 value = maxTokens,
                                 onValueChange = { value -> maxTokens = value.filter { it.isDigit() }.take(6) },
                                 modifier = Modifier.weight(1f),
-                                placeholder = { Text("例如 8192") },
+                                placeholder = { Text("例如 50000") },
                                 singleLine = true,
                                 shape = RoundedCornerShape(14.dp),
                                 colors = glassTextFieldColors(dialogContentColor, dialogSecondaryColor, dialogContainerColor)
@@ -5210,7 +5485,10 @@ fun ChatSettingsDialog(
                         }
                         Switch(
                             checked = enableThinking,
-                            onCheckedChange = { enableThinking = it }
+                            onCheckedChange = {
+                                enableThinking = it
+                                notifyTempSettingsChange()
+                            }
                         )
                     }
                 }
@@ -5235,7 +5513,10 @@ fun ChatSettingsDialog(
                         }
                         Switch(
                             checked = enableWebSearch,
-                            onCheckedChange = { enableWebSearch = it }
+                            onCheckedChange = {
+                                enableWebSearch = it
+                                notifyTempSettingsChange()
+                            }
                         )
                     }
                 }
@@ -5251,7 +5532,10 @@ fun ChatSettingsDialog(
                                     val selected = thinkingEffort == level.value
                                     FilterChip(
                                         selected = selected,
-                                        onClick = { thinkingEffort = level.value },
+                                        onClick = {
+                                            thinkingEffort = level.value
+                                            notifyTempSettingsChange()
+                                        },
                                         colors = echoFilterChipColors(),
                                         border = echoFilterChipBorder(selected),
                                         elevation = echoFilterChipElevation(),
@@ -5379,11 +5663,12 @@ fun ChatSettingsDialog(
                     onClick = {
                         val settings = TempChatSettings(
                             temperature = temperature.coerceIn(0f, tuningProfile.temperatureMax),
-                            maxTokens = maxTokens.toIntOrNull() ?: 8192,
+                            maxTokens = maxTokens.toIntOrNull() ?: 50000,
                             topP = topP,
                             enableThinking = enableThinking,
                             thinkingEffort = thinkingEffort,
-                            enableWebSearch = enableWebSearch
+                            enableWebSearch = enableWebSearch,
+                            enableSessionMemory = enableSessionMemory
                         )
                         onSave(settings, promptTextFieldValue.text.ifBlank { null })
                     }
@@ -6262,11 +6547,12 @@ private fun StoryUnifiedSettingsDialog(
                     onClick = {
                         val newSettings = TempChatSettings(
                             temperature = temperature.coerceIn(0f, tuningProfile.temperatureMax),
-                            maxTokens = maxTokens.toIntOrNull() ?: 8192,
+                            maxTokens = maxTokens.toIntOrNull() ?: 50000,
                             topP = topP,
                             enableThinking = enableThinking,
                             thinkingEffort = thinkingEffort,
-                            enableWebSearch = enableWebSearch
+                            enableWebSearch = enableWebSearch,
+                            enableSessionMemory = tempSettings.enableSessionMemory
                         )
                         val charListToDisplay = (allCharacters + characters).distinctBy { it.id }
                         val validCharIds = charListToDisplay.map { it.id }.toSet()
@@ -6958,114 +7244,102 @@ fun CitationDetailDialog(
 ) {
     val uriHandler = LocalUriHandler.current
     val clipboardManager = LocalClipboardManager.current
-    val glass = echoGlassPalette()
     var copied by remember { mutableStateOf(false) }
 
-    Dialog(
+    EchoGlassDialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth(0.92f)
-                .wrapContentHeight(),
-            shape = RoundedCornerShape(22.dp),
-            color = glass.panelStrong,
-            border = BorderStroke(1.dp, glass.outline)
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+        modifier = Modifier
+            .fillMaxWidth(0.92f)
+            .widthIn(max = 440.dp),
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
                 ) {
+                    Text(
+                        text = "[${citation.index}]",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                Text(
+                    text = citation.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        },
+        content = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    text = "参考网址来源 (可长按文本选中)：",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                androidx.compose.foundation.text.selection.SelectionContainer {
                     Box(
                         modifier = Modifier
-                            .size(32.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
-                        contentAlignment = Alignment.Center
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color.Black.copy(alpha = 0.08f))
+                            .padding(10.dp)
                     ) {
                         Text(
-                            text = "[${citation.index}]",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                    Text(
-                        text = citation.title,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(
-                        text = "参考网址来源 (可长按文本选中)：",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    androidx.compose.foundation.text.selection.SelectionContainer {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(Color.Black.copy(alpha = 0.08f))
-                                .padding(10.dp)
-                        ) {
-                            Text(
-                                text = citation.url,
-                                style = MaterialTheme.typography.bodySmall.copy(
-                                    fontFamily = FontFamily.Monospace,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
+                            text = citation.url,
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontFamily = FontFamily.Monospace,
+                                color = MaterialTheme.colorScheme.primary
                             )
-                        }
-                    }
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    TextButton(onClick = onDismiss) {
-                        Text("关闭")
-                    }
-                    Spacer(modifier = Modifier.width(6.dp))
-                    OutlinedButton(
-                        onClick = {
-                            clipboardManager.setText(AnnotatedString(citation.url))
-                            copied = true
-                        }
-                    ) {
-                        Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(if (copied) "已复制网址" else "复制网址")
-                    }
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Button(
-                        onClick = {
-                            runCatching<Unit> { uriHandler.openUri(citation.url) }
-                            onDismiss()
-                        }
-                    ) {
-                        Icon(Icons.Default.OpenInBrowser, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("打开网页")
+                        )
                     }
                 }
             }
+        },
+        buttons = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(onClick = onDismiss) {
+                    Text("关闭")
+                }
+                Spacer(modifier = Modifier.width(6.dp))
+                OutlinedButton(
+                    onClick = {
+                        clipboardManager.setText(AnnotatedString(citation.url))
+                        copied = true
+                    }
+                ) {
+                    Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(if (copied) "已复制网址" else "复制网址")
+                }
+                Spacer(modifier = Modifier.width(6.dp))
+                Button(
+                    onClick = {
+                        runCatching<Unit> { uriHandler.openUri(citation.url) }
+                        onDismiss()
+                    }
+                ) {
+                    Icon(Icons.Default.OpenInBrowser, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("打开网页")
+                }
+            }
         }
-    }
+    )
 }
 
 @Composable
@@ -7247,8 +7521,11 @@ fun ToolCallDetailDialog(
 ) {
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
-    AlertDialog(
+    EchoGlassDialog(
         onDismissRequest = onDismiss,
+        modifier = Modifier
+            .fillMaxWidth(0.92f)
+            .widthIn(max = 440.dp),
         title = {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -7263,7 +7540,7 @@ fun ToolCallDetailDialog(
                 Text(record.toolName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             }
         },
-        text = {
+        content = {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -7302,19 +7579,24 @@ fun ToolCallDetailDialog(
                 }
             }
         },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    clipboardManager.setText(AnnotatedString(record.detailContent))
-                    android.widget.Toast.makeText(context, "已复制工具数据到剪贴板", android.widget.Toast.LENGTH_SHORT).show()
-                }
+        buttons = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("复制数据")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("关闭")
+                TextButton(onClick = onDismiss) {
+                    Text("关闭")
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Button(
+                    onClick = {
+                        clipboardManager.setText(AnnotatedString(record.detailContent))
+                        android.widget.Toast.makeText(context, "已复制工具数据到剪贴板", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                ) {
+                    Text("复制数据")
+                }
             }
         }
     )
