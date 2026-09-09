@@ -325,6 +325,17 @@ fun ChatScreen(
         }
     }
 
+    LaunchedEffect(isGenerating) {
+        if (!isGenerating) {
+            streamingBranchGroupId = null
+        }
+    }
+
+    LaunchedEffect(conversationId) {
+        streamingBranchGroupId = null
+        pendingEditSource = null
+    }
+
     val textToolbar = remember { EchoTextToolbar() }
     CompositionLocalProvider(LocalTextToolbar provides textToolbar) {
         Box(
@@ -332,6 +343,22 @@ fun ChatScreen(
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
         ) {
+            // 全屏背景与全屏毛玻璃源 (涵盖从顶到底全部区域，包括 bottomBar 与 topBar 背后)
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(MaterialTheme.colorScheme.background)
+                    .echoHazeSource(hazeState)
+            ) {
+                chatBackgroundBitmap?.let { bitmap ->
+                    Image(
+                        bitmap = bitmap.asImageBitmap(),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                }
+            }
             Scaffold(
                 containerColor = Color.Transparent,
                 contentColor = MaterialTheme.colorScheme.onBackground,
@@ -509,21 +536,10 @@ fun ChatScreen(
             val statusBarTopPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
             val topFloatingBarHeight = 68.dp + (if (error != null) 60.dp else 0.dp)
 
-            // 1. 底层：背景图与全屏贯通的 LazyColumn，包裹在 echoHazeSource 内部，滚动时平滑穿透悬浮顶栏与错误提示
+            // 1. 底层：全屏贯通的消息列表，向上滚动时平滑穿透悬浮顶栏与错误提示
             Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .echoHazeSource(hazeState)
+                modifier = Modifier.fillMaxSize()
             ) {
-                chatBackgroundBitmap?.let { bitmap ->
-                    Image(
-                        bitmap = bitmap.asImageBitmap(),
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
-                }
-
                 // 消息列表 (全屏延伸，向上滚动时平滑穿透悬浮工具栏和报错弹窗，被毛玻璃实时模糊)
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
@@ -1845,13 +1861,20 @@ private fun buildDisplayMessages(
     messages: List<Message>,
     selections: Map<String, Int>
 ): List<DisplayMessageItem> {
-    val groups = messages
+    // 过滤掉无内容、无思考、无附件、无工具调用的无效空白异常消息，杜绝幽灵气泡残留
+    val validMessages = messages.filter { message ->
+        message.content.isNotBlank() ||
+        !message.thinkingContent.isNullOrBlank() ||
+        !message.attachments.isNullOrBlank() ||
+        !message.toolCalls.isNullOrBlank()
+    }
+    val groups = validMessages
         .filter { !it.variantGroupId.isNullOrBlank() }
         .groupBy { it.variantGroupId!! }
     val consumedGroups = mutableSetOf<String>()
     val result = mutableListOf<DisplayMessageItem>()
 
-    messages.forEach { message ->
+    validMessages.forEach { message ->
         val groupId = message.variantGroupId
         if (groupId.isNullOrBlank()) {
             result += DisplayMessageItem(message = message, groupId = null)
@@ -2138,17 +2161,17 @@ private fun MessageBubble(
                         val rawModel = assistantModelName.ifBlank { "AI" }
                         val model = rawModel.displayModelShortName()
                         when {
-                            isConnecting -> personalizationSettings.connectingTextTemplate.replace("{model}", model)
-                            isThinkingActive -> personalizationSettings.thinkingTextTemplate.replace("{model}", model)
+                            isConnecting -> personalizationSettings.connectingTextTemplate.replace("{model}", model).ifBlank { "正在连接 $model..." }
+                            isThinkingActive -> personalizationSettings.thinkingTextTemplate.replace("{model}", model).ifBlank { "$model 正在思考中..." }
                             hasThinking -> formatThinkingCapsuleText(
-                                template = personalizationSettings.thinkingCapsuleTemplate,
+                                template = personalizationSettings.thinkingCapsuleTemplate.ifBlank { "{model} {status} {time} {tokens}" },
                                 modelName = model,
-                                isThinkingActive = false,
+                                isThinkingActive = isGenerating && message.content.isBlank(),
                                 responseTimeMs = message.responseTime,
                                 thinkingTokens = message.thinkingTokens,
                                 totalTokens = message.tokenCount
                             )
-                            isGenerating -> personalizationSettings.thinkingTextTemplate.replace("{model}", model)
+                            isGenerating -> personalizationSettings.thinkingTextTemplate.replace("{model}", model).ifBlank { "$model 正在思考回复中..." }
                             else -> formatNonThinkingCapsuleText(
                                 modelName = model,
                                 responseTimeMs = message.responseTime,
@@ -2159,7 +2182,6 @@ private fun MessageBubble(
                     }
 
                     val capsuleShape = RoundedCornerShape(999.dp)
-                    val capsuleScrollState = rememberScrollState()
                     Surface(
                         modifier = Modifier
                             .defaultMinSize(minHeight = 34.dp)
@@ -2168,21 +2190,10 @@ private fun MessageBubble(
                                 if (hasThinking && hasThinkingContent) {
                                     Modifier.pointerInput(Unit) {
                                         detectTapGestures(
-                                            onTap = { showThinking = !showThinking },
+                                             onTap = { showThinking = !showThinking },
                                             onDoubleTap = { showThinking = !showThinking }
                                         )
                                     }
-                                } else Modifier
-                            )
-                            .then(
-                                if (hazeState != null) {
-                                    Modifier.echoHazePanel(
-                                        hazeState = hazeState,
-                                        shape = capsuleShape,
-                                        tint = thinkingBubbleColor,
-                                        blurRadius = 12.dp,
-                                        highlightAlpha = 0.03f
-                                    )
                                 } else Modifier
                             ),
                         color = thinkingBubbleColor,
@@ -2219,23 +2230,19 @@ private fun MessageBubble(
                                     tint = thinkingHeaderColor
                                 )
                             }
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f, fill = false)
-                                    .horizontalScroll(capsuleScrollState)
-                            ) {
-                                Text(
-                                    text = capsuleText,
-                                    style = MaterialTheme.typography.labelSmall.copy(
-                                        fontSize = 12.5.sp,
-                                        fontFamily = FontFamily.SansSerif,
-                                        fontWeight = FontWeight.SemiBold
-                                    ),
-                                    color = thinkingHeaderColor,
-                                    maxLines = 1,
-                                    softWrap = false
-                                )
-                            }
+                            Text(
+                                text = capsuleText,
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontSize = 12.5.sp,
+                                    fontFamily = FontFamily.SansSerif,
+                                    fontWeight = FontWeight.SemiBold
+                                ),
+                                color = thinkingHeaderColor,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
                             if (hasThinking && hasThinkingContent) {
                                 Icon(
                                     imageVector = if (showThinking) Icons.Default.ExpandLess else Icons.Default.ExpandMore,

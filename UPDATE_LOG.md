@@ -1,5 +1,52 @@
 # Echo AI 助手更新日志 (Update Log)
 
+## [v1.9.28] - 2026-09-09
+
+### 1. 本次升级与 4 项核心用户需求 100% 彻底修复与落实
+1. **输入框半透明液态毛玻璃效果完美还原（Req 1）**：
+   - 修复根因：在全屏根节点恢复全屏全域毛玻璃取样源与背景图（`echoHazeSource(hazeState)` + `chatBackgroundBitmap`），打破原先在 `Scaffold` 内部放置导致的底部栏无背景、无取样源的缺陷，彻底解决输入框失去半透明、沦为纯色/黑底的问题；
+   - 修复 `echoHazePanel`：杜绝在 `hazeChild` 之上无条件重复绘制 `mod.background(tint, shape)`，仅在无毛玻璃状态下作为 fallback 绘制，消除两层底色叠加导致的失真变厚；
+   - 适度恢复 `echoGlassPalette()` 的 `inputAlpha`（深色 0.80f，浅色 0.84f），使输入框与背景壁纸产生完美通透的高级液态毛玻璃质感。
+2. **顶部悬浮工具栏与错误提示真实半透明透字（Req 2）**：
+   - 彻底消除 `echoHazePanel` 内部的双层背景叠加，`Surface` 配合 `echoHazePanel` 呈现通透冰晶磨砂质感；
+   - 全屏贯通的消息列表（`LazyColumn`）向上滚动时平滑穿透悬浮栏底层，文字与气泡实时被模糊并半透明隐约透出，完美满足“无边缘包裹，能透过文字”的要求。
+3. **模型思考胶囊文字无法显示问题彻底根除（Req 3）**：
+   - 修复核心根因：移除思考胶囊内部导致无限约束冲突与测量裁剪的 `horizontalScroll(capsuleScrollState)` 容器，改为标准 `Text` 搭配 `Modifier.weight(1f, fill = false)` 与 `overflow = TextOverflow.Ellipsis`，消除宽度为 0 与滚动偏移溢出导致文字消失的问题；
+   - 强化思考胶囊文案生成逻辑：在连接中、思考中、思考完成、回复中等所有状态分支均增加 `.ifBlank { ... }` 严格兜底，确保在任何网络/流式阶段思考胶囊文案 100% 稳定清晰呈现。
+4. **对话页面气泡残留彻底修复（Req 4）**：
+   - 修复核心根因：定位到分支生成组 ID `streamingBranchGroupId` 在流式生成完成后（`!isGenerating`）从未被重置为 `null`，导致残留至后续普通对话，错误阻断正常流式气泡并产生幽灵残留；
+   - 增加生命周期监听：`LaunchedEffect(isGenerating)` 在生成结束时自动将 `streamingBranchGroupId` 重置为 `null`；`LaunchedEffect(conversationId)` 在切换会话时重置分支与编辑状态；
+   - 增加无效空白异常消息安全过滤：在 `buildDisplayMessages` 中过滤无内容、无思考、无附件、无工具调用的纯空异常消息，从底层杜绝幽灵气泡残留。
+
+### 2. 自动化测试与质量核验
+- 全量 124 项单元测试 100% 全部通过（退出码 0）；
+- 新增 `V1928FeaturesTest` 专项覆盖：
+  - `testV1928CurrentVersionUserUpdates`：验证版本更新说明条目对齐与完备性；
+  - `testFormatThinkingCapsuleTextNeverBlank`：验证思考胶囊在不同生命周期与极端模板下文案非空保障；
+  - `testFormatNonThinkingCapsuleText`：验证普通模型回复胶囊耗时与 token 统计文案；
+  - `testGhostMessageFiltering`：验证无效空白消息的安全过滤逻辑；
+  - `testStreamingBranchGroupIdLifecycleContract`：验证流式分支组生命周期重置契约。
+
+### 3. 改动涉及文件列表
+- `app/src/main/java/com/aiassistant/ui/components/EchoHaze.kt`:
+  - 修复 `echoHazePanel` 重复背景覆盖 bug，调整半透明调色板（Req 1, Req 2）。
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatScreen.kt`:
+  - 恢复全屏背景与根毛玻璃源（Req 1）；
+  - 移除思考胶囊 `horizontalScroll` 异常裁剪并加入完备兜底（Req 3）；
+  - 加入 `LaunchedEffect` 分支重置与 `buildDisplayMessages` 空消息过滤（Req 4）。
+- `app/src/main/java/com/aiassistant/ui/screens/settings/SettingsScreen.kt`:
+  - 增加 `V1927UserUpdates`，更新 `CurrentVersionUserUpdates` 为 v1.9.28 说明。
+- `app/build.gradle.kts`:
+  - `versionCode = 108`, `versionName = "1.9.28"`。
+- `app/src/test/java/com/aiassistant/V1928FeaturesTest.kt`:
+  - 新增 v1.9.28 自动化测试。
+- `app/src/test/java/com/aiassistant/V1927FeaturesTest.kt`:
+  - 适配历史更新日志校验。
+
+### 4. 历史安装包永久保留准则（最高铁律）
+- 构建前历史版本：106 个，构建后增至 107 个，严格遵守历史包永久保留最高铁律，未执行任何删除/清理操作；
+- 增量输出安装包：`Echo-v1.9.28-arm64-v8a.apk`。
+
 ## [v1.9.27] - 2026-09-09
 
 ### 1. 本次升级与 4 项核心用户需求 100% 彻底修复与落实

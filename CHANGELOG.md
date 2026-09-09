@@ -1,5 +1,28 @@
 # Echo 更新日志
 
+## v1.9.28 (2026-09-09) - 还原输入框与思考胶囊正确效果、根除气泡残留、修复顶部悬浮栏毛玻璃半透明透字
+
+### 用户侧可见更新
+1. **输入框半透明液态毛玻璃效果完美还原（Req 1）**：
+   - 修复根因：在全屏根节点恢复全屏全域毛玻璃取样源与背景图（`echoHazeSource(hazeState)` + `chatBackgroundBitmap`），打破原先在 `Scaffold` 内部放置导致的底部栏无背景、无取样源的缺陷，彻底解决输入框失去半透明、沦为纯色/黑底的问题；
+   - 修复 `echoHazePanel`：杜绝在 `hazeChild` 之上无条件重复绘制 `mod.background(tint, shape)`，仅在无毛玻璃状态下作为 fallback 绘制，消除两层底色叠加导致的失真变厚；
+   - 适度恢复 `echoGlassPalette()` 的 `inputAlpha`（深色 0.80f，浅色 0.84f），使输入框与背景壁纸产生完美通透的高级液态毛玻璃质感。
+2. **顶部悬浮工具栏与错误提示真实半透明透字（Req 2）**：
+   - 彻底消除 `echoHazePanel` 内部的双层背景叠加，`Surface` 配合 `echoHazePanel` 呈现通透冰晶磨砂质感；
+   - 全屏贯通的消息列表（`LazyColumn`）向上滚动时平滑穿透悬浮栏底层，文字与气泡实时被模糊并半透明隐约透出，完美满足“无边缘包裹，能透过文字”的要求。
+3. **模型思考胶囊文字无法显示问题彻底根除（Req 3）**：
+   - 修复核心根因：移除思考胶囊内部导致无限约束冲突与测量裁剪的 `horizontalScroll(capsuleScrollState)` 容器，改为标准 `Text` 搭配 `Modifier.weight(1f, fill = false)` 与 `overflow = TextOverflow.Ellipsis`，消除宽度为 0 与滚动偏移溢出导致文字消失的问题；
+   - 强化思考胶囊文案生成逻辑：在连接中、思考中、思考完成、回复中等所有状态分支均增加 `.ifBlank { ... }` 严格兜底，确保在任何网络/流式阶段思考胶囊文案 100% 稳定清晰呈现。
+4. **对话页面气泡残留彻底修复（Req 4）**：
+   - 修复核心根因：定位到分支生成组 ID `streamingBranchGroupId` 在流式生成完成后（`!isGenerating`）从未被重置为 `null`，导致残留至后续普通对话，错误阻断正常流式气泡并产生幽灵残留；
+   - 增加生命周期监听：`LaunchedEffect(isGenerating)` 在生成结束时自动将 `streamingBranchGroupId` 重置为 `null`；`LaunchedEffect(conversationId)` 在切换会话时重置分支与编辑状态；
+   - 增加无效空白异常消息安全过滤：在 `buildDisplayMessages` 中过滤无内容、无思考、无附件、无工具调用的纯空异常消息，从底层杜绝幽灵气泡残留。
+
+### 自动化测试与工程交付
+- **单元测试**：全量 124 项单元测试 100% 全部通过，退出码 0。
+- **Release APK**：`releases/Echo-v1.9.28-arm64-v8a.apk`。
+- **历史安装包永久保留**：原有 106 个安装包完整保留无修改，当前 releases 目录累计 107 个独立版本安装包。
+
 ## v1.9.27 (2026-09-09) - 顶部悬浮工具栏全屏穿透与无边缘包裹毛玻璃、输入框放大弧线手柄尺寸永久统一、辅助滑动4键浅天蓝半透明化、划选复制工具栏快照解耦防闪烁彻底根治
 
 ### 用户侧可见更新

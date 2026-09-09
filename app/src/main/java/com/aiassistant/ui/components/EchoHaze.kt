@@ -80,11 +80,11 @@ fun echoGlassPalette(): EchoGlassPalette {
     val isDark = colors.background.luminance() < 0.5f
 
     // 适度半透明度，确保悬浮栏、输入框、报错弹窗呈现真实通透的液态毛玻璃效果，文字隐约透出且清晰高对比
-    val panelAlpha = if (isDark) 0.75f else 0.78f
+    val panelAlpha = if (isDark) 0.82f else 0.86f
     val strongAlpha = if (isDark) 0.90f else 0.92f
     val softAlpha = if (isDark) 0.65f else 0.70f
-    val controlAlpha = if (isDark) 0.72f else 0.76f
-    val inputAlpha = if (isDark) 0.70f else 0.74f
+    val controlAlpha = if (isDark) 0.74f else 0.78f
+    val inputAlpha = if (isDark) 0.80f else 0.84f
     val selectedAlpha = if (isDark) 0.85f else 0.88f
 
     return EchoGlassPalette(
@@ -156,10 +156,11 @@ fun Modifier.echoHazePanel(
                 noiseFactor = 0f
             )
         )
+    } else {
+        mod = mod.background(tint, shape)
     }
 
     mod = mod
-        .background(tint, shape)
         .clip(shape)
         .drawBehind {
             if (highlightAlpha > 0f) {

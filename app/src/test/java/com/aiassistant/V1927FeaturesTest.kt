@@ -4,7 +4,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import com.aiassistant.ui.components.EchoTextToolbar
 import com.aiassistant.ui.components.EchoTextToolbarState
-import com.aiassistant.ui.screens.settings.CurrentVersionUserUpdates
+import com.aiassistant.ui.screens.settings.V1927UserUpdates
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -82,7 +82,7 @@ class V1927FeaturesTest {
     }
 
     @Test
-    fun testV1927CurrentVersionUserUpdates() {
+    fun testV1927UserUpdates() {
         val expectedHighlights = listOf(
             "顶部悬浮工具栏与错误提示无边缘包裹且全屏穿透，文字半透明透出并实时液态毛玻璃模糊",
             "输入框放大弧线手柄大小彻底统一，拖拽前后永久固定为精致 22dp/17dp 贴角同心弧",
@@ -91,9 +91,9 @@ class V1927FeaturesTest {
             "大模型非标字体颜色与尾随星号容错解析，输入气泡呼吸感间距保留",
             "延续思考快速档纯正天蓝配色与新建会话记忆隔离规范"
         )
-        assertEquals(6, CurrentVersionUserUpdates.size)
+        assertEquals(6, V1927UserUpdates.size)
         expectedHighlights.forEach { highlight ->
-            assertTrue("更新日志中必须包含: $highlight", CurrentVersionUserUpdates.contains(highlight))
+            assertTrue("更新日志中必须包含: $highlight", V1927UserUpdates.contains(highlight))
         }
     }
 }
