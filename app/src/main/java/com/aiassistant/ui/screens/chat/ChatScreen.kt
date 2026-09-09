@@ -352,11 +352,11 @@ fun ChatScreen(
                 containerColor = Color.Transparent,
                 contentColor = MaterialTheme.colorScheme.onBackground,
                 topBar = {
-                    val toolbarShape = RoundedCornerShape(24.dp)
+                    val toolbarShape = RoundedCornerShape(30.dp)
                     val glass = echoGlassPalette()
-                    val toolbarBg = glass.panel
+                    val toolbarTint = glass.input
                     val toolbarContentColor = readableTextColorFor(
-                        background = toolbarBg,
+                        background = toolbarTint,
                         fallbackSurface = readableBackdrops.top
                     )
 
@@ -372,9 +372,9 @@ fun ChatScreen(
                                 .echoHazePanel(
                                     hazeState = hazeState,
                                     shape = toolbarShape,
-                                    tint = toolbarBg,
-                                    blurRadius = 18.dp,
-                                    highlightAlpha = 0.035f
+                                    tint = toolbarTint,
+                                    blurRadius = 16.dp,
+                                    highlightAlpha = 0.025f
                                 ),
                             shape = toolbarShape,
                             color = Color.Transparent,
@@ -617,52 +617,71 @@ fun ChatScreen(
                     .padding(top = paddingValues.calculateTopPadding())
             ) {
                 // 错误提示 (在顶部导航栏下方显示，避免重合)
+                // 错误提示 (直接复用输入框的代码与玻璃结构)
                 error?.let { errorMsg ->
                     AnimatedVisibility(
                         visible = true,
                         enter = fadeIn() + expandVertically(),
                         exit = fadeOut() + shrinkVertically()
                     ) {
-                        Surface(
+                        val glass = echoGlassPalette()
+                        val errorShape = RoundedCornerShape(22.dp)
+                        val errorTint = glass.input
+                        val errorContentColor = readableTextColorFor(
+                            background = errorTint,
+                            fallbackSurface = readableBackdrops.top
+                        )
+
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 6.dp)
-                                .echoHazePanel(
-                                    hazeState = hazeState,
-                                    shape = RoundedCornerShape(16.dp),
-                                    tint = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f),
-                                    blurRadius = 16.dp,
-                                    highlightAlpha = 0.04f
-                                ),
-                            shape = RoundedCornerShape(16.dp),
-                            color = Color.Transparent,
-                            contentColor = MaterialTheme.colorScheme.onErrorContainer,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.35f)),
-                            tonalElevation = 0.dp,
-                            shadowElevation = 0.dp
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .echoHazePanel(
+                                        hazeState = hazeState,
+                                        shape = errorShape,
+                                        tint = errorTint,
+                                        blurRadius = 16.dp,
+                                        highlightAlpha = 0.025f
+                                    ),
+                                shape = errorShape,
+                                color = Color.Transparent,
+                                contentColor = errorContentColor,
+                                border = BorderStroke(1.dp, glass.outline),
+                                tonalElevation = 0.dp,
+                                shadowElevation = 0.dp
                             ) {
-                                Icon(
-                                    Icons.Default.ErrorOutline,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.error,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Text(
-                                    text = errorMsg,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onErrorContainer,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                IconButton(
-                                    onClick = { viewModel.clearError() },
-                                    modifier = Modifier.size(28.dp)
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Icon(Icons.Default.Close, contentDescription = "关闭", modifier = Modifier.size(16.dp))
+                                    Icon(
+                                        Icons.Default.ErrorOutline,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Text(
+                                        text = errorMsg,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = errorContentColor,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    IconButton(
+                                        onClick = { viewModel.clearError() },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Close,
+                                            contentDescription = "关闭",
+                                            tint = errorContentColor.copy(alpha = 0.7f),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -690,11 +709,17 @@ fun ChatScreen(
 
                     // 消息列表
                     val currentAssistantModelName = currentModelOption?.modelName ?: currentModel ?: uiState.modelName ?: "AI"
-                    items(
+                    itemsIndexed(
                         items = displayMessages,
-                        key = { item -> item.groupId ?: "${item.message.id}_${item.message.createdAt}_${item.message.role}" }
-                    ) { displayItem ->
+                        key = { _, item -> item.groupId ?: "${item.message.id}_${item.message.createdAt}_${item.message.role}" }
+                    ) { index, displayItem ->
                         val message = displayItem.message
+                        val isUser = message.role == "user"
+                        val prevItem = if (index > 0) displayMessages.getOrNull(index - 1) else null
+                        val isPrevAssistant = prevItem?.message?.role == "assistant"
+                        // 加大用户输入气泡和模型上一次输出之间的距离
+                        val extraTopSpacing = if (isUser && isPrevAssistant) 18.dp else 0.dp
+
                         val resolvedAssistantModelName = messageModelMap[message.id]
                             ?: messageModelMap[message.createdAt]
                             ?: currentAssistantModelName
@@ -714,7 +739,11 @@ fun ChatScreen(
                         }
                         val showStreamingBubbleHere = isBranchStreamingHere && selectedVariantIndex == totalVariantsWithStreaming
 
-                        Column(modifier = Modifier.fillMaxWidth()) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = extraTopSpacing)
+                        ) {
                             if (showStreamingBubbleHere) {
                                 // 在原位以正在生成的最新版本渲染
                                 MessageBubble(
@@ -926,6 +955,26 @@ fun ChatScreen(
                             listState.scrollToItem(6)
                         }
                         listState.animateScrollToItem(0)
+                    }
+                },
+                onJumpToPrevInput = {
+                    autoFollowOutput = false
+                    scope.launch {
+                        val currentFirst = listState.firstVisibleItemIndex
+                        val target = displayMessages.indices.reversed().firstOrNull { idx ->
+                            idx < currentFirst && displayMessages[idx].message.role == "user"
+                        } ?: 0
+                        listState.animateScrollToItem(target)
+                    }
+                },
+                onJumpToNextInput = {
+                    autoFollowOutput = false
+                    scope.launch {
+                        val currentFirst = listState.firstVisibleItemIndex
+                        val target = displayMessages.indices.firstOrNull { idx ->
+                            idx > currentFirst && displayMessages[idx].message.role == "user"
+                        } ?: (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)
+                        listState.animateScrollToItem(target)
                     }
                 },
                 onJumpToBottom = {
@@ -1262,6 +1311,8 @@ private fun anchorTitle(value: String): String {
 private fun ChatScrollJumpButtons(
     visible: Boolean,
     onJumpToTop: () -> Unit,
+    onJumpToPrevInput: () -> Unit,
+    onJumpToNextInput: () -> Unit,
     onJumpToBottom: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -1273,23 +1324,78 @@ private fun ChatScrollJumpButtons(
     ) {
         Column(
             horizontalAlignment = Alignment.End,
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(5.dp)
         ) {
-            SmallFloatingActionButton(
+            // 1. 滑动到顶：双条线向上箭头，快速思考浅蓝 (0xFF60A5FA)
+            Surface(
                 onClick = onJumpToTop,
                 shape = CircleShape,
-                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
-                contentColor = MaterialTheme.colorScheme.primary
+                color = Color(0xFF60A5FA),
+                contentColor = Color.White,
+                shadowElevation = 3.dp,
+                modifier = Modifier.size(32.dp)
             ) {
-                Icon(Icons.Default.KeyboardArrowUp, contentDescription = "一键到顶")
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                    Icon(
+                        imageVector = Icons.Default.KeyboardDoubleArrowUp,
+                        contentDescription = "滑动到顶",
+                        modifier = Modifier.size(17.dp)
+                    )
+                }
             }
-            SmallFloatingActionButton(
+
+            // 2. 滑动到上一条输入：单条线向上箭头，平衡思考蔚蓝 (0xFF2563EB)
+            Surface(
+                onClick = onJumpToPrevInput,
+                shape = CircleShape,
+                color = Color(0xFF2563EB),
+                contentColor = Color.White,
+                shadowElevation = 3.dp,
+                modifier = Modifier.size(32.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowUp,
+                        contentDescription = "滑动到上一条输入",
+                        modifier = Modifier.size(17.dp)
+                    )
+                }
+            }
+
+            // 3. 滑动到下一条输入：单条线向下箭头，深入思考深海蓝 (0xFF1D4ED8)
+            Surface(
+                onClick = onJumpToNextInput,
+                shape = CircleShape,
+                color = Color(0xFF1D4ED8),
+                contentColor = Color.White,
+                shadowElevation = 3.dp,
+                modifier = Modifier.size(32.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowDown,
+                        contentDescription = "滑动到下一条输入",
+                        modifier = Modifier.size(17.dp)
+                    )
+                }
+            }
+
+            // 4. 滑动到底：双条线向下箭头，极高思考靛青深蓝 (0xFF4338CA)
+            Surface(
                 onClick = onJumpToBottom,
                 shape = CircleShape,
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary
+                color = Color(0xFF4338CA),
+                contentColor = Color.White,
+                shadowElevation = 3.dp,
+                modifier = Modifier.size(32.dp)
             ) {
-                Icon(Icons.Default.KeyboardArrowDown, contentDescription = "一键到底")
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                    Icon(
+                        imageVector = Icons.Default.KeyboardDoubleArrowDown,
+                        contentDescription = "滑动到底",
+                        modifier = Modifier.size(17.dp)
+                    )
+                }
             }
         }
     }
@@ -2865,171 +2971,119 @@ fun ChatInputBar(
             tonalElevation = 0.dp,
             shadowElevation = 0.dp
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 10.dp)
-            ) {
-                if (attachments.isNotEmpty()) {
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.padding(bottom = 6.dp)
-                    ) {
-                        items(attachments) { attachment ->
-                            AttachmentPreview(
-                                attachment = attachment,
-                                onRemove = { onRemoveAttachment(attachment) },
-                                readableBackdrop = resolvedReadableBackdrop
-                            )
-                        }
-                    }
-                }
-
-                BasicTextField(
-                    value = inputText,
-                    onValueChange = onInputChange,
+            Box(modifier = Modifier.fillMaxWidth()) {
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(
-                            min = effectiveMinHeight,
-                            max = effectiveMaxHeight
-                        )
-                        .background(Color.Transparent),
-                    textStyle = MaterialTheme.typography.bodyLarge.copy(
-                        color = inputTextColor,
-                        background = Color.Transparent
-                    ),
-                    cursorBrush = SolidColor(inputTextColor),
-                    maxLines = if (isInputExpanded || (customInputHeightDp ?: 0f) > 60f) 15 else 5,
-                    decorationBox = { innerTextField ->
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = effectiveMinHeight)
-                                .background(Color.Transparent)
-                                .padding(horizontal = 4.dp, vertical = 4.dp)
+                        .padding(horizontal = 14.dp, vertical = 10.dp)
+                ) {
+                    if (attachments.isNotEmpty()) {
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.padding(bottom = 6.dp)
                         ) {
-                            if (inputText.isBlank()) {
-                                Text(
-                                    text = if (isRoleplay) "输入剧情提示、行动或指令..." else "给 Echo 发送消息",
-                                    color = inputTextColor.copy(alpha = 0.62f),
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    modifier = Modifier.padding(end = 32.dp)
+                            items(attachments) { attachment ->
+                                AttachmentPreview(
+                                    attachment = attachment,
+                                    onRemove = { onRemoveAttachment(attachment) },
+                                    readableBackdrop = resolvedReadableBackdrop
                                 )
                             }
-                            Box(modifier = Modifier.fillMaxWidth().padding(end = 32.dp)) {
-                                innerTextField()
-                            }
-
-                            // 圆润弧线展开/收起手柄（图一参考），支持点击展开/收起与上下滑动动态调高
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .size(32.dp)
-                                    .pointerInput(Unit) {
-                                        detectTapGestures(
-                                            onTap = {
-                                                if (isInputExpanded || (customInputHeightDp ?: 42f) > 60f) {
-                                                    customInputHeightDp = null
-                                                    isInputExpanded = false
-                                                } else {
-                                                    customInputHeightDp = 180f
-                                                    isInputExpanded = true
-                                                }
-                                            }
-                                        )
-                                    }
-                                    .pointerInput(Unit) {
-                                        detectVerticalDragGestures(
-                                            onDragStart = {
-                                                if (customInputHeightDp == null) {
-                                                    customInputHeightDp = if (isInputExpanded) 180f else 42f
-                                                }
-                                            },
-                                            onVerticalDrag = { change, dragAmount ->
-                                                change.consume()
-                                                val currentH = customInputHeightDp ?: (if (isInputExpanded) 180f else 42f)
-                                                val deltaDp = dragAmount / density.density
-                                                val newH = (currentH - deltaDp).coerceIn(42f, 360f)
-                                                customInputHeightDp = newH
-                                                isInputExpanded = newH > 60f
-                                            }
-                                        )
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Canvas(modifier = Modifier.size(22.dp)) {
-                                    val strokeWidth = 2.4.dp.toPx()
-                                    val arcColor = inputTextColor.copy(alpha = 0.50f)
-                                    // 绘制同心优雅弧线 ⌒ (参考图一：右上角圆角同心圆弧)
-                                    drawArc(
-                                        color = arcColor,
-                                        startAngle = 270f,
-                                        sweepAngle = 90f,
-                                        useCenter = false,
-                                        topLeft = androidx.compose.ui.geometry.Offset(2.dp.toPx(), 2.dp.toPx()),
-                                        size = androidx.compose.ui.geometry.Size(size.width - 4.dp.toPx(), size.height - 4.dp.toPx()),
-                                        style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
-                                    )
-                                }
-                            }
                         }
                     }
-                )
 
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    LazyRow(
-                        modifier = Modifier.weight(1f),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // 1. 深度思考 按钮（排在第1位，点击向上展开档位弹窗）
-                        item {
-                            val effortText = when {
-                                !enableThinking -> "深度思考"
-                                thinkingEffort.equals("low", true) || thinkingEffort.equals("fast", true) -> "快速思考"
-                                thinkingEffort.equals("medium", true) || thinkingEffort.equals("balanced", true) -> "平衡思考"
-                                thinkingEffort.equals("high", true) || thinkingEffort.equals("deep", true) -> "深入思考"
-                                thinkingEffort.equals("ultra", true) || thinkingEffort.equals("max", true) -> "极高思考"
-                                else -> "平衡思考"
-                            }
-                            val effortAccentColor = when {
-                                !enableThinking -> glass.outline
-                                thinkingEffort.equals("low", true) || thinkingEffort.equals("fast", true) -> Color(0xFF5FA8D3) // 柔和冰蓝
-                                thinkingEffort.equals("medium", true) || thinkingEffort.equals("balanced", true) -> Color(0xFF2563EB) // 蔚蓝
-                                thinkingEffort.equals("high", true) || thinkingEffort.equals("deep", true) -> Color(0xFF1D4ED8) // 深海蓝
-                                thinkingEffort.equals("ultra", true) || thinkingEffort.equals("max", true) -> Color(0xFF4338CA) // 靛青紫蓝
-                                else -> Color(0xFF2563EB)
-                            }
-                            InputPillButton(
-                                text = effortText,
-                                icon = null,
-                                trailingIcon = if (showThinkingPopover) Icons.Default.ExpandMore else Icons.Default.ExpandLess,
-                                selected = enableThinking,
-                                onClick = { onThinkingPopoverChange(!showThinkingPopover) },
-                                containerColor = if (enableThinking) {
-                                    effortAccentColor.copy(alpha = 0.16f)
-                                } else {
-                                    glass.control
-                                },
-                                contentColor = if (enableThinking) {
-                                    effortAccentColor
-                                } else {
-                                    inputTextColor
-                                },
-                                borderColor = if (enableThinking) {
-                                    effortAccentColor.copy(alpha = 0.65f)
-                                } else {
-                                    glass.outline
-                                }
+                    BasicTextField(
+                        value = inputText,
+                        onValueChange = onInputChange,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(
+                                min = effectiveMinHeight,
+                                max = effectiveMaxHeight
                             )
+                            .background(Color.Transparent),
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(
+                            color = inputTextColor,
+                            background = Color.Transparent
+                        ),
+                        cursorBrush = SolidColor(inputTextColor),
+                        maxLines = if (isInputExpanded || (customInputHeightDp ?: 0f) > 60f) 15 else 5,
+                        decorationBox = { innerTextField ->
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = effectiveMinHeight)
+                                    .background(Color.Transparent)
+                                    .padding(horizontal = 4.dp, vertical = 4.dp)
+                            ) {
+                                if (inputText.isBlank()) {
+                                    Text(
+                                        text = if (isRoleplay) "输入剧情提示、行动或指令..." else "给 Echo 发送消息",
+                                        color = inputTextColor.copy(alpha = 0.62f),
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        modifier = Modifier.padding(end = 28.dp)
+                                    )
+                                }
+                                Box(modifier = Modifier.fillMaxWidth().padding(end = 28.dp)) {
+                                    innerTextField()
+                                }
+                            }
                         }
+                    )
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        LazyRow(
+                            modifier = Modifier.weight(1f),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // 1. 深度思考 按钮（排在第1位，点击向上展开档位弹窗）
+                            item {
+                                val effortText = when {
+                                    !enableThinking -> "深度思考"
+                                    thinkingEffort.equals("low", true) || thinkingEffort.equals("fast", true) -> "快速思考"
+                                    thinkingEffort.equals("medium", true) || thinkingEffort.equals("balanced", true) -> "平衡思考"
+                                    thinkingEffort.equals("high", true) || thinkingEffort.equals("deep", true) -> "深入思考"
+                                    thinkingEffort.equals("ultra", true) || thinkingEffort.equals("max", true) -> "极高思考"
+                                    else -> "平衡思考"
+                                }
+                                val effortAccentColor = when {
+                                    !enableThinking -> glass.outline
+                                    thinkingEffort.equals("low", true) || thinkingEffort.equals("fast", true) -> Color(0xFF60A5FA) // 柔和纯正天蓝
+                                    thinkingEffort.equals("medium", true) || thinkingEffort.equals("balanced", true) -> Color(0xFF2563EB) // 蔚蓝
+                                    thinkingEffort.equals("high", true) || thinkingEffort.equals("deep", true) -> Color(0xFF1D4ED8) // 深海蓝
+                                    thinkingEffort.equals("ultra", true) || thinkingEffort.equals("max", true) -> Color(0xFF4338CA) // 靛青紫蓝
+                                    else -> Color(0xFF2563EB)
+                                }
+                                InputPillButton(
+                                    text = effortText,
+                                    icon = null,
+                                    trailingIcon = if (showThinkingPopover) Icons.Default.ExpandMore else Icons.Default.ExpandLess,
+                                    selected = enableThinking,
+                                    onClick = { onThinkingPopoverChange(!showThinkingPopover) },
+                                    containerColor = if (enableThinking) {
+                                        effortAccentColor.copy(alpha = 0.16f)
+                                    } else {
+                                        glass.control
+                                    },
+                                    contentColor = if (enableThinking) {
+                                        effortAccentColor
+                                    } else {
+                                        inputTextColor
+                                    },
+                                    borderColor = if (enableThinking) {
+                                        effortAccentColor.copy(alpha = 0.65f)
+                                    } else {
+                                        glass.outline
+                                    }
+                                )
+                            }
 
                         // 2. 故事模式：剧情操作；非故事模式：智能搜索
                         if (isRoleplay) {
@@ -3189,6 +3243,69 @@ fun ChatInputBar(
                     }
                 }
             }
+
+                // 紧贴输入框右上角同心圆弧手柄 (与边框圆角同心贴合，颜色一致但略深一点)
+                val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+                val cornerRadiusDp = if (isInputExpanded || (customInputHeightDp ?: 0f) > 60f) 22f else 30f
+                val handleBoxSize = 36.dp
+                val outlineColor = MaterialTheme.colorScheme.outline
+                val arcColor = if (isDark) {
+                    Color.White.copy(alpha = 0.32f)
+                } else {
+                    outlineColor.copy(alpha = 0.44f)
+                }
+
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .size(handleBoxSize)
+                        .pointerInput(Unit) {
+                            detectTapGestures(
+                                onTap = {
+                                    if (isInputExpanded || (customInputHeightDp ?: 42f) > 60f) {
+                                        customInputHeightDp = null
+                                        isInputExpanded = false
+                                    } else {
+                                        customInputHeightDp = 180f
+                                        isInputExpanded = true
+                                    }
+                                }
+                            )
+                        }
+                        .pointerInput(Unit) {
+                            detectVerticalDragGestures(
+                                onDragStart = { },
+                                onVerticalDrag = { change, dragAmount ->
+                                    change.consume()
+                                    val currentH = customInputHeightDp ?: (if (isInputExpanded) 180f else 42f)
+                                    val deltaDp = dragAmount / density.density
+                                    val newH = (currentH - deltaDp).coerceIn(42f, 360f)
+                                    customInputHeightDp = newH
+                                    isInputExpanded = newH > 60f
+                                }
+                            )
+                        },
+                    contentAlignment = Alignment.TopEnd
+                ) {
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        val strokeWidth = 2.0.dp.toPx()
+                        val cornerR = cornerRadiusDp.dp.toPx()
+                        val arcR = (cornerR - 5.dp.toPx()).coerceAtLeast(8.dp.toPx())
+                        // 圆心位于右上角向左 cornerR，向下 cornerR
+                        val centerX = size.width - cornerR
+                        val centerY = cornerR
+                        drawArc(
+                            color = arcColor,
+                            startAngle = 270f,
+                            sweepAngle = 90f,
+                            useCenter = false,
+                            topLeft = androidx.compose.ui.geometry.Offset(centerX - arcR, centerY - arcR),
+                            size = androidx.compose.ui.geometry.Size(arcR * 2, arcR * 2),
+                            style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -3238,8 +3355,8 @@ private fun ReasoningEffortPopupCard(
                     name = "快速",
                     subtitle = "快速思考 · 低延迟响应",
                     detail = "分配精简思考预算进行关键逻辑检查，适合日常交流与常规问答。",
-                    primaryColor = Color(0xFF5FA8D3),
-                    gradientColors = listOf(Color(0xFF67B0DC), Color(0xFF4A95C7))
+                    primaryColor = Color(0xFF60A5FA),
+                    gradientColors = listOf(Color(0xFF93C5FD), Color(0xFF60A5FA))
                 ),
                 ThinkingEffortLevel(
                     step = 2,
@@ -3281,8 +3398,8 @@ private fun ReasoningEffortPopupCard(
                     name = "快速",
                     subtitle = "轻度思考 · 快速响应",
                     detail = "分配少量思考预算进行简要推理，适合常规闲聊、翻译与基础问答。",
-                    primaryColor = Color(0xFF5FA8D3),
-                    gradientColors = listOf(Color(0xFF67B0DC), Color(0xFF4A95C7))
+                    primaryColor = Color(0xFF60A5FA),
+                    gradientColors = listOf(Color(0xFF93C5FD), Color(0xFF60A5FA))
                 ),
                 ThinkingEffortLevel(
                     step = 2,
@@ -3573,7 +3690,7 @@ private fun ThinkingParamsExplanationDialog(
                 ThinkingParamCard(
                     title = "快速 (low)",
                     badge = "精简推演",
-                    badgeColor = Color(0xFF5FA8D3),
+                    badgeColor = Color(0xFF60A5FA),
                     desc = "分配精简思考预算进行关键逻辑检查，低延迟极速响应。",
                     params = listOf(
                         "OpenAI / o系列" to "reasoning_effort = \"low\"",

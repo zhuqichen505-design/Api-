@@ -3,6 +3,7 @@ package com.aiassistant
 import com.aiassistant.ui.components.EchoTextToolbarState
 import com.aiassistant.ui.screens.chat.TempChatSettings
 import com.aiassistant.ui.screens.settings.CurrentVersionUserUpdates
+import com.aiassistant.ui.screens.settings.V1925UserUpdates
 import com.aiassistant.utils.PersonalizationSettings
 import com.aiassistant.utils.SmartMemoryExtractor
 import org.junit.Assert.*
@@ -93,9 +94,9 @@ class V1925FeaturesTest {
             "优化长列表滚动条滑动稳定性，避免快速拖动断触",
             "输入框展开按钮重构为优雅弧形控制手柄，支持拖拽随手调整高度"
         )
-        assertEquals(expectedHighlights.size, CurrentVersionUserUpdates.size)
+        assertEquals(expectedHighlights.size, V1925UserUpdates.size)
         expectedHighlights.forEach { highlight ->
-            assertTrue("更新日志中必须包含: $highlight", CurrentVersionUserUpdates.contains(highlight))
+            assertTrue("更新日志中必须包含: $highlight", V1925UserUpdates.contains(highlight))
         }
     }
 }

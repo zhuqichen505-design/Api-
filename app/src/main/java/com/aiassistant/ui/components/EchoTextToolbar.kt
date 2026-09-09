@@ -46,13 +46,51 @@ import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-data class EchoTextToolbarState(
+class EchoTextToolbarState(
     val rect: Rect,
-    val onCopy: (() -> Unit)?,
-    val onPaste: (() -> Unit)?,
-    val onCut: (() -> Unit)?,
-    val onSelectAll: (() -> Unit)?
-)
+    val canCopy: Boolean = false,
+    val canPaste: Boolean = false,
+    val canCut: Boolean = false,
+    val canSelectAll: Boolean = false,
+    var onCopy: (() -> Unit)? = null,
+    var onPaste: (() -> Unit)? = null,
+    var onCut: (() -> Unit)? = null,
+    var onSelectAll: (() -> Unit)? = null
+) {
+    constructor(
+        rect: Rect,
+        onCopy: (() -> Unit)? = null,
+        onPaste: (() -> Unit)? = null,
+        onCut: (() -> Unit)? = null,
+        onSelectAll: (() -> Unit)? = null
+    ) : this(
+        rect = rect,
+        canCopy = onCopy != null,
+        canPaste = onPaste != null,
+        canCut = onCut != null,
+        canSelectAll = onSelectAll != null,
+        onCopy = onCopy,
+        onPaste = onPaste,
+        onCut = onCut,
+        onSelectAll = onSelectAll
+    )
+    fun isEquivalent(
+        newRect: Rect,
+        hasCopy: Boolean,
+        hasPaste: Boolean,
+        hasCut: Boolean,
+        hasSelectAll: Boolean
+    ): Boolean {
+        return abs(rect.left - newRect.left) < 8f &&
+            abs(rect.top - newRect.top) < 8f &&
+            abs(rect.right - newRect.right) < 8f &&
+            abs(rect.bottom - newRect.bottom) < 8f &&
+            canCopy == hasCopy &&
+            canPaste == hasPaste &&
+            canCut == hasCut &&
+            canSelectAll == hasSelectAll
+    }
+}
 
 class EchoTextToolbar : TextToolbar {
     var activeMenu by mutableStateOf<EchoTextToolbarState?>(null)
@@ -71,26 +109,33 @@ class EchoTextToolbar : TextToolbar {
         onCutRequested: (() -> Unit)?,
         onSelectAllRequested: (() -> Unit)?
     ) {
-        val current = activeMenu
-        if (current != null &&
-            abs(current.rect.left - rect.left) < 4f &&
-            abs(current.rect.top - rect.top) < 4f &&
-            abs(current.rect.right - rect.right) < 4f &&
-            abs(current.rect.bottom - rect.bottom) < 4f &&
-            current.onCopy == onCopyRequested &&
-            current.onPaste == onPasteRequested &&
-            current.onCut == onCutRequested &&
-            current.onSelectAll == onSelectAllRequested
-        ) {
-            return
-        }
+        val hasCopy = onCopyRequested != null
+        val hasPaste = onPasteRequested != null
+        val hasCut = onCutRequested != null
+        val hasSelectAll = onSelectAllRequested != null
+
         // Avoid showing empty floating box if no actions are available
-        if (onCopyRequested == null && onPasteRequested == null && onCutRequested == null && onSelectAllRequested == null) {
-            activeMenu = null
+        if (!hasCopy && !hasPaste && !hasCut && !hasSelectAll) {
+            hide()
             return
         }
+
+        val current = activeMenu
+        if (current != null && current.isEquivalent(rect, hasCopy, hasPaste, hasCut, hasSelectAll)) {
+            // Update callbacks in-place without triggering State recomposition loop!
+            current.onCopy = onCopyRequested
+            current.onPaste = onPasteRequested
+            current.onCut = onCutRequested
+            current.onSelectAll = onSelectAllRequested
+            return
+        }
+
         activeMenu = EchoTextToolbarState(
             rect = rect,
+            canCopy = hasCopy,
+            canPaste = hasPaste,
+            canCut = hasCut,
+            canSelectAll = hasSelectAll,
             onCopy = onCopyRequested,
             onPaste = onPasteRequested,
             onCut = onCutRequested,
@@ -151,42 +196,42 @@ fun EchoTextToolbarHost(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                if (menu.onCut != null) {
+                if (menu.canCut) {
                     TextToolbarActionItem(
                         icon = Icons.Default.ContentCut,
                         text = "剪切",
                         onClick = {
-                            menu.onCut.invoke()
+                            menu.onCut?.invoke()
                             toolbar.hide()
                         }
                     )
                 }
-                if (menu.onCopy != null) {
+                if (menu.canCopy) {
                     TextToolbarActionItem(
                         icon = Icons.Default.ContentCopy,
                         text = "复制",
                         onClick = {
-                            menu.onCopy.invoke()
+                            menu.onCopy?.invoke()
                             toolbar.hide()
                         }
                     )
                 }
-                if (menu.onPaste != null) {
+                if (menu.canPaste) {
                     TextToolbarActionItem(
                         icon = Icons.Default.ContentPaste,
                         text = "粘贴",
                         onClick = {
-                            menu.onPaste.invoke()
+                            menu.onPaste?.invoke()
                             toolbar.hide()
                         }
                     )
                 }
-                if (menu.onCopy != null) {
+                if (menu.canCopy) {
                     TextToolbarActionItem(
                         icon = Icons.Default.FormatQuote,
                         text = "引用",
                         onClick = {
-                            menu.onCopy.invoke()
+                            menu.onCopy?.invoke()
                             coroutineScope.launch {
                                 delay(60)
                                 val copiedText = clipboardManager.getText()?.text.orEmpty()
@@ -198,12 +243,12 @@ fun EchoTextToolbarHost(
                         }
                     )
                 }
-                if (menu.onSelectAll != null) {
+                if (menu.canSelectAll) {
                     TextToolbarActionItem(
                         icon = Icons.Default.SelectAll,
                         text = "全选",
                         onClick = {
-                            menu.onSelectAll.invoke()
+                            menu.onSelectAll?.invoke()
                         }
                     )
                 }

@@ -753,16 +753,22 @@ private fun parseHtmlTagColor(tag: String): Color? {
         .find(tag)
         ?.groupValues
         ?.getOrNull(1)
-    return parseInlineColor(colorAttr ?: styleColor)
+    val parsed = parseInlineColor(colorAttr ?: styleColor)
+    if (parsed != null) return parsed
+    // If tag explicitly specified color="..." but it was non-standard/typo, fallback to stylish blue
+    if (colorAttr != null || styleColor != null) {
+        return Color(0xFF2B7DE0)
+    }
+    return null
 }
 
-private fun parseInlineColor(raw: String?): Color? {
+internal fun parseInlineColor(raw: String?): Color? {
     val value = raw?.trim()?.trim('"', '\'')?.lowercase().orEmpty()
     if (value.isBlank()) return null
-    val normalized = when (value) {
+    val named = when (value) {
         "red" -> "#DC2626"
         "orange" -> "#EA580C"
-        "yellow" -> "#CA8A04"
+        "yellow", "gold" -> "#CA8A04"
         "green" -> "#16A34A"
         "blue" -> "#2563EB"
         "purple" -> "#7C3AED"
@@ -770,17 +776,37 @@ private fun parseInlineColor(raw: String?): Color? {
         "gray", "grey" -> "#64748B"
         "black" -> "#111827"
         "white" -> "#FFFFFF"
+        "cyan" -> "#06B6D4"
+        "teal" -> "#0D9488"
+        "indigo" -> "#4F46E5"
+        "violet" -> "#8B5CF6"
         else -> value
     }
-    val cssColor = when {
-        normalized.matches(Regex("""#[0-9a-fA-F]{6}""")) -> normalized
-        normalized.matches(Regex("""#[0-9a-fA-F]{8}""")) -> normalized
-        normalized.matches(Regex("""0x[0-9a-fA-F]{8}""")) -> "#${normalized.drop(2)}"
-        normalized.matches(Regex("""[0-9a-fA-F]{6}""")) -> "#$normalized"
-        normalized.matches(Regex("""[0-9a-fA-F]{8}""")) -> "#$normalized"
-        else -> return null
+    // Clean string (e.g. remove # or 0x)
+    var hex = named.removePrefix("#").removePrefix("0x").lowercase()
+
+    // Support non-standard hex like "2b7dep" -> map 'p' or other typos to valid hex digits
+    if (hex.length == 6 || hex.length == 8) {
+        hex = hex.map { c ->
+            when (c) {
+                in '0'..'9', in 'a'..'f' -> c
+                'p', 'o' -> '0'
+                'l', 'i' -> '1'
+                else -> '0'
+            }
+        }.joinToString("")
+    } else if (hex.length == 3) {
+        if (hex.all { it in '0'..'9' || it in 'a'..'f' }) {
+            hex = "${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}"
+        }
     }
-    return runCatching { Color(android.graphics.Color.parseColor(cssColor)) }.getOrNull()
+
+    val hexValue = hex.toLongOrNull(16) ?: return null
+    return when (hex.length) {
+        6 -> Color(hexValue or 0xFF000000L)
+        8 -> Color(hexValue)
+        else -> null
+    }
 }
 
 /**
@@ -1260,12 +1286,18 @@ fun parseInlineMarkdown(
                     val openEnd = decoded.indexOf('>', i)
                     val closeStart = decoded.indexOf("</font>", if (openEnd != -1) openEnd + 1 else i, ignoreCase = true)
                     val openTag = if (openEnd != -1) decoded.substring(i, openEnd + 1) else ""
-                    val parsedColor = parseHtmlTagColor(openTag)
-                    if (openEnd != -1 && closeStart != -1 && parsedColor != null) {
+                    val parsedColor = parseHtmlTagColor(openTag) ?: Color(0xFF2B7DE0)
+                    if (openEnd != -1 && closeStart != -1) {
+                        val innerContent = decoded.substring(openEnd + 1, closeStart)
                         withStyle(SpanStyle(color = parsedColor)) {
-                            append(parseInlineMarkdown(decoded.substring(openEnd + 1, closeStart)))
+                            append(parseInlineMarkdown(innerContent))
                         }
-                        i = closeStart + "</font>".length
+                        var nextIdx = closeStart + "</font>".length
+                        // 智能消费紧随闭合标签后的悬挂星号，例如 </font>*
+                        if (nextIdx < decoded.length && decoded[nextIdx] == '*' && (nextIdx + 1 >= decoded.length || decoded[nextIdx + 1] != '*')) {
+                            nextIdx++
+                        }
+                        i = nextIdx
                     } else {
                         append(decoded[i])
                         i++
@@ -1277,12 +1309,17 @@ fun parseInlineMarkdown(
                     val openEnd = decoded.indexOf('>', i)
                     val closeStart = decoded.indexOf("</span>", if (openEnd != -1) openEnd + 1 else i, ignoreCase = true)
                     val openTag = if (openEnd != -1) decoded.substring(i, openEnd + 1) else ""
-                    val parsedColor = parseHtmlTagColor(openTag)
-                    if (openEnd != -1 && closeStart != -1 && parsedColor != null) {
+                    val parsedColor = parseHtmlTagColor(openTag) ?: Color(0xFF2B7DE0)
+                    if (openEnd != -1 && closeStart != -1) {
+                        val innerContent = decoded.substring(openEnd + 1, closeStart)
                         withStyle(SpanStyle(color = parsedColor)) {
-                            append(parseInlineMarkdown(decoded.substring(openEnd + 1, closeStart)))
+                            append(parseInlineMarkdown(innerContent))
                         }
-                        i = closeStart + "</span>".length
+                        var nextIdx = closeStart + "</span>".length
+                        if (nextIdx < decoded.length && decoded[nextIdx] == '*' && (nextIdx + 1 >= decoded.length || decoded[nextIdx + 1] != '*')) {
+                            nextIdx++
+                        }
+                        i = nextIdx
                     } else {
                         append(decoded[i])
                         i++

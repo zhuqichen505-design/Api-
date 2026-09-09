@@ -1,5 +1,65 @@
 # Echo AI 助手更新日志 (Update Log)
 
+## [v1.9.26] - 2026-09-09
+
+### 1. 本次升级与 7 项用户需求 100% 落实
+1. **上方悬浮栏和错误弹窗直接复用输入框玻璃代码规范（Req 1）**：
+   - 悬浮栏使用 `toolbarShape = RoundedCornerShape(30.dp)`，错误弹窗使用 `errorShape = RoundedCornerShape(22.dp)`；
+   - 底层统一复用 `glass.input` 容器背景，通过 `echoHazePanel(hazeState, shape, tint, 16.dp, 0.025f)` 搭配纯透明 Surface 与 `BorderStroke(1.dp, glass.outline)` 细致描边；
+   - 彻底去除原有白色双层背景与多余背景层，彻底消除悬浮栏液态玻璃模糊报错与穿透异常。
+2. **输入框右上角弧线控制手柄同心贴合（Req 2）**：
+   - 弧线手柄定位移至外层 `Surface` 的 `Box(modifier = Modifier.fillMaxWidth())` 顶部右对齐（`Alignment.TopEnd`）；
+   - 根据输入框当前圆角半径 $R$（展开状态 22dp，默认收起状态 30dp）严格计算同心圆弧半径 $R - 5\text{dp}$，圆心精确锚定 $(W - R, R)$，在 $270^\circ \sim 360^\circ$ 间精准绘制四分之一圆弧；
+   - 颜色取用与输入框边框一致但略深色相（浅色为 `outline.copy(0.44f)`，深色为 `White.copy(0.32f)`），紧贴右上角边框圆角，拖拽调节高度顺畅自如。
+3. **大模型非标颜色标签 `<font color="2B7DEP">` 与尾随星号智能容错解析（Req 3）**：
+   - 在 `MarkdownText.kt` 中设计并落地十六进制容错映射器，智能容错大模型常见拼写变体（例如将 `P`、`O` 自动纠正为 `0`，`L`、`I` 纠正为 `1`），使 `2B7DEP` 自动规范解析为高明度天蓝 `#2B7DE0`；
+   - 支持标准 3 位短 Hex、8 位 Hex 及扩展颜色名；
+   - 在 `parseInlineMarkdown` 中对 `<font>` 与 `<span>` 闭合标签后的孤立悬挂星号（如 `</font>*`）进行自动消费净化，彻底消除原生 HTML 标签残留与悬挂星号。
+4. **加大用户输入气泡与模型上一次输出之间的距离（Req 4）**：
+   - 在消息列表渲染中采用 `itemsIndexed`，智能判定相邻消息身份；
+   - 当当前条目为用户输入气泡且上一条为 AI 模型输出时，额外注入 `18.dp` 的垂直呼吸间距，显著改善长对话中多轮交互的气泡排版视觉节奏。
+5. **思考强度快速档纯正柔和蓝色（Req 5）**：
+   - 将全应用内所有思考强度快速档（Low/Fast）的代表色全面从偏灰的 `#5FA8D3` 升级为柔和天蓝色 `Color(0xFF60A5FA)`（Tailwind Blue 400 规范），渐变调整为 `listOf(Color(0xFF93C5FD), Color(0xFF60A5FA))`；
+   - 输入栏药丸胶囊、档位弹窗、参数详情卡片全域统一步调，告别灰暗暗沉感。
+6. **对话页悬浮滚动快捷键升级为4键独立体系（Req 6）**：
+   - 快捷滚动组由双键拓展为 4 个紧凑型玻璃圆形按键（尺寸缩小为 32dp，间距 5dp，白色矢量图标）：
+     1. **到顶**：双线向上箭头 `KeyboardDoubleArrowUp`，主题色 `#60A5FA`（对应快速档浅蓝）；
+     2. **上一条输入**：单箭头 `KeyboardArrowUp`，主题色 `#2563EB`（对应平衡档蔚蓝）；
+     3. **下一条输入**：单箭头 `KeyboardArrowDown`，主题色 `#1D4ED8`（对应深入档深海蓝）；
+     4. **到底**：双线向下箭头 `KeyboardDoubleArrowDown`，主题色 `#4338CA`（对应极高档靛青蓝）；
+   - 四个按键色彩依照思考强度由浅至深优雅渐进，点击“上一条/下一条”基于当前可见首行智能寻址跳转至最近的用户消息，定位极其精准。
+7. **长按文本复制弹窗高频闪烁与复制失效彻底修复（Req 7）**：
+   - 在 `EchoTextToolbar.kt` 中用动作能力布尔值（`canCopy`, `canPaste`, `canCut`, `canSelectAll`）及 8px 矩形误差容限替换旧版 lambda 引用直接相等判定；
+   - 当 Compose SelectionManager 高频触发测量并传入新闭包时，仅在当前菜单实例上就地更新回调函数，而不重新分配 `activeMenu` 状态变量；
+   - 彻底阻断每秒 60 次重建 Popup 导致的无限重组与闪烁死循环，使长按划选后的复制、引用、剪切、全选响应极其稳定顺滑。
+
+### 2. 自动化测试核验
+- 全量 115 项单元测试 100% 全部通过（新增 `V1926FeaturesTest` 专项覆盖非标 Hex 容错、Markdown 悬挂星号净化、TextToolbar 防抖等值性及版本亮点核验，退出码 0）。
+
+### 3. 改动涉及文件列表
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatScreen.kt`:
+  - 顶部悬浮栏与报错 Banner 直接复用输入框玻璃样式（Req 1）；
+  - 输入框同心圆弧手柄定位至右上角外层贴合（Req 2）；
+  - 用户气泡与上一次输出增加 18dp 间距（Req 4）；
+  - 思考强度快速档颜色重调为 `#60A5FA`（Req 5）；
+  - 滚动快捷按钮升级为4键独立体系与双线箭头（Req 6）。
+- `app/src/main/java/com/aiassistant/ui/components/EchoTextToolbar.kt`:
+  - 防重组闪烁状态判定重构与能力等值比较，彻底修复划选复制闪烁（Req 7）。
+- `app/src/main/java/com/aiassistant/ui/components/MarkdownText.kt`:
+  - 纯 Kotlin 十六进制容错映射与解析，消除 `<font color="2B7DEP">` 与尾随星号乱码（Req 3）。
+- `app/src/main/java/com/aiassistant/ui/screens/settings/SettingsScreen.kt`:
+  - 更新说明 `CurrentVersionUserUpdates` 全面对齐 v1.9.26 新特性。
+- `app/build.gradle.kts`: `versionCode = 106`, `versionName = "1.9.26"`。
+- `app/src/test/java/com/aiassistant/V1926FeaturesTest.kt`: 新增 v1.9.26 专项自动化测试套件。
+- `app/src/test/java/com/aiassistant/V1925FeaturesTest.kt`: 适配版本更新日志测试。
+
+### 4. 历史安装包永久保留准则（最高铁律）
+- 构建前历史版本：104 个，构建后增至 105 个，严格遵守历史包永久保留最高铁律，未执行任何删除/清理操作；
+- 增量输出安装包：`Echo-v1.9.26-arm64-v8a.apk`
+- 文件大小：16,025,601 字节 (15.28 MB)
+- SHA-256：`1986388CC475124A98CF4E1B34330559F4AFEB7322B36A337B52FEDB53B19FE2`
+- 签名验证：APK Signature Scheme v2 验证通过 (Verified: true, Signers: 1)。
+
 ## [v1.9.25] - 2026-09-09
 
 ### 1. 本次升级与 18 项用户需求 100% 落实
