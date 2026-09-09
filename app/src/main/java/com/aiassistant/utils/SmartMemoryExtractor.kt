@@ -60,6 +60,38 @@ object SmartMemoryExtractor {
             }
         }
 
+        // 2.1 显式规则与设定：例如 "设定：在这个会话中始终使用中文"、"规则：不要输出解释"、"要求：代码附带类型标注"
+        val explicitRuleRegex = Regex("""^(?:(?:会话|对话|当前)?(?:设定|规则|要求|约束)[：:]\s*)(.{4,120})$""")
+        explicitRuleRegex.find(trimmed)?.let { match ->
+            val rule = match.groupValues[1].trim()
+            if (rule.isNotBlank()) {
+                return PendingMemoryCandidate(
+                    distilledContent = "会话规则：$rule",
+                    originalSnippet = trimmed.take(80),
+                    suggestedScope = "conversation",
+                    conversationId = conversationId,
+                    sourceMessageId = messageId,
+                    category = "PREFERENCE"
+                )
+            }
+        }
+
+        // 2.2 用户偏好声明：例如 "我的偏好：优先使用Kotlin"、"习惯：回答简洁"
+        val userPrefRegex = Regex("""^(?:(?:我的)?(?:偏好|习惯|喜好)(?:是|[：:])\s*)(.{3,80})$""")
+        userPrefRegex.find(trimmed)?.let { match ->
+            val pref = match.groupValues[1].trim()
+            if (pref.isNotBlank()) {
+                return PendingMemoryCandidate(
+                    distilledContent = "用户偏好：$pref",
+                    originalSnippet = trimmed.take(80),
+                    suggestedScope = "user",
+                    conversationId = conversationId,
+                    sourceMessageId = messageId,
+                    category = "PREFERENCE"
+                )
+            }
+        }
+
         // 3. 过滤疑问句（疑问句绝不作为事实或偏好入库）
         if (QUESTION_MARKERS.any { trimmed.endsWith(it) || trimmed.contains(it) }) return null
 
@@ -213,7 +245,7 @@ object SmartMemoryExtractor {
     }
 
     private fun isConversationScoped(lower: String): Boolean {
-        return listOf("这个项目", "当前项目", "本项目", "这个对话", "当前会话", "本会话", "this project", "this conversation")
+        return listOf("这个项目", "当前项目", "本项目", "这个对话", "当前会话", "本会话", "此会话", "该会话", "这个会话", "当前对话", "此对话", "该对话", "this project", "this conversation")
             .any { lower.contains(it) }
     }
 }

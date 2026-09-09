@@ -73,12 +73,12 @@ fun TransientLazyListScrollbar(
     val layoutInfo = listState.layoutInfo
     val totalItems = layoutInfo.totalItemsCount
     val visibleItems = layoutInfo.visibleItemsInfo.size.coerceAtLeast(1)
-    val shouldShow = visible && totalItems > visibleItems
+    var isDragging by remember { mutableStateOf(false) }
+    val shouldShow = (visible || isDragging) && totalItems > visibleItems
     var stableVisibleItems by remember(totalItems, heightPx) { mutableIntStateOf(0) }
     var dragProgress by remember { mutableStateOf<Float?>(null) }
-    var isDragging by remember { mutableStateOf(false) }
 
-    LaunchedEffect(shouldShow, totalItems, heightPx) {
+    LaunchedEffect(shouldShow) {
         if (!shouldShow) {
             stableVisibleItems = 0
             dragProgress = null
@@ -90,51 +90,56 @@ fun TransientLazyListScrollbar(
 
     val effectiveVisibleItems = stableVisibleItems.takeIf { it > 0 } ?: visibleItems
 
+    val currentTotalItems by androidx.compose.runtime.rememberUpdatedState(totalItems)
+    val currentEffectiveVisibleItems by androidx.compose.runtime.rememberUpdatedState(effectiveVisibleItems)
+    val currentHeightPx by androidx.compose.runtime.rememberUpdatedState(heightPx)
+    val currentListState by androidx.compose.runtime.rememberUpdatedState(listState)
+
     AnimatedVisibility(
         visible = shouldShow,
         enter = fadeIn(),
         exit = fadeOut(),
         modifier = modifier
-            .width(36.dp)
+            .width(40.dp)
             .fillMaxHeight()
             .onSizeChanged { heightPx = it.height }
-            .pointerInput(shouldShow, totalItems, heightPx) {
-                if (shouldShow && heightPx > 0) {
-                    fun scrollTo(y: Float) {
-                        val progress = (y / heightPx).coerceIn(0f, 1f)
-                        dragProgress = progress
-                        val maxIndex = (totalItems - effectiveVisibleItems).coerceAtLeast(0)
-                        val exactIndex = progress * maxIndex
-                        val targetIndex = exactIndex.toInt().coerceIn(0, maxIndex)
-                        val offsetFraction = exactIndex - targetIndex
-                        val estimatedOffsetPx = (offsetFraction * 150).roundToInt()
-                        scrollJob?.cancel()
-                        scrollJob = scope.launch {
-                            listState.scrollToItem(targetIndex, estimatedOffsetPx)
-                        }
+            .pointerInput(Unit) {
+                fun scrollTo(y: Float) {
+                    val h = currentHeightPx
+                    if (h <= 0) return
+                    val progress = (y / h).coerceIn(0f, 1f)
+                    dragProgress = progress
+                    val maxIndex = (currentTotalItems - currentEffectiveVisibleItems).coerceAtLeast(0)
+                    val exactIndex = progress * maxIndex
+                    val targetIndex = exactIndex.toInt().coerceIn(0, maxIndex)
+                    val offsetFraction = exactIndex - targetIndex
+                    val estimatedOffsetPx = (offsetFraction * 150).roundToInt()
+                    scrollJob?.cancel()
+                    scrollJob = scope.launch {
+                        currentListState.scrollToItem(targetIndex, estimatedOffsetPx)
                     }
-
-                    detectVerticalDragGestures(
-                        onDragStart = { offset ->
-                            isDragging = true
-                            scrollTo(offset.y)
-                        },
-                        onDragEnd = {
-                            isDragging = false
-                            scrollJob = null
-                            dragProgress = null
-                        },
-                        onDragCancel = {
-                            isDragging = false
-                            scrollJob = null
-                            dragProgress = null
-                        },
-                        onVerticalDrag = { change, _ ->
-                            change.consume()
-                            scrollTo(change.position.y)
-                        }
-                    )
                 }
+
+                detectVerticalDragGestures(
+                    onDragStart = { offset ->
+                        isDragging = true
+                        scrollTo(offset.y)
+                    },
+                    onDragEnd = {
+                        isDragging = false
+                        scrollJob = null
+                        dragProgress = null
+                    },
+                    onDragCancel = {
+                        isDragging = false
+                        scrollJob = null
+                        dragProgress = null
+                    },
+                    onVerticalDrag = { change, _ ->
+                        change.consume()
+                        scrollTo(change.position.y)
+                    }
+                )
             }
     ) {
         Box(

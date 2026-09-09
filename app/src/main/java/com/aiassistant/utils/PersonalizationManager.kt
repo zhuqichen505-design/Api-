@@ -21,7 +21,9 @@ data class PersonalizationSettings(
     val autoNamePrompt: String = "",
     val enableThinkingTranslation: Boolean = true,
     val thinkingTranslationApiConfigId: Long = 0L,
-    val thinkingTranslationModel: String = ""
+    val thinkingTranslationModel: String = "",
+    val connectingTextTemplate: String = "{model} 正在连接中...",
+    val thinkingTextTemplate: String = "{model} 正在思考中..."
 )
 
 class PersonalizationManager(private val context: Context) {
@@ -58,7 +60,9 @@ class PersonalizationManager(private val context: Context) {
             autoNamePrompt = prefs.getString(KEY_AUTO_NAME_PROMPT, "").orEmpty(),
             enableThinkingTranslation = prefs.getBoolean(KEY_ENABLE_THINKING_TRANSLATION, true),
             thinkingTranslationApiConfigId = prefs.getLong(KEY_THINKING_TRANSLATION_API_CONFIG_ID, 0L),
-            thinkingTranslationModel = prefs.getString(KEY_THINKING_TRANSLATION_MODEL, "").orEmpty()
+            thinkingTranslationModel = prefs.getString(KEY_THINKING_TRANSLATION_MODEL, "").orEmpty(),
+            connectingTextTemplate = prefs.getString(KEY_CONNECTING_TEXT_TEMPLATE, "{model} 正在连接中...").orEmpty().ifBlank { "{model} 正在连接中..." },
+            thinkingTextTemplate = prefs.getString(KEY_THINKING_TEXT_TEMPLATE, "{model} 正在思考中...").orEmpty().ifBlank { "{model} 正在思考中..." }
         )
     }
 
@@ -84,6 +88,8 @@ class PersonalizationManager(private val context: Context) {
             .putBoolean(KEY_ENABLE_THINKING_TRANSLATION, settings.enableThinkingTranslation)
             .putLong(KEY_THINKING_TRANSLATION_API_CONFIG_ID, settings.thinkingTranslationApiConfigId)
             .putString(KEY_THINKING_TRANSLATION_MODEL, settings.thinkingTranslationModel)
+            .putString(KEY_CONNECTING_TEXT_TEMPLATE, settings.connectingTextTemplate)
+            .putString(KEY_THINKING_TEXT_TEMPLATE, settings.thinkingTextTemplate)
             .commit()
     }
 
@@ -135,5 +141,7 @@ class PersonalizationManager(private val context: Context) {
         private const val KEY_ENABLE_THINKING_TRANSLATION = "enable_thinking_translation"
         private const val KEY_THINKING_TRANSLATION_API_CONFIG_ID = "thinking_translation_api_config_id"
         private const val KEY_THINKING_TRANSLATION_MODEL = "thinking_translation_model"
+        private const val KEY_CONNECTING_TEXT_TEMPLATE = "connecting_text_template"
+        private const val KEY_THINKING_TEXT_TEMPLATE = "thinking_text_template"
     }
 }

@@ -650,11 +650,11 @@ class AiRepository(
             apiConfigId = apiConfigId,
             modelName = modelName,
             temperature = config?.temperature ?: 0.95f,
-            maxTokens = config?.maxTokens ?: 50000,
+            maxTokens = 50000,
             topP = config?.topP ?: 1.0f,
-            enableThinking = config?.enableThinking ?: true,
+            enableThinking = true,
             thinkingEffort = config?.thinkingEffort ?: "high",
-            enableWebSearch = config?.enableWebSearch ?: false,
+            enableWebSearch = false,
             systemPrompt = systemPrompt,
             tags = tags
         )

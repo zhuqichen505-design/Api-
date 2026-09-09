@@ -89,6 +89,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
     private var generationJob: Job? = null
     private var systemPromptSaveJob: Job? = null
     private var isMessageSaved = false
+    @Volatile private var isUserStopping = false
     private var isPrivateConversation = false
     private var privateExitHandled = false
 
@@ -135,11 +136,12 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                 // 使用对话级别配置，如果没有则使用API配置默认值
                 _tempSettings.value = TempChatSettings(
                     temperature = conv.temperature ?: apiConfig?.temperature ?: 0.95f,
-                    maxTokens = conv.maxTokens ?: apiConfig?.maxTokens ?: 50000,
+                    maxTokens = conv.maxTokens ?: 50000,
                     topP = conv.topP ?: apiConfig?.topP ?: 1.0f,
-                    enableThinking = conv.enableThinking ?: apiConfig?.enableThinking ?: true,
+                    enableThinking = conv.enableThinking ?: true,
                     thinkingEffort = conv.thinkingEffort ?: apiConfig?.thinkingEffort ?: "high",
-                    enableWebSearch = conv.enableWebSearch ?: apiConfig?.enableWebSearch ?: false
+                    enableWebSearch = conv.enableWebSearch ?: false,
+                    enableSessionMemory = false
                 )
                 // 如果对话有自定义配置，自动启用临时设置
                 _useTempSettings.value = true
@@ -530,6 +532,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
         } else null
 
         isMessageSaved = false
+        isUserStopping = false
         activeAssistantVariantGroupId = assistantVariantGroupId
         activeAssistantVariantIndex = assistantVariantIndex
 
@@ -629,18 +632,26 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                             autoNameIfNeeded()
                         },
                         onError = { errorMsg ->
-                            isMessageSaved = true
-                            _isGenerating.value = false
-                            _error.value = errorMsg
-                            saveErrorReply(errorMsg)
-                            _currentResponse.value = ""
-                            _currentThinking.value = ""
+                            if (isUserStopping || errorMsg.contains("Socket closed", ignoreCase = true) || errorMsg.contains("Canceled", ignoreCase = true)) {
+                                _isGenerating.value = false
+                                _currentResponse.value = ""
+                                _currentThinking.value = ""
+                            } else if (!isMessageSaved) {
+                                isMessageSaved = true
+                                _isGenerating.value = false
+                                _error.value = errorMsg
+                                saveErrorReply(errorMsg)
+                                _currentResponse.value = ""
+                                _currentThinking.value = ""
+                            }
                         }
                     )
                 }
             } catch (e: Exception) {
-                if (e is CancellationException) {
+                if (isUserStopping || e is CancellationException || e.message?.contains("Socket closed", ignoreCase = true) == true || e.message?.contains("Canceled", ignoreCase = true) == true) {
                     _isGenerating.value = false
+                    _currentResponse.value = ""
+                    _currentThinking.value = ""
                     return@launch
                 }
                 _isGenerating.value = false
@@ -686,6 +697,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
     }
 
     fun stopGeneration() {
+        isUserStopping = true
         repository.cancelActiveRequest(conversationId)
         generationJob?.cancel(CancellationException("用户暂停生成"))
         _isGenerating.value = false
@@ -1707,5 +1719,5 @@ data class TempChatSettings(
     val enableThinking: Boolean = true,
     val thinkingEffort: String = "high",
     val enableWebSearch: Boolean = false,
-    val enableSessionMemory: Boolean = true
+    val enableSessionMemory: Boolean = false
 )

@@ -1,4 +1,4 @@
-@file:OptIn(ExperimentalMaterial3Api::class)
+@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 
 package com.aiassistant.ui.screens.settings
 
@@ -100,57 +100,17 @@ private val CurrentFeatureHighlights = listOf(
 )
 
 internal val CurrentVersionUserUpdates = listOf(
-    "【v1.9.24 本次更新】全屏状态栏阴影与液态玻璃无界弹窗：重构 EchoGlassDialog 全屏沉浸系统层，彻底消除状态栏无阴影割裂感，全层级弹窗实现 100% 完整深色遮罩穿透",
-    "对话顶部悬浮胶囊无瑕毛玻璃：重构顶部悬浮栏层级架构，彻底移除外圈背景方框与白底干扰，解决液态玻璃失真，完美契合全景沉浸视效",
-    "思考强度全链路即时双向同步：彻底打通底部思考调节栏与对话设置思考强度的双向即时绑定，确保真实 API 推理参数（reasoning_effort/budget_tokens）精准下发模型",
-    "思考档位配色与真实参数说明：重调快速档饱和度并拉开深入与极高档对比度，新增 ⓘ 说明弹窗详细展示各档位下发的真实 API 参数",
-    "全屏点击收起思考弹窗：新增全屏无缝点击拦截器与返回键支持，点击弹窗外任意空白区域即刻平滑折叠思考调节面板",
-    "平滑页面转场过渡动画：全局 NavHost 引入横向位移与渐变混合转场（FastOutSlowInEasing），彻底消除页面跳转时的生硬闪跳",
-    "会话内记忆专属控制总开关：对话设置新增会话内记忆独立开关，支持完全关闭或启用当前会话的专属记忆注入",
-    "进入对话直达底部与极速起止跳转：进入会话瞬间锚定最新消息，一键回到顶部/底部的跨长列表平滑预跳加速算法",
-    "右侧全局滚动条加粗跟手优化：滚动条宽度增至 8dp，触控热区扩至 36dp，优化手势位移映射算法，告别卡顿与断触",
-    "默认开启思考与 50,000 超长最大生成 Token：全局默认开启深度思考模式，最大生成长度默认提升至 50,000 Token",
-    "思考胶囊展示模型名称与翻译按钮内嵌：正在思考胶囊实时显示当前模型名称，移除下方多余英语检测，翻译按钮优雅收纳至思考区右上角",
-    "模型列表智能精简显示：全面统一模型名称过滤，自动剔除前缀提供商路径仅显示核心型号（如 glm-5.2）",
-    "模型回复分割线微距美化：上移回复底部分割线贴合消息布局，界面轮廓紧凑优雅",
-    "【v1.9.23 更新】会话专属记忆管理系统：在对话设置中完整实现会话专属记忆的查看、添加、编辑、启用/停用与一键清空，随会话严格隔离并精准注入上下文",
-    "高信噪比智能记忆提取重构：彻底重构记忆提取引擎，过滤疑问句、单次任务动词及客套寒暄，仅提炼持久偏好、人物设定与关键事实，杜绝提取无关对话",
-    "提示词优先级手风琴展开平滑防闪烁：优化手风琴动画规格与组件布局结构，彻底消除展开优先级说明时的瞬间布局抖动与重绘闪烁",
-    "回复完成分割线高对比微光美化：模型回复生成完毕后呈现高对比度雅致微光分割线，强化消息流轮次层级与层次感",
-    "思考强度全阶递进蓝色系视觉规范：0~4 档思考强度胶囊按钮与弹窗档位全面重构为板岩灰蓝 -> 浅冰蓝 -> 道奇蓝 -> 深海蓝 -> 皇家宝石蓝递进蓝调，视觉统一纯净",
-    "文字划选浮动工具栏防闪烁与引用优化：修复选中文本时浮动工具栏反复关闭重开闪烁的缺陷，增加剪贴板缓冲确保一键引用与复制稳定可靠",
-    "对话页顶部悬浮栏纯色外框消除：重构全屏背景图层与毛玻璃面板穿透，彻底移除悬浮栏外围纯色背景包裹，呈现纯正全景液态毛玻璃视觉",
-    "【v1.9.22 更新】思考强度滑块防抽搐平滑优化：重构手势跟踪与状态隔离，滑块 Thumb 紧随手指平滑移动，结束拖拽平滑 Spring 阻尼吸附，彻底解决滑动调档时的抽搐抖动与跳档问题",
-    "内置极低饱和度纯色系护眼背景：新增浅艾绿、浅湖蓝、浅薰紫、浅樱粉、浅暖杏、浅山岚 6 款极低饱和度纯色背景（饱和度 < 5%），完美适配 WCAG AAA 文本超高对比度，支持一键单独或批量应用至首页与对话页",
-    "设置项调整全量即时生效：所有开关、提示词、滑块、配置项调整后立即持久化存盘，彻底移除返回退出时二次提示保存的拦截确认弹窗，退出切换畅通无阻",
-    "跨会话长期记忆状态即时同步：解决跨会话长期记忆开关调整时因未保存导致状态失效的缺陷，开关轻触即刻生效并持久化",
-    "对话自动命名与思考链翻译模型自由选择：完全打通与对话页一致的全局模型选择库，跨服务商自由直选所有已启用模型及自定义模型，彻底解除只能选默认模型的限制",
-    "模型选择 UI 向下展开式折叠面板重构：废除居中模态弹窗，改为按钮下方直接平滑向下展开列表，箭头随状态自动翻转；重新规范搜索框尺寸为 40dp 匀称胶囊搜索栏",
-    "【v1.9.21 更新】已失效模型自动自愈与警示：模型配置被删除时自动标黄告警并提供一键修复切流通道；设置居中导航菜单与 8 Tab 清爽分类架构",
-    "【v1.9.20 更新】API 配置多 Key 独立输入框：支持添加多个独立输入框（Key 1 主密钥、Key 2 备用密钥...），支持独立明密文切换、独立删除、粘贴多行自动拆分与自动故障转移轮询",
-    "华为运动健康检测与可读性重构：修复 Android 11+ 包可见性问题，精准检测并拉起华为运动健康与荣耀健康；重构设置页健康卡片，彻底消除原始 epoch 毫秒时间戳与低对比挤压 UI",
-    "深度思考按钮精简与极简档位：移除前缀脑图图标，精简文案为“深度思考 / 快速思考 ⌃ / 平衡思考 ⌃ / 深入思考 ⌃ / 极高思考 ⌃”",
-    "圆润美观胶囊滑块组件 (EchoPillSlider)：全圆角药丸轨道、吸附圆点、纯白浮雕圆 Thumb 与动态彩色进度轨道",
-    "深度思考弹窗与真实模型档位动态对应：根据激活模型真实推理架构动态匹配档位（OpenAI 3档、Claude/DeepSeek/通用 4档），解除对新模型档位的硬编码屏蔽",
-    "重构模型上下文识别逻辑：修正 deepseekv4flash 识别为 1M 上下文，增强正则提取与架构推断，严禁对未确证模型编造虚假标签",
-    "横屏与小窗稳定性优化：修复液态玻璃弹窗固定高度溢出与错位问题，引入动态屏幕百分比约束与抗溢出保护",
-    "修复上版回归缺陷：切换回复版本 (< 1/2 >) 时锁定当前消息位置不跳底；生成暂停/停止时锁定滚动条，消息气泡支持长按自由复制选择与一键引用",
-    "【v1.9.17 更新】自定义联网搜索结果数：自由输入并指定 1~20 条搜索结果，精准控制会话上下文体积与搜索丰富度",
-    "对话自动命名读取模型列表：自动读取 API 服务商模型列表供一键选择，支持显示上下文窗口与思考能力徽标，免除手动输入",
-    "华为运动健康步数主动刷新：增加活动识别权限申请与硬件计步传感器主动探测刷新，彻底摆脱手动输入",
-    "提示词与记忆优先级与机制明确：系统提示词 100% 独占覆盖全局提示词，个性化偏好全局引导，长记忆弹窗确认入库，角色创作物理严格隔离并在设置中清晰说明",
-    "角色与创作设置 3 栏清爽重构：重构为剧情导向、角色世界观、模型参数三栏架构，剧情导演指令一触即达",
-    "普通对话与角色扮演双向无损互转：支持从普通对话一键升级为故事创作并自动提炼主角人设，亦可将故事会话无损转回普通对话",
-    "设置页冗长内容手风琴折叠：对长期记忆库、环境变量库、提示词模板库默认采用手风琴卡片折叠，大幅降低滚动认知负担",
-    "模型全维度能力即时解析：上下文窗口 (4K~2M)、多模态 (Vision)、工具调用 (Tool Calling)、深度思考 (Reasoning) 及档位徽标即时显示",
-    "UI 极客深色模式全面重构：WCAG AAA 超高对比度，深蓝黑极客美学，彻底根除灰紫杂色与白色气泡背景白斑",
-    "对话输入框展开放大：对话页主输入框支持一键放大展开为宽敞编辑面板，长提示词、长代码与复杂剧情构思输入更从容",
-    "系统提示词输入框可放大：对话设置与故事创作中系统提示词输入框支持一键放大，大幅改善长设定规则阅读和编辑体验",
-    "系统提示词光标定位修复：精准解决点击修改系统提示词时光标被强制跳至文本开头的异常，精确响应点击落点与定位准确性",
-    "对话设置窗口宽度与模型下拉对齐：优化对话设置弹窗宽度比例，展开模型列表与上方选择按钮严格等宽对齐",
-    "对话页消息分割线：模型回复完毕后在日期时间行下方新增优雅微光分割线，对话轮次更分明、视觉流更舒适",
-    "Exa 免Key 联网搜索引擎：官方托管免费搜索通道开箱即用，无需 API Key 即可实时联网",
-    "手机设备与健康生态深度联动：无缝读取设备时间、GPS定位与逆地理编码、手机计步传感器及硬件状态"
+    "对话流式响应时增加跟手跟随自动滚动",
+    "修复对话顶部悬浮栏在部分机型上背景异常与玻璃穿透问题",
+    "修复弹窗状态栏阴影未完整覆盖状态栏顶部边缘",
+    "新建对话默认思考开启、联网关闭，专属记忆默认关闭",
+    "新对话默认 API 选择入口移至「设置 - API 配置」顶部",
+    "思考中与连接中状态文案支持在设置中自定义并一键重置",
+    "长按文本工具栏增加剪切与粘贴，修复高频闪烁与空框问题",
+    "修复点击中断后错误生成两条回复的问题",
+    "对话中错误提示气泡支持折叠与双击展开/收起",
+    "优化长列表滚动条滑动稳定性，避免快速拖动断触",
+    "输入框展开按钮重构为优雅弧形控制手柄，支持拖拽随手调整高度"
 )
 
 private val SettingsPanelShape = com.aiassistant.ui.theme.EchoTokens.Radius.shapeXl
@@ -601,10 +561,69 @@ fun ApiConfigTab(
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         item {
+            val defaultConfig = configs.firstOrNull { it.isDefault } ?: configs.firstOrNull()
+            SettingsGlassCard(hazeState = hazeState) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Stars,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("新对话默认 API", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = if (defaultConfig != null) "当前默认：${defaultConfig.name} (${defaultConfig.provider})" else "尚未设置默认 API 配置",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                if (configs.isNotEmpty()) {
+                    Text(
+                        "点击直接切换新对话默认生效的服务商：",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        configs.forEach { cfg ->
+                            FilterChip(
+                                selected = cfg.isDefault,
+                                onClick = {
+                                    scope.launch {
+                                        repository.setDefaultConfig(cfg.id)
+                                    }
+                                },
+                                label = {
+                                    Text(
+                                        text = if (cfg.isDefault) "${cfg.name} (默认)" else cfg.name,
+                                        fontWeight = if (cfg.isDefault) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                },
+                                leadingIcon = if (cfg.isDefault) {
+                                    { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                                } else null,
+                                colors = echoFilterChipColors(),
+                                border = echoFilterChipBorder(cfg.isDefault)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
             Text(
                 text = "API配置管理",
                 style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(bottom = 8.dp)
+                modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
             )
         }
 
@@ -2564,9 +2583,8 @@ fun ModelFeaturesTab(
 
     val allApiConfigs by repository.getAllApiConfigs().collectAsState(initial = emptyList())
 
-    var testAutoNameInput by remember { mutableStateOf("帮我写一个Python快速排序算法") }
-    var testAutoNameResult by remember { mutableStateOf<String?>(null) }
-    var isTestingAutoName by remember { mutableStateOf(false) }
+    var connectingTemplate by remember(settings) { mutableStateOf(settings.connectingTextTemplate) }
+    var thinkingTextTemplate by remember(settings) { mutableStateOf(settings.thinkingTextTemplate) }
 
     var savedMessage by remember { mutableStateOf<String?>(null) }
 
@@ -2578,7 +2596,9 @@ fun ModelFeaturesTab(
         newEnableThinkingTranslation: Boolean = enableThinkingTranslation,
         newThinkingConfigId: Long = thinkingTranslationApiConfigId,
         newThinkingModel: String = thinkingTranslationModel,
-        newThinkingTemplate: String = thinkingTemplate
+        newThinkingTemplate: String = thinkingTemplate,
+        newConnectingTemplate: String = connectingTemplate,
+        newThinkingTextTemplate: String = thinkingTextTemplate
     ) {
         manager.saveSettings(
             settings.copy(
@@ -2589,7 +2609,9 @@ fun ModelFeaturesTab(
                 enableThinkingTranslation = newEnableThinkingTranslation,
                 thinkingTranslationApiConfigId = newThinkingConfigId,
                 thinkingTranslationModel = newThinkingModel.trim(),
-                thinkingCapsuleTemplate = newThinkingTemplate.trim().ifBlank { "{model} {status} {time} {tokens}" }
+                thinkingCapsuleTemplate = newThinkingTemplate.trim().ifBlank { "{model} {status} {time} {tokens}" },
+                connectingTextTemplate = newConnectingTemplate.trim().ifBlank { "{model} 正在连接中..." },
+                thinkingTextTemplate = newThinkingTextTemplate.trim().ifBlank { "{model} 正在思考中..." }
             )
         )
         settings = manager.getSettings()
@@ -2606,6 +2628,20 @@ fun ModelFeaturesTab(
         if (thinkingTemplate.trim() != settings.thinkingCapsuleTemplate.trim()) {
             kotlinx.coroutines.delay(400)
             persistSettings(newThinkingTemplate = thinkingTemplate)
+        }
+    }
+
+    LaunchedEffect(connectingTemplate) {
+        if (connectingTemplate.trim() != settings.connectingTextTemplate.trim()) {
+            kotlinx.coroutines.delay(400)
+            persistSettings(newConnectingTemplate = connectingTemplate)
+        }
+    }
+
+    LaunchedEffect(thinkingTextTemplate) {
+        if (thinkingTextTemplate.trim() != settings.thinkingTextTemplate.trim()) {
+            kotlinx.coroutines.delay(400)
+            persistSettings(newThinkingTextTemplate = thinkingTextTemplate)
         }
     }
 
@@ -2688,78 +2724,6 @@ fun ModelFeaturesTab(
                             maxLines = 6,
                             shape = SettingsInnerShape
                         )
-                    }
-
-                    // 实时测试卡片
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = SettingsInnerShape,
-                        color = glass.control,
-                        border = BorderStroke(1.dp, glass.outline)
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text("实时测试自动命名效果：", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                            OutlinedTextField(
-                                value = testAutoNameInput,
-                                onValueChange = { testAutoNameInput = it },
-                                modifier = Modifier.fillMaxWidth(),
-                                placeholder = { Text("输入示例文本...") },
-                                singleLine = true
-                            )
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Button(
-                                    onClick = {
-                                        isTestingAutoName = true
-                                        testAutoNameResult = null
-                                        coroutineScope.launch {
-                                            val targetId = if (autoNameApiConfigId > 0L) autoNameApiConfigId else allApiConfigs.firstOrNull()?.id ?: 0L
-                                            if (targetId == 0L) {
-                                                testAutoNameResult = "未找到可用的 API 配置，请先在模型设置中添加 API"
-                                                isTestingAutoName = false
-                                                return@launch
-                                            }
-                                            val res = repository.testAutoNaming(
-                                                apiConfigId = targetId,
-                                                modelName = autoNameModel,
-                                                testText = testAutoNameInput,
-                                                customPrompt = autoNamePrompt
-                                            )
-                                            isTestingAutoName = false
-                                            testAutoNameResult = res.fold(
-                                                onSuccess = { "生成标题成功: 「$it」" },
-                                                onFailure = { "生成失败: ${it.message}" }
-                                            )
-                                        }
-                                    },
-                                    enabled = !isTestingAutoName && testAutoNameInput.isNotBlank()
-                                ) {
-                                    Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(if (isTestingAutoName) "生成中..." else "测试生成标题")
-                                }
-                            }
-                            testAutoNameResult?.let { resText ->
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text(
-                                        text = resText,
-                                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-                                        color = if (resText.startsWith("生成标题成功")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
-                                        modifier = Modifier.padding(8.dp)
-                                    )
-                                }
-                            }
-                        }
                     }
                 }
             }
@@ -2904,6 +2868,89 @@ fun ModelFeaturesTab(
                                 label = { Text(varKey, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
                             )
                         }
+                    }
+                }
+            }
+        }
+
+        // 4. 生成状态文案自定义 (连接中 & 思考中)
+        item {
+            SettingsGlassCard(hazeState = hazeState) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Pending,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("生成状态文案自定义", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text(
+                            "自定义模型正在连接与深度思考时显示的提示文案，支持 {model} 变量占位",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    IconButton(
+                        onClick = {
+                            connectingTemplate = "{model} 正在连接中..."
+                            thinkingTextTemplate = "{model} 正在思考中..."
+                            persistSettings(
+                                newConnectingTemplate = "{model} 正在连接中...",
+                                newThinkingTextTemplate = "{model} 正在思考中..."
+                            )
+                            savedMessage = "已重置生成文案为默认值"
+                        }
+                    ) {
+                        Icon(
+                            Icons.Default.RestartAlt,
+                            contentDescription = "重置为默认值",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+
+                SettingsInputField(
+                    title = "连接中文案（支持 {model}）",
+                    value = connectingTemplate,
+                    onValueChange = {
+                        connectingTemplate = it
+                        savedMessage = null
+                    },
+                    placeholder = "{model} 正在连接中..."
+                )
+
+                SettingsInputField(
+                    title = "思考中文案（支持 {model}）",
+                    value = thinkingTextTemplate,
+                    onValueChange = {
+                        thinkingTextTemplate = it
+                        savedMessage = null
+                    },
+                    placeholder = "{model} 正在思考中..."
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(
+                        onClick = {
+                            connectingTemplate = "{model} 正在连接中..."
+                            thinkingTextTemplate = "{model} 正在思考中..."
+                            persistSettings(
+                                newConnectingTemplate = "{model} 正在连接中...",
+                                newThinkingTextTemplate = "{model} 正在思考中..."
+                            )
+                            savedMessage = "已恢复默认文案"
+                        }
+                    ) {
+                        Icon(Icons.Default.RestartAlt, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("重置为默认值")
                     }
                 }
             }

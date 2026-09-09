@@ -283,6 +283,7 @@ fun EchoGlassDialog(
                             android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                             android.view.ViewGroup.LayoutParams.MATCH_PARENT
                         )
+                        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(this, false)
                         setBackgroundDrawableResource(android.R.color.transparent)
                         statusBarColor = android.graphics.Color.TRANSPARENT
                         navigationBarColor = android.graphics.Color.TRANSPARENT
@@ -291,7 +292,8 @@ fun EchoGlassDialog(
                         }
                         addFlags(android.view.WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
                         addFlags(android.view.WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
-                        setDimAmount(0f)
+                        addFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+                        setDimAmount(0.42f)
                     }
                     break
                 }
@@ -306,7 +308,6 @@ fun EchoGlassDialog(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFF0F172A).copy(alpha = 0.40f))
                 .clickable(
                     interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                     indication = null,

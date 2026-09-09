@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.ContentCut
+import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.FormatQuote
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material3.Icon
@@ -41,11 +43,14 @@ import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 data class EchoTextToolbarState(
     val rect: Rect,
     val onCopy: (() -> Unit)?,
+    val onPaste: (() -> Unit)?,
+    val onCut: (() -> Unit)?,
     val onSelectAll: (() -> Unit)?
 )
 
@@ -67,12 +72,28 @@ class EchoTextToolbar : TextToolbar {
         onSelectAllRequested: (() -> Unit)?
     ) {
         val current = activeMenu
-        if (current != null && current.rect == rect && current.onCopy == onCopyRequested && current.onSelectAll == onSelectAllRequested) {
+        if (current != null &&
+            abs(current.rect.left - rect.left) < 4f &&
+            abs(current.rect.top - rect.top) < 4f &&
+            abs(current.rect.right - rect.right) < 4f &&
+            abs(current.rect.bottom - rect.bottom) < 4f &&
+            current.onCopy == onCopyRequested &&
+            current.onPaste == onPasteRequested &&
+            current.onCut == onCutRequested &&
+            current.onSelectAll == onSelectAllRequested
+        ) {
+            return
+        }
+        // Avoid showing empty floating box if no actions are available
+        if (onCopyRequested == null && onPasteRequested == null && onCutRequested == null && onSelectAllRequested == null) {
+            activeMenu = null
             return
         }
         activeMenu = EchoTextToolbarState(
             rect = rect,
             onCopy = onCopyRequested,
+            onPaste = onPasteRequested,
+            onCut = onCutRequested,
             onSelectAll = onSelectAllRequested
         )
     }
@@ -130,6 +151,16 @@ fun EchoTextToolbarHost(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
+                if (menu.onCut != null) {
+                    TextToolbarActionItem(
+                        icon = Icons.Default.ContentCut,
+                        text = "剪切",
+                        onClick = {
+                            menu.onCut.invoke()
+                            toolbar.hide()
+                        }
+                    )
+                }
                 if (menu.onCopy != null) {
                     TextToolbarActionItem(
                         icon = Icons.Default.ContentCopy,
@@ -139,6 +170,18 @@ fun EchoTextToolbarHost(
                             toolbar.hide()
                         }
                     )
+                }
+                if (menu.onPaste != null) {
+                    TextToolbarActionItem(
+                        icon = Icons.Default.ContentPaste,
+                        text = "粘贴",
+                        onClick = {
+                            menu.onPaste.invoke()
+                            toolbar.hide()
+                        }
+                    )
+                }
+                if (menu.onCopy != null) {
                     TextToolbarActionItem(
                         icon = Icons.Default.FormatQuote,
                         text = "引用",

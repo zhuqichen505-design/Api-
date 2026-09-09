@@ -1,5 +1,67 @@
 # Echo AI 助手更新日志 (Update Log)
 
+## [v1.9.25] - 2026-09-09
+
+### 1. 本次升级与 18 项用户需求 100% 落实
+1. **对话页顶部悬浮栏液态玻璃修复与纯色背景消除（Req 1）**：移除悬浮栏 Surface 额外底色层，改用纯透明 `Surface(color = Color.Transparent)` 配合 `echoHazePanel` 胶囊裁切，消除白色双层矩形边框并根除液态玻璃模糊报错与渲染失真。
+2. **屏幕上方报错提醒统一液态玻璃材质（Req 1）**：屏幕顶部浮动报错 Banner 彻底移除粉红实色背景，迁移至标准 `echoHazePanel` 半透明毛玻璃卡片（`errorContainer.copy(0.35f)` + 细边框），视觉优雅轻盈。
+3. **新建对话默认最大 Token 50,000 严格生效（Req 2）**：在 `AiRepository.createConversation` 及故事配置创建入口中强制写入 `maxTokens = 50000`，彻底解决数据库初始化时回退旧值问题。
+4. **新建会话内专属记忆默认关闭（Req 3）**：`TempChatSettings` 中将 `enableSessionMemory` 默认值设为 `false`，确保新建会话专属记忆默认处于关闭状态。
+5. **专属记忆智能提取规则强化与高信噪比优化（Req 3）**：在 `SmartMemoryExtractor.kt` 中强化规则指令模式与用户偏好正则提取（`^(?:(?:会话|对话|当前)?(?:设定|规则|要求|约束)[：:]\s*)` 等），过滤低信噪比临时口令。
+6. **设置页新增“新对话默认 API”卡片（Req 4）**：在设置页「API 配置」Tab 顶部新增高权重「新对话默认 API」快捷配置卡片，支持 FlowRow 快速单选切换默认服务商。
+7. **重新进入对话统一默认折叠思考过程（Req 5）**：`MessageBubble` 中 `showThinking` 状态初始化逻辑优化，对非正在生成中的历史消息统一默认折叠思考过程（`showThinking = false`）。
+8. **新建对话默认开启思考模式、默认关闭联网搜索（Req 6）**：创建新对话时强制 `enableThinking = true`、`enableWebSearch = false`；若用户主动修改，则持久化并在重新进入该对话时严格保留用户设定。
+9. **右侧滚动条防断触与跟手稳定性提升（Req 7）**：重构 `ScrollAssist.kt` 中滚动条手势监听，采用稳定 key `pointerInput(Unit)` 搭配 `rememberUpdatedState`，彻底杜绝数据加载或重组导致的断触与手势中断。
+10. **模型正在连接中文案升级（Req 8）**：模型连接状态提示更新为带有模型名称的动态占位文案（如 `"{model} 正在连接中..."`）。
+11. **连接中与思考中文案支持自定义配置与一键重置（Req 9）**：`PersonalizationSettings` 引入 `connectingTextTemplate` 与 `thinkingTextTemplate` 配置项，并在设置页「模型与高级功能」Tab 中提供直观编辑面板与「重置为默认值」按钮。
+12. **移除设置页中“实时测试自动命名效果”卡片（Req 10）**：彻底移除冗余的测试自动命名输入框、状态与卡片 UI，界面清爽精炼。
+13. **思考胶囊双击展开/折叠（Req 11）**：思考状态胶囊与思考区域均支持双击手势快速切换展开/收起状态。
+14. **划选文本浮动工具栏防闪烁与剪切/粘贴按钮补全（Req 12）**：`EchoTextToolbar.kt` 中增加 4px 坐标变动防抖容差，避免微小重绘引起的工具栏闪烁；状态机中补齐 `onCut` 与 `onPaste` 回调，完整支持划选剪切与粘贴操作。
+15. **对话输入栏右上角弧线手柄与垂直拖动自由调高（Req 13）**：
+    - 移除右上角原有四向放大图标，在输入栏右上角绘制四分之一同心圆弧线手柄 `⌒`（紧贴右上圆角内沿）；
+    - 支持垂直拖动手势自由调节高度（范围 42dp ~ 360dp），单次点击在最小与最大高度间快速切换；
+    - 进入新对话或切换会话时默认保持最小高度。
+16. **用户主动终止生成防二次报错气泡（Req 14）**：在 `ChatViewModel` 中引入 `@Volatile isUserStopping` 状态标志，在用户主动点击停止时强力静默拦截底层网络连接关闭产生的 `Socket closed` / `Canceled` 异常气泡与弹窗。
+17. **全屏状态栏阴影覆盖与液态玻璃弹窗统一（Req 15）**：`EchoGlassDialog` 引入 `WindowCompat.setDecorFitsSystemWindows(this, false)`、沉浸式状态栏与导航栏标志及 `FLAG_DIM_BEHIND`（42% 深色透明遮罩），实现刘海屏与挖孔屏全域无死角遮罩覆盖。
+18. **报错气泡默认折叠仅显示关键信息（Req 16）**：针对 AI 回复中的报错内容，默认折叠详细堆栈仅显示精简错误提示与展开按钮，并支持双击快速展开/收回。
+19. **流式生成时底部自动吸附滚动，上滑暂停，回到底部恢复自动跟随（Req 17）**：监听列表滚动事件与最新可见条目，流式输出期间用户向上滑动阅读时自动暂停跟手滚动；当用户滑动回底部时，自动恢复跟随最新输出实时下滚。
+20. **设置页「当前版本更新说明」彻底清理历史版本仅保留 v1.9.25（Req 18）**：重构 `CurrentVersionUserUpdates` 常量，清空所有陈旧版本冗余条目，纯净呈现本次 v1.9.25 的核心升级亮点。
+
+### 2. 自动化测试核验
+- 全量 111 项单元测试 100% 全部通过（新增 `V1925FeaturesTest` 专项覆盖 18 项核心需求，包含文案模板、默认开关、50000 Token、更新条目单一版本等验证，退出码 0）。
+
+### 3. 改动涉及文件列表
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatScreen.kt`:
+  - 顶部悬浮栏与报错 Banner 纯透明/毛玻璃修复（Req 1）；
+  - 思考过程历史消息默认折叠（Req 5）；
+  - 思考胶囊双击展开/折叠（Req 11）；
+  - 输入框右上角弧线手柄 `⌒` 绘制与垂直拖动手势高度调节（42dp~360dp，新对话默认最小高度）（Req 13）；
+  - 报错气泡默认折叠关键信息与双击切换（Req 16）；
+  - 流式输出底部自动跟随与上滑暂停/回底恢复机制（Req 17）；
+  - 连接中文案动态替换（Req 8）。
+- `app/src/main/java/com/aiassistant/ui/components/EchoHaze.kt`: `EchoGlassDialog` 升级沉浸式全屏阴影遮罩（Req 15）。
+- `app/src/main/java/com/aiassistant/ui/components/EchoTextToolbar.kt`: 防闪烁坐标防抖与剪切、粘贴支持（Req 12）。
+- `app/src/main/java/com/aiassistant/ui/components/ScrollAssist.kt`: `TransientLazyListScrollbar` 防断触与平滑手势跟踪优化（Req 7）。
+- `app/src/main/java/com/aiassistant/data/repository/AiRepository.kt`: 新建对话默认 50000 maxTokens、思考开启、联网关闭（Req 2, 6）。
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatViewModel.kt`: 新建对话默认会话记忆关闭（Req 3），主动停止生成防二次报错气泡（Req 14）。
+- `app/src/main/java/com/aiassistant/utils/SmartMemoryExtractor.kt`: 专属记忆智能提取规则强化（Req 3）。
+- `app/src/main/java/com/aiassistant/utils/PersonalizationManager.kt`: 思考与连接中文案模板支持（Req 8, 9）。
+- `app/src/main/java/com/aiassistant/ui/screens/settings/SettingsScreen.kt`:
+  - API 配置 Tab 顶部新增“新对话默认 API”卡片（Req 4）；
+  - 模型与高级功能 Tab 新增文案模板自定义与重置（Req 9）；
+  - 移除实时测试自动命名效果卡片（Req 10）；
+  - `CurrentVersionUserUpdates` 纯净化仅保留 v1.9.25（Req 18）。
+- `app/build.gradle.kts`: `versionCode = 105`, `versionName = "1.9.25"`。
+- `app/src/test/java/com/aiassistant/V1925FeaturesTest.kt`: 新增 v1.9.25 专项自动化测试。
+- `app/src/test/java/com/aiassistant/V1914FeaturesTest.kt`, `V1922FeaturesTest.kt`, `V1923FeaturesTest.kt`, `V1924FeaturesTest.kt`: 适配纯净化更新说明断言。
+
+### 4. 历史安装包永久保留准则（最高铁律）
+- 构建前历史版本：103 个，构建后增至 104 个，严格遵守历史包永久保留最高铁律，未执行任何删除/清理操作；
+- 增量输出安装包：`Echo-v1.9.25-arm64-v8a.apk`
+  - 路径：`D:\Agent\APP-烧\app\releases\Echo-v1.9.25-arm64-v8a.apk`
+  - 体积：16,025,597 字节 (~15.28 MB)
+  - SHA-256：`07A66778E35B934FCCB7183BDDB7F3262A77B9A1F23A3E412327BE51715A7501`
+
 ## [v1.9.24] - 2026-09-08
 
 ### 1. 本次升级与 16 项用户需求 100% 落实

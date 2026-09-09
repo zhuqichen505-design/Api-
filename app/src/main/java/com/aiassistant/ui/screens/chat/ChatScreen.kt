@@ -19,6 +19,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -263,16 +266,20 @@ fun ChatScreen(
         snapshotFlow {
             val layoutInfo = listState.layoutInfo
             val visibleItems = layoutInfo.visibleItemsInfo
-            if (layoutInfo.totalItemsCount == 0 || visibleItems.isEmpty()) {
+            val total = layoutInfo.totalItemsCount
+            val atBottom = if (total == 0 || visibleItems.isEmpty()) {
                 true
             } else {
                 val lastItem = visibleItems.last()
-                val isLastItem = lastItem.index == layoutInfo.totalItemsCount - 1
-                val viewportBottom = layoutInfo.viewportEndOffset - layoutInfo.afterContentPadding
-                isLastItem && (lastItem.offset + lastItem.size <= viewportBottom + 80)
+                lastItem.index >= total - 1
             }
-        }.collect { atBottom ->
-            autoFollowOutput = atBottom
+            Pair(listState.isScrollInProgress, atBottom)
+        }.collect { (isScrolling, atBottom) ->
+            if (isScrolling) {
+                autoFollowOutput = atBottom
+            } else if (atBottom) {
+                autoFollowOutput = true
+            }
         }
     }
 
@@ -370,7 +377,7 @@ fun ChatScreen(
                                     highlightAlpha = 0.035f
                                 ),
                             shape = toolbarShape,
-                            color = toolbarBg,
+                            color = Color.Transparent,
                             contentColor = toolbarContentColor,
                             border = BorderStroke(1.dp, glass.outline),
                             tonalElevation = 0.dp,
@@ -619,11 +626,18 @@ fun ChatScreen(
                         Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 6.dp),
+                                .padding(horizontal = 14.dp, vertical = 6.dp)
+                                .echoHazePanel(
+                                    hazeState = hazeState,
+                                    shape = RoundedCornerShape(16.dp),
+                                    tint = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f),
+                                    blurRadius = 16.dp,
+                                    highlightAlpha = 0.04f
+                                ),
                             shape = RoundedCornerShape(16.dp),
-                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.96f),
+                            color = Color.Transparent,
                             contentColor = MaterialTheme.colorScheme.onErrorContainer,
-                            border = null,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.35f)),
                             tonalElevation = 0.dp,
                             shadowElevation = 0.dp
                         ) {
@@ -1824,8 +1838,8 @@ private fun MessageBubble(
     }
     val hasThinkingContent = !message.thinkingContent.isNullOrBlank()
     val hasThinking = hasThinkingContent || message.thinkingTokens > 0
-    var showThinking by remember(message.id, hasThinkingContent) {
-        mutableStateOf(hasThinkingContent)
+    var showThinking by remember(message.id) {
+        mutableStateOf(isGenerating && hasThinkingContent && message.content.isBlank())
     }
     val isThinkingEnglish = remember(message.thinkingContent) {
         AiRepository.isMainlyEnglish(message.thinkingContent)
@@ -2022,8 +2036,8 @@ private fun MessageBubble(
                         val rawModel = assistantModelName.ifBlank { "AI" }
                         val model = rawModel.displayModelShortName()
                         when {
-                            isConnecting -> "正在连接 $model..."
-                            isThinkingActive -> "$model 正在思考中..."
+                            isConnecting -> personalizationSettings.connectingTextTemplate.replace("{model}", model)
+                            isThinkingActive -> personalizationSettings.thinkingTextTemplate.replace("{model}", model)
                             hasThinking -> formatThinkingCapsuleText(
                                 template = personalizationSettings.thinkingCapsuleTemplate,
                                 modelName = model,
@@ -2032,7 +2046,7 @@ private fun MessageBubble(
                                 thinkingTokens = message.thinkingTokens,
                                 totalTokens = message.tokenCount
                             )
-                            isGenerating -> "$model 正在思考回复中..."
+                            isGenerating -> personalizationSettings.thinkingTextTemplate.replace("{model}", model)
                             else -> formatNonThinkingCapsuleText(
                                 modelName = model,
                                 responseTimeMs = message.responseTime,
@@ -2050,7 +2064,12 @@ private fun MessageBubble(
                             .widthIn(max = 300.dp)
                             .then(
                                 if (hasThinking && hasThinkingContent) {
-                                    Modifier.echoShapeClick(capsuleShape) { showThinking = !showThinking }
+                                    Modifier.pointerInput(Unit) {
+                                        detectTapGestures(
+                                            onTap = { showThinking = !showThinking },
+                                            onDoubleTap = { showThinking = !showThinking }
+                                        )
+                                    }
                                 } else Modifier
                             )
                             .then(
@@ -2132,7 +2151,12 @@ private fun MessageBubble(
                         Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 2.dp, vertical = 4.dp),
+                                .padding(horizontal = 2.dp, vertical = 4.dp)
+                                .pointerInput(Unit) {
+                                    detectTapGestures(
+                                        onDoubleTap = { showThinking = !showThinking }
+                                    )
+                                },
                             color = glass.controlSelected.copy(alpha = 0.6f),
                             contentColor = thinkingContentColor,
                             shape = RoundedCornerShape(12.dp),
@@ -2266,32 +2290,77 @@ private fun MessageBubble(
                     val isErrorOutput = !isUser && isErrorMessage(message.content)
 
                     if (isErrorOutput) {
+                        var showErrorDetails by remember(message.id) { mutableStateOf(false) }
+                        val errorSummary = remember(message.content) {
+                            val firstLine = message.content.lineSequence().firstOrNull { it.isNotBlank() }?.trim() ?: "请求发生异常"
+                            if (firstLine.length > 45) firstLine.take(45) + "..." else firstLine
+                        }
                         Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                            shape = RoundedCornerShape(14.dp),
-                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.28f),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.45f))
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                                verticalAlignment = Alignment.Top,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.ErrorOutline,
-                                    contentDescription = "错误",
-                                    modifier = Modifier
-                                        .size(20.dp)
-                                        .padding(top = 2.dp),
-                                    tint = MaterialTheme.colorScheme.error
-                                )
-                                Column(modifier = Modifier.weight(1f)) {
-                                    MarkdownText(
-                                        content = message.content,
-                                        color = MaterialTheme.colorScheme.onErrorContainer
+                                .padding(vertical = 4.dp)
+                                .pointerInput(Unit) {
+                                    detectTapGestures(
+                                        onDoubleTap = { showErrorDetails = !showErrorDetails }
                                     )
+                                },
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.22f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.40f))
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 10.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { showErrorDetails = !showErrorDetails },
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.ErrorOutline,
+                                        contentDescription = "错误",
+                                        modifier = Modifier.size(18.dp),
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
+                                    Text(
+                                        text = if (showErrorDetails) "错误信息详情" else errorSummary,
+                                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                                        color = MaterialTheme.colorScheme.onErrorContainer,
+                                        maxLines = if (showErrorDetails) 1 else 2,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    IconButton(
+                                        onClick = { showErrorDetails = !showErrorDetails },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = if (showErrorDetails) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                            contentDescription = if (showErrorDetails) "收起错误" else "展开错误",
+                                            tint = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+
+                                AnimatedVisibility(
+                                    visible = showErrorDetails,
+                                    enter = fadeIn() + expandVertically(),
+                                    exit = fadeOut() + shrinkVertically()
+                                ) {
+                                    Column(modifier = Modifier.padding(top = 8.dp)) {
+                                        HorizontalDivider(
+                                            color = MaterialTheme.colorScheme.error.copy(alpha = 0.25f),
+                                            modifier = Modifier.padding(bottom = 8.dp)
+                                        )
+                                        MarkdownText(
+                                            content = message.content,
+                                            color = MaterialTheme.colorScheme.onErrorContainer
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -2739,7 +2808,11 @@ fun ChatInputBar(
 ) {
     var showToolMenu by remember { mutableStateOf(false) }
     var isInputExpanded by remember { mutableStateOf(false) }
-    val inputShape = if (isInputExpanded) RoundedCornerShape(22.dp) else RoundedCornerShape(30.dp)
+    var customInputHeightDp by remember { mutableStateOf<Float?>(null) }
+    val density = LocalDensity.current
+    val effectiveMinHeight = customInputHeightDp?.dp ?: if (isInputExpanded) 180.dp else 42.dp
+    val effectiveMaxHeight = if (customInputHeightDp != null) 360.dp else if (isInputExpanded) 320.dp else 112.dp
+    val inputShape = if (isInputExpanded || (customInputHeightDp ?: 0f) > 60f) RoundedCornerShape(22.dp) else RoundedCornerShape(30.dp)
     val resolvedReadableBackdrop = readableBackdrop.takeOrElse {
         MaterialTheme.colorScheme.background
     }
@@ -2786,7 +2859,7 @@ fun ChatInputBar(
                     highlightAlpha = 0.025f
             ),
             shape = inputShape,
-            color = inputTint,
+            color = Color.Transparent,
             contentColor = inputTextColor,
             border = BorderStroke(1.dp, glass.outline),
             tonalElevation = 0.dp,
@@ -2818,8 +2891,8 @@ fun ChatInputBar(
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(
-                            min = if (isInputExpanded) 160.dp else 42.dp,
-                            max = if (isInputExpanded) 320.dp else 112.dp
+                            min = effectiveMinHeight,
+                            max = effectiveMaxHeight
                         )
                         .background(Color.Transparent),
                     textStyle = MaterialTheme.typography.bodyLarge.copy(
@@ -2827,12 +2900,12 @@ fun ChatInputBar(
                         background = Color.Transparent
                     ),
                     cursorBrush = SolidColor(inputTextColor),
-                    maxLines = if (isInputExpanded) 15 else 5,
+                    maxLines = if (isInputExpanded || (customInputHeightDp ?: 0f) > 60f) 15 else 5,
                     decorationBox = { innerTextField ->
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(min = if (isInputExpanded) 160.dp else 42.dp)
+                                .heightIn(min = effectiveMinHeight)
                                 .background(Color.Transparent)
                                 .padding(horizontal = 4.dp, vertical = 4.dp)
                         ) {
@@ -2841,24 +2914,64 @@ fun ChatInputBar(
                                     text = if (isRoleplay) "输入剧情提示、行动或指令..." else "给 Echo 发送消息",
                                     color = inputTextColor.copy(alpha = 0.62f),
                                     style = MaterialTheme.typography.bodyLarge,
-                                    modifier = Modifier.padding(end = 28.dp)
+                                    modifier = Modifier.padding(end = 32.dp)
                                 )
                             }
-                            Box(modifier = Modifier.fillMaxWidth().padding(end = 28.dp)) {
+                            Box(modifier = Modifier.fillMaxWidth().padding(end = 32.dp)) {
                                 innerTextField()
                             }
-                            IconButton(
-                                onClick = { isInputExpanded = !isInputExpanded },
+
+                            // 圆润弧线展开/收起手柄（图一参考），支持点击展开/收起与上下滑动动态调高
+                            Box(
                                 modifier = Modifier
                                     .align(Alignment.TopEnd)
-                                    .size(24.dp)
+                                    .size(32.dp)
+                                    .pointerInput(Unit) {
+                                        detectTapGestures(
+                                            onTap = {
+                                                if (isInputExpanded || (customInputHeightDp ?: 42f) > 60f) {
+                                                    customInputHeightDp = null
+                                                    isInputExpanded = false
+                                                } else {
+                                                    customInputHeightDp = 180f
+                                                    isInputExpanded = true
+                                                }
+                                            }
+                                        )
+                                    }
+                                    .pointerInput(Unit) {
+                                        detectVerticalDragGestures(
+                                            onDragStart = {
+                                                if (customInputHeightDp == null) {
+                                                    customInputHeightDp = if (isInputExpanded) 180f else 42f
+                                                }
+                                            },
+                                            onVerticalDrag = { change, dragAmount ->
+                                                change.consume()
+                                                val currentH = customInputHeightDp ?: (if (isInputExpanded) 180f else 42f)
+                                                val deltaDp = dragAmount / density.density
+                                                val newH = (currentH - deltaDp).coerceIn(42f, 360f)
+                                                customInputHeightDp = newH
+                                                isInputExpanded = newH > 60f
+                                            }
+                                        )
+                                    },
+                                contentAlignment = Alignment.Center
                             ) {
-                                Icon(
-                                    imageVector = if (isInputExpanded) Icons.Default.CloseFullscreen else Icons.Default.OpenInFull,
-                                    contentDescription = if (isInputExpanded) "收起输入框" else "放大输入框",
-                                    tint = inputTextColor.copy(alpha = 0.65f),
-                                    modifier = Modifier.size(16.dp)
-                                )
+                                Canvas(modifier = Modifier.size(22.dp)) {
+                                    val strokeWidth = 2.4.dp.toPx()
+                                    val arcColor = inputTextColor.copy(alpha = 0.50f)
+                                    // 绘制同心优雅弧线 ⌒ (参考图一：右上角圆角同心圆弧)
+                                    drawArc(
+                                        color = arcColor,
+                                        startAngle = 270f,
+                                        sweepAngle = 90f,
+                                        useCenter = false,
+                                        topLeft = androidx.compose.ui.geometry.Offset(2.dp.toPx(), 2.dp.toPx()),
+                                        size = androidx.compose.ui.geometry.Size(size.width - 4.dp.toPx(), size.height - 4.dp.toPx()),
+                                        style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                                    )
+                                }
                             }
                         }
                     }
@@ -5769,7 +5882,7 @@ private fun StoryUnifiedSettingsDialog(
     // 模型与参数 Tab 状态
     var temperature by remember { mutableFloatStateOf(tempSettings.temperature) }
     var maxTokens by remember {
-        val currentMax = tempSettings.maxTokens.takeIf { it > 4096 } ?: 8192
+        val currentMax = tempSettings.maxTokens.takeIf { it >= 50000 } ?: 50000
         mutableStateOf(currentMax.toString())
     }
     var topP by remember { mutableFloatStateOf(tempSettings.topP) }
