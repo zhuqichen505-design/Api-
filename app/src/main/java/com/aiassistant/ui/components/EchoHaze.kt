@@ -79,13 +79,13 @@ fun echoGlassPalette(): EchoGlassPalette {
     val colors = MaterialTheme.colorScheme
     val isDark = colors.background.luminance() < 0.5f
 
-    // 适度半透明度，确保悬浮栏、输入框、报错弹窗呈现真实通透的液态毛玻璃效果，文字隐约透出且清晰高对比
-    val panelAlpha = if (isDark) 0.82f else 0.86f
-    val strongAlpha = if (isDark) 0.90f else 0.92f
-    val softAlpha = if (isDark) 0.65f else 0.70f
-    val controlAlpha = if (isDark) 0.74f else 0.78f
-    val inputAlpha = if (isDark) 0.80f else 0.84f
-    val selectedAlpha = if (isDark) 0.85f else 0.88f
+    // 提升适度不透明度（略微降低透明度），兼顾通透毛玻璃质感与极佳的可读性
+    val panelAlpha = if (isDark) 0.85f else 0.88f
+    val strongAlpha = if (isDark) 0.92f else 0.94f
+    val softAlpha = if (isDark) 0.68f else 0.72f
+    val controlAlpha = if (isDark) 0.76f else 0.80f
+    val inputAlpha = if (isDark) 0.85f else 0.88f
+    val selectedAlpha = if (isDark) 0.88f else 0.90f
 
     return EchoGlassPalette(
         panel = colors.surface.copy(alpha = panelAlpha),
@@ -130,13 +130,18 @@ fun Modifier.echoHazeSource(
 fun Modifier.echoHazePanel(
     hazeState: HazeState? = null,
     shape: Shape = EchoTokens.Radius.shapeLg,
-    tint: Color = MaterialTheme.colorScheme.surface.copy(alpha = 0.25f),
+    tint: Color = Color.Unspecified,
     blurRadius: Dp = EchoTokens.Glass.blurRadiusStandard,
     highlightAlpha: Float = 0.08f,
     showBorder: Boolean = true
 ): Modifier {
     val colorScheme = MaterialTheme.colorScheme
     val isDark = colorScheme.background.luminance() < 0.5f
+    val resolvedTint = if (tint != Color.Unspecified) {
+        tint
+    } else {
+        colorScheme.surface.copy(alpha = if (isDark) 0.85f else 0.88f)
+    }
 
     var mod = this
         .shadow(
@@ -147,20 +152,25 @@ fun Modifier.echoHazePanel(
         )
 
     if (hazeState != null) {
+        val hazeTint = if (resolvedTint.alpha > 0f) {
+            resolvedTint.copy(alpha = (resolvedTint.alpha * 0.22f).coerceIn(0.05f, 0.25f))
+        } else {
+            Color.Transparent
+        }
         mod = mod.hazeChild(
             state = hazeState,
             shape = shape,
             style = HazeStyle(
-                tint = tint,
+                tint = hazeTint,
                 blurRadius = blurRadius,
                 noiseFactor = 0f
             )
         )
-    } else {
-        mod = mod.background(tint, shape)
     }
 
+    // 绘制面板半透明底色，确保文字无论在何种背景下均具有清晰的可读性，消除完全透明
     mod = mod
+        .background(resolvedTint, shape)
         .clip(shape)
         .drawBehind {
             if (highlightAlpha > 0f) {
@@ -201,7 +211,7 @@ fun EchoLiquidGlassPanel(
     hazeState: HazeState? = null,
     modifier: Modifier = Modifier,
     shape: Shape = EchoTokens.Radius.shapeLg,
-    tint: Color = MaterialTheme.colorScheme.surface.copy(alpha = 0.25f),
+    tint: Color = Color.Unspecified,
     blurRadius: Dp = EchoTokens.Glass.blurRadiusStandard,
     showBorder: Boolean = true,
     content: @Composable BoxScope.() -> Unit

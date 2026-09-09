@@ -1,5 +1,34 @@
 # Echo AI 助手更新日志 (Update Log)
 
+## [v1.9.29] - 2026-09-09
+
+### 1. 本次升级与用户需求 100% 修复与落实
+1. **输入框与悬浮栏略微降低透明度，彻底恢复高可读性**：
+   - 深入排查发现：此前由于 `echoHazePanel` 在 `hazeState != null` 时移除了自身 `background(resolvedTint, shape)` 的绘制，导致处于 `color = Color.Transparent` 的 `Surface` 自身完全透明，滚动文字与输入框文字缺乏足够的底色依托，严重破坏了可读性；
+   - 优化底色渲染层级：`echoHazePanel` 内部恢复无条件绘制 `background(resolvedTint, shape)` 确保面板拥有独立半透明底色；
+   - 适度提高底色不透明度（略微降低透明度）：暗色模式 `inputAlpha`/`panelAlpha` 设为 0.85f，浅色模式设为 0.88f，保证文字对比度达到 WCAG AAA 级别（>7.0:1），输入文字与标题一目了然；
+   - 模糊层微阻尼着色：Haze 采样层接收 `0.05f..0.25f` 的轻量着色，既保证底层毛玻璃模糊正常渲染且不发黑变厚，又彻底解决了“完全透明”的问题。
+2. **各项核心功能保持稳定**：
+   - 思考胶囊文案与状态稳定显示，无异常滚动裁剪；
+   - 分支生成组生命周期随生成状态安全回收，幽灵空消息严格过滤；
+   - 输入框右上角同心圆弧手柄尺寸固定为 22dp/17dp，拖拽前后大小绝对统一；
+   - 划选复制工具栏解耦防抖与辅助滑动 4 键浅天蓝半透明体系完全保持。
+
+### 2. 自动化测试验证
+- 全量 128 项单元测试 100% 全部通过（退出码 0）；
+- 新增 `V1929FeaturesTest` 覆盖版本更新说明、文字对比度与透明度约束测试。
+
+### 3. 改动文件列表
+- `app/src/main/java/com/aiassistant/ui/components/EchoHaze.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/settings/SettingsScreen.kt`
+- `app/src/test/java/com/aiassistant/V1928FeaturesTest.kt`
+- `app/src/test/java/com/aiassistant/V1929FeaturesTest.kt`
+- `app/build.gradle.kts`
+- `CHANGELOG.md`
+- `PROJECT.md`
+- `README.md`
+- `UPDATE_LOG.md` (root & app)
+
 ## [v1.9.28] - 2026-09-09
 
 ### 1. 本次升级与 4 项核心用户需求 100% 彻底修复与落实

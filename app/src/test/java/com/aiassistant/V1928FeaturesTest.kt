@@ -3,7 +3,7 @@ package com.aiassistant
 import com.aiassistant.domain.model.Message
 import com.aiassistant.ui.screens.chat.formatNonThinkingCapsuleText
 import com.aiassistant.ui.screens.chat.formatThinkingCapsuleText
-import com.aiassistant.ui.screens.settings.CurrentVersionUserUpdates
+import com.aiassistant.ui.screens.settings.V1928UserUpdates
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -19,9 +19,9 @@ class V1928FeaturesTest {
             "输入框放大同心圆弧手柄尺寸永久统一，划选复制工具栏解耦防抖彻底保持稳定",
             "辅助滑动 4 个按键保持柔和浅天蓝半透明体系与微光质感"
         )
-        assertEquals(6, CurrentVersionUserUpdates.size)
+        assertEquals(6, V1928UserUpdates.size)
         expectedHighlights.forEach { highlight ->
-            assertTrue("更新日志中必须包含: $highlight", CurrentVersionUserUpdates.contains(highlight))
+            assertTrue("更新日志中必须包含: $highlight", V1928UserUpdates.contains(highlight))
         }
     }
 
