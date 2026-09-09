@@ -79,13 +79,13 @@ fun echoGlassPalette(): EchoGlassPalette {
     val colors = MaterialTheme.colorScheme
     val isDark = colors.background.luminance() < 0.5f
 
-    // 提高非透明度，确保输入框、卡片胶囊与按钮清晰扎实、高对比
-    val panelAlpha = if (isDark) 0.88f else 0.92f
-    val strongAlpha = if (isDark) 0.94f else 0.96f
-    val softAlpha = if (isDark) 0.70f else 0.76f
-    val controlAlpha = if (isDark) 0.78f else 0.84f
-    val inputAlpha = if (isDark) 0.90f else 0.94f
-    val selectedAlpha = if (isDark) 0.88f else 0.92f
+    // 适度半透明度，确保悬浮栏、输入框、报错弹窗呈现真实通透的液态毛玻璃效果，文字隐约透出且清晰高对比
+    val panelAlpha = if (isDark) 0.75f else 0.78f
+    val strongAlpha = if (isDark) 0.90f else 0.92f
+    val softAlpha = if (isDark) 0.65f else 0.70f
+    val controlAlpha = if (isDark) 0.72f else 0.76f
+    val inputAlpha = if (isDark) 0.70f else 0.74f
+    val selectedAlpha = if (isDark) 0.85f else 0.88f
 
     return EchoGlassPalette(
         panel = colors.surface.copy(alpha = panelAlpha),

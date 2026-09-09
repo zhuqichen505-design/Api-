@@ -47,7 +47,7 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 class EchoTextToolbarState(
-    val rect: Rect,
+    rect: Rect,
     val canCopy: Boolean = false,
     val canPaste: Boolean = false,
     val canCut: Boolean = false,
@@ -57,6 +57,8 @@ class EchoTextToolbarState(
     var onCut: (() -> Unit)? = null,
     var onSelectAll: (() -> Unit)? = null
 ) {
+    var rect by mutableStateOf(rect)
+
     constructor(
         rect: Rect,
         onCopy: (() -> Unit)? = null,
@@ -74,6 +76,7 @@ class EchoTextToolbarState(
         onCut = onCut,
         onSelectAll = onSelectAll
     )
+
     fun isEquivalent(
         newRect: Rect,
         hasCopy: Boolean,
@@ -81,10 +84,10 @@ class EchoTextToolbarState(
         hasCut: Boolean,
         hasSelectAll: Boolean
     ): Boolean {
-        return abs(rect.left - newRect.left) < 8f &&
-            abs(rect.top - newRect.top) < 8f &&
-            abs(rect.right - newRect.right) < 8f &&
-            abs(rect.bottom - newRect.bottom) < 8f &&
+        return abs(rect.left - newRect.left) < 16f &&
+            abs(rect.top - newRect.top) < 16f &&
+            abs(rect.right - newRect.right) < 16f &&
+            abs(rect.bottom - newRect.bottom) < 16f &&
             canCopy == hasCopy &&
             canPaste == hasPaste &&
             canCut == hasCut &&
@@ -93,12 +96,16 @@ class EchoTextToolbarState(
 }
 
 class EchoTextToolbar : TextToolbar {
+    private var _status: TextToolbarStatus = TextToolbarStatus.Hidden
+
+    // status 不直接触发 Compose 快照状态依赖读取，彻底杜绝 SelectionContainer 产生死循环重组与闪烁
+    override val status: TextToolbarStatus
+        get() = _status
+
     var activeMenu by mutableStateOf<EchoTextToolbarState?>(null)
 
-    override val status: TextToolbarStatus
-        get() = if (activeMenu != null) TextToolbarStatus.Shown else TextToolbarStatus.Hidden
-
     override fun hide() {
+        _status = TextToolbarStatus.Hidden
         activeMenu = null
     }
 
@@ -121,15 +128,24 @@ class EchoTextToolbar : TextToolbar {
         }
 
         val current = activeMenu
-        if (current != null && current.isEquivalent(rect, hasCopy, hasPaste, hasCut, hasSelectAll)) {
-            // Update callbacks in-place without triggering State recomposition loop!
+        if (current != null) {
+            // 已存在菜单时就地更新回调与位置，严禁创建新对象触发弹窗重建与重绘闪烁
             current.onCopy = onCopyRequested
             current.onPaste = onPasteRequested
             current.onCut = onCutRequested
             current.onSelectAll = onSelectAllRequested
+            if (abs(current.rect.left - rect.left) > 16f ||
+                abs(current.rect.top - rect.top) > 16f ||
+                abs(current.rect.right - rect.right) > 16f ||
+                abs(current.rect.bottom - rect.bottom) > 16f
+            ) {
+                current.rect = rect
+            }
+            _status = TextToolbarStatus.Shown
             return
         }
 
+        _status = TextToolbarStatus.Shown
         activeMenu = EchoTextToolbarState(
             rect = rect,
             canCopy = hasCopy,
@@ -155,7 +171,7 @@ fun EchoTextToolbarHost(
     val glass = echoGlassPalette()
     val coroutineScope = rememberCoroutineScope()
 
-    val popupPositionProvider = remember(menu.rect, density) {
+    val popupPositionProvider = remember(density) {
         object : PopupPositionProvider {
             override fun calculatePosition(
                 anchorBounds: IntRect,
@@ -163,12 +179,13 @@ fun EchoTextToolbarHost(
                 layoutDirection: LayoutDirection,
                 popupContentSize: IntSize
             ): IntOffset {
-                val x = ((menu.rect.left + menu.rect.right) / 2f - popupContentSize.width / 2f)
+                val menuRect = toolbar.activeMenu?.rect ?: Rect.Zero
+                val x = ((menuRect.left + menuRect.right) / 2f - popupContentSize.width / 2f)
                     .roundToInt()
                     .coerceIn(16, (windowSize.width - popupContentSize.width - 16).coerceAtLeast(16))
 
-                val yAbove = (menu.rect.top - popupContentSize.height - with(density) { 10.dp.toPx() }).roundToInt()
-                val yBelow = (menu.rect.bottom + with(density) { 10.dp.toPx() }).roundToInt()
+                val yAbove = (menuRect.top - popupContentSize.height - with(density) { 10.dp.toPx() }).roundToInt()
+                val yBelow = (menuRect.bottom + with(density) { 10.dp.toPx() }).roundToInt()
                 val y = if (yAbove >= 70) yAbove else yBelow
                 return IntOffset(x, y.coerceIn(16, (windowSize.height - popupContentSize.height - 16).coerceAtLeast(16)))
             }

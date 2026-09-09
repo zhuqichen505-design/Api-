@@ -5,7 +5,7 @@ import com.aiassistant.domain.model.ChatRequestOptions
 import com.aiassistant.ui.screens.chat.ChatUiState
 import com.aiassistant.ui.screens.chat.TempChatSettings
 import com.aiassistant.ui.screens.chat.displayModelShortName
-import com.aiassistant.ui.screens.settings.CurrentVersionUserUpdates
+import com.aiassistant.ui.screens.settings.V1924UserUpdates
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -64,9 +64,9 @@ class V1924FeaturesTest {
 
     @Test
     fun testCurrentVersionUserUpdatesCompleteness() {
-        assertFalse("本次更新日志列表不得为空", CurrentVersionUserUpdates.isEmpty())
-        assertTrue("必须包含状态栏阴影修复说明", CurrentVersionUserUpdates.any { it.contains("状态栏阴影") })
-        assertTrue("必须包含悬浮栏修复说明", CurrentVersionUserUpdates.any { it.contains("悬浮栏") })
-        assertTrue("必须包含滚动条优化说明", CurrentVersionUserUpdates.any { it.contains("滚动条") })
+        assertFalse("本次更新日志列表不得为空", V1924UserUpdates.isEmpty())
+        assertTrue("必须包含状态栏阴影修复说明", V1924UserUpdates.any { it.contains("状态栏阴影") })
+        assertTrue("必须包含悬浮栏修复说明", V1924UserUpdates.any { it.contains("悬浮栏") })
+        assertTrue("必须包含滚动条优化说明", V1924UserUpdates.any { it.contains("滚动条") })
     }
 }

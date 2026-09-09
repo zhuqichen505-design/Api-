@@ -1,7 +1,7 @@
 package com.aiassistant
 
 import com.aiassistant.domain.model.MemoryItem
-import com.aiassistant.ui.screens.settings.CurrentVersionUserUpdates
+import com.aiassistant.ui.screens.settings.V1923UserUpdates
 import com.aiassistant.utils.SmartMemoryExtractor
 import org.junit.Assert.*
 import org.junit.Test
@@ -143,9 +143,9 @@ class V1923FeaturesTest {
 
     @Test
     fun testCurrentVersionUserUpdatesContainsV1923() {
-        val firstUpdate = CurrentVersionUserUpdates.firstOrNull()
+        val firstUpdate = V1923UserUpdates.firstOrNull()
         assertNotNull(firstUpdate)
-        assertFalse("本次更新日志列表不得为空", CurrentVersionUserUpdates.isEmpty())
-        assertTrue("必须包含专属记忆或状态栏阴影相关更新项", CurrentVersionUserUpdates.any { it.contains("专属记忆") || it.contains("状态栏") })
+        assertFalse("本次更新日志列表不得为空", V1923UserUpdates.isEmpty())
+        assertTrue("必须包含专属记忆或状态栏阴影相关更新项", V1923UserUpdates.any { it.contains("专属记忆") || it.contains("状态栏") })
     }
 }

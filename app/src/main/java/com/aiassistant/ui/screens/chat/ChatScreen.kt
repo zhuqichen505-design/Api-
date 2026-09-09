@@ -332,115 +332,10 @@ fun ChatScreen(
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
         ) {
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .background(MaterialTheme.colorScheme.background)
-                    .echoHazeSource(hazeState)
-            ) {
-                chatBackgroundBitmap?.let { bitmap ->
-                    Image(
-                        bitmap = bitmap.asImageBitmap(),
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
-                }
-            }
-
             Scaffold(
                 containerColor = Color.Transparent,
                 contentColor = MaterialTheme.colorScheme.onBackground,
-                topBar = {
-                    val toolbarShape = RoundedCornerShape(30.dp)
-                    val glass = echoGlassPalette()
-                    val toolbarTint = glass.input
-                    val toolbarContentColor = readableTextColorFor(
-                        background = toolbarTint,
-                        fallbackSurface = readableBackdrops.top
-                    )
-
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .statusBarsPadding()
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .echoHazePanel(
-                                    hazeState = hazeState,
-                                    shape = toolbarShape,
-                                    tint = toolbarTint,
-                                    blurRadius = 16.dp,
-                                    highlightAlpha = 0.025f
-                                ),
-                            shape = toolbarShape,
-                            color = Color.Transparent,
-                            contentColor = toolbarContentColor,
-                            border = BorderStroke(1.dp, glass.outline),
-                            tonalElevation = 0.dp,
-                            shadowElevation = 0.dp
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(56.dp)
-                                    .padding(horizontal = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                IconButton(
-                                    onClick = { viewModel.leaveConversation(onNavigateBack) },
-                                    modifier = Modifier.size(48.dp)
-                                ) {
-                                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                                }
-                                ChatHeaderTitle(
-                                    title = uiState.conversationTitle.ifBlank { "新对话" },
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .fillMaxHeight(),
-                                    onLongClick = {
-                                        renameText = uiState.conversationTitle
-                                        showRenameDialog = true
-                                    }
-                                )
-                                ContextUsageButton(
-                                    usage = contextUsage.usage,
-                                    canCompress = contextUsage.usage?.canCompress == true,
-                                    onClick = {
-                                        viewModel.refreshContextUsage()
-                                        showContextUsageDialog = true
-                                    }
-                                )
-                                if (uiState.isRoleplay) {
-                                    IconButton(
-                                        onClick = { showStoryManagerDialog = true },
-                                        modifier = Modifier.size(48.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Default.AutoStories,
-                                            contentDescription = "故事创作与参数设置",
-                                            tint = toolbarContentColor
-                                        )
-                                    }
-                                } else {
-                                    IconButton(
-                                        onClick = { showSettingsDialog = true },
-                                        modifier = Modifier.size(48.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Default.Tune,
-                                            contentDescription = "对话设置",
-                                            tint = toolbarContentColor
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
+                topBar = {},
         bottomBar = {
             Column(modifier = Modifier.fillMaxWidth()) {
                 androidx.compose.animation.AnimatedVisibility(
@@ -611,91 +506,32 @@ fun ChatScreen(
         Box(
             modifier = Modifier.fillMaxSize()
         ) {
-            Column(
+            val statusBarTopPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+            val topFloatingBarHeight = 68.dp + (if (error != null) 60.dp else 0.dp)
+
+            // 1. 底层：背景图与全屏贯通的 LazyColumn，包裹在 echoHazeSource 内部，滚动时平滑穿透悬浮顶栏与错误提示
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(top = paddingValues.calculateTopPadding())
+                    .echoHazeSource(hazeState)
             ) {
-                // 错误提示 (在顶部导航栏下方显示，避免重合)
-                // 错误提示 (直接复用输入框的代码与玻璃结构)
-                error?.let { errorMsg ->
-                    AnimatedVisibility(
-                        visible = true,
-                        enter = fadeIn() + expandVertically(),
-                        exit = fadeOut() + shrinkVertically()
-                    ) {
-                        val glass = echoGlassPalette()
-                        val errorShape = RoundedCornerShape(22.dp)
-                        val errorTint = glass.input
-                        val errorContentColor = readableTextColorFor(
-                            background = errorTint,
-                            fallbackSurface = readableBackdrops.top
-                        )
-
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 6.dp)
-                        ) {
-                            Surface(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .echoHazePanel(
-                                        hazeState = hazeState,
-                                        shape = errorShape,
-                                        tint = errorTint,
-                                        blurRadius = 16.dp,
-                                        highlightAlpha = 0.025f
-                                    ),
-                                shape = errorShape,
-                                color = Color.Transparent,
-                                contentColor = errorContentColor,
-                                border = BorderStroke(1.dp, glass.outline),
-                                tonalElevation = 0.dp,
-                                shadowElevation = 0.dp
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        Icons.Default.ErrorOutline,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.error,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    Text(
-                                        text = errorMsg,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = errorContentColor,
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    IconButton(
-                                        onClick = { viewModel.clearError() },
-                                        modifier = Modifier.size(28.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Default.Close,
-                                            contentDescription = "关闭",
-                                            tint = errorContentColor.copy(alpha = 0.7f),
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
+                chatBackgroundBitmap?.let { bitmap ->
+                    Image(
+                        bitmap = bitmap.asImageBitmap(),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
                 }
 
-                // 消息列表
+                // 消息列表 (全屏延伸，向上滚动时平滑穿透悬浮工具栏和报错弹窗，被毛玻璃实时模糊)
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     state = listState,
                     contentPadding = PaddingValues(
                         start = 14.dp,
                         end = 14.dp,
-                        top = 6.dp,
+                        top = statusBarTopPadding + topFloatingBarHeight,
                         bottom = paddingValues.calculateBottomPadding() + 18.dp
                     ),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -927,6 +763,161 @@ fun ChatScreen(
                 }
             }
 
+            // 2. 顶部悬浮工具栏与错误提示：悬浮在最顶层，直接复用输入框相同 Surface + echoHazePanel 结构，无边缘包裹，半透明透字
+            val toolbarShape = RoundedCornerShape(22.dp)
+            val glass = echoGlassPalette()
+            val toolbarTint = glass.input
+            val toolbarContentColor = readableTextColorFor(
+                background = toolbarTint,
+                fallbackSurface = readableBackdrops.top
+            )
+
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .echoHazePanel(
+                            hazeState = hazeState,
+                            shape = toolbarShape,
+                            tint = toolbarTint,
+                            blurRadius = 16.dp,
+                            highlightAlpha = 0.025f
+                        ),
+                    shape = toolbarShape,
+                    color = Color.Transparent,
+                    contentColor = toolbarContentColor,
+                    border = BorderStroke(1.dp, glass.outline),
+                    tonalElevation = 0.dp,
+                    shadowElevation = 0.dp
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp)
+                            .padding(horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(
+                            onClick = { viewModel.leaveConversation(onNavigateBack) },
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        }
+                        ChatHeaderTitle(
+                            title = uiState.conversationTitle.ifBlank { "新对话" },
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight(),
+                            onLongClick = {
+                                renameText = uiState.conversationTitle
+                                showRenameDialog = true
+                            }
+                        )
+                        ContextUsageButton(
+                            usage = contextUsage.usage,
+                            canCompress = contextUsage.usage?.canCompress == true,
+                            onClick = {
+                                viewModel.refreshContextUsage()
+                                showContextUsageDialog = true
+                            }
+                        )
+                        if (uiState.isRoleplay) {
+                            IconButton(
+                                onClick = { showStoryManagerDialog = true },
+                                modifier = Modifier.size(48.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.AutoStories,
+                                    contentDescription = "故事创作与参数设置",
+                                    tint = toolbarContentColor
+                                )
+                            }
+                        } else {
+                            IconButton(
+                                onClick = { showSettingsDialog = true },
+                                modifier = Modifier.size(48.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Tune,
+                                    contentDescription = "对话设置",
+                                    tint = toolbarContentColor
+                                )
+                            }
+                        }
+                    }
+                }
+
+                error?.let { errorMsg ->
+                    Spacer(modifier = Modifier.height(6.dp))
+                    AnimatedVisibility(
+                        visible = true,
+                        enter = fadeIn() + expandVertically(),
+                        exit = fadeOut() + shrinkVertically()
+                    ) {
+                        val errorShape = RoundedCornerShape(22.dp)
+                        val errorTint = glass.input
+                        val errorContentColor = readableTextColorFor(
+                            background = errorTint,
+                            fallbackSurface = readableBackdrops.top
+                        )
+
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .echoHazePanel(
+                                    hazeState = hazeState,
+                                    shape = errorShape,
+                                    tint = errorTint,
+                                    blurRadius = 16.dp,
+                                    highlightAlpha = 0.025f
+                                ),
+                            shape = errorShape,
+                            color = Color.Transparent,
+                            contentColor = errorContentColor,
+                            border = BorderStroke(1.dp, glass.outline),
+                            tonalElevation = 0.dp,
+                            shadowElevation = 0.dp
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.ErrorOutline,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = errorMsg,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = errorContentColor,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                IconButton(
+                                    onClick = { viewModel.clearError() },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Close,
+                                        contentDescription = "关闭",
+                                        tint = errorContentColor.copy(alpha = 0.7f),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             TransientLazyListScrollbar(
                 listState = listState,
                 visible = showScrollControls,
@@ -1008,17 +999,18 @@ fun ChatScreen(
                         }
                 )
             }
+
+            EchoTextToolbarHost(toolbar = textToolbar) { quotedText ->
+                val formattedQuote = quotedText.trim().lines().joinToString("\n") { "> $it" }
+                inputText = if (inputText.isBlank()) {
+                    "$formattedQuote\n\n"
+                } else {
+                    "$inputText\n\n$formattedQuote\n\n"
+                }
+            }
         }
     }
-    }
-    EchoTextToolbarHost(toolbar = textToolbar) { quotedText ->
-        val formattedQuote = quotedText.trim().lines().joinToString("\n") { "> $it" }
-        inputText = if (inputText.isBlank()) {
-            "$formattedQuote\n\n"
-        } else {
-            "$inputText\n\n$formattedQuote\n\n"
-        }
-    }
+}
 }
 
     // 设置对话框
@@ -1326,13 +1318,14 @@ private fun ChatScrollJumpButtons(
             horizontalAlignment = Alignment.End,
             verticalArrangement = Arrangement.spacedBy(5.dp)
         ) {
-            // 1. 滑动到顶：双条线向上箭头，快速思考浅蓝 (0xFF60A5FA)
+            // 1. 滑动到顶：双条线向上箭头，极浅天蓝半透明
             Surface(
                 onClick = onJumpToTop,
                 shape = CircleShape,
-                color = Color(0xFF60A5FA),
-                contentColor = Color.White,
-                shadowElevation = 3.dp,
+                color = Color(0xFFBAE6FD).copy(alpha = 0.72f),
+                contentColor = Color(0xFF0369A1),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)),
+                shadowElevation = 1.dp,
                 modifier = Modifier.size(32.dp)
             ) {
                 Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
@@ -1344,13 +1337,14 @@ private fun ChatScrollJumpButtons(
                 }
             }
 
-            // 2. 滑动到上一条输入：单条线向上箭头，平衡思考蔚蓝 (0xFF2563EB)
+            // 2. 滑动到上一条输入：单条线向上箭头，柔和浅蓝半透明
             Surface(
                 onClick = onJumpToPrevInput,
                 shape = CircleShape,
-                color = Color(0xFF2563EB),
-                contentColor = Color.White,
-                shadowElevation = 3.dp,
+                color = Color(0xFF93C5FD).copy(alpha = 0.75f),
+                contentColor = Color(0xFF1D4ED8),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)),
+                shadowElevation = 1.dp,
                 modifier = Modifier.size(32.dp)
             ) {
                 Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
@@ -1362,13 +1356,14 @@ private fun ChatScrollJumpButtons(
                 }
             }
 
-            // 3. 滑动到下一条输入：单条线向下箭头，深入思考深海蓝 (0xFF1D4ED8)
+            // 3. 滑动到下一条输入：单条线向下箭头，纯正天蓝半透明
             Surface(
                 onClick = onJumpToNextInput,
                 shape = CircleShape,
-                color = Color(0xFF1D4ED8),
+                color = Color(0xFF60A5FA).copy(alpha = 0.78f),
                 contentColor = Color.White,
-                shadowElevation = 3.dp,
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)),
+                shadowElevation = 1.dp,
                 modifier = Modifier.size(32.dp)
             ) {
                 Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
@@ -1380,13 +1375,14 @@ private fun ChatScrollJumpButtons(
                 }
             }
 
-            // 4. 滑动到底：双条线向下箭头，极高思考靛青深蓝 (0xFF4338CA)
+            // 4. 滑动到底：双条线向下箭头，蔚蓝半透明
             Surface(
                 onClick = onJumpToBottom,
                 shape = CircleShape,
-                color = Color(0xFF4338CA),
+                color = Color(0xFF3B82F6).copy(alpha = 0.82f),
                 contentColor = Color.White,
-                shadowElevation = 3.dp,
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)),
+                shadowElevation = 1.dp,
                 modifier = Modifier.size(32.dp)
             ) {
                 Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
@@ -2918,7 +2914,7 @@ fun ChatInputBar(
     val density = LocalDensity.current
     val effectiveMinHeight = customInputHeightDp?.dp ?: if (isInputExpanded) 180.dp else 42.dp
     val effectiveMaxHeight = if (customInputHeightDp != null) 360.dp else if (isInputExpanded) 320.dp else 112.dp
-    val inputShape = if (isInputExpanded || (customInputHeightDp ?: 0f) > 60f) RoundedCornerShape(22.dp) else RoundedCornerShape(30.dp)
+    val inputShape = RoundedCornerShape(22.dp)
     val resolvedReadableBackdrop = readableBackdrop.takeOrElse {
         MaterialTheme.colorScheme.background
     }
@@ -3244,9 +3240,9 @@ fun ChatInputBar(
                 }
             }
 
-                // 紧贴输入框右上角同心圆弧手柄 (与边框圆角同心贴合，颜色一致但略深一点)
+                // 紧贴输入框右上角同心圆弧手柄 (与边框圆角同心贴合，尺寸固定为拖拽后较小尺寸 22dp/17dp，拖拽前后大小绝对统一)
                 val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-                val cornerRadiusDp = if (isInputExpanded || (customInputHeightDp ?: 0f) > 60f) 22f else 30f
+                val cornerRadiusDp = 22f
                 val handleBoxSize = 36.dp
                 val outlineColor = MaterialTheme.colorScheme.outline
                 val arcColor = if (isDark) {

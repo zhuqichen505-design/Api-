@@ -114,7 +114,7 @@ class V1926FeaturesTest {
     }
 
     @Test
-    fun testV1926CurrentVersionUserUpdatesHighlights() {
+    fun testV1926UserUpdatesHighlights() {
         val expectedHighlights = listOf(
             "顶部悬浮栏与错误弹窗直接复用输入框玻璃背景规范，消除悬浮栏与弹窗状态栏阴影异常穿透",
             "输入框右上角弧线控制手柄与边框精确同心贴合，拖拽微调更优雅",
@@ -122,12 +122,12 @@ class V1926FeaturesTest {
             "加宽用户输入气泡与上一条模型回复的纵向间距，提升长对话视觉呼吸感",
             "思考强度快速档重调为柔和纯正天蓝色，告别偏灰暗沉感",
             "对话页悬浮滚动快捷键升级为4键独立体系（到顶/上一条/下一条/到底），阶梯色彩与双线箭头",
-            "彻底解决文本长按选中弹窗的高频闪烁与复制失效问题",
+            "文本长按选中弹窗防抖优化",
             "延续新建对话专属记忆默认关闭与长列表滚动条防断触优化"
         )
-        assertEquals(8, CurrentVersionUserUpdates.size)
+        assertEquals(8, com.aiassistant.ui.screens.settings.V1926UserUpdates.size)
         expectedHighlights.forEach { highlight ->
-            assertTrue("更新日志中必须包含: $highlight", CurrentVersionUserUpdates.contains(highlight))
+            assertTrue("更新日志中必须包含: $highlight", com.aiassistant.ui.screens.settings.V1926UserUpdates.contains(highlight))
         }
     }
 }

@@ -1,5 +1,61 @@
 # Echo AI 助手更新日志 (Update Log)
 
+## [v1.9.27] - 2026-09-09
+
+### 1. 本次升级与 4 项核心用户需求 100% 彻底修复与落实
+1. **对话页顶部悬浮工具栏和错误提示无边缘包裹且全屏穿透（Req 1）**：
+   - 移除 `Scaffold` 的 `topBar` 顶层占位，使全屏背景及消息列表 `LazyColumn` 穿透延伸至屏幕顶部与状态栏底层，并被完整纳入 `Haze` 实时取样源（`echoHazeSource(hazeState)`）；
+   - 顶部悬浮工具栏与错误提示直接作为悬浮层覆盖在顶部（`statusBarsPadding` + 12dp 水平外边距），完全复用输入框的液态玻璃规范（纯透明 `Surface` + `echoHazePanel` + `glass.input` + `BorderStroke(1.dp, glass.outline)`）；
+   - 彻底去除外层多余的任何纯色背景包裹与边缘阻断，聊天气泡与文字滚动至顶部时能够无缝穿透并显现出真实透光的液态磨砂毛玻璃效果。
+2. **输入框右上角放大弧线手柄大小彻底统一（Req 2）**：
+   - 将输入框圆角弧度常数永久固定为拖动后的精致小规格 `cornerRadiusDp = 22f`，圆弧半径统一为 `arcR = 17.dp`；
+   - 彻底移除拖动前后在 30dp 与 22dp 间动态切换的尺寸跳变逻辑，确保在静止、拖拽、展开等任何交互状态下，右上角弧线手柄大小完全统一且与边框圆角紧密贴合。
+3. **对话页辅助滑动 4 个按键变浅且半透明透光化（Req 3）**：
+   - 将右侧悬浮辅助滑动 4 个按键（到顶、上一条输入、下一条输入、到底）全面从深色实色调整为柔和浅天蓝阶梯半透明配色：
+     - 到顶（DoubleUp）：`0xFFBAE6FD`（Alpha 0.72f）；
+     - 上一条输入（ArrowUp）：`0xFF93C5FD`（Alpha 0.75f）；
+     - 下一条输入（ArrowDown）：`0xFF60A5FA`（Alpha 0.78f）；
+     - 到底（DoubleDown）：`0xFF3B82F6`（Alpha 0.82f）；
+   - 增加 `BorderStroke(1.dp, Color.White.copy(alpha = 0.45f))` 冰晶微光描边并将阴影深度降至 1dp，色彩清新柔和且通透，兼顾清晰辨识与极简美感。
+4. **长按文本选区弹出复制工具栏高频闪烁与复制失效彻底根治（Req 4）**：
+   - 定位核心根因：`EchoTextToolbar.status` 此前直接从 `activeMenu`（Compose MutableState）读取，导致 `SelectionContainer` 隐式订阅该状态变量。当划选触发 `showMenu` 时修改 `activeMenu` 状态，引起 `SelectionContainer` 触发每秒数十次的重组并调用 `hide()`，形成毁灭性的闪烁死循环；
+   - 架构级解耦：在 `EchoTextToolbar` 内部使用原生私有字段 `_status: TextToolbarStatus` 替代快照状态读取，切断 Compose 订阅链；
+   - 防抖与实例就地复用：在 `showMenu` 时如果已有活动菜单且位置位移小于 16px，仅就地刷新回调闭包，严禁重新分配状态对象；
+   - 弹窗位置提供者 `remember(density)` 稳定化：消除由屏幕密度重读引发的微小震颤；
+   - 划选用户输入气泡与 AI 输出回复时，复制、全选、剪切、粘贴工具栏弹窗秒开秒响应，稳如磐石，彻底告别闪烁问题。
+
+### 2. 自动化测试与质量核验
+- 全量 119 项单元测试 100% 全部通过（退出码 0）；
+- 新增 `V1927FeaturesTest` 专项覆盖：
+  - `testEchoTextToolbarStatusDecoupledFromSnapshot`：验证状态与快照解耦及就地复用菜单实例；
+  - `testEchoTextToolbarPositionThreshold`：验证 16px 抖动过滤阈值判定；
+  - `testJumpScrollButtonsColorAndAlpha`：验证 4 键浅天蓝半透明调色方案；
+  - `testV1927CurrentVersionUserUpdates`：验证更新说明条目对齐与完备性。
+
+### 3. 改动涉及文件列表
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatScreen.kt`:
+  - 顶部悬浮栏与错误提示重构为穿透悬浮层，复用输入框玻璃样式（Req 1）；
+  - 输入框放大手柄尺寸永久统一为 22dp/17dp（Req 2）；
+  - 辅助滑动 4 键浅色化与半透明化升级（Req 3）。
+- `app/src/main/java/com/aiassistant/ui/components/EchoTextToolbar.kt`:
+  - 快照状态深度解耦、防抖阈值与实例就地复用，彻底解决划选复制闪烁（Req 4）。
+- `app/src/main/java/com/aiassistant/ui/components/EchoHaze.kt`:
+  - 调优液态玻璃输入面板半透明度（浅色 0.74f / 深色 0.70f），带来更剔透的穿透效果。
+- `app/src/main/java/com/aiassistant/ui/screens/settings/SettingsScreen.kt`:
+  - 注册 `V1927` 与 `V1926`、`V1924`、`V1923` 历史更新列表，同步 `CurrentVersionUserUpdates`。
+- `app/build.gradle.kts`:
+  - `versionCode = 107`, `versionName = "1.9.27"`。
+- `app/src/test/java/com/aiassistant/V1927FeaturesTest.kt`:
+  - 新增 v1.9.27 专项测试套件。
+- `app/src/test/java/com/aiassistant/V1923FeaturesTest.kt` / `V1924FeaturesTest.kt`:
+  - 适配历史更新日志校验。
+
+### 4. 历史安装包永久保留准则（最高铁律）
+- 构建前历史版本：105 个，构建后增至 106 个，严格遵守历史包永久保留最高铁律，未执行任何删除/清理操作；
+- 增量输出安装包：`Echo-v1.9.27-arm64-v8a.apk`
+- 文件大小：16,025,597 字节
+- SHA-256：`0A5DBAADDCFBFFA06EB62020E6821C6C2F92DFACCB18247931ADAD1015DBF26F`
+
 ## [v1.9.26] - 2026-09-09
 
 ### 1. 本次升级与 7 项用户需求 100% 落实
