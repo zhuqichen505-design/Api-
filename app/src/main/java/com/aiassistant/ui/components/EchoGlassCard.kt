@@ -54,8 +54,8 @@ fun EchoGlassCard(
         Brush.linearGradient(listOf(it, it))
     } ?: Brush.linearGradient(
         colorStops = arrayOf(
-            0.00f to Color.White.copy(alpha = if (isDark) 0.18f else 0.32f),
-            0.40f to (if (highlight) colorScheme.primary.copy(alpha = 0.30f) else colorScheme.outlineVariant.copy(alpha = 0.10f)),
+            0.00f to (if (isDark) colorScheme.outline.copy(alpha = if (highlight) 0.60f else 0.50f) else colorScheme.outline.copy(alpha = if (highlight) 0.58f else 0.48f)),
+            0.40f to (if (highlight) colorScheme.primary.copy(alpha = 0.30f) else colorScheme.outlineVariant.copy(alpha = 0.18f)),
             1.00f to colorScheme.primary.copy(alpha = if (highlight) 0.38f else 0.18f)
         ),
         start = Offset(0f, 0f),

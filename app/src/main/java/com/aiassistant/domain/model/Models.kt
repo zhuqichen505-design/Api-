@@ -79,6 +79,7 @@ data class Conversation(
     val enableThinking: Boolean? = null,
     val thinkingEffort: String? = null,
     val enableWebSearch: Boolean? = null,
+    val enableSessionMemory: Boolean? = null,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 )
@@ -255,8 +256,22 @@ data class SelectedModel(
     val isEnabled: Boolean = true,     // 是否启用
     val capability: String = "auto",   // auto/text/multimodal
     val sortOrder: Int = 0,            // 排序顺序
+    val contextWindowTokens: Int? = null, // 自定义上下文窗口大小 (Tokens)
+    val supportsTools: Boolean = true,    // 是否支持工具/函数调用
+    val supportsVision: Boolean = false,  // 是否支持视觉多模态
+    val supportsThinking: Boolean = true, // 是否支持深度思考/Reasoning
+    val supportsWebSearch: Boolean = true, // 是否支持联网搜索
     val createdAt: Long = System.currentTimeMillis()
 )
+
+data class ModelCustomSettings(
+    val contextWindowTokens: Int? = null,
+    val supportsTools: Boolean = true,
+    val supportsVision: Boolean = false,
+    val supportsThinking: Boolean = true,
+    val supportsWebSearch: Boolean = true
+)
+
 
 data class ChatModelOption(
     val apiConfigId: Long,
@@ -264,7 +279,12 @@ data class ChatModelOption(
     val provider: String,
     val apiType: String,
     val modelName: String,
-    val capability: String = "auto"
+    val capability: String = "auto",
+    val contextWindowTokens: Int? = null,
+    val supportsTools: Boolean = true,
+    val supportsVision: Boolean = false,
+    val supportsThinking: Boolean = true,
+    val supportsWebSearch: Boolean = true
 )
 
 // 单次对话请求覆盖项。为null时不向API发送该参数，交给模型/服务端默认值处理。

@@ -7,6 +7,9 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -158,11 +161,13 @@ fun ChatScreen(
     val contextUsage by viewModel.contextUsage.collectAsState()
     val messageModelMap by viewModel.messageModelMap.collectAsState()
     val pendingMemoryCandidate by viewModel.pendingMemoryCandidate.collectAsState()
+    val reconnectStatus by viewModel.reconnectStatus.collectAsState()
 
     val hazeState = rememberEchoHazeState()
     val readableBackdrops = rememberReadableBackdropColors(chatBackgroundBitmap)
     val listState = rememberLazyListState()
-    val showScrollControls by rememberLazyListControlsVisible(listState)
+    val scrollControlsVisibilityState = rememberLazyListControlsVisible(listState)
+    val showScrollControls by scrollControlsVisibilityState
     val clipboardManager = LocalClipboardManager.current
     val promptTemplates by viewModel.promptTemplates.collectAsState()
     val translatingMessageIds by viewModel.translatingMessageIds.collectAsState()
@@ -190,6 +195,11 @@ fun ChatScreen(
     var preserveScrollForBranchGeneration by remember { mutableStateOf(false) }
     var streamingBranchGroupId by remember { mutableStateOf<String?>(null) }
     var autoFollowOutput by remember { mutableStateOf(true) }
+    var isBarsHidden by remember { mutableStateOf(false) }
+
+    BackHandler(enabled = isBarsHidden) {
+        isBarsHidden = false
+    }
     var lastStreamScrollAt by remember { mutableLongStateOf(0L) }
     val variantSelections = remember { mutableStateMapOf<String, Int>() }
     val variantSelectionSnapshot = variantSelections.toMap()
@@ -287,8 +297,14 @@ fun ChatScreen(
     LaunchedEffect(conversationId, displayMessages.size) {
         if (!hasInitialScrolledToBottom && displayMessages.isNotEmpty()) {
             hasInitialScrolledToBottom = true
+            kotlinx.coroutines.yield()
+            val lastIdx = displayMessages.size - 1
             try {
-                listState.scrollToItem(displayMessages.size - 1)
+                listState.scrollToItem(lastIdx, scrollOffset = 100000)
+            } catch (_: Exception) {}
+            kotlinx.coroutines.delay(80)
+            try {
+                listState.scrollToItem(lastIdx, scrollOffset = 100000)
             } catch (_: Exception) {}
         }
     }
@@ -309,17 +325,23 @@ fun ChatScreen(
         }
     }
 
+    var lastStreamScrollTime by remember { mutableLongStateOf(0L) }
     LaunchedEffect(currentResponse.length, currentThinking.length, isGenerating) {
         if (preserveScrollForBranchGeneration || !autoFollowOutput || listState.isScrollInProgress) {
             return@LaunchedEffect
         }
         val isStreaming = isGenerating && (currentResponse.isNotEmpty() || currentThinking.isNotEmpty())
         if (isStreaming) {
+            val now = System.currentTimeMillis()
+            if (now - lastStreamScrollTime < 70L) {
+                return@LaunchedEffect
+            }
+            lastStreamScrollTime = now
             val totalCount = listState.layoutInfo.totalItemsCount
             if (totalCount > 0) {
                 val targetIndex = (totalCount - 1).coerceAtLeast(0)
                 try {
-                    listState.scrollToItem(targetIndex)
+                    listState.scrollToItem(targetIndex, scrollOffset = 100000)
                 } catch (_: Exception) {}
             }
         }
@@ -525,7 +547,9 @@ fun ChatScreen(
                     isRoleplay = uiState.isRoleplay,
                     onPlotActionClick = { showPlotActionDialog = true },
                     readableBackdrop = readableBackdrops.bottom,
-                    modelName = currentModelOption?.modelName ?: currentModel ?: uiState.modelName
+                    modelName = currentModelOption?.modelName ?: currentModel ?: uiState.modelName,
+                    isBarsHidden = isBarsHidden,
+                    onBarsHiddenChange = { isBarsHidden = it }
                 )
             }
         }
@@ -613,6 +637,7 @@ fun ChatScreen(
                                     assistantAvatarRevision = modelAvatarRevision,
                                     assistantApiConfigId = currentModelOption?.apiConfigId,
                                     assistantModelName = currentAssistantModelName,
+                                    reconnectStatus = reconnectStatus,
                                     variantInfo = VariantInfo(
                                         groupId = streamingBranchGroupId!!,
                                         currentIndex = totalVariantsWithStreaming,
@@ -734,6 +759,7 @@ fun ChatScreen(
                                     assistantAvatarRevision = modelAvatarRevision,
                                     assistantApiConfigId = currentModelOption?.apiConfigId,
                                     assistantModelName = currentAssistantModelName,
+                                    reconnectStatus = reconnectStatus,
                                     translatingThinking = false,
                                     onTranslateThinking = null,
                                     onCopy = {
@@ -763,6 +789,7 @@ fun ChatScreen(
                                 assistantAvatarRevision = modelAvatarRevision,
                                 assistantApiConfigId = currentModelOption?.apiConfigId,
                                 assistantModelName = currentAssistantModelName,
+                                reconnectStatus = reconnectStatus,
                                 onCopy = {
                                     clipboardManager.setText(AnnotatedString(currentResponse))
                                 },
@@ -795,75 +822,137 @@ fun ChatScreen(
                     .statusBarsPadding()
                     .padding(horizontal = 12.dp, vertical = 6.dp)
             ) {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .echoHazePanel(
-                            hazeState = hazeState,
-                            shape = toolbarShape,
-                            tint = toolbarTint,
-                            blurRadius = 16.dp,
-                            highlightAlpha = 0.025f
-                        ),
-                    shape = toolbarShape,
-                    color = Color.Transparent,
-                    contentColor = toolbarContentColor,
-                    border = BorderStroke(1.dp, glass.outline),
-                    tonalElevation = 0.dp,
-                    shadowElevation = 0.dp
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(56.dp)
-                            .padding(horizontal = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        IconButton(
-                            onClick = { viewModel.leaveConversation(onNavigateBack) },
-                            modifier = Modifier.size(48.dp)
+                AnimatedContent(
+                    targetState = isBarsHidden,
+                    transitionSpec = {
+                        (fadeIn(animationSpec = tween(280)) + scaleIn(initialScale = 0.8f, transformOrigin = TransformOrigin(0f, 0f), animationSpec = tween(280)))
+                            .togetherWith(fadeOut(animationSpec = tween(200)) + scaleOut(targetScale = 0.8f, transformOrigin = TransformOrigin(0f, 0f), animationSpec = tween(200)))
+                    },
+                    label = "topBarHiddenAnim"
+                ) { hidden ->
+                    if (hidden) {
+                        val topPulseTransition = rememberInfiniteTransition(label = "topPulse")
+                        val topPulseScale by topPulseTransition.animateFloat(
+                            initialValue = 1f,
+                            targetValue = 1.26f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(1200, easing = FastOutSlowInEasing),
+                                repeatMode = RepeatMode.Reverse
+                            ),
+                            label = "topPulseScale"
+                        )
+                        val topPulseAlpha by topPulseTransition.animateFloat(
+                            initialValue = 0.55f,
+                            targetValue = 0.15f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(1200, easing = FastOutSlowInEasing),
+                                repeatMode = RepeatMode.Reverse
+                            ),
+                            label = "topPulseAlpha"
+                        )
+                        Box(
+                            modifier = Modifier.padding(start = 2.dp, top = 2.dp),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                            Box(
+                                modifier = Modifier
+                                    .size(52.dp)
+                                    .graphicsLayer(scaleX = topPulseScale, scaleY = topPulseScale)
+                                    .border(
+                                        2.dp,
+                                        MaterialTheme.colorScheme.primary.copy(alpha = topPulseAlpha),
+                                        CircleShape
+                                    )
+                            )
+                            Surface(
+                                onClick = { isBarsHidden = false },
+                                shape = CircleShape,
+                                color = glass.control,
+                                contentColor = MaterialTheme.colorScheme.primary,
+                                border = BorderStroke(1.2.dp, glass.outlineSelected),
+                                modifier = Modifier.size(44.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.ArrowBack,
+                                        contentDescription = "取消隐藏并恢复顶部栏",
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                            }
                         }
-                        ChatHeaderTitle(
-                            title = uiState.conversationTitle.ifBlank { "新对话" },
+                    } else {
+                        Surface(
                             modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight(),
-                            onLongClick = {
-                                renameText = uiState.conversationTitle
-                                showRenameDialog = true
-                            }
-                        )
-                        ContextUsageButton(
-                            usage = contextUsage.usage,
-                            canCompress = contextUsage.usage?.canCompress == true,
-                            onClick = {
-                                viewModel.refreshContextUsage()
-                                showContextUsageDialog = true
-                            }
-                        )
-                        if (uiState.isRoleplay) {
-                            IconButton(
-                                onClick = { showStoryManagerDialog = true },
-                                modifier = Modifier.size(48.dp)
+                                .fillMaxWidth()
+                                .echoHazePanel(
+                                    hazeState = hazeState,
+                                    shape = toolbarShape,
+                                    tint = toolbarTint,
+                                    blurRadius = 16.dp,
+                                    highlightAlpha = 0.025f
+                                ),
+                            shape = toolbarShape,
+                            color = Color.Transparent,
+                            contentColor = toolbarContentColor,
+                            border = BorderStroke(1.dp, glass.outline),
+                            tonalElevation = 0.dp,
+                            shadowElevation = 0.dp
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(56.dp)
+                                    .padding(horizontal = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(
-                                    Icons.Default.AutoStories,
-                                    contentDescription = "故事创作与参数设置",
-                                    tint = toolbarContentColor
+                                IconButton(
+                                    onClick = { viewModel.leaveConversation(onNavigateBack) },
+                                    modifier = Modifier.size(48.dp)
+                                ) {
+                                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                                }
+                                ChatHeaderTitle(
+                                    title = uiState.conversationTitle.ifBlank { "新对话" },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight(),
+                                    onLongClick = {
+                                        renameText = uiState.conversationTitle
+                                        showRenameDialog = true
+                                    }
                                 )
-                            }
-                        } else {
-                            IconButton(
-                                onClick = { showSettingsDialog = true },
-                                modifier = Modifier.size(48.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.Tune,
-                                    contentDescription = "对话设置",
-                                    tint = toolbarContentColor
+                                ContextUsageButton(
+                                    usage = contextUsage.usage,
+                                    canCompress = contextUsage.usage?.canCompress == true,
+                                    onClick = {
+                                        viewModel.refreshContextUsage()
+                                        showContextUsageDialog = true
+                                    }
                                 )
+                                if (uiState.isRoleplay) {
+                                    IconButton(
+                                        onClick = { showStoryManagerDialog = true },
+                                        modifier = Modifier.size(48.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.AutoStories,
+                                            contentDescription = "故事创作与参数设置",
+                                            tint = toolbarContentColor
+                                        )
+                                    }
+                                } else {
+                                    IconButton(
+                                        onClick = { showSettingsDialog = true },
+                                        modifier = Modifier.size(48.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Tune,
+                                            contentDescription = "对话设置",
+                                            tint = toolbarContentColor
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -877,11 +966,10 @@ fun ChatScreen(
                         exit = fadeOut() + shrinkVertically()
                     ) {
                         val errorShape = RoundedCornerShape(22.dp)
-                        val errorTint = glass.input
-                        val errorContentColor = readableTextColorFor(
-                            background = errorTint,
-                            fallbackSurface = readableBackdrops.top
-                        )
+                        val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+                        val errorTint = if (isDark) Color(0xFF3F1D23).copy(alpha = 0.88f) else Color(0xFFFFF1F2).copy(alpha = 0.92f)
+                        val errorBorder = if (isDark) Color(0xFFF43F5E).copy(alpha = 0.35f) else Color(0xFFFDA4AF).copy(alpha = 0.65f)
+                        val errorContentColor = if (isDark) Color(0xFFFFE4E6) else Color(0xFF9F1239)
 
                         Surface(
                             modifier = Modifier
@@ -896,7 +984,7 @@ fun ChatScreen(
                             shape = errorShape,
                             color = Color.Transparent,
                             contentColor = errorContentColor,
-                            border = BorderStroke(1.dp, glass.outline),
+                            border = BorderStroke(1.dp, errorBorder),
                             tonalElevation = 0.dp,
                             shadowElevation = 0.dp
                         ) {
@@ -907,7 +995,7 @@ fun ChatScreen(
                                 Icon(
                                     Icons.Default.ErrorOutline,
                                     contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.error,
+                                    tint = if (isDark) Color(0xFFFB7185) else Color(0xFFE11D48),
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(10.dp))
@@ -956,6 +1044,7 @@ fun ChatScreen(
                 visible = showScrollControls && listState.layoutInfo.totalItemsCount > 1,
                 onJumpToTop = {
                     autoFollowOutput = false
+                    scrollControlsVisibilityState.extendVisibility(2800L)
                     scope.launch {
                         val firstVisible = listState.firstVisibleItemIndex
                         if (firstVisible > 8) {
@@ -966,6 +1055,7 @@ fun ChatScreen(
                 },
                 onJumpToPrevInput = {
                     autoFollowOutput = false
+                    scrollControlsVisibilityState.extendVisibility(2800L)
                     scope.launch {
                         val currentFirst = listState.firstVisibleItemIndex
                         val target = displayMessages.indices.reversed().firstOrNull { idx ->
@@ -976,6 +1066,7 @@ fun ChatScreen(
                 },
                 onJumpToNextInput = {
                     autoFollowOutput = false
+                    scrollControlsVisibilityState.extendVisibility(2800L)
                     scope.launch {
                         val currentFirst = listState.firstVisibleItemIndex
                         val target = displayMessages.indices.firstOrNull { idx ->
@@ -986,6 +1077,7 @@ fun ChatScreen(
                 },
                 onJumpToBottom = {
                     autoFollowOutput = true
+                    scrollControlsVisibilityState.extendVisibility(2800L)
                     scope.launch {
                         val lastIndex = (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)
                         val firstVisible = listState.firstVisibleItemIndex
@@ -1341,7 +1433,7 @@ private fun ChatScrollJumpButtons(
                 color = Color(0xFFBAE6FD).copy(alpha = 0.72f),
                 contentColor = Color(0xFF0369A1),
                 border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)),
-                shadowElevation = 1.dp,
+                shadowElevation = 0.dp,
                 modifier = Modifier.size(32.dp)
             ) {
                 Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
@@ -1360,7 +1452,7 @@ private fun ChatScrollJumpButtons(
                 color = Color(0xFF93C5FD).copy(alpha = 0.75f),
                 contentColor = Color(0xFF1D4ED8),
                 border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)),
-                shadowElevation = 1.dp,
+                shadowElevation = 0.dp,
                 modifier = Modifier.size(32.dp)
             ) {
                 Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
@@ -1379,7 +1471,7 @@ private fun ChatScrollJumpButtons(
                 color = Color(0xFF60A5FA).copy(alpha = 0.78f),
                 contentColor = Color.White,
                 border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)),
-                shadowElevation = 1.dp,
+                shadowElevation = 0.dp,
                 modifier = Modifier.size(32.dp)
             ) {
                 Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
@@ -1398,7 +1490,7 @@ private fun ChatScrollJumpButtons(
                 color = Color(0xFF3B82F6).copy(alpha = 0.82f),
                 contentColor = Color.White,
                 border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)),
-                shadowElevation = 1.dp,
+                shadowElevation = 0.dp,
                 modifier = Modifier.size(32.dp)
             ) {
                 Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
@@ -1933,6 +2025,7 @@ private fun MessageBubble(
     assistantAvatarRevision: Int = 0,
     assistantApiConfigId: Long? = null,
     assistantModelName: String = "AI",
+    reconnectStatus: String? = null,
     variantInfo: VariantInfo? = null,
     onVariantSelected: (String, Int) -> Unit = { _, _ -> },
     translatingThinking: Boolean = false,
@@ -2156,12 +2249,19 @@ private fun MessageBubble(
                         message.responseTime,
                         message.thinkingTokens,
                         message.tokenCount,
-                        personalizationSettings.thinkingCapsuleTemplate
+                        personalizationSettings.thinkingCapsuleTemplate,
+                        reconnectStatus
                     ) {
                         val rawModel = assistantModelName.ifBlank { "AI" }
                         val model = rawModel.displayModelShortName()
                         when {
-                            isConnecting -> personalizationSettings.connectingTextTemplate.replace("{model}", model).ifBlank { "正在连接 $model..." }
+                            isConnecting -> {
+                                if (!reconnectStatus.isNullOrBlank()) {
+                                    reconnectStatus
+                                } else {
+                                    personalizationSettings.connectingTextTemplate.replace("{model}", model).ifBlank { "正在连接 $model..." }
+                                }
+                            }
                             isThinkingActive -> personalizationSettings.thinkingTextTemplate.replace("{model}", model).ifBlank { "$model 正在思考中..." }
                             hasThinking -> formatThinkingCapsuleText(
                                 template = personalizationSettings.thinkingCapsuleTemplate.ifBlank { "{model} {status} {time} {tokens}" },
@@ -2619,6 +2719,15 @@ private fun MessageFooter(
                 onClick = onCopy
             )
 
+            if (onQuote != null) {
+                FooterIconButton(
+                    icon = Icons.Default.FormatQuote,
+                    contentDescription = "引用",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    onClick = onQuote
+                )
+            }
+
             if (!isUser && onRegenerate != null) {
                 FooterIconButton(
                     icon = Icons.Default.Refresh,
@@ -2913,7 +3022,9 @@ fun ChatInputBar(
     isRoleplay: Boolean = false,
     onPlotActionClick: () -> Unit = {},
     readableBackdrop: Color = Color.Unspecified,
-    modelName: String = ""
+    modelName: String = "",
+    isBarsHidden: Boolean = false,
+    onBarsHiddenChange: (Boolean) -> Unit = {}
 ) {
     var showToolMenu by remember { mutableStateOf(false) }
     var isInputExpanded by remember { mutableStateOf(false) }
@@ -2941,7 +3052,7 @@ fun ChatInputBar(
     ) {
         // 深度思考向上展开渐变滑块气泡弹窗
         AnimatedVisibility(
-            visible = showThinkingPopover,
+            visible = showThinkingPopover && !isBarsHidden,
             enter = fadeIn() + expandVertically(expandFrom = Alignment.Bottom),
             exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Bottom),
             modifier = Modifier.clip(RoundedCornerShape(22.dp))
@@ -2957,19 +3068,81 @@ fun ChatInputBar(
             )
         }
 
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .echoHazePanel(
-                    hazeState = hazeState,
+        AnimatedContent(
+            targetState = isBarsHidden,
+            transitionSpec = {
+                (fadeIn(animationSpec = tween(280)) + scaleIn(initialScale = 0.8f, transformOrigin = TransformOrigin(1f, 1f), animationSpec = tween(280)))
+                    .togetherWith(fadeOut(animationSpec = tween(200)) + scaleOut(targetScale = 0.8f, transformOrigin = TransformOrigin(1f, 1f), animationSpec = tween(200)))
+            },
+            label = "inputBarHiddenAnim"
+        ) { hidden ->
+            if (hidden) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(end = 4.dp, bottom = 4.dp),
+                    contentAlignment = Alignment.BottomEnd
+                ) {
+                    val bottomPulseTransition = rememberInfiniteTransition(label = "bottomPulse")
+                    val bottomPulseScale by bottomPulseTransition.animateFloat(
+                        initialValue = 1f,
+                        targetValue = 1.26f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(1200, easing = FastOutSlowInEasing),
+                            repeatMode = RepeatMode.Reverse
+                        ),
+                        label = "bottomPulseScale"
+                    )
+                    val bottomPulseAlpha by bottomPulseTransition.animateFloat(
+                        initialValue = 0.55f,
+                        targetValue = 0.15f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(1200, easing = FastOutSlowInEasing),
+                            repeatMode = RepeatMode.Reverse
+                        ),
+                        label = "bottomPulseAlpha"
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(52.dp)
+                            .graphicsLayer(scaleX = bottomPulseScale, scaleY = bottomPulseScale)
+                            .border(
+                                2.dp,
+                                MaterialTheme.colorScheme.primary.copy(alpha = bottomPulseAlpha),
+                                CircleShape
+                            )
+                    )
+                    Surface(
+                        onClick = { onBarsHiddenChange(false) },
+                        shape = CircleShape,
+                        color = if (isGenerating) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                        contentColor = Color.White,
+                        border = BorderStroke(1.2.dp, glass.outlineSelected),
+                        modifier = Modifier.size(44.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                            Icon(
+                                imageVector = if (isGenerating) Icons.Default.Stop else Icons.Default.ArrowUpward,
+                                contentDescription = "取消隐藏并恢复输入栏",
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    }
+                }
+            } else {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .echoHazePanel(
+                            hazeState = hazeState,
+                            shape = inputShape,
+                            tint = inputTint,
+                            blurRadius = 16.dp,
+                            highlightAlpha = 0.025f
+                    ),
                     shape = inputShape,
-                    tint = inputTint,
-                    blurRadius = 16.dp,
-                    highlightAlpha = 0.025f
-            ),
-            shape = inputShape,
-            color = Color.Transparent,
-            contentColor = inputTextColor,
+                    color = Color.Transparent,
+                    contentColor = inputTextColor,
             border = BorderStroke(1.dp, glass.outline),
             tonalElevation = 0.dp,
             shadowElevation = 0.dp
@@ -3167,7 +3340,9 @@ fun ChatInputBar(
                         FilledTonalIconButton(
                             onClick = { showToolMenu = true },
                             enabled = !isProcessingAttachments,
-                            modifier = Modifier.size(40.dp),
+                            modifier = Modifier
+                                .size(40.dp)
+                                .border(1.2.dp, glass.outlineSelected, CircleShape),
                             colors = softButtonColors
                         ) {
                             Icon(Icons.Default.Add, contentDescription = "添加内容", modifier = Modifier.size(20.dp))
@@ -3224,7 +3399,9 @@ fun ChatInputBar(
                     if (isGenerating) {
                         FilledIconButton(
                             onClick = onStopGeneration,
-                            modifier = Modifier.size(40.dp),
+                            modifier = Modifier
+                                .size(40.dp)
+                                .border(1.2.dp, glass.outlineSelected, CircleShape),
                             colors = IconButtonDefaults.filledIconButtonColors(
                                 containerColor = MaterialTheme.colorScheme.error
                             )
@@ -3235,7 +3412,9 @@ fun ChatInputBar(
                         FilledIconButton(
                             onClick = onSend,
                             enabled = !isProcessingAttachments && (inputText.isNotBlank() || attachments.isNotEmpty()),
-                            modifier = Modifier.size(40.dp),
+                            modifier = Modifier
+                                .size(40.dp)
+                                .border(1.2.dp, glass.outlineSelected, CircleShape),
                             colors = IconButtonDefaults.filledIconButtonColors(
                                 disabledContainerColor = glass.control.copy(alpha = 0.52f),
                                 disabledContentColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f)
@@ -3281,10 +3460,14 @@ fun ChatInputBar(
                                 onVerticalDrag = { change, dragAmount ->
                                     change.consume()
                                     val currentH = customInputHeightDp ?: (if (isInputExpanded) 180f else 42f)
-                                    val deltaDp = dragAmount / density.density
-                                    val newH = (currentH - deltaDp).coerceIn(42f, 360f)
-                                    customInputHeightDp = newH
-                                    isInputExpanded = newH > 60f
+                                    if (currentH <= 46f && dragAmount > 8f) {
+                                        onBarsHiddenChange(true)
+                                    } else {
+                                        val deltaDp = dragAmount / density.density
+                                        val newH = (currentH - deltaDp).coerceIn(42f, 360f)
+                                        customInputHeightDp = newH
+                                        isInputExpanded = newH > 60f
+                                    }
                                 }
                             )
                         },
@@ -3312,6 +3495,10 @@ fun ChatInputBar(
         }
     }
 }
+}
+}
+
+
 
 private data class ThinkingEffortLevel(
     val step: Int,

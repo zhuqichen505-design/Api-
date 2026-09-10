@@ -23,11 +23,13 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -132,25 +134,30 @@ private fun CollapsedAnchorRail(
     currentIndex: Int,
     onClick: () -> Unit
 ) {
-    val primary = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
-    val inactive = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.28f)
+    val primary = MaterialTheme.colorScheme.primary.copy(alpha = 0.90f)
+    val inactive = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.32f)
+    val glass = echoGlassPalette()
     // 限制最大显示点数，保持清疏美观
     val visibleCount = items.size.coerceIn(2, 8)
-    val step = 14.dp
-    val railHeight = (step * (visibleCount - 1) + 20.dp).coerceIn(40.dp, 160.dp)
-    val clickShape = RoundedCornerShape(12.dp)
+    val step = 15.dp
+    val railHeight = (step * (visibleCount - 1) + 24.dp).coerceIn(46.dp, 168.dp)
+    val clickShape = RoundedCornerShape(14.dp)
 
     Box(
         modifier = Modifier
-            .width(22.dp)
+            .padding(end = 2.dp)
+            .width(24.dp)
             .height(railHeight)
+            .clip(clickShape)
+            .background(glass.panelStrong.copy(alpha = 0.55f), clickShape)
+            .border(0.8.dp, glass.outline.copy(alpha = 0.38f), clickShape)
             .echoShapeClick(clickShape, onClick = onClick),
-        contentAlignment = Alignment.CenterEnd
+        contentAlignment = Alignment.Center
     ) {
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(vertical = 6.dp)
+                .padding(vertical = 8.dp)
         ) {
             val activePosition = items.indexOfLast { it.itemIndex <= currentIndex }
                 .coerceAtLeast(0)
@@ -166,20 +173,20 @@ private fun CollapsedAnchorRail(
                 val y = if (visibleCount <= 1) size.height / 2f else startY + marker * stepPx
                 val isActive = marker == activeMarker
                 if (isActive) {
-                    val pillWidth = 12.dp.toPx()
-                    val pillHeight = 4.dp.toPx()
+                    val pillWidth = 14.dp.toPx()
+                    val pillHeight = 4.5.dp.toPx()
                     drawRoundRect(
                         color = primary,
-                        topLeft = Offset(size.width - pillWidth - 2.dp.toPx(), y - pillHeight / 2f),
+                        topLeft = Offset((size.width - pillWidth) / 2f, y - pillHeight / 2f),
                         size = Size(pillWidth, pillHeight),
                         cornerRadius = CornerRadius(999.dp.toPx(), 999.dp.toPx())
                     )
                 } else {
-                    val dotRadius = 2.dp.toPx()
+                    val dotRadius = 2.2.dp.toPx()
                     drawCircle(
                         color = inactive,
                         radius = dotRadius,
-                        center = Offset(size.width - dotRadius - 4.dp.toPx(), y)
+                        center = Offset(size.width / 2f, y)
                     )
                 }
             }
@@ -196,6 +203,18 @@ private fun ExpandedAnchorPanel(
     onSelected: (SideAnchorItem) -> Unit
 ) {
     val panelShape = RoundedCornerShape(24.dp)
+    val panelListState = rememberLazyListState()
+    val activeIndex = remember(items, currentIndex) {
+        items.indexOfLast { it.itemIndex <= currentIndex }.coerceAtLeast(0)
+    }
+
+    LaunchedEffect(activeIndex) {
+        if (activeIndex >= 0 && items.isNotEmpty()) {
+            val targetScroll = (activeIndex - 2).coerceIn(0, (items.size - 1).coerceAtLeast(0))
+            panelListState.animateScrollToItem(targetScroll)
+        }
+    }
+
     val panelModifier = if (hazeState != null) {
         Modifier
             .padding(end = 6.dp)
@@ -230,6 +249,7 @@ private fun ExpandedAnchorPanel(
         shadowElevation = 0.dp
     ) {
         LazyColumn(
+            state = panelListState,
             modifier = Modifier
                 .border(
                     width = 1.dp,

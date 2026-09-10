@@ -250,10 +250,16 @@ fun EchoTextToolbarHost(
                         onClick = {
                             menu.onCopy?.invoke()
                             coroutineScope.launch {
-                                delay(60)
-                                val copiedText = clipboardManager.getText()?.text.orEmpty()
-                                if (copiedText.isNotBlank()) {
-                                    onQuoteSelected(copiedText)
+                                var retries = 8
+                                var text = ""
+                                while (retries > 0) {
+                                    delay(35)
+                                    text = clipboardManager.getText()?.text.orEmpty()
+                                    if (text.isNotBlank()) break
+                                    retries--
+                                }
+                                if (text.isNotBlank()) {
+                                    onQuoteSelected(text)
                                 }
                                 toolbar.hide()
                             }

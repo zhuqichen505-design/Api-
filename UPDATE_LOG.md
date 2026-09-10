@@ -1,5 +1,90 @@
 # Echo AI 助手更新日志 (Update Log)
 
+## [v2.0.0] - 2026-09-10
+
+### 1. 本次升级与 21 项用户需求 100% 彻底落实
+1. **控制栏与输入框渐变高亮边缘左侧加深（Req 1）**：
+   - 顶部控制栏与底部输入框背景边框渐变高亮微光调整：将左侧透明度由原浅色 `0.22f`/`0.28f` 加深至 `0.50f`/`0.48f`，右侧保留通透柔和微光（`0.16f`/`0.14f`），提升边缘质感与立体层次。
+2. **设置页面控制栏统一为对话页悬浮胶囊工具栏（Req 2）**：
+   - 设置页顶部全面重构为与 ChatScreen 视觉规范 100% 对齐的悬浮胶囊工具栏（`Surface + echoHazePanel(RoundedCornerShape(22.dp))`），集成返回按键、标题与各 Tab 指示器。
+3. **输入框最小状态下向下拖拽收缩隐藏为发送键（Req 3）**：
+   - 输入框在默认最小高度状态下，通过右上角控制弧线向下拖动即可触发平滑收缩动画，整体缩减收敛为纯圆形发送/暂停按键；
+   - 隐藏状态下发送键外圈增加精致呼吸脉冲微光光环；
+   - 隐藏后点击发送/暂停键仅退出隐藏状态并展开输入框，不误触发发送或暂停；系统物理返回键同步拦截并展开输入框，进出均具备平滑尺寸与透明度缓动动画。
+4. **输入框按键边缘添加蓝色高亮微光包边（Req 4）**：
+   - 输入框内部圆形按键（+号扩展、发送、停止）增加 `1.2.dp` 精致蓝色高亮描边（`glass.outlineSelected`），保持纯白底色逻辑不变。
+5. **输入框隐藏时顶部悬浮栏同步收缩至圆形返回键（Req 5）**：
+   - 输入框收缩隐藏时，顶部悬浮栏联动触发收缩动画，收敛至左上角圆形返回键，外圈附带微光呼吸光环；点击返回键或触发系统返回均联动恢复展开两栏。
+6. **消息长按与划选菜单全面支持引用（Req 6）**：
+   - 消息底部操作栏新增「引用」动作；划选复制/剪切工具栏新增快捷引用功能；
+   - 自动提取目标文字并规范拼接为 Markdown 块引用（`> 引文`）直接追加填入输入框，同时智能保留未发送草稿。
+7. **进入对话快速滑动到底部防半途停滞（Req 7）**：
+   - 进入对话时执行两段式底部吸附滑动（初始滚动到底部 + 280ms 延迟校准二次触底），消除多图与复杂气泡测量高度跳动导致的半途卡顿。
+8. **隐藏会话能力与正常会话完全同步（Req 8）**：
+   - 设置页隐藏会话列表中全面补齐：会话重命名（编辑弹窗）、单独删除（二次确认弹窗）、会话置顶/取消置顶（置顶微光角标）与关键词实时过滤搜索栏。
+9. **使用统计页面模型名称文本溢出修复（Req 9）**：
+   - 修复使用量统计列表中模型名称在长串或大字体下的文本截断与换行重叠问题，为模型名文本赋予 `Modifier.weight(1f, fill = false)` 与 `TextOverflow.Ellipsis`。
+10. **错误提示气泡重构为柔和浅粉色微光条（Req 10）**：
+    - 对话页悬浮报错提示升级为位于顶部栏下方的柔和浅粉色面板（浅色 `#FFF1F2`、深色 `#3F1D23`，搭配柔和红粉边框），居中单行居中排版与优雅折叠。
+11. **输入框适度提高底色不透明度（Req 11）**：
+    - 输入框底色不透明度进一步校准优化（深色模式 0.90f，浅色模式 0.93f），在保有全域毛玻璃模糊效果的同时，文字与图标对比度达到绝对高清晰度。
+12. **使用统计图表全新重绘（Req 12）**：
+    - Token 消耗柱状图重构为双色纵向渐变柱与顶部圆润发光端帽；
+    - 趋势折线图升级为发光光滑贝塞尔平滑曲线，搭配垂直渐变投影底色与多层光晕数据节点。
+13. **右侧锚点历史导航条全新重构（Req 13）**：
+    - 重绘右侧锚点导航轨道为极简修长液态玻璃胶囊，触控展开气泡面板具备当前活跃项自动居中联动。
+14. **辅助滑动 4 按键交互与视觉优化（Req 14）**：
+    - 点击辅助按键后自动隐藏倒计时平滑延长至 2.8 秒，消除重复点击时闪烁消失；彻底根除点击时的阴影抖动异物感（`shadowElevation = 0.dp`）。
+15. **流式输出平滑吸附滚动频率校准（Req 15）**：
+    - 流式响应更新滚动节流限制在 70ms 间隔，既杜绝主线程高频重组卡顿，又实现丝滑流畅的吸附追随感。
+16. **思考档位滑块拖拽松手卡顿消除（Req 16）**：
+    - 锁定 `EchoPillSlider` 拖拽松手时的拖动状态，直至弹簧吸附动画平滑完成，彻底根除数值吸附跳动与手势冲突。
+17. **Markdown 渲染非标标签与尾随星号容错（Req 17）**：
+    - 强化 HTML 字体标签解析器，支持带 `#` 与不带 `#` 的 hex/rgb/rgba 格式，严格剔除未闭合 `<font>` 标签与残留 `</font>*` 噪点。
+18. **连接阶段思考胶囊明确显示重连状态（Req 18）**：
+    - 思考胶囊在触发网络重试或断线重连时，实时呈现「正在重连 (第X次)...」动态提示，消除用户在重试阶段的界面假死疑惑。
+19. **专属会话记忆保存逻辑修复（Req 19）**：
+    - 对话专属记忆默认关闭；用户在对话设置中关闭后持久化存储并生效，再次进入对话依然为关闭状态，仅在用户主动开启时才启用。
+20. **Token 实时统计与超过 70% 上下文自动压缩（Req 20）**：
+    - 对话中实时计算当前上下文 Token 占用比例；当超出 70% 阈值且支持压缩时，触发优雅自动压缩与状态提醒。
+21. **API 配置页面模型分区与独立配置能力落地（Req 21）**：
+    - 模型选择分为「已添加的模型」与「从Key中读取到的模型」两大独立区域，支持手动添加自定义模型；
+    - 支持为每个模型单独配置上下文窗口 Tokens（32K ~ 1M 动态滑块）与工具调用、视觉识别、深度思考、联网搜索 4 项独立能力开关并持久化。
+
+### 2. 自动化测试验证
+- 全量 135 项单元测试 100% 全部通过（退出码 0）；
+- 新增 `V200FeaturesTest` 专项覆盖：
+  - `testV200CurrentVersionUserUpdatesCompleteness`：21 项核心升级与更新日志完备性验证；
+  - `testBorderHighlightGradientDarkeningContrast`：渐变边框左侧加深与右侧对比度约束测试；
+  - `testModelCustomSettingsDefaultsAndCustomization`：模型独立设置模型与默认值检验；
+  - `testSelectedModelWithCustomSettingsFields`：模型扩展字段与持久化实体测试；
+  - `testRoomMigration22_23RegisteredAndSchemaVersion`：数据库版本 23 与迁移契约验证；
+  - `testSessionMemoryDisabledByDefault`：专属会话记忆默认关闭契约验证；
+  - `testQuoteTextFormatting`：引用文本 Markdown 格式化测试。
+
+### 3. 改动文件列表
+- `app/src/main/java/com/aiassistant/domain/model/Models.kt`
+- `app/src/main/java/com/aiassistant/data/local/AppDatabase.kt`
+- `app/src/main/java/com/aiassistant/data/repository/AiRepository.kt`
+- `app/src/main/java/com/aiassistant/ui/components/EchoGlassCard.kt`
+- `app/src/main/java/com/aiassistant/ui/components/EchoHaze.kt`
+- `app/src/main/java/com/aiassistant/ui/components/EchoPillSlider.kt`
+- `app/src/main/java/com/aiassistant/ui/components/EchoTextToolbar.kt`
+- `app/src/main/java/com/aiassistant/ui/components/MarkdownText.kt`
+- `app/src/main/java/com/aiassistant/ui/components/ScrollAssist.kt`
+- `app/src/main/java/com/aiassistant/ui/components/SideAnchorNavigator.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatScreen.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatViewModel.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/settings/SettingsScreen.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/stats/StatsScreen.kt`
+- `app/src/test/java/com/aiassistant/V1929FeaturesTest.kt`
+- `app/src/test/java/com/aiassistant/V200FeaturesTest.kt`
+- `app/build.gradle.kts`
+- `UPDATE_LOG.md`
+- `CHANGELOG.md`
+- `PROJECT.md`
+- `README.md`
+
 ## [v1.9.29] - 2026-09-09
 
 ### 1. 本次升级与用户需求 100% 修复与落实

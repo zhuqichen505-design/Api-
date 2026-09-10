@@ -27,7 +27,7 @@ import com.aiassistant.domain.model.*
         CharacterTag::class,
         CharacterTagCrossRef::class
     ],
-    version = 22,
+    version = 23,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -400,14 +400,25 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        private val LEGACY_REPAIR_MIGRATIONS: Array<Migration> = ((1..21)
+        val MIGRATION_22_23 = object : Migration(22, 23) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                addColumnIfMissing(database, "conversations", "enableSessionMemory", "INTEGER")
+                addColumnIfMissing(database, "selected_models", "contextWindowTokens", "INTEGER")
+                addColumnIfMissing(database, "selected_models", "supportsTools", "INTEGER NOT NULL DEFAULT 1")
+                addColumnIfMissing(database, "selected_models", "supportsVision", "INTEGER NOT NULL DEFAULT 0")
+                addColumnIfMissing(database, "selected_models", "supportsThinking", "INTEGER NOT NULL DEFAULT 1")
+                addColumnIfMissing(database, "selected_models", "supportsWebSearch", "INTEGER NOT NULL DEFAULT 1")
+            }
+        }
+
+        private val LEGACY_REPAIR_MIGRATIONS: Array<Migration> = ((1..22)
             .map { startVersion ->
-                object : Migration(startVersion, 22) {
+                object : Migration(startVersion, 23) {
                     override fun migrate(database: SupportSQLiteDatabase) {
                         repairSchema(database)
                     }
                 }
-            } + MIGRATION_17_18 + MIGRATION_18_19 + MIGRATION_19_20 + MIGRATION_20_21 + MIGRATION_21_22)
+            } + MIGRATION_17_18 + MIGRATION_18_19 + MIGRATION_19_20 + MIGRATION_20_21 + MIGRATION_21_22 + MIGRATION_22_23)
             .toTypedArray()
 
         private fun repairSchema(database: SupportSQLiteDatabase) {
@@ -482,6 +493,7 @@ abstract class AppDatabase : RoomDatabase() {
                     ColumnSpec("enableThinking", "INTEGER", "NULL", nullable = true),
                     ColumnSpec("thinkingEffort", "TEXT", "NULL", nullable = true),
                     ColumnSpec("enableWebSearch", "INTEGER", "NULL", nullable = true),
+                    ColumnSpec("enableSessionMemory", "INTEGER", "NULL", nullable = true),
                     ColumnSpec("createdAt", "INTEGER NOT NULL", "0"),
                     ColumnSpec("updatedAt", "INTEGER NOT NULL", "0")
                 ),
@@ -600,6 +612,11 @@ abstract class AppDatabase : RoomDatabase() {
                     ColumnSpec("isEnabled", "INTEGER NOT NULL", "1"),
                     ColumnSpec("capability", "TEXT NOT NULL", "'auto'"),
                     ColumnSpec("sortOrder", "INTEGER NOT NULL", "0"),
+                    ColumnSpec("contextWindowTokens", "INTEGER", "NULL", nullable = true),
+                    ColumnSpec("supportsTools", "INTEGER NOT NULL", "1"),
+                    ColumnSpec("supportsVision", "INTEGER NOT NULL", "0"),
+                    ColumnSpec("supportsThinking", "INTEGER NOT NULL", "1"),
+                    ColumnSpec("supportsWebSearch", "INTEGER NOT NULL", "1"),
                     ColumnSpec("createdAt", "INTEGER NOT NULL", "0")
                 ),
                 indices = listOf("CREATE INDEX IF NOT EXISTS `index_selected_models_apiConfigId` ON `selected_models` (`apiConfigId`)")

@@ -4,7 +4,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.luminance
 import com.aiassistant.ui.components.readableTextColorFor
-import com.aiassistant.ui.screens.settings.CurrentVersionUserUpdates
+import com.aiassistant.ui.screens.settings.V1929UserUpdates
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -19,9 +19,9 @@ class V1929FeaturesTest {
             "保持流式分支生命周期重置与幽灵气泡过滤机制",
             "输入框同心圆弧手柄尺寸与辅助滑动 4 键半透明质感持续保持"
         )
-        assertEquals(5, CurrentVersionUserUpdates.size)
+        assertEquals(5, V1929UserUpdates.size)
         expectedHighlights.forEach { highlight ->
-            assertTrue("更新说明必须包含: $highlight", CurrentVersionUserUpdates.contains(highlight))
+            assertTrue("更新说明必须包含: $highlight", V1929UserUpdates.contains(highlight))
         }
     }
 

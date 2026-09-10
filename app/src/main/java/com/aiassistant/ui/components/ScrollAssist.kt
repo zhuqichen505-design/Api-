@@ -37,12 +37,21 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
+class LazyListControlsVisibilityState(
+    private val visibleState: MutableState<Boolean>,
+    private val onExtend: (Long) -> Unit
+) : androidx.compose.runtime.State<Boolean> by visibleState {
+    fun extendVisibility(durationMillis: Long = 2800L) = onExtend(durationMillis)
+}
+
 @Composable
 fun rememberLazyListControlsVisible(
     listState: LazyListState,
     hideDelayMillis: Long = 500L
-): MutableState<Boolean> {
+): LazyListControlsVisibilityState {
     val visible = remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    var extendUntilMillis by remember { mutableStateOf(0L) }
 
     LaunchedEffect(listState, hideDelayMillis) {
         snapshotFlow { listState.isScrollInProgress }
@@ -50,13 +59,30 @@ fun rememberLazyListControlsVisible(
                 if (isScrolling) {
                     visible.value = true
                 } else {
-                    delay(hideDelayMillis)
+                    val now = System.currentTimeMillis()
+                    val remainingExtend = (extendUntilMillis - now).coerceAtLeast(0L)
+                    val waitTime = maxOf(hideDelayMillis, remainingExtend)
+                    delay(waitTime)
                     visible.value = false
                 }
             }
     }
 
-    return visible
+    return remember(scope) {
+        LazyListControlsVisibilityState(
+            visibleState = visible,
+            onExtend = { duration ->
+                visible.value = true
+                extendUntilMillis = maxOf(extendUntilMillis, System.currentTimeMillis() + duration)
+                scope.launch {
+                    delay(duration)
+                    if (System.currentTimeMillis() >= extendUntilMillis && !listState.isScrollInProgress) {
+                        visible.value = false
+                    }
+                }
+            }
+        )
+    }
 }
 
 @Composable

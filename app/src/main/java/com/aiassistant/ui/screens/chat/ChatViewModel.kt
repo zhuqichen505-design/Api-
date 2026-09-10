@@ -111,6 +111,10 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
     private val _isModelConfigInvalid = MutableStateFlow(false)
     val isModelConfigInvalid: StateFlow<Boolean> = _isModelConfigInvalid.asStateFlow()
 
+    // 模型连接与重连状态
+    private val _reconnectStatus = MutableStateFlow<String?>(null)
+    val reconnectStatus: StateFlow<String?> = _reconnectStatus.asStateFlow()
+
     private fun loadConversation() {
         viewModelScope.launch {
             conversation = repository.getConversationById(conversationId)
@@ -141,7 +145,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                     enableThinking = conv.enableThinking ?: true,
                     thinkingEffort = conv.thinkingEffort ?: apiConfig?.thinkingEffort ?: "high",
                     enableWebSearch = conv.enableWebSearch ?: false,
-                    enableSessionMemory = false
+                    enableSessionMemory = conv.enableSessionMemory ?: false
                 )
                 // 如果对话有自定义配置，自动启用临时设置
                 _useTempSettings.value = true
@@ -420,6 +424,17 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
         }
     }
 
+    private fun evaluateAutoCompression() {
+        viewModelScope.launch {
+            try {
+                val usage = _contextUsage.value.usage ?: return@launch
+                if (usage.canCompress && usage.usagePercent > 0.70f && !_contextUsage.value.isCompressing) {
+                    compressContextNow()
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
     // 保存对话级别配置
     private fun saveConversationSettings(
         settings: TempChatSettings?,
@@ -433,6 +448,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                 enableThinking = settings?.enableThinking,
                 thinkingEffort = settings?.thinkingEffort,
                 enableWebSearch = settings?.enableWebSearch,
+                enableSessionMemory = settings?.enableSessionMemory ?: conv.enableSessionMemory ?: false,
                 systemPrompt = normalizeSystemPrompt(systemPrompt)
             )
             conversation = updated
@@ -600,7 +616,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                     enableThinking = settings?.enableThinking,
                     thinkingEffort = settings?.thinkingEffort,
                     enableWebSearch = settings?.enableWebSearch,
-                    enableSessionMemory = settings?.enableSessionMemory,
+                    enableSessionMemory = settings?.enableSessionMemory ?: conversation?.enableSessionMemory ?: true,
                     overrideSystemPrompt = true,
                     systemPromptOverride = effectiveSystemPrompt
                 )
@@ -622,6 +638,9 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                         onThinkingToken = { token ->
                             _currentThinking.update { it + token }
                         },
+                        onStatusUpdate = { status ->
+                            _reconnectStatus.value = status
+                        },
                         onComplete = { _, _, _ ->
                             isMessageSaved = true
                             _isGenerating.value = false
@@ -629,9 +648,13 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                             activeAssistantVariantIndex = 1
                             _currentResponse.value = ""
                             _currentThinking.value = ""
+                            _reconnectStatus.value = null
                             autoNameIfNeeded()
+                            refreshContextUsage()
+                            evaluateAutoCompression()
                         },
                         onError = { errorMsg ->
+                            _reconnectStatus.value = null
                             if (isUserStopping || errorMsg.contains("Socket closed", ignoreCase = true) || errorMsg.contains("Canceled", ignoreCase = true)) {
                                 _isGenerating.value = false
                                 _currentResponse.value = ""
@@ -648,6 +671,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                     )
                 }
             } catch (e: Exception) {
+                _reconnectStatus.value = null
                 if (isUserStopping || e is CancellationException || e.message?.contains("Socket closed", ignoreCase = true) == true || e.message?.contains("Canceled", ignoreCase = true) == true) {
                     _isGenerating.value = false
                     _currentResponse.value = ""

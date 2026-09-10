@@ -129,11 +129,13 @@ fun EchoPillSlider(
             val progress = ((rawX - currentMinThumbX) / currentTravelDistance).coerceIn(0f, 1f)
             val stepIndex = (progress * (currentTotalStops - 1)).roundToInt().coerceIn(0, currentTotalStops - 1)
             val targetVal = currentMinVal + (stepIndex.toFloat() / (currentTotalStops - 1)) * currentValSpan
+            val currentTouchVal = currentMinVal + progress * currentValSpan
             lastReportedStep = stepIndex
             currentOnValueChange(targetVal)
             currentOnValueChangeFinished?.invoke()
             scope.launch {
-                animatedValue.snapTo(currentMinVal + progress * currentValSpan)
+                animatedValue.snapTo(currentTouchVal)
+                isDragging = false
                 animatedValue.animateTo(
                     targetValue = targetVal,
                     animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMedium)
@@ -168,7 +170,6 @@ fun EchoPillSlider(
                             val change = event.changes.firstOrNull { it.id == pointerId } ?: event.changes.firstOrNull()
                             if (change == null || !change.pressed) {
                                 change?.consume()
-                                isDragging = false
                                 snapToNearest(lastTouchX)
                                 break
                             }

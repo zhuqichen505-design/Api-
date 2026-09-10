@@ -765,6 +765,16 @@ private fun parseHtmlTagColor(tag: String): Color? {
 internal fun parseInlineColor(raw: String?): Color? {
     val value = raw?.trim()?.trim('"', '\'')?.lowercase().orEmpty()
     if (value.isBlank()) return null
+    if (value.startsWith("rgb")) {
+        val parts = value.substringAfter("(").substringBefore(")").split(",").map { it.trim() }
+        if (parts.size >= 3) {
+            val r = parts[0].toIntOrNull()?.coerceIn(0, 255) ?: 0
+            val g = parts[1].toIntOrNull()?.coerceIn(0, 255) ?: 0
+            val b = parts[2].toIntOrNull()?.coerceIn(0, 255) ?: 0
+            val a = if (parts.size >= 4) (parts[3].toFloatOrNull()?.coerceIn(0f, 1f) ?: 1f) else 1f
+            return Color(r, g, b, (a * 255).toInt().coerceIn(0, 255))
+        }
+    }
     val named = when (value) {
         "red" -> "#DC2626"
         "orange" -> "#EA580C"
@@ -1287,21 +1297,39 @@ fun parseInlineMarkdown(
                     val closeStart = decoded.indexOf("</font>", if (openEnd != -1) openEnd + 1 else i, ignoreCase = true)
                     val openTag = if (openEnd != -1) decoded.substring(i, openEnd + 1) else ""
                     val parsedColor = parseHtmlTagColor(openTag) ?: Color(0xFF2B7DE0)
-                    if (openEnd != -1 && closeStart != -1) {
-                        val innerContent = decoded.substring(openEnd + 1, closeStart)
-                        withStyle(SpanStyle(color = parsedColor)) {
-                            append(parseInlineMarkdown(innerContent))
+                    if (openEnd != -1) {
+                        if (closeStart != -1) {
+                            val innerContent = decoded.substring(openEnd + 1, closeStart)
+                            withStyle(SpanStyle(color = parsedColor)) {
+                                append(parseInlineMarkdown(innerContent))
+                            }
+                            var nextIdx = closeStart + "</font>".length
+                            while (nextIdx < decoded.length && (decoded[nextIdx] == '*' || decoded[nextIdx] == ' ')) {
+                                nextIdx++
+                            }
+                            i = nextIdx
+                        } else {
+                            // 流式未闭合标签：对剩余文本应用颜色渲染
+                            val innerContent = decoded.substring(openEnd + 1)
+                            withStyle(SpanStyle(color = parsedColor)) {
+                                append(parseInlineMarkdown(innerContent))
+                            }
+                            i = decoded.length
                         }
-                        var nextIdx = closeStart + "</font>".length
-                        // 智能消费紧随闭合标签后的悬挂星号，例如 </font>*
-                        if (nextIdx < decoded.length && decoded[nextIdx] == '*' && (nextIdx + 1 >= decoded.length || decoded[nextIdx + 1] != '*')) {
-                            nextIdx++
-                        }
-                        i = nextIdx
                     } else {
                         append(decoded[i])
                         i++
                     }
+                }
+
+                // 孤立闭合标签 </font> 及后续残留的星号 (如 </font>*)
+                decoded.startsWith("</font", i, ignoreCase = true) -> {
+                    val closeEnd = decoded.indexOf('>', i)
+                    var nextIdx = if (closeEnd != -1) closeEnd + 1 else (i + 7).coerceAtMost(decoded.length)
+                    while (nextIdx < decoded.length && (decoded[nextIdx] == '*' || decoded[nextIdx] == ' ')) {
+                        nextIdx++
+                    }
+                    i = nextIdx
                 }
 
                 // HTML <span style="...">text</span>
@@ -1310,20 +1338,38 @@ fun parseInlineMarkdown(
                     val closeStart = decoded.indexOf("</span>", if (openEnd != -1) openEnd + 1 else i, ignoreCase = true)
                     val openTag = if (openEnd != -1) decoded.substring(i, openEnd + 1) else ""
                     val parsedColor = parseHtmlTagColor(openTag) ?: Color(0xFF2B7DE0)
-                    if (openEnd != -1 && closeStart != -1) {
-                        val innerContent = decoded.substring(openEnd + 1, closeStart)
-                        withStyle(SpanStyle(color = parsedColor)) {
-                            append(parseInlineMarkdown(innerContent))
+                    if (openEnd != -1) {
+                        if (closeStart != -1) {
+                            val innerContent = decoded.substring(openEnd + 1, closeStart)
+                            withStyle(SpanStyle(color = parsedColor)) {
+                                append(parseInlineMarkdown(innerContent))
+                            }
+                            var nextIdx = closeStart + "</span>".length
+                            while (nextIdx < decoded.length && (decoded[nextIdx] == '*' || decoded[nextIdx] == ' ')) {
+                                nextIdx++
+                            }
+                            i = nextIdx
+                        } else {
+                            val innerContent = decoded.substring(openEnd + 1)
+                            withStyle(SpanStyle(color = parsedColor)) {
+                                append(parseInlineMarkdown(innerContent))
+                            }
+                            i = decoded.length
                         }
-                        var nextIdx = closeStart + "</span>".length
-                        if (nextIdx < decoded.length && decoded[nextIdx] == '*' && (nextIdx + 1 >= decoded.length || decoded[nextIdx + 1] != '*')) {
-                            nextIdx++
-                        }
-                        i = nextIdx
                     } else {
                         append(decoded[i])
                         i++
                     }
+                }
+
+                // 孤立闭合标签 </span> 及后续残留的星号
+                decoded.startsWith("</span", i, ignoreCase = true) -> {
+                    val closeEnd = decoded.indexOf('>', i)
+                    var nextIdx = if (closeEnd != -1) closeEnd + 1 else (i + 7).coerceAtMost(decoded.length)
+                    while (nextIdx < decoded.length && (decoded[nextIdx] == '*' || decoded[nextIdx] == ' ')) {
+                        nextIdx++
+                    }
+                    i = nextIdx
                 }
 
                 // HTML <b> 或 <strong>

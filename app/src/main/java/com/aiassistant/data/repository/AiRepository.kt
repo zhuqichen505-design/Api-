@@ -726,6 +726,11 @@ class AiRepository(
         conversationDao.setPinned(conversationId, isPinned)
     }
 
+    suspend fun updateConversationTitle(conversationId: Long, title: String) {
+        val conv = conversationDao.getConversationById(conversationId) ?: return
+        conversationDao.updateConversation(conv.copy(title = title, updatedAt = System.currentTimeMillis()))
+    }
+
     // ============ 模型长记忆相关 ============
 
     fun getAllMemories(): Flow<List<MemoryItem>> = memoryDao.getAllMemories()
@@ -964,6 +969,7 @@ class AiRepository(
         assistantVariantIndex: Int = 1,
         onToken: (String) -> Unit,
         onThinkingToken: (String) -> Unit = {},
+        onStatusUpdate: ((String) -> Unit)? = null,
         onComplete: (String, String?, Any?) -> Unit,
         onError: (String) -> Unit
     ) {
@@ -978,6 +984,7 @@ class AiRepository(
                 assistantVariantIndex = assistantVariantIndex,
                 onToken = onToken,
                 onThinkingToken = onThinkingToken,
+                onStatusUpdate = onStatusUpdate,
                 onComplete = onComplete
             )
         } catch (e: Exception) {
@@ -1027,6 +1034,7 @@ class AiRepository(
         assistantVariantIndex: Int,
         onToken: (String) -> Unit,
         onThinkingToken: (String) -> Unit,
+        onStatusUpdate: ((String) -> Unit)? = null,
         onComplete: (String, String?, Any?) -> Unit
     ) {
         val historyMessages = getMessagesList(conversationId)
@@ -1059,16 +1067,30 @@ class AiRepository(
                     if (isTimeoutException(e)) {
                         attempt++
                         if (attempt <= maxTimeoutAttempts) {
-                            Log.w(tag, "Key[$keyIndex] 连接超时，第 $attempt 次自动重试中...")
+                            val retryText = "连接超时，正在重试 ($attempt/$maxTimeoutAttempts)..."
+                            Log.w(tag, "Key[$keyIndex] $retryText")
+                            onStatusUpdate?.invoke(retryText)
                             kotlinx.coroutines.delay(500L * attempt)
                             continue
                         } else {
-                            Log.w(tag, "Key[$keyIndex] 超时重试已达 $maxTimeoutAttempts 次，切换下一个 Key")
+                            val failText = if (keyIndex + 1 < allKeys.size) {
+                                "Key[${keyIndex + 1}] 超时，切换下一个 Key (${keyIndex + 2}/${allKeys.size})..."
+                            } else {
+                                "Key[${keyIndex + 1}] 超时重试已达 $maxTimeoutAttempts 次"
+                            }
+                            Log.w(tag, failText)
+                            onStatusUpdate?.invoke(failText)
                             break
                         }
                     } else {
                         // 非超时报错（如 401, 403, 429, 500 等 API 错误）
+                        val failText = if (keyIndex + 1 < allKeys.size) {
+                            "当前 Key 异常，正在尝试备用 Key (${keyIndex + 2}/${allKeys.size})..."
+                        } else {
+                            "Key[${keyIndex + 1}] 请求报错: ${e.message}"
+                        }
                         Log.w(tag, "Key[$keyIndex] 请求报错: ${e.message}，尝试切换下一个 Key")
+                        onStatusUpdate?.invoke(failText)
                         break
                     }
                 }
@@ -2979,17 +3001,24 @@ class AiRepository(
         apiConfigId: Long,
         modelNames: List<String>,
         enabledModelNames: Set<String>,
-        modelCapabilities: Map<String, String> = emptyMap()
+        modelCapabilities: Map<String, String> = emptyMap(),
+        modelSettings: Map<String, ModelCustomSettings> = emptyMap()
     ) {
         selectedModelDao.deleteModelsByConfig(apiConfigId)
         selectedModelDao.insertModels(
             sanitizeModelNames(modelNames).mapIndexed { index, modelName ->
+                val custom = modelSettings[modelName]
                 SelectedModel(
                     apiConfigId = apiConfigId,
                     modelName = modelName,
                     isEnabled = enabledModelNames.contains(modelName),
                     capability = modelCapabilities[modelName] ?: "auto",
-                    sortOrder = index
+                    sortOrder = index,
+                    contextWindowTokens = custom?.contextWindowTokens,
+                    supportsTools = custom?.supportsTools ?: true,
+                    supportsVision = custom?.supportsVision ?: false,
+                    supportsThinking = custom?.supportsThinking ?: true,
+                    supportsWebSearch = custom?.supportsWebSearch ?: true
                 )
             }
         )

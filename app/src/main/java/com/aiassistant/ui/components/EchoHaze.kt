@@ -84,7 +84,7 @@ fun echoGlassPalette(): EchoGlassPalette {
     val strongAlpha = if (isDark) 0.92f else 0.94f
     val softAlpha = if (isDark) 0.68f else 0.72f
     val controlAlpha = if (isDark) 0.76f else 0.80f
-    val inputAlpha = if (isDark) 0.85f else 0.88f
+    val inputAlpha = if (isDark) 0.90f else 0.93f
     val selectedAlpha = if (isDark) 0.88f else 0.90f
 
     return EchoGlassPalette(
@@ -191,8 +191,8 @@ fun Modifier.echoHazePanel(
                 EchoTokens.Glass.borderWidth,
                 Brush.linearGradient(
                     colorStops = arrayOf(
-                        0.00f to Color.White.copy(alpha = if (isDark) 0.18f else 0.32f),
-                        0.40f to colorScheme.outlineVariant.copy(alpha = if (isDark) 0.06f else 0.12f),
+                        0.00f to (if (isDark) colorScheme.outline.copy(alpha = 0.50f) else colorScheme.outline.copy(alpha = 0.48f)),
+                        0.40f to colorScheme.outlineVariant.copy(alpha = if (isDark) 0.16f else 0.22f),
                         1.00f to colorScheme.primary.copy(alpha = if (isDark) 0.16f else 0.20f)
                     ),
                     start = Offset(0f, 0f),

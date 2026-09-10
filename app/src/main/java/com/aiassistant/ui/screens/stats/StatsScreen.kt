@@ -662,19 +662,32 @@ private fun ModernTokenBars(buckets: List<Bucket>, maxToken: Int, labelColor: Co
                         .coerceIn(4.dp.toPx(), size.height)
                     var bottom = size.height
 
-                    // 依次堆叠绘制柱体段（带圆角和分层阴影）
+                    // 依次堆叠绘制柱体段（带渐变、圆角胶囊帽和光晕）
                     fun drawBarSegment(value: Int, color: Color, isTopSegment: Boolean) {
                         if (value <= 0) return
                         val segmentHeight = (fullHeight * value / total.toFloat()).coerceAtLeast(2.dp.toPx())
                         val top = bottom - segmentHeight
-                        val corner = if (isTopSegment) CornerRadius(4.dp.toPx(), 4.dp.toPx()) else CornerRadius.Zero
+                        val corner = if (isTopSegment) CornerRadius(barWidth / 2f, barWidth / 2f) else CornerRadius.Zero
 
                         drawRoundRect(
-                            color = color,
+                            brush = Brush.verticalGradient(
+                                colors = listOf(color.copy(alpha = 0.95f), color.copy(alpha = 0.72f)),
+                                startY = top,
+                                endY = top + segmentHeight
+                            ),
                             topLeft = Offset(left, top),
                             size = Size(barWidth, segmentHeight),
                             cornerRadius = corner
                         )
+
+                        if (isTopSegment) {
+                            // 顶部胶囊帽微光晕
+                            drawCircle(
+                                color = color.copy(alpha = 0.30f),
+                                radius = barWidth * 0.55f,
+                                center = Offset(left + barWidth / 2f, top + (barWidth / 4f).coerceAtMost(segmentHeight / 2f))
+                            )
+                        }
                         bottom -= segmentHeight
                     }
 
@@ -752,22 +765,32 @@ private fun ModernTrendChart(
                         drawPath(
                             path = areaPath,
                             brush = Brush.verticalGradient(
-                                colors = listOf(color.copy(alpha = 0.28f), Color.Transparent),
+                                colors = listOf(color.copy(alpha = 0.32f), color.copy(alpha = 0.08f), Color.Transparent),
                                 startY = 0f,
                                 endY = size.height
                             )
                         )
                     }
 
+                    // 曲线发光底层
+                    drawPath(
+                        path = path,
+                        color = color.copy(alpha = 0.22f),
+                        style = Stroke(width = 6.dp.toPx(), cap = StrokeCap.Round)
+                    )
+
+                    // 曲线主线条
                     drawPath(
                         path = path,
                         color = color,
                         style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
                     )
 
+                    // 三层高亮光晕数据点
                     points.forEach { point ->
-                        drawCircle(color = haloColor, radius = 5.dp.toPx(), center = point)
-                        drawCircle(color = color, radius = 3.2.dp.toPx(), center = point)
+                        drawCircle(color = color.copy(alpha = 0.28f), radius = 7.dp.toPx(), center = point)
+                        drawCircle(color = haloColor, radius = 4.5.dp.toPx(), center = point)
+                        drawCircle(color = color, radius = 2.8.dp.toPx(), center = point)
                     }
                 }
 
@@ -950,6 +973,7 @@ private fun ModernModelStatsTable(
                                 ) {
                                     Text(
                                         text = row.modelName,
+                                        modifier = Modifier.weight(1f, fill = false),
                                         style = MaterialTheme.typography.bodyMedium.copy(
                                             fontFamily = FontFamily.SansSerif,
                                             fontWeight = FontWeight.Bold,
