@@ -967,21 +967,21 @@ private fun ModernModelStatsTable(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Row(
-                                    modifier = Modifier.weight(1f, fill = false),
+                                    modifier = Modifier
+                                        .weight(1f, fill = false)
+                                        .horizontalScroll(rememberScrollState()),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     Text(
                                         text = row.modelName,
-                                        modifier = Modifier.weight(1f, fill = false),
                                         style = MaterialTheme.typography.bodyMedium.copy(
                                             fontFamily = FontFamily.SansSerif,
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 14.5.sp
                                         ),
                                         color = content,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+                                        maxLines = 1
                                     )
                                     if (row.provider.isNotBlank() && row.provider != "unknown") {
                                         Box(

@@ -1262,13 +1262,29 @@ fun highlightSyntax(code: String, language: String, isDark: Boolean): AnnotatedS
 }
 
 /**
+ * 清理因模型非标颜色标签不兼容或格式错乱而在句首留下的孤立星号 '*'
+ */
+fun cleanLeadingStarArtifacts(raw: String): String {
+    var s = raw
+    // 1. 清理开头紧随 <font>、<span>、{# 颜色标签出现的孤立星号，例如 "*<font", "* <font", "*<span", "* {#", etc.
+    s = s.replace(Regex("""^\s*\*\s*(?=<font|<span|\{#)""", RegexOption.IGNORE_CASE), "")
+    // 2. 清理 <font ...>* 或 <span ...>* 紧随开标签后的孤立星号
+    s = s.replace(Regex("""(<font[^>]*>)\s*\*""", RegexOption.IGNORE_CASE), "$1")
+    s = s.replace(Regex("""(<span[^>]*>)\s*\*""", RegexOption.IGNORE_CASE), "$1")
+    // 3. 清理句首伴随字体解析不兼容留下的孤立单星号（后跟汉字、英文单词或常见标点，但排除无序列表项 "* "）
+    s = s.replace(Regex("""^\s*\*(?!\*|\s)"""), "")
+    return s
+}
+
+/**
  * 行内 Markdown 与多格式富文本解析
  */
 fun parseInlineMarkdown(
     text: String,
     isReferenceItem: Boolean = false
 ): AnnotatedString {
-    val decoded = decodeHtmlEntities(text)
+    val sanitized = cleanLeadingStarArtifacts(text)
+    val decoded = decodeHtmlEntities(sanitized)
 
     return buildAnnotatedString {
         var i = 0
@@ -1299,7 +1315,7 @@ fun parseInlineMarkdown(
                     val parsedColor = parseHtmlTagColor(openTag) ?: Color(0xFF2B7DE0)
                     if (openEnd != -1) {
                         if (closeStart != -1) {
-                            val innerContent = decoded.substring(openEnd + 1, closeStart)
+                            val innerContent = cleanLeadingStarArtifacts(decoded.substring(openEnd + 1, closeStart))
                             withStyle(SpanStyle(color = parsedColor)) {
                                 append(parseInlineMarkdown(innerContent))
                             }
@@ -1310,7 +1326,7 @@ fun parseInlineMarkdown(
                             i = nextIdx
                         } else {
                             // 流式未闭合标签：对剩余文本应用颜色渲染
-                            val innerContent = decoded.substring(openEnd + 1)
+                            val innerContent = cleanLeadingStarArtifacts(decoded.substring(openEnd + 1))
                             withStyle(SpanStyle(color = parsedColor)) {
                                 append(parseInlineMarkdown(innerContent))
                             }
@@ -1340,7 +1356,7 @@ fun parseInlineMarkdown(
                     val parsedColor = parseHtmlTagColor(openTag) ?: Color(0xFF2B7DE0)
                     if (openEnd != -1) {
                         if (closeStart != -1) {
-                            val innerContent = decoded.substring(openEnd + 1, closeStart)
+                            val innerContent = cleanLeadingStarArtifacts(decoded.substring(openEnd + 1, closeStart))
                             withStyle(SpanStyle(color = parsedColor)) {
                                 append(parseInlineMarkdown(innerContent))
                             }
@@ -1350,7 +1366,7 @@ fun parseInlineMarkdown(
                             }
                             i = nextIdx
                         } else {
-                            val innerContent = decoded.substring(openEnd + 1)
+                            val innerContent = cleanLeadingStarArtifacts(decoded.substring(openEnd + 1))
                             withStyle(SpanStyle(color = parsedColor)) {
                                 append(parseInlineMarkdown(innerContent))
                             }
@@ -1646,8 +1662,13 @@ fun parseInlineMarkdown(
                         }
                         i = end + 1
                     } else {
-                        append(decoded[i])
-                        i++
+                        // 孤立未配对星号：若出现在开头或句首附近，忽略渲染，防止残留显示
+                        if (decoded.startsWith("*", i) && (i == 0 || i < 3)) {
+                            i++
+                        } else {
+                            append(decoded[i])
+                            i++
+                        }
                     }
                 }
 

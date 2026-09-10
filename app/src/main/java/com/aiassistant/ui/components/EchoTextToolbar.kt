@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.rememberCoroutineScope
@@ -160,6 +161,28 @@ class EchoTextToolbar : TextToolbar {
     }
 }
 
+class InAppSelectionClipboardManager(
+    private val delegate: androidx.compose.ui.platform.ClipboardManager
+) : androidx.compose.ui.platform.ClipboardManager {
+    var lastCapturedText: AnnotatedString? = null
+    var isQuoteCapturing: Boolean = false
+
+    override fun getText(): AnnotatedString? {
+        return lastCapturedText ?: delegate.getText()
+    }
+
+    override fun setText(annotatedString: AnnotatedString) {
+        lastCapturedText = annotatedString
+        if (!isQuoteCapturing) {
+            delegate.setText(annotatedString)
+        }
+    }
+
+    override fun hasText(): Boolean {
+        return lastCapturedText != null || delegate.hasText()
+    }
+}
+
 @Composable
 fun EchoTextToolbarHost(
     toolbar: EchoTextToolbar,
@@ -167,6 +190,7 @@ fun EchoTextToolbarHost(
 ) {
     val menu = toolbar.activeMenu ?: return
     val clipboardManager = LocalClipboardManager.current
+    val inAppClipboard = clipboardManager as? InAppSelectionClipboardManager
     val density = LocalDensity.current
     val glass = echoGlassPalette()
     val coroutineScope = rememberCoroutineScope()
@@ -248,20 +272,31 @@ fun EchoTextToolbarHost(
                         icon = Icons.Default.FormatQuote,
                         text = "引用",
                         onClick = {
-                            menu.onCopy?.invoke()
-                            coroutineScope.launch {
-                                var retries = 8
-                                var text = ""
-                                while (retries > 0) {
-                                    delay(35)
-                                    text = clipboardManager.getText()?.text.orEmpty()
-                                    if (text.isNotBlank()) break
-                                    retries--
-                                }
-                                if (text.isNotBlank()) {
-                                    onQuoteSelected(text)
+                            if (inAppClipboard != null) {
+                                inAppClipboard.isQuoteCapturing = true
+                                menu.onCopy?.invoke()
+                                inAppClipboard.isQuoteCapturing = false
+                                val captured = inAppClipboard.lastCapturedText?.text.orEmpty()
+                                if (captured.isNotBlank()) {
+                                    onQuoteSelected(captured)
                                 }
                                 toolbar.hide()
+                            } else {
+                                menu.onCopy?.invoke()
+                                coroutineScope.launch {
+                                    var retries = 8
+                                    var text = ""
+                                    while (retries > 0) {
+                                        delay(35)
+                                        text = clipboardManager.getText()?.text.orEmpty()
+                                        if (text.isNotBlank()) break
+                                        retries--
+                                    }
+                                    if (text.isNotBlank()) {
+                                        onQuoteSelected(text)
+                                    }
+                                    toolbar.hide()
+                                }
                             }
                         }
                     )

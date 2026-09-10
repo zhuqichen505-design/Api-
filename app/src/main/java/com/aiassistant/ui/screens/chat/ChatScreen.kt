@@ -197,9 +197,6 @@ fun ChatScreen(
     var autoFollowOutput by remember { mutableStateOf(true) }
     var isBarsHidden by remember { mutableStateOf(false) }
 
-    BackHandler(enabled = isBarsHidden) {
-        isBarsHidden = false
-    }
     var lastStreamScrollAt by remember { mutableLongStateOf(0L) }
     val variantSelections = remember { mutableStateMapOf<String, Int>() }
     val variantSelectionSnapshot = variantSelections.toMap()
@@ -217,10 +214,16 @@ fun ChatScreen(
     }
 
     BackHandler {
-        if (showThinkingPopover) {
-            showThinkingPopover = false
-        } else {
-            viewModel.leaveConversation(onNavigateBack)
+        when {
+            isBarsHidden -> {
+                isBarsHidden = false
+            }
+            showThinkingPopover -> {
+                showThinkingPopover = false
+            }
+            else -> {
+                viewModel.leaveConversation(onNavigateBack)
+            }
         }
     }
 
@@ -315,11 +318,11 @@ fun ChatScreen(
         if (messages.size <= prev) {
             return@LaunchedEffect
         }
-        if (isGenerating && autoFollowOutput && !preserveScrollForBranchGeneration && !listState.isScrollInProgress) {
+        if (autoFollowOutput && !preserveScrollForBranchGeneration && !listState.isScrollInProgress) {
             val totalCount = listState.layoutInfo.totalItemsCount
             if (totalCount > 0) {
                 try {
-                    listState.animateScrollToItem((totalCount - 1).coerceAtLeast(0))
+                    listState.scrollToItem((totalCount - 1).coerceAtLeast(0), scrollOffset = 100000)
                 } catch (_: Exception) {}
             }
         }
@@ -350,6 +353,16 @@ fun ChatScreen(
     LaunchedEffect(isGenerating) {
         if (!isGenerating) {
             streamingBranchGroupId = null
+            if (autoFollowOutput && !preserveScrollForBranchGeneration && !listState.isScrollInProgress) {
+                kotlinx.coroutines.delay(40)
+                val totalCount = listState.layoutInfo.totalItemsCount
+                if (totalCount > 0) {
+                    val targetIndex = (totalCount - 1).coerceAtLeast(0)
+                    try {
+                        listState.scrollToItem(targetIndex, scrollOffset = 100000)
+                    } catch (_: Exception) {}
+                }
+            }
         }
     }
 
@@ -358,8 +371,15 @@ fun ChatScreen(
         pendingEditSource = null
     }
 
+    val systemClipboard = LocalClipboardManager.current
+    val inAppClipboard = remember(systemClipboard) {
+        com.aiassistant.ui.components.InAppSelectionClipboardManager(systemClipboard)
+    }
     val textToolbar = remember { EchoTextToolbar() }
-    CompositionLocalProvider(LocalTextToolbar provides textToolbar) {
+    CompositionLocalProvider(
+        LocalTextToolbar provides textToolbar,
+        LocalClipboardManager provides inAppClipboard
+    ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -662,8 +682,8 @@ fun ChatScreen(
                                     },
                                     onQuote = if (currentResponse.isNotBlank()) {
                                         {
-                                            val quoteBlock = currentResponse.lines().joinToString("\n") { line -> "> $line" } + "\n\n"
-                                            inputText = quoteBlock + inputText
+                                            val quoteBlock = currentResponse.lines().joinToString("\n") { line -> "> $line" } + "\n针对以上内容：\n"
+                                            inputText = if (inputText.isBlank()) quoteBlock else "$inputText\n\n$quoteBlock"
                                         }
                                     } else null
                                 )
@@ -708,8 +728,8 @@ fun ChatScreen(
                                     },
                                     onQuote = if (message.content.isNotBlank()) {
                                         {
-                                            val quoteBlock = message.content.lines().joinToString("\n") { line -> "> $line" } + "\n\n"
-                                            inputText = quoteBlock + inputText
+                                            val quoteBlock = message.content.lines().joinToString("\n") { line -> "> $line" } + "\n针对以上内容：\n"
+                                            inputText = if (inputText.isBlank()) quoteBlock else "$inputText\n\n$quoteBlock"
                                         }
                                     } else null,
                                     onRegenerate = if (message.role == "assistant" && message == messages.lastOrNull { it.role == "assistant" }) {
@@ -833,8 +853,8 @@ fun ChatScreen(
                     if (hidden) {
                         val topPulseTransition = rememberInfiniteTransition(label = "topPulse")
                         val topPulseScale by topPulseTransition.animateFloat(
-                            initialValue = 1f,
-                            targetValue = 1.26f,
+                            initialValue = 1.0f,
+                            targetValue = 1.15f,
                             animationSpec = infiniteRepeatable(
                                 animation = tween(1200, easing = FastOutSlowInEasing),
                                 repeatMode = RepeatMode.Reverse
@@ -851,15 +871,17 @@ fun ChatScreen(
                             label = "topPulseAlpha"
                         )
                         Box(
-                            modifier = Modifier.padding(start = 2.dp, top = 2.dp),
+                            modifier = Modifier
+                                .padding(start = 2.dp, top = 2.dp)
+                                .size(34.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(52.dp)
+                                    .fillMaxSize()
                                     .graphicsLayer(scaleX = topPulseScale, scaleY = topPulseScale)
                                     .border(
-                                        2.dp,
+                                        1.2.dp,
                                         MaterialTheme.colorScheme.primary.copy(alpha = topPulseAlpha),
                                         CircleShape
                                     )
@@ -870,13 +892,13 @@ fun ChatScreen(
                                 color = glass.control,
                                 contentColor = MaterialTheme.colorScheme.primary,
                                 border = BorderStroke(1.2.dp, glass.outlineSelected),
-                                modifier = Modifier.size(44.dp)
+                                modifier = Modifier.size(34.dp)
                             ) {
                                 Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                                     Icon(
                                         Icons.AutoMirrored.Filled.ArrowBack,
                                         contentDescription = "取消隐藏并恢复顶部栏",
-                                        modifier = Modifier.size(22.dp)
+                                        modifier = Modifier.size(18.dp)
                                     )
                                 }
                             }
@@ -1110,10 +1132,11 @@ fun ChatScreen(
 
             EchoTextToolbarHost(toolbar = textToolbar) { quotedText ->
                 val formattedQuote = quotedText.trim().lines().joinToString("\n") { "> $it" }
+                val targetPrompt = "\n针对以上内容：\n"
                 inputText = if (inputText.isBlank()) {
-                    "$formattedQuote\n\n"
+                    "$formattedQuote$targetPrompt"
                 } else {
-                    "$inputText\n\n$formattedQuote\n\n"
+                    "$inputText\n\n$formattedQuote$targetPrompt"
                 }
             }
         }
@@ -3085,8 +3108,8 @@ fun ChatInputBar(
                 ) {
                     val bottomPulseTransition = rememberInfiniteTransition(label = "bottomPulse")
                     val bottomPulseScale by bottomPulseTransition.animateFloat(
-                        initialValue = 1f,
-                        targetValue = 1.26f,
+                        initialValue = 1.0f,
+                        targetValue = 1.15f,
                         animationSpec = infiniteRepeatable(
                             animation = tween(1200, easing = FastOutSlowInEasing),
                             repeatMode = RepeatMode.Reverse
@@ -3103,29 +3126,34 @@ fun ChatInputBar(
                         label = "bottomPulseAlpha"
                     )
                     Box(
-                        modifier = Modifier
-                            .size(52.dp)
-                            .graphicsLayer(scaleX = bottomPulseScale, scaleY = bottomPulseScale)
-                            .border(
-                                2.dp,
-                                MaterialTheme.colorScheme.primary.copy(alpha = bottomPulseAlpha),
-                                CircleShape
-                            )
-                    )
-                    Surface(
-                        onClick = { onBarsHiddenChange(false) },
-                        shape = CircleShape,
-                        color = if (isGenerating) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-                        contentColor = Color.White,
-                        border = BorderStroke(1.2.dp, glass.outlineSelected),
-                        modifier = Modifier.size(44.dp)
+                        modifier = Modifier.size(34.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                            Icon(
-                                imageVector = if (isGenerating) Icons.Default.Stop else Icons.Default.ArrowUpward,
-                                contentDescription = "取消隐藏并恢复输入栏",
-                                modifier = Modifier.size(22.dp)
-                            )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer(scaleX = bottomPulseScale, scaleY = bottomPulseScale)
+                                .border(
+                                    1.2.dp,
+                                    MaterialTheme.colorScheme.primary.copy(alpha = bottomPulseAlpha),
+                                    CircleShape
+                                )
+                        )
+                        Surface(
+                            onClick = { onBarsHiddenChange(false) },
+                            shape = CircleShape,
+                            color = if (isGenerating) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                            contentColor = Color.White,
+                            border = BorderStroke(1.2.dp, glass.outlineSelected),
+                            modifier = Modifier.size(34.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                                Icon(
+                                    imageVector = if (isGenerating) Icons.Default.Stop else Icons.Default.ArrowUpward,
+                                    contentDescription = "取消隐藏并恢复输入栏",
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -3212,7 +3240,7 @@ fun ChatInputBar(
                             .fillMaxWidth()
                             .padding(top = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         LazyRow(
                             modifier = Modifier.weight(1f),
@@ -3329,23 +3357,19 @@ fun ChatInputBar(
                         }
                     }
 
-                    val softButtonColors = IconButtonDefaults.filledTonalIconButtonColors(
-                        containerColor = glass.control,
-                        contentColor = MaterialTheme.colorScheme.primary,
-                        disabledContainerColor = glass.control.copy(alpha = 0.52f),
-                        disabledContentColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f)
-                    )
-
                     Box {
-                        FilledTonalIconButton(
-                            onClick = { showToolMenu = true },
-                            enabled = !isProcessingAttachments,
+                        Surface(
+                            shape = CircleShape,
+                            color = glass.control,
+                            contentColor = MaterialTheme.colorScheme.primary,
+                            border = BorderStroke(1.2.dp, glass.outlineSelected),
                             modifier = Modifier
-                                .size(40.dp)
-                                .border(1.2.dp, glass.outlineSelected, CircleShape),
-                            colors = softButtonColors
+                                .size(34.dp)
+                                .echoShapeClick(CircleShape, enabled = !isProcessingAttachments, onClick = { showToolMenu = true })
                         ) {
-                            Icon(Icons.Default.Add, contentDescription = "添加内容", modifier = Modifier.size(20.dp))
+                            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                                Icon(Icons.Default.Add, contentDescription = "添加内容", modifier = Modifier.size(18.dp))
+                            }
                         }
                         EchoGlassDropdownMenu(
                             expanded = showToolMenu,
@@ -3397,30 +3421,37 @@ fun ChatInputBar(
                     }
 
                     if (isGenerating) {
-                        FilledIconButton(
-                            onClick = onStopGeneration,
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.error,
+                            contentColor = MaterialTheme.colorScheme.onError,
+                            border = BorderStroke(1.2.dp, glass.outlineSelected),
                             modifier = Modifier
-                                .size(40.dp)
-                                .border(1.2.dp, glass.outlineSelected, CircleShape),
-                            colors = IconButtonDefaults.filledIconButtonColors(
-                                containerColor = MaterialTheme.colorScheme.error
-                            )
+                                .size(34.dp)
+                                .echoShapeClick(CircleShape, onClick = onStopGeneration)
                         ) {
-                            Icon(Icons.Default.Stop, contentDescription = "停止")
+                            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                                Icon(Icons.Default.Stop, contentDescription = "停止", modifier = Modifier.size(18.dp))
+                            }
                         }
                     } else {
-                        FilledIconButton(
-                            onClick = onSend,
-                            enabled = !isProcessingAttachments && (inputText.isNotBlank() || attachments.isNotEmpty()),
+                        val canSend = !isProcessingAttachments && (inputText.isNotBlank() || attachments.isNotEmpty())
+                        Surface(
+                            shape = CircleShape,
+                            color = if (canSend) MaterialTheme.colorScheme.primary else glass.control.copy(alpha = 0.52f),
+                            contentColor = if (canSend) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary.copy(alpha = 0.38f),
+                            border = BorderStroke(1.2.dp, if (canSend) glass.outlineSelected else glass.outline),
                             modifier = Modifier
-                                .size(40.dp)
-                                .border(1.2.dp, glass.outlineSelected, CircleShape),
-                            colors = IconButtonDefaults.filledIconButtonColors(
-                                disabledContainerColor = glass.control.copy(alpha = 0.52f),
-                                disabledContentColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f)
-                            )
+                                .size(34.dp)
+                                .echoShapeClick(CircleShape, enabled = canSend, onClick = onSend)
                         ) {
-                            Icon(Icons.Default.ArrowUpward, contentDescription = "发送")
+                            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                                Icon(
+                                    imageVector = Icons.Default.ArrowUpward,
+                                    contentDescription = "发送",
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
                         }
                     }
                 }

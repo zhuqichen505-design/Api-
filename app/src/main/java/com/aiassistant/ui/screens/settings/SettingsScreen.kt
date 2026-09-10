@@ -13,6 +13,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
@@ -104,6 +105,19 @@ private val CurrentFeatureHighlights = listOf(
 )
 
 internal val CurrentVersionUserUpdates = listOf(
+    "输入框(+)添加与发送按键直径统一为34dp（与智能搜索高度一致），间距加大至10dp，高亮边框精准贴合物理边缘",
+    "输入框隐藏状态外圈呼吸脉冲光晕优化：缩至最小时与按键边缘严密重合，修复发送键脉冲错位问题",
+    "输入框隐藏后支持系统级返回手势（侧滑返回）无缝退出隐藏状态并恢复面板",
+    "首页壁纸全面穿透覆盖手机系统状态栏区域，带来真正全沉浸式视觉体验",
+    "设置界面顶部悬浮栏完全参照对话页重构：透明毛玻璃质感，移除外圈背景填充，列表可从后方平滑穿透滚动",
+    "引用功能内存级拦截：彻底杜绝系统剪切板访问弹窗提示，自动拼接'针对以上内容：'提问前缀",
+    "流式输出自动滚动体验重构：生成结束平滑锚定于消息底部，根除滚动跳回回答起点的闪烁回弹问题",
+    "全局排版优化：统计图表与模型配置等空间受限区域全面支持水平横向滑动浏览完整文本",
+    "Markdown 渲染增强：深度清理模型首句前因颜色标签不兼容产生的孤立星号(*)伪影",
+    "API模型配置支持列表展开/折叠，上下文窗口支持自定义数字输入与预设快速选择双轨模式"
+)
+
+internal val V200UserUpdates = listOf(
     "顶部控制栏与底部输入框边缘渐变高亮左侧加深，质感层次显著增强",
     "设置页面控制栏完全统一为对话页悬浮胶囊工具栏，风格一致性达到 100%",
     "输入栏支持沿手柄向下拖拽完全收缩至发送键，搭配呼吸脉冲光环与系统返回键同步退出",
@@ -305,108 +319,121 @@ fun SettingsScreen(
             fallbackSurface = readableBackdrops.top
         )
 
-        Scaffold(
-            containerColor = Color.Transparent,
-            topBar = {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .statusBarsPadding()
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                ) {
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .echoHazePanel(
-                                hazeState = hazeState,
-                                shape = toolbarShape,
-                                tint = toolbarTint,
-                                blurRadius = 16.dp,
-                                highlightAlpha = 0.025f
-                            ),
-                        shape = toolbarShape,
-                        color = Color.Transparent,
-                        contentColor = toolbarContentColor,
-                        border = BorderStroke(1.dp, glass.outline),
-                        tonalElevation = 0.dp,
-                        shadowElevation = 0.dp
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(56.dp)
-                                .padding(horizontal = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            IconButton(onClick = { executeBack() }) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                            }
-                            Text(
-                                text = when (selectedSection) {
-                                    null -> "设置"
-                                    "api_config" -> "API配置"
-                                    "appearance" -> "界面与外观"
-                                    "model_features" -> "模型辅助与思考"
-                                    "prompts_memory" -> "提示词与记忆"
-                                    "personalization" -> "界面与外观"
-                                    "web_search" -> "联网搜索与智能工具箱"
-                                    "hidden_conversations" -> "其他对话"
-                                    "backup" -> "数据备份"
-                                    "about" -> "关于"
-                                    else -> "设置"
-                                },
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .padding(horizontal = 8.dp)
-                            )
-                        }
-                    }
+        val topBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 56.dp + 12.dp
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Transparent)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = topBarHeight)
+            ) {
+                when (selectedSection) {
+                    null -> SettingsMenu(
+                        hazeState = hazeState,
+                        modifier = Modifier.fillMaxSize(),
+                        onSectionSelected = { selectedSection = it }
+                    )
+                    "api_config" -> ApiConfigTab(hazeState = hazeState, modifier = Modifier.fillMaxSize())
+                    "appearance" -> AppearanceTab(
+                        hazeState = hazeState,
+                        modifier = Modifier.fillMaxSize(),
+                        themeMode = themeMode,
+                        onThemeModeChange = onThemeModeChange
+                    )
+                    "model_features" -> ModelFeaturesTab(
+                        hazeState = hazeState,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                    "prompts_memory" -> PromptsMemoryTab(
+                        hazeState = hazeState,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                    "personalization" -> AppearanceTab(
+                        hazeState = hazeState,
+                        modifier = Modifier.fillMaxSize(),
+                        themeMode = themeMode,
+                        onThemeModeChange = onThemeModeChange
+                    )
+                    "web_search" -> WebSearchTab(
+                        hazeState = hazeState,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                    "hidden_conversations" -> HiddenConversationsTab(
+                        hazeState = hazeState,
+                        modifier = Modifier.fillMaxSize(),
+                        onNavigateToChat = onNavigateToChat
+                    )
+                    "backup" -> BackupTab(
+                        hazeState = hazeState,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                    "about" -> AboutTab(hazeState = hazeState, modifier = Modifier.fillMaxSize())
                 }
             }
-        ) { paddingValues ->
-            when (selectedSection) {
-                null -> SettingsMenu(
-                    hazeState = hazeState,
-                    modifier = Modifier.padding(paddingValues),
-                    onSectionSelected = { selectedSection = it }
-                )
-                "api_config" -> ApiConfigTab(hazeState = hazeState, modifier = Modifier.padding(paddingValues))
-                "appearance" -> AppearanceTab(
-                    hazeState = hazeState,
-                    modifier = Modifier.padding(paddingValues),
-                    themeMode = themeMode,
-                    onThemeModeChange = onThemeModeChange
-                )
-                "model_features" -> ModelFeaturesTab(
-                    hazeState = hazeState,
-                    modifier = Modifier.padding(paddingValues)
-                )
-                "prompts_memory" -> PromptsMemoryTab(
-                    hazeState = hazeState,
-                    modifier = Modifier.padding(paddingValues)
-                )
-                "personalization" -> AppearanceTab(
-                    hazeState = hazeState,
-                    modifier = Modifier.padding(paddingValues),
-                    themeMode = themeMode,
-                    onThemeModeChange = onThemeModeChange
-                )
-                "web_search" -> WebSearchTab(
-                    hazeState = hazeState,
-                    modifier = Modifier.padding(paddingValues)
-                )
-                "hidden_conversations" -> HiddenConversationsTab(
-                    hazeState = hazeState,
-                    modifier = Modifier.padding(paddingValues),
-                    onNavigateToChat = onNavigateToChat
-                )
-                "backup" -> BackupTab(
-                    hazeState = hazeState,
-                    modifier = Modifier.padding(paddingValues)
-                )
-                "about" -> AboutTab(hazeState = hazeState, modifier = Modifier.padding(paddingValues))
+
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .echoHazePanel(
+                            hazeState = hazeState,
+                            shape = toolbarShape,
+                            tint = toolbarTint,
+                            blurRadius = 16.dp,
+                            highlightAlpha = 0.025f
+                        ),
+                    shape = toolbarShape,
+                    color = Color.Transparent,
+                    contentColor = toolbarContentColor,
+                    border = BorderStroke(1.dp, glass.outline),
+                    tonalElevation = 0.dp,
+                    shadowElevation = 0.dp
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp)
+                            .padding(horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(onClick = { executeBack() }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        }
+                        Text(
+                            text = when (selectedSection) {
+                                null -> "设置"
+                                "api_config" -> "API配置"
+                                "appearance" -> "界面与外观"
+                                "model_features" -> "模型辅助与思考"
+                                "prompts_memory" -> "提示词与记忆"
+                                "personalization" -> "界面与外观"
+                                "web_search" -> "联网搜索与智能工具箱"
+                                "hidden_conversations" -> "其他对话"
+                                "backup" -> "数据备份"
+                                "about" -> "关于"
+                                else -> "设置"
+                            },
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .weight(1f)
+                                .horizontalScroll(rememberScrollState())
+                                .padding(horizontal = 8.dp)
+                        )
+                    }
+                }
             }
         }
     }
@@ -810,10 +837,14 @@ fun ApiConfigCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.horizontalScroll(rememberScrollState())
+                    ) {
                         Text(
                             text = config.name,
-                            style = MaterialTheme.typography.titleMedium
+                            style = MaterialTheme.typography.titleMedium,
+                            maxLines = 1
                         )
                     if (config.isDefault) {
                         Spacer(modifier = Modifier.width(8.dp))
@@ -837,7 +868,9 @@ fun ApiConfigCard(
                     Text(
                         text = "${config.provider} · ${config.modelName}",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        modifier = Modifier.horizontalScroll(rememberScrollState())
                     )
                     Text(
                         text = "API类型: ${config.apiType.uppercase()}",
@@ -5396,6 +5429,7 @@ fun ApiConfigDialog(
     var keyModelSearchQuery by remember { mutableStateOf("") }
     var customModelInput by remember { mutableStateOf("") }
     var modelSearchQuery by remember { mutableStateOf("") }
+    var isConfiguredModelsExpanded by remember { mutableStateOf(true) }
     val filteredModels = remember(availableModels, modelSearchQuery) {
         if (modelSearchQuery.isBlank()) availableModels
         else availableModels.filter { it.contains(modelSearchQuery.trim(), ignoreCase = true) }
@@ -5703,7 +5737,7 @@ fun ApiConfigDialog(
                     }
                 }
 
-                // 区域 1：已添加的模型
+                // 区域 1：已配置模型 (支持收起/展开与精细化自定义)
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(
@@ -5711,7 +5745,10 @@ fun ApiConfigDialog(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.clickable { isConfiguredModelsExpanded = !isConfiguredModelsExpanded }
+                            ) {
                                 Icon(
                                     Icons.Default.Tune,
                                     contentDescription = null,
@@ -5720,12 +5757,23 @@ fun ApiConfigDialog(
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "已添加的模型 (${availableModels.size})",
+                                    text = "已配置模型 (${availableModels.size})",
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.Bold
                                 )
+                                IconButton(
+                                    onClick = { isConfiguredModelsExpanded = !isConfiguredModelsExpanded },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (isConfiguredModelsExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                        contentDescription = if (isConfiguredModelsExpanded) "收起已配置模型" else "展开已配置模型",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
                             }
-                            if (availableModels.isNotEmpty()) {
+                            if (availableModels.isNotEmpty() && isConfiguredModelsExpanded) {
                                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                     TextButton(
                                         onClick = { enabledModelNames = availableModels.toSet() },
@@ -5784,65 +5832,101 @@ fun ApiConfigDialog(
                             }
                         }
 
-                        if (availableModels.isEmpty()) {
-                            Surface(
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-                            ) {
-                                Text(
-                                    text = "暂无已添加的模型。请点击下方“从Key中获取模型列表”或手动输入添加。",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(12.dp)
-                                )
-                            }
-                        } else {
-                            if (availableModels.size > 5) {
-                                OutlinedTextField(
-                                    value = modelSearchQuery,
-                                    onValueChange = { modelSearchQuery = it },
-                                    placeholder = { Text("搜索已添加模型...", style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp)) },
-                                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                                    trailingIcon = if (modelSearchQuery.isNotBlank()) {
-                                        {
-                                            IconButton(onClick = { modelSearchQuery = "" }, modifier = Modifier.size(24.dp)) {
-                                                Icon(Icons.Default.Clear, contentDescription = "清除", modifier = Modifier.size(14.dp))
-                                            }
-                                        }
-                                    } else null,
-                                    singleLine = true,
-                                    shape = RoundedCornerShape(10.dp),
-                                    textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 12.5.sp),
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                            }
-
-                            filteredModels.forEach { model ->
-                                ModelCustomSettingCard(
-                                    model = model,
-                                    checked = enabledModelNames.contains(model),
-                                    selected = modelName == model,
-                                    capability = modelCapabilities[model] ?: "auto",
-                                    customSettings = modelCustomSettings[model],
-                                    onCheckedChange = { isChecked ->
-                                        enabledModelNames = if (isChecked) enabledModelNames + model else enabledModelNames - model
-                                    },
-                                    onSelectAsDefault = {
-                                        modelName = model
-                                        enabledModelNames = enabledModelNames + model
-                                    },
-                                    onRemove = {
-                                        availableModels = availableModels - model
-                                        enabledModelNames = enabledModelNames - model
-                                        if (modelName == model) {
-                                            modelName = availableModels.firstOrNull() ?: ""
-                                        }
-                                    },
-                                    onCustomSettingsChange = { newSettings ->
-                                        modelCustomSettings = modelCustomSettings + (model to newSettings)
+                        AnimatedVisibility(
+                            visible = isConfiguredModelsExpanded,
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically()
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                if (availableModels.isEmpty()) {
+                                    Surface(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                                    ) {
+                                        Text(
+                                            text = "暂无已配置的模型。请点击下方“从Key中获取模型列表”或手动输入添加。",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.padding(12.dp)
+                                        )
                                     }
-                                )
+                                } else {
+                                    if (availableModels.size > 5) {
+                                        OutlinedTextField(
+                                            value = modelSearchQuery,
+                                            onValueChange = { modelSearchQuery = it },
+                                            placeholder = { Text("搜索已配置模型...", style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp)) },
+                                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                            trailingIcon = if (modelSearchQuery.isNotBlank()) {
+                                                {
+                                                    IconButton(onClick = { modelSearchQuery = "" }, modifier = Modifier.size(24.dp)) {
+                                                        Icon(Icons.Default.Clear, contentDescription = "清除", modifier = Modifier.size(14.dp))
+                                                    }
+                                                }
+                                            } else null,
+                                            singleLine = true,
+                                            shape = RoundedCornerShape(10.dp),
+                                            textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 12.5.sp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                    }
+
+                                    filteredModels.forEach { model ->
+                                        ModelCustomSettingCard(
+                                            model = model,
+                                            checked = enabledModelNames.contains(model),
+                                            selected = modelName == model,
+                                            capability = modelCapabilities[model] ?: "auto",
+                                            customSettings = modelCustomSettings[model],
+                                            onCheckedChange = { isChecked ->
+                                                enabledModelNames = if (isChecked) enabledModelNames + model else enabledModelNames - model
+                                            },
+                                            onSelectAsDefault = {
+                                                modelName = model
+                                                enabledModelNames = enabledModelNames + model
+                                            },
+                                            onRemove = {
+                                                availableModels = availableModels - model
+                                                enabledModelNames = enabledModelNames - model
+                                                if (modelName == model) {
+                                                    modelName = availableModels.firstOrNull() ?: ""
+                                                }
+                                            },
+                                            onCustomSettingsChange = { newSettings ->
+                                                modelCustomSettings = modelCustomSettings + (model to newSettings)
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        if (!isConfiguredModelsExpanded && availableModels.isNotEmpty()) {
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { isConfiguredModelsExpanded = true },
+                                shape = RoundedCornerShape(10.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.22f),
+                                border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = "已折叠 (${availableModels.size} 个模型，已勾选 ${enabledModelNames.size} 个)，点击展开",
+                                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Icon(
+                                        Icons.Default.ExpandMore,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
                             }
                         }
                     }
@@ -6291,8 +6375,8 @@ private fun ModelCustomSettingCard(
                         color = MaterialTheme.colorScheme.primary
                     )
 
-                    // 上下文大小配置
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    // 上下文大小配置 (支持快捷预设标签与自定义精确数值输入)
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("上下文大小 (Tokens):", style = MaterialTheme.typography.labelSmall)
                         FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -6303,7 +6387,8 @@ private fun ModelCustomSettingCard(
                                 64 * 1024 to "64K",
                                 128 * 1024 to "128K",
                                 200 * 1024 to "200K",
-                                1024 * 1024 to "1M"
+                                1024 * 1024 to "1M",
+                                2048 * 1024 to "2M"
                             ).forEach { (tokens, label) ->
                                 val isSelected = currentSettings.contextWindowTokens == tokens
                                 FilterChip(
@@ -6315,6 +6400,54 @@ private fun ModelCustomSettingCard(
                                     colors = echoFilterChipColors(),
                                     border = echoFilterChipBorder(isSelected)
                                 )
+                            }
+                        }
+
+                        // 自定义上下文大小精确输入
+                        var customTokensInput by remember(currentSettings.contextWindowTokens) {
+                            val cur = currentSettings.contextWindowTokens
+                            mutableStateOf(if (cur != null && cur > 0) cur.toString() else "")
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = customTokensInput,
+                                onValueChange = { newVal ->
+                                    val digits = newVal.filter { it.isDigit() }
+                                    customTokensInput = digits
+                                    val parsed = digits.toIntOrNull()
+                                    if (parsed != null && parsed > 0) {
+                                        onCustomSettingsChange(currentSettings.copy(contextWindowTokens = parsed))
+                                    }
+                                },
+                                label = { Text("自定义 Tokens (如 8192, 131072, 262144)", style = MaterialTheme.typography.labelSmall) },
+                                placeholder = { Text("输入Token数量") },
+                                singleLine = true,
+                                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                                textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                                modifier = Modifier.weight(1f)
+                            )
+                            if (customTokensInput.isNotBlank()) {
+                                val curInt = customTokensInput.toIntOrNull()
+                                val displayK = if (curInt != null && curInt > 0) {
+                                    if (curInt >= 1_000_000) "${curInt / 1_000_000}M" else "${curInt / 1024}K"
+                                } else ""
+                                if (displayK.isNotBlank()) {
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f)
+                                    ) {
+                                        Text(
+                                            text = "约 $displayK",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
+                                        )
+                                    }
+                                }
                             }
                         }
                     }

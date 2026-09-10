@@ -5,7 +5,7 @@ import com.aiassistant.data.local.AppDatabase
 import com.aiassistant.domain.model.ModelCustomSettings
 import com.aiassistant.domain.model.SelectedModel
 import com.aiassistant.ui.screens.chat.TempChatSettings
-import com.aiassistant.ui.screens.settings.CurrentVersionUserUpdates
+import com.aiassistant.ui.screens.settings.V200UserUpdates
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -13,18 +13,18 @@ class V200FeaturesTest {
 
     @Test
     fun testV200CurrentVersionUserUpdatesCompleteness() {
-        assertTrue("V2.0.0 更新列表不得为空", CurrentVersionUserUpdates.isNotEmpty())
-        assertEquals(10, CurrentVersionUserUpdates.size)
-        assertTrue(CurrentVersionUserUpdates.any { it.contains("左侧加深") })
-        assertTrue(CurrentVersionUserUpdates.any { it.contains("设置页面控制栏完全统一") })
-        assertTrue(CurrentVersionUserUpdates.any { it.contains("收缩至发送键") })
-        assertTrue(CurrentVersionUserUpdates.any { it.contains("收缩至圆形返回键") })
-        assertTrue(CurrentVersionUserUpdates.any { it.contains("蓝色高亮微光包边") })
-        assertTrue(CurrentVersionUserUpdates.any { it.contains("引用") })
-        assertTrue(CurrentVersionUserUpdates.any { it.contains("隐藏会话") })
-        assertTrue(CurrentVersionUserUpdates.any { it.contains("使用统计图表全面重构") })
-        assertTrue(CurrentVersionUserUpdates.any { it.contains("专属会话记忆保存逻辑修复") })
-        assertTrue(CurrentVersionUserUpdates.any { it.contains("已添加") && it.contains("从Key读取") })
+        assertTrue("V2.0.0 更新列表不得为空", V200UserUpdates.isNotEmpty())
+        assertEquals(10, V200UserUpdates.size)
+        assertTrue(V200UserUpdates.any { it.contains("左侧加深") })
+        assertTrue(V200UserUpdates.any { it.contains("设置页面控制栏完全统一") })
+        assertTrue(V200UserUpdates.any { it.contains("收缩至发送键") })
+        assertTrue(V200UserUpdates.any { it.contains("收缩至圆形返回键") })
+        assertTrue(V200UserUpdates.any { it.contains("蓝色高亮微光包边") })
+        assertTrue(V200UserUpdates.any { it.contains("引用") })
+        assertTrue(V200UserUpdates.any { it.contains("隐藏会话") })
+        assertTrue(V200UserUpdates.any { it.contains("使用统计图表全面重构") })
+        assertTrue(V200UserUpdates.any { it.contains("专属会话记忆保存逻辑修复") })
+        assertTrue(V200UserUpdates.any { it.contains("已添加") && it.contains("从Key读取") })
     }
 
     @Test

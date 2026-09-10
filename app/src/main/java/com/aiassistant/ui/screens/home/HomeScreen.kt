@@ -187,12 +187,11 @@ fun HomeScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
                 .background(MaterialTheme.colorScheme.background)
         ) {
             Box(
                 modifier = Modifier
-                    .matchParentSize()
+                    .fillMaxSize()
                     .background(MaterialTheme.colorScheme.background)
                     .echoHazeSource(hazeState)
             ) {
@@ -205,7 +204,12 @@ fun HomeScreen(
                     )
                 }
             }
-            Column(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .padding(bottom = paddingValues.calculateBottomPadding())
+            ) {
                 HomeDashboardHeader(
                     hazeState = hazeState,
                     onNavigateToSettings = onNavigateToSettings,

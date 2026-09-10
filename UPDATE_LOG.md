@@ -1,5 +1,57 @@
 # Echo AI 助手更新日志 (Update Log)
 
+## [v2.0.1] - 2026-09-10
+
+### 1. 本次升级与 10 项用户需求 100% 彻底落实
+1. **输入框添加(+)按键与发送按键直径统一为 34dp 且间距加大至 10dp，高亮边框精准对齐（Req 1）**：
+   - 将输入框左侧添加按键（+）与右侧发送/停止按键直径统一设置为 `34.dp`，与“智能搜索”按键高度（`34.dp`）绝对一致；按键水平间距增加至 `10.dp`；
+   - 彻底修复按键高亮边框没有对齐物理边缘问题：采用同轴包裹 `Surface(shape = CircleShape, border = BorderStroke(1.2.dp, glass.outlineSelected))`，使蓝色微光边框与按键物理边缘 100% 贴合。
+2. **隐藏状态外圈呼吸脉冲光晕范围收敛与发送键光晕对齐修复（Req 2）**：
+   - 优化输入框隐藏后外圈呼吸脉冲光晕活动范围：动画缩放比例严格收敛在 `1.0f` ~ `1.15f`，光晕缩到最小时与按键原有物理边缘严格重合（`scale = 1.0f`）；
+   - 修复发送键外圈光晕错位问题：隐藏态发送键与呼吸光晕置于 `34.dp` 的同轴 `Box` 中居中对齐，根除偏离错位。
+3. **输入框隐藏状态系统级返回手势退出生效（Req 3）**：
+   - 增强系统级返回监听（`BackHandler`）：当输入框或顶部悬浮栏处于隐藏状态时，安卓系统侧滑返回手势优先拦截并退出隐藏状态，恢复展开输入框与顶部栏。
+4. **首页背景壁纸全面穿透覆盖手机系统状态栏区域（Req 4）**：
+   - 重构首页背景图与毛玻璃采样源（`HazeSource`）层级，移至全屏边缘，顶层内容列通过 `statusBarsPadding()` 安全避让，使壁纸无缝铺满状态栏顶端，实现完全沉浸式背景。
+5. **设置界面顶部悬浮栏完全参照对话页重构（Req 5）**：
+   - 彻底移除设置页原先顶部外圈的纯色背景填充，重构为与对话页完全一致的浮动毛玻璃胶囊（`Surface + echoHazePanel`），列表内容可平滑穿透滚动。
+6. **引用功能内存级拦截与针对性提问引导（Req 6）**：
+   - 彻底杜绝点击引用时触发系统剪切板访问通知（“正在访问剪切板”）：引入 `InAppSelectionClipboardManager` 在应用内存中直接捕获划选文字，不触碰系统剪切板；
+   - 划选文字点击「引用」后自动填充规范提问格式：`> $quote\n针对以上内容：\n`，便于直接针对选中内容对模型展开针对性提问。
+7. **流式响应吸附滚动与结束回弹闪烁彻底消除（Req 7）**：
+   - 修复流式生成完毕时视口回弹至回答起始处的现象：在 `LaunchedEffect(isGenerating)` 生成结束回调中保持当前最新项底部锚定（`scrollToItem(targetIndex, scrollOffset = 100000)`），平滑保持在当前回答底部，杜绝跳动闪烁。
+8. **全局排版空间受限区域全面支持水平横向滑动（Req 8）**：
+   - 针对使用统计页面模型名称、供应商徽章、设置页面模型展示标签等空间受限区域，赋予 `Modifier.horizontalScroll(rememberScrollState())`，超长文本可自由左右滑动完整浏览。
+9. **Markdown 渲染增强：深度清理模型首句星号(*)伪影（Req 9）**：
+   - 新增 `cleanLeadingStarArtifacts` 预处理逻辑，智能清理模型在首句因颜色标签（`<font>`, `<span>`, `{#`）不兼容解析或排版错乱遗留的孤立单星号 `*`，同时严格保留无序列表项 `* ` 与粗体 `**粗体**`。
+10. **API 配置已配置模型列表支持折叠/展开与自定义 Token 窗口（Req 10）**：
+    - API 配置页面「已配置模型」卡片支持点击折叠/展开，海量配置模型时界面紧凑清爽；
+    - 模型自定义上下文窗口在 32K~2M 快捷预设芯片基础上，新增数字输入框，支持自由输入任意数值（例如 131072、200000 等）。
+
+### 2. 自动化测试验证
+- 全量 139 项单元测试 100% 全部通过（退出码 0）；
+- 新增 `V201FeaturesTest` 专项覆盖：
+  - `testV201CurrentVersionUserUpdatesCompleteness`：10 项核心需求更新日志完备性验证；
+  - `testCleanLeadingStarArtifacts`：首句孤立星号与颜色标签清理、标准列表及粗体保护验证；
+  - `testQuotePromptFormat`：引用格式与提问引导验证；
+  - `testButtonDimensionAndHaloScaleConstraint`：按键尺寸 34dp、间距 10dp 与光晕最小缩放 1.0f 约束验证。
+
+### 3. 改动文件列表
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatScreen.kt`
+- `app/src/main/java/com/aiassistant/ui/components/EchoTextToolbar.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/home/HomeScreen.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/settings/SettingsScreen.kt`
+- `app/src/main/java/com/aiassistant/ui/components/MarkdownText.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/stats/StatsScreen.kt`
+- `app/src/test/java/com/aiassistant/V200FeaturesTest.kt`
+- `app/src/test/java/com/aiassistant/V201FeaturesTest.kt`
+- `app/build.gradle.kts`
+- `CHANGELOG.md`
+- `UPDATE_LOG.md` (root & app)
+- `README.md`
+- `PROJECT.md`
+- `WORKFLOW_GUIDELINES.md`
+
 ## [v2.0.0] - 2026-09-10
 
 ### 1. 本次升级与 21 项用户需求 100% 彻底落实
