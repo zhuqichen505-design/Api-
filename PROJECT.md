@@ -4,7 +4,7 @@
 
 Echo 是一个 Android 原生 AI API 客户端应用，用于调用 mimo、deepseek、OpenAI、Anthropic 等 AI 模型的 API。
 
-**当前版本**: v2.0.2
+**当前版本**: v2.0.3
 **数据库版本**: 23
 **技术栈**: Kotlin + Jetpack Compose + Room + Retrofit
 

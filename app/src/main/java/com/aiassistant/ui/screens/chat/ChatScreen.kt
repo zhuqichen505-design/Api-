@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -147,6 +148,7 @@ fun ChatScreen(
     }
     val scope = rememberCoroutineScope()
     val viewModel: ChatViewModel = viewModel(
+        key = "chat_$conversationId",
         factory = ChatViewModel.factory(conversationId)
     )
     val uiState by viewModel.uiState.collectAsState()
@@ -749,7 +751,13 @@ fun ChatScreen(
                                     } else null,
                                     onBranch = if (!isGenerating && message.role == "assistant" && message.id > 0) {
                                         {
-                                            viewModel.createBranch(message.id) { newId ->
+                                            val targetIdx = displayMessages.indexOfFirst { it.message.id == message.id }
+                                            val messagesToBranch = if (targetIdx >= 0) {
+                                                displayMessages.take(targetIdx + 1).map { it.message }
+                                            } else {
+                                                null
+                                            }
+                                            viewModel.createBranch(message.id, messagesToBranch) { newId ->
                                                 Toast.makeText(context, "已创建分支对话", Toast.LENGTH_SHORT).show()
                                                 onNavigateToChat(newId)
                                             }
@@ -765,7 +773,14 @@ fun ChatScreen(
                                     } else null,
                                     onEdit = if (message.role == "user") {
                                         {
-                                            inputText = message.content
+                                            val parsed = parseQuotedMessage(message.content)
+                                            if (parsed != null) {
+                                                activeQuotedText = parsed.quoteText
+                                                inputText = parsed.replyText
+                                            } else {
+                                                inputText = message.content
+                                                activeQuotedText = null
+                                            }
                                             pendingEditSource = message
                                             autoFollowOutput = false
                                             selectedAttachments = emptyList()
@@ -2021,6 +2036,46 @@ fun formatNonThinkingCapsuleText(
         else -> model
     }
 }
+data class ParsedQuotedMessage(
+    val quoteText: String,
+    val replyText: String
+)
+
+fun parseQuotedMessage(content: String): ParsedQuotedMessage? {
+    val trimmed = content.trimStart()
+    if (!trimmed.startsWith(">")) return null
+    val lines = content.lines()
+    val quoteLines = mutableListOf<String>()
+    var splitIndex = -1
+
+    for (i in lines.indices) {
+        val line = lines[i]
+        if (line.startsWith(">")) {
+            quoteLines.add(line.removePrefix(">").trimStart())
+        } else if (line.isBlank() && quoteLines.isNotEmpty() && splitIndex == -1) {
+            splitIndex = i + 1
+            break
+        } else {
+            splitIndex = i
+            break
+        }
+    }
+
+    if (quoteLines.isEmpty()) return null
+    val quoteText = quoteLines.joinToString("\n").trim()
+    if (quoteText.isBlank()) return null
+
+    val rawRemaining = if (splitIndex in lines.indices) {
+        lines.subList(splitIndex, lines.size).joinToString("\n").trim()
+    } else ""
+
+    val replyText = rawRemaining
+        .removePrefix("针对以上内容：\n")
+        .removePrefix("针对以上内容：")
+        .trim()
+
+    return ParsedQuotedMessage(quoteText = quoteText, replyText = replyText)
+}
 
 private data class VariantInfo(
     val groupId: String,
@@ -2192,11 +2247,83 @@ private fun MessageBubble(
             ) {
                 if (message.content.isNotBlank()) {
                     if (isUser) {
-                        Text(
-                            text = message.content,
-                            color = contentColor,
-                            style = MaterialTheme.typography.bodyLarge
-                        )
+                        val parsedQuote = remember(message.content) { parseQuotedMessage(message.content) }
+                        if (parsedQuote != null) {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                var isQuoteExpanded by remember { mutableStateOf(false) }
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = contentColor.copy(alpha = 0.09f),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = 8.dp)
+                                        .clickable { isQuoteExpanded = !isQuoteExpanded }
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(IntrinsicSize.Min)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .width(3.dp)
+                                                .fillMaxHeight()
+                                                .background(
+                                                    brush = Brush.verticalGradient(
+                                                        colors = listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                                                    ),
+                                                    shape = RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp)
+                                                )
+                                        )
+                                        Column(
+                                            modifier = Modifier
+                                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                                                .fillMaxWidth()
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.FormatQuote,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(12.dp)
+                                                )
+                                                Text(
+                                                    text = "引用内容",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.primary,
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = parsedQuote.quoteText,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = contentColor.copy(alpha = 0.82f),
+                                                maxLines = if (isQuoteExpanded) Int.MAX_VALUE else 3,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
+                                }
+
+                                if (parsedQuote.replyText.isNotBlank()) {
+                                    Text(
+                                        text = parsedQuote.replyText,
+                                        color = contentColor,
+                                        style = MaterialTheme.typography.bodyLarge
+                                    )
+                                }
+                            }
+                        } else {
+                            Text(
+                                text = message.content,
+                                color = contentColor,
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                        }
                     } else {
                         MarkdownText(
                             content = message.content,

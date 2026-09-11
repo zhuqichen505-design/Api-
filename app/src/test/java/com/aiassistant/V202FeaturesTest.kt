@@ -195,7 +195,7 @@ class V202FeaturesTest {
 
     @Test
     fun testV202CurrentVersionUserUpdatesCompleteness() {
-        val updates = com.aiassistant.ui.screens.settings.CurrentVersionUserUpdates
+        val updates = com.aiassistant.ui.screens.settings.V202UserUpdates
         assertTrue("V2.0.2 更新列表不得为空", updates.isNotEmpty())
         assertEquals(8, updates.size)
         assertTrue(updates.any { it.contains("引用UI") || it.contains("预览卡片") })

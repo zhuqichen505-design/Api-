@@ -1,5 +1,58 @@
 # Echo AI 助手更新日志 (Update Log)
 
+## [v2.0.3] - 2026-09-11
+
+### 1. 本次升级与 3 项用户反馈缺陷 100% 彻底修复落实
+1. **分支对话历史记录完整性与时序严格单调递增修复（Req 1）**：
+   - 彻底解决分支对话历史记录不完整、错乱或丢失的问题：根因在于原有分支创建逻辑直接从数据库查询 `ORDER BY createdAt ASC` 并按 ID 截断，当会话中存在多次重新生成（regenerate）、变体切换（variant）或二次编辑（edit）时，修改后的消息 `createdAt` 晚于后续会话消息，导致切片丢失或乱序；
+   - 重构截断与复制机制：统一以用户当前界面直观看到的视图列表（`displayMessages`）为基准截取前序历史，确保分支会话与主干视口 100% 绝对一致；
+   - 写入新分支时强制赋予严格单调递增时间戳（`baseTime + index * 1000L`），根除数据库排序倒置异常；
+   - 清除分支消息的变体组绑定（`variantGroupId = null, variantIndex = 1`），重塑为干净的线性历史；
+   - 深度克隆角色扮演（Roleplay）会话状态与专属会话记忆（`MemoryItem`），保证角色卡、场景卡与剧情记忆在分支中无缝延续。
+2. **隐藏对话创建分支自动继承隐藏属性（Req 2）**：
+   - 彻底修复在隐藏对话中点击分支后生成的分支变为普通可见对话的问题；
+   - 增强隐藏标签继承逻辑：检查原会话是否包含 `hidden` 标签（`repository.hasConversationTag(originalConv, "hidden")` 或 `tags.contains("hidden")`），在创建分支时将 `hidden` 标签直接写入新会话配置，并显式调用 `repository.setConversationHidden(newConversationId, true)`，确保生成的分支严密处于隐藏列表中，保护用户隐私。
+3. **已发送引用消息气泡视觉展示卡片化重构（Req 3）**：
+   - 彻底解决引用发送后在用户消息气泡中以原始 Markdown 大段文字（`> quote\n针对以上内容：\nquestion`）生硬堆砌的问题；
+   - 新增 `parseQuotedMessage(content)` 智能解析器，将已发送消息拆解为结构化引用片段与提问正文；
+   - 在用户气泡内重构专用毛玻璃微光引文卡片（`Surface`）：配备左侧渐变微光垂直指示条、双引号小图标、优雅的“引用内容”半透明标签、支持最多三行省略展示并支持点击展开全文，下方优雅衔接用户实际提问正文；
+   - 二次编辑已发送引用消息时，智能解析恢复引用悬浮预览卡片与纯净问题文本，告别生硬源码。
+
+### 2. 自动化测试与质量保障
+- 全量 148 项单元测试 100% 全部通过（退出码 0）；
+- 新增 `V203FeaturesTest` 专项覆盖 9 项核心测试用例：
+  - `testV203CurrentVersionUserUpdatesCompleteness`：v2.0.3 更新日志完备性验证；
+  - `testParseQuotedMessageMultiLine`：多行引文与针对性提问精准拆解；
+  - `testParseQuotedMessageSingleLine`：单行引文精准拆解；
+  - `testParseQuotedMessageWithPromptPrefix`：前缀剥离与纯净文本提取；
+  - `testParseQuotedMessageNonQuotedReturnsNull`：非引用普通文本安全透传；
+  - `testEditQuotedMessageRestoresPreviewAndInput`：编辑已发送引文时状态精准还原；
+  - `testHiddenConversationBranchInheritanceContract`：隐藏对话分支继承与防泄露契约；
+  - `testBranchConversationMonotonicTimestamps`：分支时序严格单调自增防错序契约；
+  - `testBranchRoleplaySessionDeepClone`：角色扮演与剧情记忆深拷贝契约。
+
+### 3. 发布产物信息
+- **安装包路径**：`releases/Echo-v2.0.3-arm64-v8a.apk`
+- **文件体积**：16,058,365 字节 (约 15.31 MB)
+- **SHA256**：`F5490B27C21EDFA3B022FF93D9996FB0D7B45812A9BF3E79F1CE534A859C7E46`
+- **Package**：`com.aiassistant` | **VersionCode**：`113` | **VersionName**：`2.0.3` | **ABI**：`arm64-v8a`
+- **签名验证**：APK Signature Scheme v2 (release 签名验证通过)
+- **历史版本永久保留**：所有历史版本安装包完整保留无删除，当前 releases 目录累计 113 个独立版本安装包。
+
+### 4. 改动文件列表
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatScreen.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatViewModel.kt`
+- `app/src/main/java/com/aiassistant/data/repository/AiRepository.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/settings/SettingsScreen.kt`
+- `app/src/test/java/com/aiassistant/V202FeaturesTest.kt`
+- `app/src/test/java/com/aiassistant/V203FeaturesTest.kt`
+- `app/build.gradle.kts`
+- `CHANGELOG.md`
+- `UPDATE_LOG.md` (root & app)
+- `README.md`
+- `PROJECT.md`
+- `WORKFLOW_GUIDELINES.md`
+
 ## [v2.0.2] - 2026-09-11
 
 ### 1. 本次升级与 7 项用户需求 100% 彻底落实

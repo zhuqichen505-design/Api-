@@ -703,7 +703,7 @@ class AiRepository(
             ?.any { it.equals(tag, ignoreCase = true) } == true
     }
 
-    private fun updateTag(rawTags: String?, tag: String, enabled: Boolean): String? {
+    fun updateTag(rawTags: String?, tag: String, enabled: Boolean): String? {
         val tags = rawTags
             ?.split(',', ';', '|', ' ')
             ?.map { it.trim() }
