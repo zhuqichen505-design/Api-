@@ -11,6 +11,12 @@ class HiddenConversationLock(context: Context) {
         Context.MODE_PRIVATE
     )
 
+    var isSessionUnlocked: Boolean
+        get() = Companion.isSessionUnlocked
+        set(value) {
+            Companion.isSessionUnlocked = value
+        }
+
     fun hasPassword(): Boolean {
         return prefs.contains(KEY_PIN_HASH) && prefs.contains(KEY_PIN_SALT)
     }
@@ -23,6 +29,7 @@ class HiddenConversationLock(context: Context) {
             .putString(KEY_PIN_SALT, saltText)
             .putString(KEY_PIN_HASH, hashPin(pin, saltText))
             .apply()
+        Companion.isSessionUnlocked = true
         return true
     }
 
@@ -31,10 +38,22 @@ class HiddenConversationLock(context: Context) {
         val salt = prefs.getString(KEY_PIN_SALT, null) ?: return false
         val expected = prefs.getString(KEY_PIN_HASH, null) ?: return false
         val actual = hashPin(pin, salt)
-        return MessageDigest.isEqual(
+        val matches = MessageDigest.isEqual(
             expected.toByteArray(Charsets.UTF_8),
             actual.toByteArray(Charsets.UTF_8)
         )
+        if (matches) {
+            Companion.isSessionUnlocked = true
+        }
+        return matches
+    }
+
+    fun unlockSession() {
+        Companion.unlockSession()
+    }
+
+    fun lockSession() {
+        Companion.lockSession()
     }
 
     private fun hashPin(pin: String, salt: String): String {
@@ -43,7 +62,23 @@ class HiddenConversationLock(context: Context) {
         return digest.joinToString("") { "%02x".format(it) }
     }
 
-    private companion object {
+    companion object {
+        @Volatile
+        var isSessionUnlocked: Boolean = false
+            internal set
+
+        fun unlockSession() {
+            isSessionUnlocked = true
+        }
+
+        fun lockSession() {
+            isSessionUnlocked = false
+        }
+
+        fun resetSessionLock() {
+            isSessionUnlocked = false
+        }
+
         private val PIN_REGEX = Regex("\\d{6}")
         private const val KEY_PIN_SALT = "pin_salt"
         private const val KEY_PIN_HASH = "pin_hash"

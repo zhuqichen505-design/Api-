@@ -1,6 +1,7 @@
 package com.aiassistant.data.repository
 
 import android.util.Log
+import androidx.room.withTransaction
 import com.aiassistant.data.local.*
 import com.aiassistant.data.remote.RetrofitClient
 import com.aiassistant.domain.model.*
@@ -2924,6 +2925,156 @@ class AiRepository(
             childConversationId = childId
         )
         return conversationBranchDao.insertBranch(branch)
+    }
+
+    /**
+     * 事务级完整创建会话分支：原子批量落库消息、继承活跃配置与会话设定、克隆角色扮演Session与记忆
+     */
+    suspend fun createBranchConversation(
+        parentId: Long,
+        branchMessageId: Long,
+        sourceMessages: List<Message>,
+        activeApiConfigId: Long? = null,
+        activeModelName: String? = null
+    ): Pair<Long, String> = withContext(Dispatchers.IO) {
+        val originalConv = conversationDao.getConversationById(parentId)
+            ?: throw IllegalStateException("原会话不存在: $parentId")
+
+        val isParentHidden = hasConversationTag(originalConv, "hidden") ||
+            originalConv.tags?.contains("hidden") == true
+        val branchTags = if (isParentHidden) {
+            updateTag(originalConv.tags, "hidden", true)
+        } else {
+            originalConv.tags
+        }
+
+        // 计算优雅自增的分支标题
+        val baseTitle = originalConv.title.trim()
+        val branchTitle = if (baseTitle.contains("(分支")) {
+            val prefix = baseTitle.substringBefore("(分支").trim()
+            val existingBranchesCount = conversationBranchDao.getBranchesByParent(parentId).first().size + 1
+            "$prefix (分支 $existingBranchesCount)"
+        } else {
+            "$baseTitle (分支)"
+        }
+
+        val effectiveApiConfigId = activeApiConfigId ?: originalConv.apiConfigId
+        val effectiveModelName = (activeModelName?.takeIf { it.isNotBlank() }) ?: originalConv.modelName
+
+        val db = com.aiassistant.AiAssistantApp.instance.database
+
+        val newConversationId = db.withTransaction {
+            // 1. 创建新会话实体（完整继承原会话的所有高级参数、滚动摘要、提示词与配置）
+            val newConversation = Conversation(
+                title = branchTitle,
+                folderId = originalConv.folderId,
+                apiConfigId = effectiveApiConfigId,
+                modelName = effectiveModelName,
+                systemPrompt = originalConv.systemPrompt,
+                rollingSummary = originalConv.rollingSummary,
+                summaryUpdatedMessageId = null,
+                summaryUpdatedAt = originalConv.summaryUpdatedAt,
+                totalTokens = 0,
+                messageCount = 0,
+                isPinned = false,
+                tags = branchTags,
+                temperature = originalConv.temperature,
+                maxTokens = originalConv.maxTokens,
+                topP = originalConv.topP,
+                enableThinking = originalConv.enableThinking,
+                thinkingEffort = originalConv.thinkingEffort,
+                enableWebSearch = originalConv.enableWebSearch,
+                enableSessionMemory = originalConv.enableSessionMemory,
+                createdAt = System.currentTimeMillis(),
+                updatedAt = System.currentTimeMillis()
+            )
+            val newId = conversationDao.insertConversation(newConversation)
+
+            // 2. 准备待复制的消息序列：严格截取到分支目标消息
+            val targetIdx = sourceMessages.indexOfFirst { it.id == branchMessageId }
+            val messagesToCopy = if (targetIdx >= 0) {
+                sourceMessages.subList(0, targetIdx + 1)
+            } else {
+                sourceMessages
+            }
+
+            val baseTime = System.currentTimeMillis() - (messagesToCopy.size * 1000L)
+            val preparedMessages = messagesToCopy.mapIndexed { index, msg ->
+                msg.copy(
+                    id = 0,
+                    conversationId = newId,
+                    variantGroupId = null,
+                    variantIndex = 1,
+                    createdAt = baseTime + (index * 1000L)
+                )
+            }
+
+            // 批量一次性原子落库
+            if (preparedMessages.isNotEmpty()) {
+                messageDao.insertMessages(preparedMessages)
+                val totalTokens = preparedMessages.sumOf { it.tokenCount }
+                conversationDao.updateStats(newId, preparedMessages.size, totalTokens)
+            }
+
+            // 3. 继承隐藏属性确保生效
+            if (isParentHidden) {
+                conversationDao.updateTags(newId, branchTags)
+            }
+
+            // 4. 深度克隆 Roleplay 剧情会话与记忆
+            try {
+                val roleplayRepo = com.aiassistant.AiAssistantApp.instance.roleplayRepository
+                val rpSession = roleplayRepo.getSessionByConversationId(parentId)
+                if (rpSession != null) {
+                    val clonedSessionId = roleplayRepo.insertSession(
+                        rpSession.copy(
+                            id = 0,
+                            conversationId = newId,
+                            createdAt = System.currentTimeMillis(),
+                            updatedAt = System.currentTimeMillis()
+                        )
+                    )
+                    val sessionMemories = roleplayRepo.getMemoriesListBySession(rpSession.id)
+                    sessionMemories.forEach { mem ->
+                        roleplayRepo.insertMemory(
+                            mem.copy(
+                                id = 0,
+                                sessionId = clonedSessionId
+                            )
+                        )
+                    }
+                }
+            } catch (rpEx: Exception) {
+                Log.e(tag, "克隆角色扮演会话异常", rpEx)
+            }
+
+            // 5. 复制普通会话专属记忆
+            try {
+                val convMemories = memoryDao.getConversationMemories(parentId)
+                convMemories.forEach { mem ->
+                    memoryDao.insertMemory(
+                        mem.copy(
+                            id = 0,
+                            conversationId = newId
+                        )
+                    )
+                }
+            } catch (memEx: Exception) {
+                Log.e(tag, "克隆会话专属记忆异常", memEx)
+            }
+
+            // 6. 记录分支关联表
+            val branch = ConversationBranch(
+                parentConversationId = parentId,
+                branchMessageId = branchMessageId,
+                childConversationId = newId
+            )
+            conversationBranchDao.insertBranch(branch)
+
+            newId
+        }
+
+        Pair(newConversationId, branchTitle)
     }
 
     suspend fun getBranchByChild(childId: Long): ConversationBranch? =

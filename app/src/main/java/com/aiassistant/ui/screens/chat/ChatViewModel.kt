@@ -914,137 +914,47 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
         return prompt?.trim()?.ifBlank { null }
     }
 
-    // 创建会话分支：支持传入视口确认的消息序列，并按严格时间戳与属性继承进行分支
+    // 创建会话分支：基于 Room 事务批量落库、继承活跃模型与全部参数、深度克隆角色扮演与记忆设定
     fun createBranch(
         messageId: Long,
         sourceMessages: List<Message>? = null,
-        onComplete: (Long) -> Unit
+        onComplete: (Long, String) -> Unit
     ) {
         viewModelScope.launch {
-            val originalConv = repository.getConversationById(conversationId) ?: conversation ?: return@launch
-
-            val isParentHidden = repository.hasConversationTag(originalConv, "hidden") ||
-                originalConv.tags?.contains("hidden") == true
-            val branchTags = if (isParentHidden) {
-                repository.updateTag(originalConv.tags, "hidden", true)
-            } else {
-                originalConv.tags
-            }
-
-            // 1. 创建新的对话实体（携带继承的 tags，确保若原为隐藏对话，创建即为隐藏对话）
-            val newConversationId = repository.createConversation(
-                title = "${originalConv.title} (分支)",
-                apiConfigId = originalConv.apiConfigId,
-                modelName = originalConv.modelName,
-                folderId = originalConv.folderId,
-                systemPrompt = originalConv.systemPrompt,
-                tags = branchTags
-            )
-
-            // 2. 收集需要完整保留的历史消息（优先使用调用端传入的当前视口渲染且选定变体的真实列表）
-            val messagesToCopy: List<Message> = if (!sourceMessages.isNullOrEmpty()) {
-                val targetIndex = sourceMessages.indexOfFirst { it.id == messageId }
-                if (targetIndex >= 0) {
-                    sourceMessages.subList(0, targetIndex + 1)
-                } else {
+            try {
+                val effectiveOption = _currentModelOption.value
+                val rawMessages = if (!sourceMessages.isNullOrEmpty()) {
                     sourceMessages
-                }
-            } else {
-                val allDbMessages = repository.getMessagesList(conversationId)
-                val targetIndex = allDbMessages.indexOfFirst { it.id == messageId }
-                if (targetIndex >= 0) {
-                    allDbMessages.subList(0, targetIndex + 1)
                 } else {
-                    allDbMessages
+                    repository.getMessagesList(conversationId)
                 }
-            }
 
-            // 3. 复制消息并赋予严格单调递增的时间戳（杜绝此前重新生成造成时间戳错乱倒流的缺陷）
-            val baseTime = System.currentTimeMillis() - (messagesToCopy.size * 1000L)
-            messagesToCopy.forEachIndexed { index, msg ->
-                repository.saveMessage(
-                    msg.copy(
-                        id = 0,
-                        conversationId = newConversationId,
-                        variantGroupId = null, // 作为新分支的主线规范消息，不再受原变体组干扰
-                        variantIndex = 1,
-                        createdAt = baseTime + (index * 1000L)
-                    )
+                val (newConversationId, branchTitle) = repository.createBranchConversation(
+                    parentId = conversationId,
+                    branchMessageId = messageId,
+                    sourceMessages = rawMessages,
+                    activeApiConfigId = effectiveOption?.apiConfigId,
+                    activeModelName = effectiveOption?.modelName
                 )
-            }
 
-            // 4. 同步保留原对话的完整高级参数配置
-            val newConv = repository.getConversationById(newConversationId)
-            if (newConv != null) {
-                repository.updateConversation(
-                    newConv.copy(
-                        temperature = originalConv.temperature,
-                        maxTokens = originalConv.maxTokens,
-                        topP = originalConv.topP,
-                        enableThinking = originalConv.enableThinking,
-                        thinkingEffort = originalConv.thinkingEffort,
-                        enableWebSearch = originalConv.enableWebSearch,
-                        enableSessionMemory = originalConv.enableSessionMemory,
-                        tags = branchTags,
-                        isPinned = false
-                    )
-                )
-            }
-
-            // 5. 确保隐藏属性完全落库并生效
-            if (isParentHidden) {
-                repository.setConversationHidden(newConversationId, true)
-            }
-
-            // 6. 如果原会话是角色扮演会话（RoleplaySession），深度克隆该 Session 及其所有记忆和设定
-            try {
-                val roleplayRepo = AiAssistantApp.instance.roleplayRepository
-                val rpSession = roleplayRepo.getSessionByConversationId(conversationId)
-                if (rpSession != null) {
-                    val clonedSessionId = roleplayRepo.insertSession(
-                        rpSession.copy(
-                            id = 0,
-                            conversationId = newConversationId,
-                            createdAt = System.currentTimeMillis(),
-                            updatedAt = System.currentTimeMillis()
-                        )
-                    )
-                    val sessionMemories = roleplayRepo.getMemoriesBySession(rpSession.id).firstOrNull()
-                    sessionMemories?.forEach { memory ->
-                        roleplayRepo.insertMemory(
-                            memory.copy(
-                                id = 0,
-                                sessionId = clonedSessionId
-                            )
-                        )
-                    }
+                withContext(Dispatchers.Main) {
+                    onComplete(newConversationId, branchTitle)
                 }
             } catch (e: Exception) {
-                android.util.Log.e("ChatViewModel", "克隆角色扮演会话异常", e)
-            }
-
-            // 7. 复制普通会话的专属记忆
-            try {
-                val convMemories = repository.getConversationMemories(conversationId).firstOrNull()
-                convMemories?.forEach { mem ->
-                    repository.insertMemory(
-                        mem.copy(
-                            id = 0,
-                            conversationId = newConversationId
-                        )
-                    )
+                android.util.Log.e("ChatViewModel", "创建分支对话失败", e)
+                withContext(Dispatchers.Main) {
+                    _error.value = "创建分支失败: ${e.message}"
                 }
-            } catch (e: Exception) {
-                android.util.Log.e("ChatViewModel", "克隆会话专属记忆异常", e)
-            }
-
-            // 8. 创建分支追踪关联记录
-            repository.createBranch(conversationId, messageId, newConversationId)
-
-            withContext(Dispatchers.Main) {
-                onComplete(newConversationId)
             }
         }
+    }
+
+    fun createBranch(
+        messageId: Long,
+        sourceMessages: List<Message>? = null,
+        onCompleteLegacy: (Long) -> Unit
+    ) {
+        createBranch(messageId, sourceMessages) { newId, _ -> onCompleteLegacy(newId) }
     }
 
     fun acceptPendingMemory(scope: String) {

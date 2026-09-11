@@ -201,6 +201,7 @@ fun ChatScreen(
     var streamingBranchGroupId by remember { mutableStateOf<String?>(null) }
     var autoFollowOutput by remember { mutableStateOf(true) }
     var isBarsHidden by remember { mutableStateOf(false) }
+    var branchSuccessDialog by remember { mutableStateOf<BranchSuccessDialogState?>(null) }
 
     var lastStreamScrollAt by remember { mutableLongStateOf(0L) }
     val variantSelections = remember { mutableStateMapOf<String, Int>() }
@@ -757,9 +758,8 @@ fun ChatScreen(
                                             } else {
                                                 null
                                             }
-                                            viewModel.createBranch(message.id, messagesToBranch) { newId ->
-                                                Toast.makeText(context, "已创建分支对话", Toast.LENGTH_SHORT).show()
-                                                onNavigateToChat(newId)
+                                            viewModel.createBranch(message.id, messagesToBranch) { newId, branchTitle ->
+                                                branchSuccessDialog = BranchSuccessDialogState(newId, branchTitle)
                                             }
                                         }
                                     } else null,
@@ -1480,7 +1480,101 @@ fun ChatScreen(
             }
         )
     }
+
+    branchSuccessDialog?.let { dialogState ->
+        EchoGlassDialog(
+            hazeState = hazeState,
+            onDismissRequest = { branchSuccessDialog = null },
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .widthIn(max = 420.dp),
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.AltRoute,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Text(
+                        "分支创建成功",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "已为您生成包含当前回复及之前完整上下文的新分支：",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                        border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.Chat,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                text = dialogState.branchTitle,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                    Text(
+                        text = "您可以留在当前对话继续探索，或立即跳转到新分支对话。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val newId = dialogState.newConversationId
+                        branchSuccessDialog = null
+                        onNavigateToChat(newId)
+                    }
+                ) {
+                    Text("跳转到新对话")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { branchSuccessDialog = null }
+                ) {
+                    Text("确定")
+                }
+            }
+        )
+    }
 }
+
+data class BranchSuccessDialogState(
+    val newConversationId: Long,
+    val branchTitle: String
+)
 
 private fun buildChatAnchorItems(displayMessages: List<DisplayMessageItem>): List<SideAnchorItem> {
     return displayMessages.mapIndexedNotNull { index, item ->

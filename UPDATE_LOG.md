@@ -1,5 +1,57 @@
 # Echo AI 助手更新日志 (Update Log)
 
+## [v2.0.4] - 2026-09-11
+
+### 1. 本次升级与 3 项用户反馈深度修复重构落实
+1. **分支功能完整重构与事务化原子落库（Req 1）**：
+   - 彻底重构分支创建底层逻辑：引入 Room `withTransaction` 事务保证，将“创建新会话 -> 严格截断前序历史 -> 时间戳单调自增重排 -> 批量插入数据库 -> 更新统计 -> 克隆角色卡与专属记忆 -> 建立分支拓扑追踪”合并为原子事务，从底层架构上杜绝并发竞态与任何消息丢失；
+   - 保证分支会话 100% 完整继承原会话配置（包含当前活跃临时切换的模型与 API 配置、高级采样参数、提示词设定等）；
+   - 在 `MessageDao` 中新增 `@Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertMessages(messages: List<Message>): List<Long>` 批量高效插入，彻底取代原循环逐条保存，秒级生成分支会话。
+2. **分支生成弹窗确认与跳转选项（Req 2）**：
+   - 分支创建成功后，不再直接粗暴跳转，而是弹出统一精致的液态玻璃对话框（`EchoGlassDialog`）；
+   - 对话框清晰展示新分支标题与包含前序历史的提示；
+   - 提供「确定」（留在当前会话继续探索）与「跳转到新对话」（立即导航至新分支会话）两个明确选项，赋予用户完全的操作自主权。
+3. **隐藏对话解锁状态智能维持与直达界面（Req 3）**：
+   - 在 `HiddenConversationLock` 中建立进程内会话级解锁状态维持机制（`isSessionUnlocked`），用户输入 PIN 验证成功后在当前 App 会话期间持续维持解锁；
+   - `SettingsScreen` 中 `selectedSection` 升级为 `rememberSaveable`，从隐藏会话返回时无缝直达已解锁的“其他对话”管理界面，无需反复输入 6 位 PIN 码；
+   - 在隐藏对话列表顶部新增「重新锁定」按钮，用户可随时一键手动锁闭会话，兼顾极速便捷与绝对隐私安全。
+
+### 2. 自动化测试与质量保障
+- 全量 155 项单元测试 100% 全部通过（退出码 0）；
+- 新增 `V204FeaturesTest` 专项覆盖 7 项核心测试用例：
+  - `testHiddenConversationSessionUnlockState`：会话级解锁状态维持、重置与手动锁定契约；
+  - `testBranchSuccessDialogState`：分支成功弹窗状态承载与跳转参数正确性；
+  - `testBranchTitleIncrementLogic`：分支标题自增重命名规则覆盖（"测试 (分支)" -> "测试 (分支 2)"）；
+  - `testBranchMessageSlicingAndMonotonicity`：消息严格截断至目标回复且时间戳绝对单调递增；
+  - `testHiddenTagPreservedOnBranch`：分支严格继承隐藏标签与隐私保护契约；
+  - `testActiveModelInheritanceOnBranch`：分支完整继承当前活跃切换的模型与配置；
+  - `testRoleplayMemoryCloningInvariants`：角色扮演会话专属记忆深拷贝与关联一致性。
+
+### 3. 发布产物信息
+- **安装包路径**：`releases/Echo-v2.0.4-arm64-v8a.apk`
+- **文件体积**：16,058,365 字节 (约 15.31 MB)
+- **SHA256**：`F9B4BFE3CB4F7F4D91B93CF76D012B0E03DE143D1D24812ADB3F8AAB2D002DC5`
+- **Package**：`com.aiassistant` | **VersionCode**：`114` | **VersionName**：`2.0.4` | **ABI**：`arm64-v8a`
+- **签名验证**：APK Signature Scheme v2 (release 签名验证通过，1 signer)
+- **历史版本永久保留**：所有历史版本安装包完整保留无删除，当前 releases 目录累计 113 个独立版本安装包。
+
+### 4. 改动文件列表
+- `app/src/main/java/com/aiassistant/data/local/Daos.kt`
+- `app/src/main/java/com/aiassistant/data/local/RoleplayDao.kt`
+- `app/src/main/java/com/aiassistant/data/repository/AiRepository.kt`
+- `app/src/main/java/com/aiassistant/data/repository/RoleplayRepository.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatViewModel.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatScreen.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/settings/SettingsScreen.kt`
+- `app/src/main/java/com/aiassistant/utils/HiddenConversationLock.kt`
+- `app/src/test/java/com/aiassistant/V204FeaturesTest.kt`
+- `app/build.gradle.kts`
+- `CHANGELOG.md`
+- `UPDATE_LOG.md` (root & app)
+- `README.md`
+- `PROJECT.md`
+- `WORKFLOW_GUIDELINES.md`
+
 ## [v2.0.3] - 2026-09-11
 
 ### 1. 本次升级与 3 项用户反馈缺陷 100% 彻底修复落实

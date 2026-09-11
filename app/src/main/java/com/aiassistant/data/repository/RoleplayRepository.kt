@@ -207,6 +207,9 @@ class RoleplayRepository(
     fun getMemoriesBySession(sessionId: Long): Flow<List<RoleplayMemory>> =
         roleplayMemoryDao.getMemoriesBySession(sessionId)
 
+    suspend fun getMemoriesListBySession(sessionId: Long): List<RoleplayMemory> =
+        roleplayMemoryDao.getMemoriesListBySession(sessionId)
+
     fun getMemoriesByType(sessionId: Long, type: String): Flow<List<RoleplayMemory>> =
         roleplayMemoryDao.getMemoriesByType(sessionId, type)
 

@@ -30,6 +30,7 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -105,6 +106,17 @@ private val CurrentFeatureHighlights = listOf(
 )
 
 internal val CurrentVersionUserUpdates = listOf(
+    "分支功能完整重构：基于数据库事务与严格切片，规范严格递增时序，全链路杜绝历史记录颠倒或截断缺失",
+    "分支生成弹窗确认与跳转：创建分支后弹出精致液态玻璃对话框，支持「确定」留在当前会话与「跳转到新对话」灵活选择",
+    "隐藏对话解锁会话维持：解锁密码后持久维持会话解锁态，从隐藏对话返回直达已解锁会话列表，支持一键「重新锁定」",
+    "隐藏属性与分支深度继承：在隐藏对话中分支严格继承隐藏标签与安全锁定，并完整继承活跃模型配置与高级参数",
+    "角色扮演与会话记忆克隆：分支对话无缝克隆角色卡、场景世界观设定及会话专属长期记忆",
+    "引用气泡内嵌卡片化：引用发出后在消息气泡中以精致内嵌毛玻璃卡片优雅展示，消除原始 Markdown 字符堆叠",
+    "引用折叠与重新编辑联动：气泡内引文支持轻触展开/折叠，点击重新编辑时自动还原至输入框悬浮预览卡片",
+    "输入框呼吸光晕与悬浮栏体验保持"
+)
+
+internal val V203UserUpdates = listOf(
     "分支功能深度修复：基于视口所见即所得切片，规范严格递增时间戳，杜绝历史颠倒与缺失，完整继承全量上下文",
     "隐藏对话分支属性继承：在隐藏对话中创建分支时，新分支自动继承隐藏标签与锁定状态",
     "角色扮演与会话记忆克隆：分支对话无缝克隆 RoleplaySession 角色、场景与会话专属记忆",
@@ -299,7 +311,7 @@ fun SettingsScreen(
         BackgroundImageManager.getHomeBackgroundBitmap(context)
     }
     val hazeState = rememberEchoHazeState()
-    var selectedSection by remember { mutableStateOf<String?>(null) }
+    var selectedSection by rememberSaveable { mutableStateOf<String?>(null) }
 
     fun executeBack() {
         if (selectedSection != null) {
@@ -4582,7 +4594,7 @@ fun HiddenConversationsTab(
     val scope = rememberCoroutineScope()
     val lock = remember(context) { HiddenConversationLock(context) }
     var hasPassword by remember { mutableStateOf(lock.hasPassword()) }
-    var unlocked by remember { mutableStateOf(false) }
+    var unlocked by remember { mutableStateOf(lock.isSessionUnlocked) }
     var pin by remember { mutableStateOf("") }
     var confirmPin by remember { mutableStateOf("") }
     var message by remember { mutableStateOf<String?>(null) }
@@ -4679,6 +4691,20 @@ fun HiddenConversationsTab(
                         style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    TextButton(
+                        onClick = {
+                            lock.lockSession()
+                            unlocked = false
+                        }
+                    ) {
+                        Icon(
+                            Icons.Default.Lock,
+                            contentDescription = "重新锁定",
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("重新锁定", style = MaterialTheme.typography.labelMedium)
+                    }
                 }
             }
 

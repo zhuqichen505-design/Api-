@@ -143,6 +143,9 @@ interface RoleplayMemoryDao {
     @Query("SELECT * FROM roleplay_memories WHERE sessionId = :sessionId ORDER BY isPinned DESC, updatedAt DESC")
     fun getMemoriesBySession(sessionId: Long): Flow<List<RoleplayMemory>>
 
+    @Query("SELECT * FROM roleplay_memories WHERE sessionId = :sessionId ORDER BY isPinned DESC, updatedAt DESC")
+    suspend fun getMemoriesListBySession(sessionId: Long): List<RoleplayMemory>
+
     @Query("SELECT * FROM roleplay_memories WHERE sessionId = :sessionId AND memoryType = :type ORDER BY updatedAt DESC")
     fun getMemoriesByType(sessionId: Long, type: String): Flow<List<RoleplayMemory>>
 
