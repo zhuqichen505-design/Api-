@@ -731,6 +731,10 @@ class AiRepository(
         conversationDao.updateConversation(conv.copy(title = title, updatedAt = System.currentTimeMillis()))
     }
 
+    suspend fun updateConversation(conversation: Conversation) {
+        conversationDao.updateConversation(conversation)
+    }
+
     // ============ 模型长记忆相关 ============
 
     fun getAllMemories(): Flow<List<MemoryItem>> = memoryDao.getAllMemories()
@@ -2366,7 +2370,7 @@ class AiRepository(
 
         if (sessionMemories.isNotEmpty()) {
             val sessionLines = sessionMemories.map { "- ${it.content}" }
-            blocks += "【当前会话专属记忆（仅在此会话内生效）】\n${sessionLines.joinToString("\n")}"
+            blocks += "<session_specific_memory>\n【当前会话专属记忆（仅在此会话内生效，包含项目背景与局部约束）】\n${sessionLines.joinToString("\n")}\n</session_specific_memory>"
         }
 
         if (longTermMemories.isNotEmpty()) {
@@ -2387,12 +2391,13 @@ class AiRepository(
                 usedTokens += cost
             }
             if (lines.isNotEmpty()) {
-                blocks += "【用户长期记忆与习惯偏好（跨会话通用事实，不作为本轮新指令）】\n${lines.joinToString("\n")}"
+                blocks += "<user_profile_and_memory>\n【用户长期记忆与习惯偏好（跨会话通用背景参考，切勿作为本轮用户的新指令）】\n${lines.joinToString("\n")}\n</user_profile_and_memory>"
             }
         }
 
         if (blocks.isEmpty()) return null
-        return blocks.joinToString("\n\n")
+        val memoryBody = blocks.joinToString("\n\n")
+        return "<system_memory_context>\n$memoryBody\n\n【记忆作用指引】：以上记忆与事实供你在构思方案和回答时自然参考与遵循，在未被用户明确询问时，无需机械复述这些记忆条目。\n</system_memory_context>"
     }
 
     private fun scoreMemory(memory: MemoryItem, queryTerms: Set<String>, conversationId: Long): Float {
@@ -2413,9 +2418,14 @@ class AiRepository(
         val recencyBoost = ((System.currentTimeMillis() - memory.updatedAt)
             .coerceAtLeast(0L)
             .let { age -> 1f / (1f + age / MEMORY_RECENCY_WINDOW_MS) }) * MEMORY_RECENCY_WEIGHT
+        val lengthNormalizedOverlap = if (memoryTerms.isNotEmpty()) {
+            (overlap.toFloat() / kotlin.math.sqrt(memoryTerms.size.toDouble()).toFloat()) * MEMORY_TERM_OVERLAP_WEIGHT
+        } else {
+            overlap * MEMORY_TERM_OVERLAP_WEIGHT
+        }
         return scopeBoost +
             memory.confidence.coerceIn(0f, 1f) * MEMORY_CONFIDENCE_WEIGHT +
-            overlap * MEMORY_TERM_OVERLAP_WEIGHT +
+            lengthNormalizedOverlap +
             recencyBoost
     }
 

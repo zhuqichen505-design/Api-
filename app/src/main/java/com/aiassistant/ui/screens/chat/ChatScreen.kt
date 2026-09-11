@@ -138,6 +138,7 @@ private val ThinkingContentBlue = Color(0xFF6BA4F8)
 fun ChatScreen(
     conversationId: Long,
     onNavigateBack: () -> Unit,
+    onNavigateToChat: (Long) -> Unit = {},
     onNavigateToRoleplayMemory: (Long) -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -178,6 +179,8 @@ fun ChatScreen(
     val allAvailableScenarios by roleplayRepo.getAllScenarios().collectAsState(initial = emptyList())
 
     var inputText by remember(conversationId) { mutableStateOf(ChatViewModel.getDraft(conversationId)) }
+    var activeQuotedText by remember { mutableStateOf<String?>(null) }
+    var messagePendingDelete by remember { mutableStateOf<Message?>(null) }
     var showRenameDialog by remember { mutableStateOf(false) }
     var renameText by remember(uiState.conversationTitle) { mutableStateOf(uiState.conversationTitle) }
     var showSettingsDialog by remember { mutableStateOf(false) }
@@ -503,40 +506,53 @@ fun ChatScreen(
                         inputText = it
                         ChatViewModel.saveDraft(conversationId, it)
                     },
+                    quotedText = activeQuotedText,
+                    onClearQuote = { activeQuotedText = null },
                     onSend = {
-                        if (inputText.isNotBlank() || selectedAttachments.isNotEmpty()) {
-                            if (!isProcessingAttachments) {
-                                val editSource = pendingEditSource
-                                if (editSource != null) {
-                                    preserveScrollForBranchGeneration = true
-                                    val targetAssistantGroupId = editSource.variantGroupId
-                                        ?.let { pairedVariantGroupId(it) }
-                                        ?: "turn_${editSource.id}_assistant"
-                                    streamingBranchGroupId = targetAssistantGroupId
-                                    val userGroupId = editSource.variantGroupId ?: "turn_${editSource.id}_user"
-                                    val targetIndex = displayMessages.indexOfFirst {
-                                        it.message.id == editSource.id || it.groupId == userGroupId
-                                    }
-                                    if (targetIndex >= 0) {
-                                        scope.launch {
-                                            try {
-                                                listState.animateScrollToItem(targetIndex)
-                                            } catch (_: Exception) {}
-                                        }
-                                    }
-                                    viewModel.sendEditedMessage(editSource, inputText, selectedAttachments)
+                        val trimmedInput = inputText.trim()
+                        val hasContent = trimmedInput.isNotBlank() || selectedAttachments.isNotEmpty() || !activeQuotedText.isNullOrBlank()
+                        if (hasContent && !isProcessingAttachments) {
+                            val finalPrompt = if (!activeQuotedText.isNullOrBlank()) {
+                                val quoteBlock = activeQuotedText!!.trim().lines().joinToString("\n") { "> $it" }
+                                if (trimmedInput.isNotBlank()) {
+                                    "$quoteBlock\n\n针对以上内容：\n$trimmedInput"
                                 } else {
-                                    preserveScrollForBranchGeneration = false
-                                    streamingBranchGroupId = null
-                                    autoFollowOutput = true
-                                    viewModel.sendMessage(inputText, selectedAttachments)
+                                    "$quoteBlock\n\n针对以上内容："
                                 }
-                                inputText = ""
-                                ChatViewModel.saveDraft(conversationId, "")
-                                pendingEditSource = null
-                                selectedAttachments = emptyList()
-                                attachmentStatus = null
+                            } else {
+                                inputText
                             }
+                            val editSource = pendingEditSource
+                            if (editSource != null) {
+                                preserveScrollForBranchGeneration = true
+                                val targetAssistantGroupId = editSource.variantGroupId
+                                    ?.let { pairedVariantGroupId(it) }
+                                    ?: "turn_${editSource.id}_assistant"
+                                streamingBranchGroupId = targetAssistantGroupId
+                                val userGroupId = editSource.variantGroupId ?: "turn_${editSource.id}_user"
+                                val targetIndex = displayMessages.indexOfFirst {
+                                    it.message.id == editSource.id || it.groupId == userGroupId
+                                }
+                                if (targetIndex >= 0) {
+                                    scope.launch {
+                                        try {
+                                            listState.animateScrollToItem(targetIndex)
+                                        } catch (_: Exception) {}
+                                    }
+                                }
+                                viewModel.sendEditedMessage(editSource, finalPrompt, selectedAttachments)
+                            } else {
+                                preserveScrollForBranchGeneration = false
+                                streamingBranchGroupId = null
+                                autoFollowOutput = true
+                                viewModel.sendMessage(finalPrompt, selectedAttachments)
+                            }
+                            inputText = ""
+                            activeQuotedText = null
+                            ChatViewModel.saveDraft(conversationId, "")
+                            pendingEditSource = null
+                            selectedAttachments = emptyList()
+                            attachmentStatus = null
                         }
                     },
                     isGenerating = isGenerating,
@@ -726,10 +742,17 @@ fun ChatScreen(
                                             clipboardManager.setText(AnnotatedString(it))
                                         }
                                     },
-                                    onQuote = if (message.content.isNotBlank()) {
+                                    onQuote = if (message.role == "user" && message.content.isNotBlank()) {
                                         {
-                                            val quoteBlock = message.content.lines().joinToString("\n") { line -> "> $line" } + "\n针对以上内容：\n"
-                                            inputText = if (inputText.isBlank()) quoteBlock else "$inputText\n\n$quoteBlock"
+                                            activeQuotedText = message.content.trim()
+                                        }
+                                    } else null,
+                                    onBranch = if (!isGenerating && message.role == "assistant" && message.id > 0) {
+                                        {
+                                            viewModel.createBranch(message.id) { newId ->
+                                                Toast.makeText(context, "已创建分支对话", Toast.LENGTH_SHORT).show()
+                                                onNavigateToChat(newId)
+                                            }
                                         }
                                     } else null,
                                     onRegenerate = if (message.role == "assistant" && message == messages.lastOrNull { it.role == "assistant" }) {
@@ -750,7 +773,7 @@ fun ChatScreen(
                                         }
                                     } else null,
                                     onDelete = {
-                                        viewModel.deleteMessage(message)
+                                        messagePendingDelete = message
                                     }
                                 )
                             }
@@ -870,22 +893,24 @@ fun ChatScreen(
                             ),
                             label = "topPulseAlpha"
                         )
+                        val topPulseColor = MaterialTheme.colorScheme.primary
                         Box(
                             modifier = Modifier
                                 .padding(start = 2.dp, top = 2.dp)
                                 .size(34.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .graphicsLayer(scaleX = topPulseScale, scaleY = topPulseScale)
-                                    .border(
-                                        1.2.dp,
-                                        MaterialTheme.colorScheme.primary.copy(alpha = topPulseAlpha),
-                                        CircleShape
-                                    )
-                            )
+                            Canvas(modifier = Modifier.matchParentSize()) {
+                                val strokeWidth = 1.2.dp.toPx()
+                                val baseRadius = (size.minDimension - strokeWidth) / 2f
+                                val currentRadius = baseRadius * topPulseScale
+                                drawCircle(
+                                    color = topPulseColor.copy(alpha = topPulseAlpha),
+                                    radius = currentRadius,
+                                    center = center,
+                                    style = Stroke(width = strokeWidth)
+                                )
+                            }
                             Surface(
                                 onClick = { isBarsHidden = false },
                                 shape = CircleShape,
@@ -1131,18 +1156,50 @@ fun ChatScreen(
             }
 
             EchoTextToolbarHost(toolbar = textToolbar) { quotedText ->
-                val formattedQuote = quotedText.trim().lines().joinToString("\n") { "> $it" }
-                val targetPrompt = "\n针对以上内容：\n"
-                inputText = if (inputText.isBlank()) {
-                    "$formattedQuote$targetPrompt"
-                } else {
-                    "$inputText\n\n$formattedQuote$targetPrompt"
+                val clean = quotedText.trim()
+                if (clean.isNotBlank()) {
+                    activeQuotedText = clean
                 }
             }
         }
     }
 }
 }
+
+    // 删除消息二次确认对话框
+    messagePendingDelete?.let { targetMsg ->
+        val isUserMsg = targetMsg.role == "user"
+        AlertDialog(
+            onDismissRequest = { messagePendingDelete = null },
+            title = {
+                Text(
+                    text = if (isUserMsg) "删除提问消息" else "删除 AI 回复",
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text("确定要删除此条${if (isUserMsg) "提问消息" else "AI 回复"}吗？删除后不可恢复。")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.deleteMessage(targetMsg)
+                        messagePendingDelete = null
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text("删除", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { messagePendingDelete = null }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
 
     // 设置对话框
     if (showSettingsDialog) {
@@ -2056,6 +2113,7 @@ private fun MessageBubble(
     onCopy: () -> Unit,
     onCopyThinking: () -> Unit,
     onQuote: (() -> Unit)? = null,
+    onBranch: (() -> Unit)? = null,
     onRegenerate: (() -> Unit)? = null,
     onEdit: (() -> Unit)? = null,
     onDelete: (() -> Unit)? = null
@@ -2220,6 +2278,7 @@ private fun MessageBubble(
                         onVariantSelected = onVariantSelected,
                         onCopy = onCopy,
                         onQuote = onQuote,
+                        onBranch = null,
                         onRegenerate = onRegenerate,
                         onEdit = onEdit,
                         onDelete = onDelete,
@@ -2627,6 +2686,7 @@ private fun MessageBubble(
                         onVariantSelected = onVariantSelected,
                         onCopy = onCopy,
                         onQuote = onQuote,
+                        onBranch = onBranch,
                         onRegenerate = onRegenerate,
                         onEdit = onEdit,
                         onDelete = onDelete,
@@ -2662,6 +2722,7 @@ private fun MessageFooter(
     onVariantSelected: ((String, Int) -> Unit)? = null,
     onCopy: () -> Unit,
     onQuote: (() -> Unit)? = null,
+    onBranch: (() -> Unit)? = null,
     onRegenerate: (() -> Unit)?,
     onEdit: (() -> Unit)?,
     onDelete: (() -> Unit)?,
@@ -2742,7 +2803,14 @@ private fun MessageFooter(
                 onClick = onCopy
             )
 
-            if (onQuote != null) {
+            if (!isUser && onBranch != null) {
+                FooterIconButton(
+                    icon = Icons.AutoMirrored.Filled.AltRoute,
+                    contentDescription = "分支对话",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    onClick = onBranch
+                )
+            } else if (onQuote != null) {
                 FooterIconButton(
                     icon = Icons.Default.FormatQuote,
                     contentDescription = "引用",
@@ -3026,6 +3094,8 @@ fun ChatInputBar(
     inputText: String,
     onInputChange: (String) -> Unit,
     onSend: () -> Unit,
+    quotedText: String? = null,
+    onClearQuote: () -> Unit = {},
     isGenerating: Boolean,
     onStopGeneration: () -> Unit,
     attachments: List<Attachment>,
@@ -3125,26 +3195,29 @@ fun ChatInputBar(
                         ),
                         label = "bottomPulseAlpha"
                     )
+                    val bottomHaloColor = if (isGenerating) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                    val bottomSurfaceBorderColor = if (isGenerating) MaterialTheme.colorScheme.error.copy(alpha = 0.85f) else glass.outlineSelected
                     Box(
                         modifier = Modifier.size(34.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .graphicsLayer(scaleX = bottomPulseScale, scaleY = bottomPulseScale)
-                                .border(
-                                    1.2.dp,
-                                    MaterialTheme.colorScheme.primary.copy(alpha = bottomPulseAlpha),
-                                    CircleShape
-                                )
-                        )
+                        Canvas(modifier = Modifier.matchParentSize()) {
+                            val strokeWidth = 1.2.dp.toPx()
+                            val baseRadius = (size.minDimension - strokeWidth) / 2f
+                            val currentRadius = baseRadius * bottomPulseScale
+                            drawCircle(
+                                color = bottomHaloColor.copy(alpha = bottomPulseAlpha),
+                                radius = currentRadius,
+                                center = center,
+                                style = Stroke(width = strokeWidth)
+                            )
+                        }
                         Surface(
                             onClick = { onBarsHiddenChange(false) },
                             shape = CircleShape,
                             color = if (isGenerating) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                             contentColor = Color.White,
-                            border = BorderStroke(1.2.dp, glass.outlineSelected),
+                            border = BorderStroke(1.2.dp, bottomSurfaceBorderColor),
                             modifier = Modifier.size(34.dp)
                         ) {
                             Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
@@ -3194,6 +3267,15 @@ fun ChatInputBar(
                                 )
                             }
                         }
+                    }
+
+                    if (!quotedText.isNullOrBlank()) {
+                        QuotedTextPreviewCard(
+                            quotedText = quotedText,
+                            onClear = onClearQuote,
+                            textColor = inputTextColor
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
                     }
 
                     BasicTextField(
@@ -3425,7 +3507,7 @@ fun ChatInputBar(
                             shape = CircleShape,
                             color = MaterialTheme.colorScheme.error,
                             contentColor = MaterialTheme.colorScheme.onError,
-                            border = BorderStroke(1.2.dp, glass.outlineSelected),
+                            border = BorderStroke(1.2.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.85f)),
                             modifier = Modifier
                                 .size(34.dp)
                                 .echoShapeClick(CircleShape, onClick = onStopGeneration)
@@ -3435,12 +3517,13 @@ fun ChatInputBar(
                             }
                         }
                     } else {
-                        val canSend = !isProcessingAttachments && (inputText.isNotBlank() || attachments.isNotEmpty())
+                        val canSend = !isProcessingAttachments && (inputText.isNotBlank() || attachments.isNotEmpty() || !quotedText.isNullOrBlank())
+                        val sendBorderColor = if (canSend) MaterialTheme.colorScheme.primary.copy(alpha = 0.85f) else glass.outlineSelected
                         Surface(
                             shape = CircleShape,
-                            color = if (canSend) MaterialTheme.colorScheme.primary else glass.control.copy(alpha = 0.52f),
-                            contentColor = if (canSend) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary.copy(alpha = 0.38f),
-                            border = BorderStroke(1.2.dp, if (canSend) glass.outlineSelected else glass.outline),
+                            color = if (canSend) MaterialTheme.colorScheme.primary else glass.control,
+                            contentColor = if (canSend) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary.copy(alpha = 0.45f),
+                            border = BorderStroke(1.2.dp, sendBorderColor),
                             modifier = Modifier
                                 .size(34.dp)
                                 .echoShapeClick(CircleShape, enabled = canSend, onClick = onSend)
@@ -3527,6 +3610,73 @@ fun ChatInputBar(
     }
 }
 }
+}
+
+@Composable
+private fun QuotedTextPreviewCard(
+    quotedText: String,
+    onClear: () -> Unit,
+    textColor: Color,
+    modifier: Modifier = Modifier
+) {
+    val glass = echoGlassPalette()
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = glass.control.copy(alpha = 0.65f),
+        border = BorderStroke(1.dp, glass.outlineSelected.copy(alpha = 0.45f))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(3.dp)
+                    .height(24.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(MaterialTheme.colorScheme.primary)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Icon(
+                Icons.Default.FormatQuote,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "引用内容",
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    ),
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = quotedText.replace('\n', ' '),
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                    color = textColor.copy(alpha = 0.85f),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            IconButton(
+                onClick = onClear,
+                modifier = Modifier.size(24.dp)
+            ) {
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = "取消引用",
+                    tint = textColor.copy(alpha = 0.6f),
+                    modifier = Modifier.size(14.dp)
+                )
+            }
+        }
+    }
 }
 
 

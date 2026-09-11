@@ -938,6 +938,23 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                 }
             }
 
+            // 同步保留原对话的完整高级参数配置
+            val newConv = repository.getConversationById(newConversationId)
+            if (newConv != null) {
+                repository.updateConversation(
+                    newConv.copy(
+                        temperature = originalConversation.temperature,
+                        maxTokens = originalConversation.maxTokens,
+                        topP = originalConversation.topP,
+                        enableThinking = originalConversation.enableThinking,
+                        thinkingEffort = originalConversation.thinkingEffort,
+                        enableWebSearch = originalConversation.enableWebSearch,
+                        enableSessionMemory = originalConversation.enableSessionMemory,
+                        tags = originalConversation.tags
+                    )
+                )
+            }
+
             // 创建分支记录
             repository.createBranch(conversationId, messageId, newConversationId)
 

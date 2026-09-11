@@ -164,6 +164,9 @@ fun AiAssistantNavigation(
                 onNavigateBack = {
                     navController.popBackStack()
                 },
+                onNavigateToChat = { newConversationId ->
+                    navController.navigate("chat/$newConversationId")
+                },
                 onNavigateToRoleplayMemory = { sessionId ->
                     navController.navigate("roleplay_memory/$sessionId")
                 }

@@ -105,6 +105,17 @@ private val CurrentFeatureHighlights = listOf(
 )
 
 internal val CurrentVersionUserUpdates = listOf(
+    "引用UI重构：引用文字由独立毛玻璃预览卡片呈现，不再强塞入输入框，发送时自动拼接提示词",
+    "发送键边缘圆环校准：与添加文件(+)键保持完全一致的精致圆形边缘，随按键状态在蓝色与红色之间平滑切换",
+    "收缩状态同心光晕重构：采用绝对同心数学绘制，彻底根除亚像素错位微小偏差",
+    "收缩发送光晕红蓝切换：生成中状态光晕与边框同步变红，停止/发送状态保持纯正蔚蓝",
+    "设置页真悬浮栏实现：列表支持从透明毛玻璃悬浮栏下方穿透滚动，视觉与交互完美统一",
+    "模型回复新增分支对话功能：一键创建包含该回复及所有前序上下文的全新独立会话分支",
+    "长期记忆与专属记忆架构升级：吸收业界前沿范式，新增技术栈/职业身份/负向约束提取，引入防鹦鹉学舌系统引导",
+    "删除二次确认机制：对话页内删除输入消息或 AI 回复全面增加二次确认弹窗，防止误删"
+)
+
+internal val V201UserUpdates = listOf(
     "输入框(+)添加与发送按键直径统一为34dp（与智能搜索高度一致），间距加大至10dp，高亮边框精准贴合物理边缘",
     "输入框隐藏状态外圈呼吸脉冲光晕优化：缩至最小时与按键边缘严密重合，修复发送键脉冲错位问题",
     "输入框隐藏后支持系统级返回手势（侧滑返回）无缝退出隐藏状态并恢复面板",
@@ -319,7 +330,9 @@ fun SettingsScreen(
             fallbackSurface = readableBackdrops.top
         )
 
-        val topBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 56.dp + 12.dp
+        val topBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+        val topBarHeight = topBarPadding + 56.dp + 12.dp
+        val tabContentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topBarHeight + 8.dp, bottom = 28.dp)
 
         Box(
             modifier = Modifier
@@ -329,49 +342,56 @@ fun SettingsScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(top = topBarHeight)
             ) {
                 when (selectedSection) {
                     null -> SettingsMenu(
                         hazeState = hazeState,
                         modifier = Modifier.fillMaxSize(),
+                        contentPadding = tabContentPadding,
                         onSectionSelected = { selectedSection = it }
                     )
-                    "api_config" -> ApiConfigTab(hazeState = hazeState, modifier = Modifier.fillMaxSize())
+                    "api_config" -> ApiConfigTab(hazeState = hazeState, modifier = Modifier.fillMaxSize(), contentPadding = tabContentPadding)
                     "appearance" -> AppearanceTab(
                         hazeState = hazeState,
                         modifier = Modifier.fillMaxSize(),
                         themeMode = themeMode,
-                        onThemeModeChange = onThemeModeChange
+                        onThemeModeChange = onThemeModeChange,
+                        contentPadding = tabContentPadding
                     )
                     "model_features" -> ModelFeaturesTab(
                         hazeState = hazeState,
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = tabContentPadding
                     )
                     "prompts_memory" -> PromptsMemoryTab(
                         hazeState = hazeState,
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = tabContentPadding
                     )
                     "personalization" -> AppearanceTab(
                         hazeState = hazeState,
                         modifier = Modifier.fillMaxSize(),
                         themeMode = themeMode,
-                        onThemeModeChange = onThemeModeChange
+                        onThemeModeChange = onThemeModeChange,
+                        contentPadding = tabContentPadding
                     )
                     "web_search" -> WebSearchTab(
                         hazeState = hazeState,
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = tabContentPadding
                     )
                     "hidden_conversations" -> HiddenConversationsTab(
                         hazeState = hazeState,
                         modifier = Modifier.fillMaxSize(),
-                        onNavigateToChat = onNavigateToChat
+                        onNavigateToChat = onNavigateToChat,
+                        contentPadding = tabContentPadding
                     )
                     "backup" -> BackupTab(
                         hazeState = hazeState,
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = tabContentPadding
                     )
-                    "about" -> AboutTab(hazeState = hazeState, modifier = Modifier.fillMaxSize())
+                    "about" -> AboutTab(hazeState = hazeState, modifier = Modifier.fillMaxSize(), contentPadding = tabContentPadding)
                 }
             }
 
@@ -443,11 +463,12 @@ fun SettingsScreen(
 fun SettingsMenu(
     hazeState: dev.chrisbanes.haze.HazeState,
     modifier: Modifier = Modifier,
+    contentPadding: PaddingValues = PaddingValues(16.dp),
     onSectionSelected: (String) -> Unit
 ) {
     LazyColumn(
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
+        contentPadding = contentPadding,
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         item {
@@ -660,7 +681,8 @@ fun SettingsMenuItem(
 @Composable
 fun ApiConfigTab(
     hazeState: dev.chrisbanes.haze.HazeState,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    contentPadding: PaddingValues = PaddingValues(16.dp)
 ) {
     val repository = AiAssistantApp.instance.repository
     val scope = rememberCoroutineScope()
@@ -678,7 +700,7 @@ fun ApiConfigTab(
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
+        contentPadding = contentPadding,
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         item {
@@ -930,7 +952,8 @@ fun ApiConfigCard(
 @Composable
 fun WebSearchTab(
     hazeState: dev.chrisbanes.haze.HazeState,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    contentPadding: PaddingValues = PaddingValues(16.dp)
 ) {
     val toolHub = AiAssistantApp.instance.echoToolHub
     val tavilyManager = AiAssistantApp.instance.tavilySearchManager
@@ -983,7 +1006,7 @@ fun WebSearchTab(
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
+        contentPadding = contentPadding,
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         // 卡片 1：搜索引擎选择
@@ -2213,7 +2236,8 @@ fun AppearanceTab(
     hazeState: dev.chrisbanes.haze.HazeState,
     modifier: Modifier = Modifier,
     themeMode: AppThemeMode,
-    onThemeModeChange: (AppThemeMode) -> Unit
+    onThemeModeChange: (AppThemeMode) -> Unit,
+    contentPadding: PaddingValues = PaddingValues(16.dp)
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val manager = AiAssistantApp.instance.personalizationManager
@@ -2275,7 +2299,7 @@ fun AppearanceTab(
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
+        contentPadding = contentPadding,
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         // 0. 用户头像设置
@@ -2691,7 +2715,8 @@ fun AppearanceTab(
 @Composable
 fun ModelFeaturesTab(
     hazeState: dev.chrisbanes.haze.HazeState,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    contentPadding: PaddingValues = PaddingValues(16.dp)
 ) {
     val manager = AiAssistantApp.instance.personalizationManager
     val repository = AiAssistantApp.instance.repository
@@ -2777,7 +2802,7 @@ fun ModelFeaturesTab(
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
+        contentPadding = contentPadding,
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         // 1. 对话智能自动命名模型 (自由选择所有模型)
@@ -3107,7 +3132,8 @@ fun ModelFeaturesTab(
 @Composable
 fun PromptsMemoryTab(
     hazeState: dev.chrisbanes.haze.HazeState,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    contentPadding: PaddingValues = PaddingValues(16.dp)
 ) {
     val manager = AiAssistantApp.instance.personalizationManager
     val repository = AiAssistantApp.instance.repository
@@ -3208,7 +3234,7 @@ fun PromptsMemoryTab(
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
+        contentPadding = contentPadding,
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         // 1. 提示词与记忆生效机制与优先级说明
@@ -4537,7 +4563,8 @@ private fun PersonalizationTextField(
 fun HiddenConversationsTab(
     hazeState: dev.chrisbanes.haze.HazeState,
     modifier: Modifier = Modifier,
-    onNavigateToChat: (Long) -> Unit
+    onNavigateToChat: (Long) -> Unit,
+    contentPadding: PaddingValues = PaddingValues(16.dp)
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val repository = AiAssistantApp.instance.repository
@@ -4564,7 +4591,7 @@ fun HiddenConversationsTab(
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
+        contentPadding = contentPadding,
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
@@ -4948,7 +4975,8 @@ private fun String.onlySixDigits(): String {
 @Composable
 fun BackupTab(
     hazeState: dev.chrisbanes.haze.HazeState,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    contentPadding: PaddingValues = PaddingValues(16.dp)
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
@@ -4984,7 +5012,7 @@ fun BackupTab(
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
+        contentPadding = contentPadding,
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
@@ -5271,11 +5299,12 @@ fun BackupItemCard(
 @Composable
 fun AboutTab(
     hazeState: dev.chrisbanes.haze.HazeState,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    contentPadding: PaddingValues = PaddingValues(16.dp)
 ) {
     LazyColumn(
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
+        contentPadding = contentPadding,
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         // 应用信息

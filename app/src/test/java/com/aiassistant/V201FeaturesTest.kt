@@ -1,7 +1,7 @@
 package com.aiassistant
 
 import com.aiassistant.ui.components.cleanLeadingStarArtifacts
-import com.aiassistant.ui.screens.settings.CurrentVersionUserUpdates
+import com.aiassistant.ui.screens.settings.V201UserUpdates
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -9,18 +9,18 @@ class V201FeaturesTest {
 
     @Test
     fun testV201CurrentVersionUserUpdatesCompleteness() {
-        assertTrue("V2.0.1 更新列表不得为空", CurrentVersionUserUpdates.isNotEmpty())
-        assertEquals(10, CurrentVersionUserUpdates.size)
-        assertTrue(CurrentVersionUserUpdates.any { it.contains("34dp") && it.contains("10dp") })
-        assertTrue(CurrentVersionUserUpdates.any { it.contains("呼吸脉冲光晕") && it.contains("错位") })
-        assertTrue(CurrentVersionUserUpdates.any { it.contains("侧滑返回") || it.contains("系统级返回") })
-        assertTrue(CurrentVersionUserUpdates.any { it.contains("状态栏") && it.contains("沉浸") })
-        assertTrue(CurrentVersionUserUpdates.any { it.contains("设置界面顶部悬浮栏") })
-        assertTrue(CurrentVersionUserUpdates.any { it.contains("引用") && it.contains("剪切板") })
-        assertTrue(CurrentVersionUserUpdates.any { it.contains("流式输出自动滚动") && it.contains("回弹") })
-        assertTrue(CurrentVersionUserUpdates.any { it.contains("水平横向滑动") })
-        assertTrue(CurrentVersionUserUpdates.any { it.contains("星号") || it.contains("Markdown") })
-        assertTrue(CurrentVersionUserUpdates.any { it.contains("展开/折叠") || it.contains("双轨") })
+        assertTrue("V2.0.1 更新列表不得为空", V201UserUpdates.isNotEmpty())
+        assertEquals(10, V201UserUpdates.size)
+        assertTrue(V201UserUpdates.any { it.contains("34dp") && it.contains("10dp") })
+        assertTrue(V201UserUpdates.any { it.contains("呼吸脉冲光晕") && it.contains("错位") })
+        assertTrue(V201UserUpdates.any { it.contains("侧滑返回") || it.contains("系统级返回") })
+        assertTrue(V201UserUpdates.any { it.contains("状态栏") && it.contains("沉浸") })
+        assertTrue(V201UserUpdates.any { it.contains("设置界面顶部悬浮栏") })
+        assertTrue(V201UserUpdates.any { it.contains("引用") && it.contains("剪切板") })
+        assertTrue(V201UserUpdates.any { it.contains("流式输出自动滚动") && it.contains("回弹") })
+        assertTrue(V201UserUpdates.any { it.contains("水平横向滑动") })
+        assertTrue(V201UserUpdates.any { it.contains("星号") || it.contains("Markdown") })
+        assertTrue(V201UserUpdates.any { it.contains("展开/折叠") || it.contains("双轨") })
     }
 
     @Test

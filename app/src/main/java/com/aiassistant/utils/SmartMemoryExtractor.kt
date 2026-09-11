@@ -186,7 +186,35 @@ object SmartMemoryExtractor {
             )
         }
 
-        // 9. 真实持久身份、姓名与职业
+        // 8.1 严禁省略代码与输出规范约束
+        if (lower.contains("不要省略") || lower.contains("不要写todo") || lower.contains("完整代码") || lower.contains("严禁省略")) {
+            return PendingMemoryCandidate(
+                distilledContent = "用户偏好：输出代码时必须给出完整实现，严禁省略中间逻辑或使用TODO占位",
+                originalSnippet = trimmed.take(80),
+                suggestedScope = defaultScope,
+                conversationId = conversationId,
+                sourceMessageId = messageId,
+                category = "PREFERENCE"
+            )
+        }
+
+        // 8.2 负向约束（避免、切勿、禁止）
+        val negativeConstraintRegex = Regex("""^(?:(?:请|务必)?(?:不要|切勿|避免|严禁|禁止)\s*)(.{3,60})$""")
+        negativeConstraintRegex.find(trimmed)?.let { match ->
+            val constraint = match.groupValues[1].trim()
+            if (constraint.isNotBlank() && !SINGLE_TURN_TASK_VERBS.any { constraint.contains(it) }) {
+                return PendingMemoryCandidate(
+                    distilledContent = "行为约束：避免$constraint",
+                    originalSnippet = trimmed.take(80),
+                    suggestedScope = defaultScope,
+                    conversationId = conversationId,
+                    sourceMessageId = messageId,
+                    category = "PREFERENCE"
+                )
+            }
+        }
+
+        // 9. 真实持久身份、姓名、职业与技术栈习惯
         val identityRegex = Regex("""(?:我叫|我的名字是|我名字叫)\s*([A-Za-z0-9\u4e00-\u9fa5]{2,10})""")
         identityRegex.find(trimmed)?.let { match ->
             val name = match.groupValues[1]
@@ -200,11 +228,25 @@ object SmartMemoryExtractor {
             )
         }
 
-        val careerRegex = Regex("""(?:我是(?:一名|一个)?)\s*([A-Za-z0-9\u4e00-\u9fa5\s]{2,25}?(?:工程师|程序员|开发者|架构师|学生|老师|设计师|产品经理|医生|律师|作家|学者|研究员))""")
+        val careerRegex = Regex("""(?:我是(?:一名|一个)?)\s*([A-Za-z0-9\u4e00-\u9fa5\s]{0,25}?(?:工程师|程序员|开发者|架构师|学生|老师|设计师|产品经理|医生|律师|作家|学者|研究员))""")
         careerRegex.find(trimmed)?.let { match ->
             val job = match.groupValues[1].trim()
             return PendingMemoryCandidate(
                 distilledContent = "用户事实：用户职业身份为「$job」",
+                originalSnippet = trimmed.take(80),
+                suggestedScope = "user",
+                conversationId = conversationId,
+                sourceMessageId = messageId,
+                category = "FACT"
+            )
+        }
+
+        // 9.1 个人常用技术栈与习惯
+        val techHabitRegex = Regex("""(?:我(?:平时|经常|习惯|主要)?(?:使用|用|偏好|写))\s*([A-Za-z0-9\s#+.-]{0,30}?(?:Kotlin|Java|Python|Rust|Golang|Go|TypeScript|JavaScript|Compose|Jetpack Compose|React|Vue|Flutter|Swift|C\+\+|SQL))""", RegexOption.IGNORE_CASE)
+        techHabitRegex.find(trimmed)?.let { match ->
+            val tech = match.groupValues[1].trim()
+            return PendingMemoryCandidate(
+                distilledContent = "用户习惯：常用技术栈为「$tech」",
                 originalSnippet = trimmed.take(80),
                 suggestedScope = "user",
                 conversationId = conversationId,

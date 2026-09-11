@@ -1,5 +1,70 @@
 # Echo AI 助手更新日志 (Update Log)
 
+## [v2.0.2] - 2026-09-11
+
+### 1. 本次升级与 7 项用户需求 100% 彻底落实
+1. **引用 UI 展示效果重构（独立悬浮卡片预览，输入框保持整洁，Req 1）**：
+   - 彻底优化文字引用交互体验：点击引用不再将 `> $quote\n针对以上内容：\n` 的大段引文直接硬塞进输入框，彻底消除长文本严重挤占编辑区域的困扰；
+   - 引入专用毛玻璃引用悬浮预览卡片（`QuotedTextPreviewCard`），位于输入框正上方独立浮动：采用圆角液态玻璃面板、左侧主题渐变装饰条、最多两行省略号紧凑展示（`maxLines = 2`）以及右侧一键取消按键（✕）；
+   - 用户在输入框中可专注输入针对该引文的追问或回复内容；点击发送时，底层自动将引文与提问规范合成为标准 Markdown 引用格式传递给模型，发送后自动平滑清除引用状态。
+2. **输入框发送按键圆形外边缘微光与蓝红状态双色切换（Req 2）**：
+   - 发送/暂停按键外圈增加与添加文件（+）按键完全一致的圆形轮廓包裹，高亮微光边框与按键物理边缘严丝合缝对齐；
+   - 发送按键外圈描边颜色随生成状态动态无缝切换：非生成状态（发送箭头）呈现标志性主题蓝光（`glass.outlineSelected`），而在模型流式生成或思考状态（暂停方块）时动态切换为醒目深红色（`Color(0xFFE53935)` / `Color(0xFFEF5350)`），状态感知清晰醒目。
+3. **输入框收缩后返回键与发送键呼吸光晕微小错位彻底消除与红蓝切换（Req 3）**：
+   - 彻底解决输入框收缩隐藏后呼吸光晕在浮点 DPI 下的微小错位现象：摒弃基于 `graphicsLayer` 缩放描边方案，全面改用纯数学同轴同心圆绘制（`Canvas.drawCircle`），直接绑定物理几何中心 `center` 与基准半径 `baseRadius`，消除任何子像素级偏移；
+   - 底部发送按键的光晕颜色同步联动：非生成状态呼吸脉冲为静谧微光蓝，生成进行中（暂停状态）呼吸脉冲动态切换为醒目警示红。
+4. **设置页面顶部悬浮栏真正悬浮效果实现（Req 4）**：
+   - 彻底修复设置页面下方列表内容无法滑动到顶部悬浮栏下方的问题：原页面容器外层配置了 `.padding(top = topBarHeight)` 导致下方内容在悬浮栏下方硬性截断；
+   - 重构布局架构：移除外层硬性顶 padding，在各 Tab 的滚动列表（LazyColumn/Column）中统一将 `topBarHeight + 12.dp` 注入 `contentPadding`，使设置项与卡片能够真实、自然、平滑地穿透滑入顶部毛玻璃胶囊下方，完美呈现全域毛玻璃背景模糊与折射。
+5. **新增「分支对话」功能并重构模型输出底部操作栏（Req 5）**：
+   - 在模型回复气泡最下方底部操作栏中，新增「分支对话」按键（使用 `Icons.AutoMirrored.Filled.AltRoute` 分支图标与 "分支对话" 标签），直接替代原有单条回复引用按键位置；
+   - 点击后自动创建一个包含该回复及其之前所有历史记录的新独立会话，并完整继承当前会话的模型、温度、Top-P、思考模式、联网搜索等全部对话配置；
+   - 创建成功后立即平滑导航跳转至新分支会话中，支持用户在此分支上自由探索新剧情或新思路，原有主干会话完好保留。
+6. **基于开源项目 (Mem0 / Zep / Letta) 深入调研强化记忆提取与作用效果（Req 6）**：
+   - 深入学习行业先进记忆架构：引入语义与实体边界提取、独立作用域管理（`USER` 属性 vs `CONVERSATION` 上下文）与防复读/防机械重复（Anti-Parroting）提示词注入约束；
+   - 优化 `SmartMemoryExtractor`：重构原子事实提取正则，增加对技术栈、开发偏好、特定限制、负向约束的即时匹配能力，消除正则过度贪婪，大幅提升关键记忆提取灵敏度；
+   - 优化 `AiRepository` 记忆注入：采用结构化 `<system_memory_context>` 封装，融入长度归一化记忆重合度评分，并显式注入引导指令：“模型不得向用户复读记忆列表，而是在对话中自然体现对设定的遵从”，极大增强长期记忆与专属记忆对模型实际回复行为的引导效果。
+7. **对话页删除用户输入或回复二次确认安全弹窗（Req 7）**：
+   - 消息气泡长按菜单及底部操作栏点击删除时，增加系统级二次防误触确认弹窗（`AlertDialog`）；
+   - 明确提示用户“确定要删除该条消息吗？删除后不可恢复”，彻底消除日常单手滑动或误触导致的误删聊天记录风险。
+
+### 2. 自动化测试与质量保障
+- 全量 140 项单元测试 100% 全部通过（退出码 0）；
+- 新增 `V202FeaturesTest` 专项覆盖 7 项核心需求：
+  - `testV202CurrentVersionUserUpdatesCompleteness`：7 项核心需求更新日志完备性验证；
+  - `testQuotePromptSynthesis`：独立预览卡片引文与用户提问精准合成验证；
+  - `testSendButtonHaloColorSwitchContract`：发送/暂停按键红蓝边框与光晕状态切换契约验证；
+  - `testCanvasConcentricCircleContract`：同轴同心圆绘制无子像素偏移契约验证；
+  - `testSettingsScreenTrueFloatingContentPaddingContract`：设置页真悬浮与 contentPadding 注入验证；
+  - `testBranchConversationFullContextInheritance`：分支对话历史上下文与参数继承验证；
+  - `testSmartMemoryExtractorEnhancements`：增强版原子事实提取与防过度贪婪验证；
+  - `testSystemMemoryContextAntiParrotingInjection`：结构化记忆注入与 Anti-Parroting 指令验证；
+  - `testDeleteMessageSecondaryConfirmationContract`：消息删除二次防误触弹窗契约验证。
+
+### 3. 发布产物信息
+- **安装包路径**：`releases/Echo-v2.0.2-arm64-v8a.apk`
+- **文件体积**：16,058,365 字节 (约 15.31 MB)
+- **SHA256**：`B88E31EA04B0E47824D9BC5CE41B14F786E2DDD8D4733B961601C313D4ACA213`
+- **Package**：`com.aiassistant` | **VersionCode**：`112` | **VersionName**：`2.0.2` | **ABI**：`arm64-v8a`
+- **签名验证**：APK Signature Scheme v2 (release 签名验证通过)
+- **历史版本永久保留**：所有历史版本安装包完整保留无删除，当前 releases 目录累计 112 个独立版本安装包。
+
+### 4. 改动文件列表
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatScreen.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatViewModel.kt`
+- `app/src/main/java/com/aiassistant/data/repository/AiRepository.kt`
+- `app/src/main/java/com/aiassistant/utils/SmartMemoryExtractor.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/settings/SettingsScreen.kt`
+- `app/src/main/java/com/aiassistant/MainActivity.kt`
+- `app/src/test/java/com/aiassistant/V201FeaturesTest.kt`
+- `app/src/test/java/com/aiassistant/V202FeaturesTest.kt`
+- `app/build.gradle.kts`
+- `CHANGELOG.md`
+- `UPDATE_LOG.md` (root & app)
+- `README.md`
+- `PROJECT.md`
+- `WORKFLOW_GUIDELINES.md`
+
 ## [v2.0.1] - 2026-09-10
 
 ### 1. 本次升级与 10 项用户需求 100% 彻底落实
