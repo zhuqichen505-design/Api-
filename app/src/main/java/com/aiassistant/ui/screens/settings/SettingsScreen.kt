@@ -5223,7 +5223,9 @@ fun BackupTab(
                     onRestore = {
                         scope.launch {
                             val result = BackupManager.restoreBackup(context, backup.filePath)
-                            showMessage = if (result) "恢复成功！请重启应用" else "恢复失败"
+                            showMessage = if (result) {
+                                if (backup.fileName.endsWith(".json", ignoreCase = true)) "恢复成功！已成功导入该对话" else "恢复成功！请重启应用"
+                            } else "恢复失败"
                         }
                     },
                     onDelete = {

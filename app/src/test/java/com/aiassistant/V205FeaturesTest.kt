@@ -163,14 +163,32 @@ class V205FeaturesTest {
         // 反序列化校验
         val parsed = Gson().fromJson(json, BackupManager.SingleConversationExport::class.java)
         assertNotNull(parsed)
-        assertEquals(505L, parsed.conversation.id)
-        assertEquals("异世界冒险录", parsed.conversation.title)
-        assertEquals(2, parsed.messages.size)
+        assertEquals(505L, parsed.conversation?.id)
+        assertEquals("异世界冒险录", parsed.conversation?.title)
+        assertEquals(2, parsed.messages?.size)
         assertEquals("艾莉丝", parsed.characterProfile?.name)
         assertEquals("边境公会", parsed.roleplayScenario?.name)
-        assertEquals(1, parsed.roleplayMemories.size)
-        assertEquals("主角登记为铜级冒险者", parsed.roleplayMemories.first().content)
-        assertTrue(parsed.roleplayMemories.first().isPinned)
+        assertEquals(1, parsed.roleplayMemories?.size)
+        assertEquals("主角登记为铜级冒险者", parsed.roleplayMemories?.first()?.content)
+        assertTrue(parsed.roleplayMemories?.first()?.isPinned == true)
+    }
+
+    @Test
+    fun testIsJsonBackupDetection() {
+        val tempJsonFile = java.io.File.createTempFile("test_conv", ".json")
+        tempJsonFile.writeText("{\"type\":\"single_conversation\",\"conversation\":{}}")
+        assertTrue("以.json结尾的文件必须被识别为JSON备份", BackupManager.isJsonBackup(tempJsonFile))
+        tempJsonFile.delete()
+
+        val tempNoExtJsonFile = java.io.File.createTempFile("test_conv_no_ext", "")
+        tempNoExtJsonFile.writeText("{\"title\":\"无后缀测试\",\"messages\":[]}")
+        assertTrue("以大括号开头的纯文本必须被探测识别为JSON备份", BackupManager.isJsonBackup(tempNoExtJsonFile))
+        tempNoExtJsonFile.delete()
+
+        val tempZipFile = java.io.File.createTempFile("test_zip", ".zip")
+        tempZipFile.writeBytes(byteArrayOf(0x50, 0x4B, 0x03, 0x04, 0x00, 0x00))
+        assertFalse("标准ZIP文件头不得被误判为JSON备份", BackupManager.isJsonBackup(tempZipFile))
+        tempZipFile.delete()
     }
 
     @Test

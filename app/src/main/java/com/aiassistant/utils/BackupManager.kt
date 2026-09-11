@@ -6,6 +6,8 @@ import android.content.Intent
 import android.database.Cursor
 import android.net.Uri
 import android.os.Environment
+import android.util.Log
+import androidx.annotation.Keep
 import androidx.core.content.FileProvider
 import androidx.room.withTransaction
 import com.aiassistant.BuildConfig
@@ -13,6 +15,11 @@ import com.aiassistant.data.local.AppDatabase
 import com.aiassistant.domain.model.*
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
+import com.google.gson.JsonObject
+import com.google.gson.JsonParser
+import com.google.gson.annotations.SerializedName
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -119,69 +126,79 @@ object BackupManager {
     }
 
     /**
+     * 判断指定文件是否为 JSON 格式备份（通过后缀或文件头探测）
+     */
+    fun isJsonBackup(file: File): Boolean {
+        if (!file.exists()) return false
+        if (file.name.endsWith(".json", ignoreCase = true)) return true
+        return try {
+            file.bufferedReader(Charsets.UTF_8).use { reader ->
+                val buf = CharArray(256)
+                val read = reader.read(buf, 0, 256)
+                if (read > 0) {
+                    val header = String(buf, 0, read).trim().removePrefix("\uFEFF")
+                    header.startsWith("{") || header.contains("\"single_conversation\"")
+                } else false
+            }
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
      * 备份单个对话为独立的结构化 JSON 备份文件
      * 包含完整的消息流、模型高级参数、角色卡、场景世界观与剧情记忆
      */
     fun createSingleConversationBackup(context: Context, conversationId: Long): String? {
         return try {
-            val database = AppDatabase.getDatabase(context)
-            val conversation = kotlinx.coroutines.runBlocking {
-                database.conversationDao().getConversationById(conversationId)
-            } ?: return null
+            runBlocking(Dispatchers.IO) {
+                val database = AppDatabase.getDatabase(context)
+                val conversation = database.conversationDao().getConversationById(conversationId)
+                    ?: return@runBlocking null
 
-            val messages = kotlinx.coroutines.runBlocking {
-                database.messageDao().getMessagesList(conversationId)
-            }
+                val messages = database.messageDao().getMessagesList(conversationId)
+                val roleplaySession = database.roleplaySessionDao().getSessionByConversationId(conversationId)
 
-            val roleplaySession = kotlinx.coroutines.runBlocking {
-                database.roleplaySessionDao().getSessionByConversationId(conversationId)
-            }
-
-            val characterProfile = roleplaySession?.characterId?.let { charId ->
-                kotlinx.coroutines.runBlocking {
+                val characterProfile = roleplaySession?.characterId?.let { charId ->
                     database.characterProfileDao().getCharacterById(charId)
                 }
-            }
 
-            val roleplayScenario = roleplaySession?.scenarioId?.let { scenId ->
-                kotlinx.coroutines.runBlocking {
+                val roleplayScenario = roleplaySession?.scenarioId?.let { scenId ->
                     database.roleplayScenarioDao().getScenarioById(scenId)
                 }
-            }
 
-            val roleplayMemories = roleplaySession?.let { session ->
-                kotlinx.coroutines.runBlocking {
+                val roleplayMemories = roleplaySession?.let { session ->
                     database.roleplayMemoryDao().getMemoriesListBySession(session.id)
-                }
-            } ?: emptyList()
+                } ?: emptyList()
 
-            val bundle = SingleConversationExport(
-                formatVersion = 1,
-                type = "single_conversation",
-                exportedAt = System.currentTimeMillis(),
-                appVersion = BuildConfig.VERSION_NAME,
-                conversation = conversation,
-                messages = messages,
-                roleplaySession = roleplaySession,
-                characterProfile = characterProfile,
-                roleplayScenario = roleplayScenario,
-                roleplayMemories = roleplayMemories
-            )
+                val bundle = SingleConversationExport(
+                    formatVersion = 1,
+                    type = "single_conversation",
+                    exportedAt = System.currentTimeMillis(),
+                    appVersion = BuildConfig.VERSION_NAME,
+                    conversation = conversation,
+                    messages = messages,
+                    roleplaySession = roleplaySession,
+                    characterProfile = characterProfile,
+                    roleplayScenario = roleplayScenario,
+                    roleplayMemories = roleplayMemories
+                )
 
-            val json = GsonBuilder().setPrettyPrinting().create().toJson(bundle)
-            val backupDir = getBackupDir(context)
-            val safeTitle = conversation.title
-                .replace(Regex("[\\\\/:*?\"<>|\\s]+"), "_")
-                .trim('_')
-                .take(30)
-                .ifBlank { "对话_${conversation.id}" }
-            val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
-            val fileName = "Echo_Backup_Conv_${safeTitle}_$timestamp.json"
-            val backupFile = File(backupDir, fileName)
-            backupFile.writeText(json, Charsets.UTF_8)
-            backupFile.absolutePath
+                val json = GsonBuilder().setPrettyPrinting().create().toJson(bundle)
+                val backupDir = getBackupDir(context)
+                val safeTitle = conversation.title
+                    .replace(Regex("[\\\\/:*?\"<>|\\s]+"), "_")
+                    .trim('_')
+                    .take(30)
+                    .ifBlank { "对话_${conversation.id}" }
+                val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+                val fileName = "Echo_Backup_Conv_${safeTitle}_$timestamp.json"
+                val backupFile = File(backupDir, fileName)
+                backupFile.writeText(json, Charsets.UTF_8)
+                backupFile.absolutePath
+            }
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e("BackupManager", "createSingleConversationBackup failed", e)
             null
         }
     }
@@ -196,12 +213,16 @@ object BackupManager {
             val backupFile = File(backupPath)
             if (!backupFile.exists()) return false
 
-            // 先创建当前数据的安全备份
-            createBackup(context)
-
-            if (backupFile.name.endsWith(".json", ignoreCase = true)) {
+            if (isJsonBackup(backupFile)) {
                 val content = backupFile.readText(Charsets.UTF_8)
                 return restoreSingleConversationFromJson(context, content)
+            }
+
+            // 先创建当前数据的安全备份（仅针对全量 ZIP 恢复）
+            try {
+                createBackup(context)
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
 
             // 针对 ZIP 格式备份
@@ -249,7 +270,7 @@ object BackupManager {
                     }
                 }
 
-                if (singleJsonContent != null && singleJsonContent.contains("\"single_conversation\"")) {
+                if (singleJsonContent != null && (singleJsonContent.contains("\"single_conversation\"") || singleJsonContent.trim().startsWith("{"))) {
                     return restoreSingleConversationFromJson(context, singleJsonContent)
                 }
 
@@ -262,7 +283,7 @@ object BackupManager {
                 tempDir.deleteRecursively()
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e("BackupManager", "restoreBackup failed", e)
             false
         }
     }
@@ -272,35 +293,108 @@ object BackupManager {
      */
     fun restoreSingleConversationFromJson(context: Context, jsonString: String): Boolean {
         return try {
-            val bundle = try {
-                Gson().fromJson(jsonString, SingleConversationExport::class.java)
-            } catch (e: Exception) {
-                e.printStackTrace()
-                null
-            } ?: return false
+            val cleanJson = jsonString.trim().removePrefix("\uFEFF")
+            val gson = GsonBuilder().setLenient().create()
 
-            val database = AppDatabase.getDatabase(context)
-            kotlinx.coroutines.runBlocking {
-                database.withTransaction {
-                    val existing = database.conversationDao().getConversationById(bundle.conversation.id)
-                    val targetConvId = if (existing == null) {
-                        database.conversationDao().insertConversation(bundle.conversation)
-                    } else if (existing.title == bundle.conversation.title && existing.createdAt == bundle.conversation.createdAt) {
-                        database.conversationDao().updateConversation(bundle.conversation)
-                        database.messageDao().deleteMessagesByConversation(existing.id)
-                        existing.id
-                    } else {
-                        database.conversationDao().insertConversation(bundle.conversation.copy(id = 0L))
+            // 1. 尝试直接反序列化为 SingleConversationExport
+            var targetConversation: Conversation? = null
+            var targetMessages: List<Message> = emptyList()
+            var targetRpSession: RoleplaySession? = null
+            var targetCharProfile: CharacterProfile? = null
+            var targetRpScenario: RoleplayScenario? = null
+            var targetRpMemories: List<RoleplayMemory> = emptyList()
+
+            try {
+                val bundle = gson.fromJson(cleanJson, SingleConversationExport::class.java)
+                if (bundle != null && bundle.conversation != null) {
+                    targetConversation = bundle.conversation
+                    targetMessages = bundle.messages.orEmpty()
+                    targetRpSession = bundle.roleplaySession
+                    targetCharProfile = bundle.characterProfile
+                    targetRpScenario = bundle.roleplayScenario
+                    targetRpMemories = bundle.roleplayMemories.orEmpty()
+                }
+            } catch (e: Exception) {
+                Log.w("BackupManager", "Direct SingleConversationExport parsing fallback to JsonObject", e)
+            }
+
+            // 2. 容错解析：如果直接反序列化未获取到 conversation，尝试通过 JsonObject 提取
+            if (targetConversation == null) {
+                try {
+                    val rootObj = JsonParser.parseString(cleanJson).asJsonObject
+                    if (rootObj.has("conversation") && !rootObj.get("conversation").isJsonNull) {
+                        targetConversation = gson.fromJson(rootObj.get("conversation"), Conversation::class.java)
+                    } else if (rootObj.has("title") && !rootObj.get("title").isJsonNull) {
+                        targetConversation = gson.fromJson(rootObj, Conversation::class.java)
                     }
 
+                    if (rootObj.has("messages") && rootObj.get("messages").isJsonArray) {
+                        val msgArray = rootObj.getAsJsonArray("messages")
+                        targetMessages = msgArray.mapNotNull {
+                            try { gson.fromJson(it, Message::class.java) } catch (ex: Exception) { null }
+                        }
+                    }
+
+                    if (rootObj.has("roleplaySession") && !rootObj.get("roleplaySession").isJsonNull) {
+                        targetRpSession = gson.fromJson(rootObj.get("roleplaySession"), RoleplaySession::class.java)
+                    }
+                    if (rootObj.has("characterProfile") && !rootObj.get("characterProfile").isJsonNull) {
+                        targetCharProfile = gson.fromJson(rootObj.get("characterProfile"), CharacterProfile::class.java)
+                    }
+                    if (rootObj.has("roleplayScenario") && !rootObj.get("roleplayScenario").isJsonNull) {
+                        targetRpScenario = gson.fromJson(rootObj.get("roleplayScenario"), RoleplayScenario::class.java)
+                    }
+                    if (rootObj.has("roleplayMemories") && rootObj.get("roleplayMemories").isJsonArray) {
+                        val memArray = rootObj.getAsJsonArray("roleplayMemories")
+                        targetRpMemories = memArray.mapNotNull {
+                            try { gson.fromJson(it, RoleplayMemory::class.java) } catch (ex: Exception) { null }
+                        }
+                    }
+                } catch (jsonEx: Exception) {
+                    Log.e("BackupManager", "JsonObject fallback parsing failed", jsonEx)
+                }
+            }
+
+            val conversation = targetConversation ?: return false
+
+            val database = AppDatabase.getDatabase(context)
+            runBlocking(Dispatchers.IO) {
+                database.withTransaction {
+                    val now = System.currentTimeMillis()
+                    // 保证 apiConfigId 在本地存在有效值
+                    var effectiveConfigId = conversation.apiConfigId
+                    val configExists = if (effectiveConfigId > 0) {
+                        database.apiConfigDao().getConfigById(effectiveConfigId) != null
+                    } else false
+
+                    if (!configExists) {
+                        val firstConfig = try {
+                            database.apiConfigDao().getConfigById(1L)
+                        } catch (e: Exception) { null }
+                        effectiveConfigId = firstConfig?.id ?: 1L
+                    }
+
+                    // 检查 folderId 是否在本地有效
+                    val effectiveFolderId = conversation.folderId?.let { fid ->
+                        if (database.folderDao().getFolderById(fid) != null) fid else null
+                    }
+
+                    val convToInsert = conversation.copy(
+                        id = 0L,
+                        apiConfigId = effectiveConfigId,
+                        folderId = effectiveFolderId,
+                        createdAt = if (conversation.createdAt > 0) conversation.createdAt else now,
+                        updatedAt = now
+                    )
+                    val targetConvId = database.conversationDao().insertConversation(convToInsert)
+
                     val characterIdMap = mutableMapOf<Long, Long>()
-                    bundle.characterProfile?.let { charProfile ->
+                    targetCharProfile?.let { charProfile ->
                         val existingChar = database.characterProfileDao().getCharacterById(charProfile.id)
                         val targetCharId = if (existingChar == null) {
-                            database.characterProfileDao().insertCharacter(charProfile)
+                            database.characterProfileDao().insertCharacter(charProfile.copy(id = 0L))
                         } else if (existingChar.name == charProfile.name) {
-                            database.characterProfileDao().updateCharacter(charProfile)
-                            charProfile.id
+                            existingChar.id
                         } else {
                             database.characterProfileDao().insertCharacter(charProfile.copy(id = 0L))
                         }
@@ -308,13 +402,12 @@ object BackupManager {
                     }
 
                     val scenarioIdMap = mutableMapOf<Long, Long>()
-                    bundle.roleplayScenario?.let { scenario ->
+                    targetRpScenario?.let { scenario ->
                         val existingScen = database.roleplayScenarioDao().getScenarioById(scenario.id)
                         val targetScenId = if (existingScen == null) {
-                            database.roleplayScenarioDao().insertScenario(scenario)
+                            database.roleplayScenarioDao().insertScenario(scenario.copy(id = 0L))
                         } else if (existingScen.name == scenario.name) {
-                            database.roleplayScenarioDao().updateScenario(scenario)
-                            scenario.id
+                            existingScen.id
                         } else {
                             database.roleplayScenarioDao().insertScenario(scenario.copy(id = 0L))
                         }
@@ -322,35 +415,40 @@ object BackupManager {
                     }
 
                     var targetSessionId: Long? = null
-                    bundle.roleplaySession?.let { session ->
+                    targetRpSession?.let { session ->
                         val remappedCharId = session.characterId?.let { characterIdMap[it] ?: it }
                         val remappedScenId = session.scenarioId?.let { scenarioIdMap[it] ?: it }
-                        val existingSession = database.roleplaySessionDao().getSessionByConversationId(targetConvId)
                         val newSession = session.copy(
-                            id = existingSession?.id ?: 0L,
+                            id = 0L,
                             conversationId = targetConvId,
                             characterId = remappedCharId,
-                            scenarioId = remappedScenId
+                            scenarioId = remappedScenId,
+                            createdAt = now,
+                            updatedAt = now
                         )
                         targetSessionId = database.roleplaySessionDao().insertSession(newSession)
                     }
 
-                    if (targetSessionId != null && bundle.roleplayMemories.isNotEmpty()) {
-                        bundle.roleplayMemories.forEach { mem ->
+                    if (targetSessionId != null && targetRpMemories.isNotEmpty()) {
+                        targetRpMemories.forEach { mem ->
                             database.roleplayMemoryDao().insertMemory(
                                 mem.copy(
                                     id = 0L,
-                                    sessionId = targetSessionId!!
+                                    sessionId = targetSessionId!!,
+                                    createdAt = now,
+                                    updatedAt = now
                                 )
                             )
                         }
                     }
 
-                    if (bundle.messages.isNotEmpty()) {
-                        val messagesToInsert = bundle.messages.map { msg ->
+                    if (targetMessages.isNotEmpty()) {
+                        val baseTime = now - (targetMessages.size * 1000L)
+                        val messagesToInsert = targetMessages.mapIndexed { index, msg ->
                             msg.copy(
                                 id = 0L,
-                                conversationId = targetConvId
+                                conversationId = targetConvId,
+                                createdAt = if (msg.createdAt > 0) msg.createdAt else (baseTime + index * 1000L)
                             )
                         }
                         database.messageDao().insertMessages(messagesToInsert)
@@ -358,15 +456,15 @@ object BackupManager {
 
                     database.conversationDao().updateStats(
                         id = targetConvId,
-                        count = bundle.messages.size,
-                        tokens = bundle.messages.sumOf { it.tokenCount }
+                        count = targetMessages.size,
+                        tokens = targetMessages.sumOf { it.tokenCount }
                     )
                 }
             }
             database.invalidationTracker.refreshVersionsSync()
             true
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e("BackupManager", "restoreSingleConversationFromJson failed", e)
             false
         }
     }
@@ -678,20 +776,23 @@ object BackupManager {
                     }
                 }
             }
-            if (!fileName.endsWith(".zip", ignoreCase = true) && !fileName.endsWith(".json", ignoreCase = true)) {
-                fileName += ".zip"
-            }
             val importFile = File(importDir, fileName)
             context.contentResolver.openInputStream(uri)?.use { input ->
                 FileOutputStream(importFile).use { output ->
                     input.copyTo(output)
                 }
             } ?: return false
-            val result = restoreBackup(context, importFile.absolutePath)
+
+            val result = if (isJsonBackup(importFile)) {
+                val content = importFile.readText(Charsets.UTF_8)
+                restoreSingleConversationFromJson(context, content)
+            } else {
+                restoreBackup(context, importFile.absolutePath)
+            }
             importFile.delete()
             result
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e("BackupManager", "restoreBackupFromUri failed", e)
             false
         }
     }
@@ -790,30 +891,33 @@ object BackupManager {
         zip.closeEntry()
     }
 
+    @Keep
     data class SingleConversationExport(
-        val formatVersion: Int = 1,
-        val type: String = "single_conversation",
-        val exportedAt: Long = System.currentTimeMillis(),
-        val appVersion: String = BuildConfig.VERSION_NAME,
-        val conversation: Conversation,
-        val messages: List<Message>,
-        val roleplaySession: RoleplaySession? = null,
-        val characterProfile: CharacterProfile? = null,
-        val roleplayScenario: RoleplayScenario? = null,
-        val roleplayMemories: List<RoleplayMemory> = emptyList()
+        @SerializedName("formatVersion") val formatVersion: Int = 1,
+        @SerializedName("type") val type: String = "single_conversation",
+        @SerializedName("exportedAt") val exportedAt: Long = System.currentTimeMillis(),
+        @SerializedName("appVersion") val appVersion: String = BuildConfig.VERSION_NAME,
+        @SerializedName("conversation") val conversation: Conversation? = null,
+        @SerializedName("messages") val messages: List<Message>? = emptyList(),
+        @SerializedName("roleplaySession") val roleplaySession: RoleplaySession? = null,
+        @SerializedName("characterProfile") val characterProfile: CharacterProfile? = null,
+        @SerializedName("roleplayScenario") val roleplayScenario: RoleplayScenario? = null,
+        @SerializedName("roleplayMemories") val roleplayMemories: List<RoleplayMemory>? = emptyList()
     )
 
+    @Keep
     data class BackupInfo(
-        val version: Int,
-        val timestamp: Long,
-        val appVersion: String,
-        val deviceInfo: String,
-        val includeRoleplayData: Boolean = true,
-        val roleplayCharacterCount: Int = 0,
-        val roleplayScenarioCount: Int = 0,
-        val roleplaySessionCount: Int = 0
+        @SerializedName("version") val version: Int,
+        @SerializedName("timestamp") val timestamp: Long,
+        @SerializedName("appVersion") val appVersion: String,
+        @SerializedName("deviceInfo") val deviceInfo: String,
+        @SerializedName("includeRoleplayData") val includeRoleplayData: Boolean = true,
+        @SerializedName("roleplayCharacterCount") val roleplayCharacterCount: Int = 0,
+        @SerializedName("roleplayScenarioCount") val roleplayScenarioCount: Int = 0,
+        @SerializedName("roleplaySessionCount") val roleplaySessionCount: Int = 0
     )
 
+    @Keep
     data class BackupItem(
         val fileName: String,
         val filePath: String,

@@ -15,7 +15,18 @@
 
 # Keep Gson serialized classes
 -keep class com.aiassistant.domain.model.** { *; }
+-keepclassmembers class com.aiassistant.domain.model.** { *; }
+-keep class com.aiassistant.utils.BackupManager$* { *; }
+-keepclassmembers class com.aiassistant.utils.BackupManager$* { *; }
 -keep class com.aiassistant.utils.TavilySearchManager$* { *; }
+-keepclassmembers class com.aiassistant.utils.TavilySearchManager$* { *; }
+-keepclassmembers class * {
+    @com.google.gson.annotations.SerializedName <fields>;
+}
+-keep @androidx.annotation.Keep class * { *; }
+-keepclassmembers class * {
+    @androidx.annotation.Keep *;
+}
 
 # Keep Room entities
 -keep class * extends androidx.room.RoomDatabase

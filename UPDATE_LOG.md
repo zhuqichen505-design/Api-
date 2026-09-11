@@ -31,8 +31,8 @@
 
 ### 3. 发布产物信息
 - **安装包路径**：`releases/Echo-v2.0.5-arm64-v8a.apk`
-- **文件体积**：16,074,749 字节 (约 15.33 MB)
-- **SHA256**：`01AFB9D134A688DC07CD1CD8C580751C093830179902A3E95D9A12FC03577231`
+- **文件体积**：16,091,133 字节 (约 15.35 MB)
+- **SHA256**：`857C55BFE98FC510A1C8E30598B15ECB713561FD668B3432C3BA1D0B2F54F3C0`
 - **Package**：`com.aiassistant` | **VersionCode**：`115` | **VersionName**：`2.0.5` | **ABI**：`arm64-v8a`
 - **签名验证**：APK Signature Scheme v2 (release 签名验证通过，1 signer)
 - **历史版本永久保留**：所有历史版本安装包完整保留无删除，当前 releases 目录累计 115 个独立版本安装包。
