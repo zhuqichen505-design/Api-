@@ -54,6 +54,8 @@ import com.aiassistant.R
 import com.aiassistant.domain.model.ApiConfig
 import com.aiassistant.domain.model.Conversation
 import com.aiassistant.domain.model.Folder
+import com.aiassistant.utils.BackupManager
+import android.widget.Toast
 import com.aiassistant.ui.components.EchoGlassCard
 import com.aiassistant.ui.components.EchoGlassDialog
 import com.aiassistant.ui.components.EchoGlassDropdownMenu
@@ -317,6 +319,19 @@ fun HomeScreen(
                                         onLongClick = { toggleConversationSelection(conversation.id) },
                                         onDelete = { viewModel.deleteConversation(conversation) },
                                         onPin = { viewModel.togglePin(conversation) },
+                                        onDuplicate = {
+                                            viewModel.duplicateConversation(conversation.id) {
+                                                Toast.makeText(context, "已成功复制对话", Toast.LENGTH_SHORT).show()
+                                            }
+                                        },
+                                        onBackup = {
+                                            val backupPath = BackupManager.createSingleConversationBackup(context, conversation.id)
+                                            if (backupPath != null) {
+                                                Toast.makeText(context, "对话已备份至 Echo_Backups", Toast.LENGTH_SHORT).show()
+                                            } else {
+                                                Toast.makeText(context, "对话备份失败", Toast.LENGTH_SHORT).show()
+                                            }
+                                        },
                                         onMoveToFolder = { folderId ->
                                             viewModel.moveToFolder(conversation.id, folderId)
                                         },
@@ -369,6 +384,19 @@ fun HomeScreen(
                                 onLongClick = { toggleConversationSelection(conversation.id) },
                                 onDelete = { viewModel.deleteConversation(conversation) },
                                 onPin = { viewModel.togglePin(conversation) },
+                                onDuplicate = {
+                                    viewModel.duplicateConversation(conversation.id) {
+                                        Toast.makeText(context, "已成功复制对话", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                onBackup = {
+                                    val backupPath = BackupManager.createSingleConversationBackup(context, conversation.id)
+                                    if (backupPath != null) {
+                                        Toast.makeText(context, "对话已备份至 Echo_Backups", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        Toast.makeText(context, "对话备份失败", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
                                 onMoveToFolder = { folderId ->
                                     viewModel.moveToFolder(conversation.id, folderId)
                                 },
@@ -1422,6 +1450,8 @@ fun ConversationCard(
     onLongClick: () -> Unit,
     onDelete: () -> Unit,
     onPin: () -> Unit,
+    onDuplicate: () -> Unit,
+    onBackup: () -> Unit,
     onMoveToFolder: (Long?) -> Unit,
     onRename: (String) -> Unit,
     onHide: () -> Unit,
@@ -1581,6 +1611,34 @@ fun ConversationCard(
                             leadingIcon = {
                                 Icon(
                                     Icons.Default.PushPin,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("复制对话", fontWeight = FontWeight.Medium) },
+                            onClick = {
+                                onDuplicate()
+                                showMenu = false
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Default.ContentCopy,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("备份此对话", fontWeight = FontWeight.Medium) },
+                            onClick = {
+                                onBackup()
+                                showMenu = false
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Default.Backup,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.primary
                                 )

@@ -278,4 +278,13 @@ class HomeViewModel : ViewModel() {
             repository.setDefaultConfig(config.id)
         }
     }
+
+    fun duplicateConversation(conversationId: Long, onSuccess: ((Long) -> Unit)? = null) {
+        viewModelScope.launch {
+            val newId = repository.duplicateConversation(conversationId)
+            if (newId > 0) {
+                onSuccess?.invoke(newId)
+            }
+        }
+    }
 }

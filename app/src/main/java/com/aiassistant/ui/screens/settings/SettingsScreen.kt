@@ -106,6 +106,17 @@ private val CurrentFeatureHighlights = listOf(
 )
 
 internal val CurrentVersionUserUpdates = listOf(
+    "优化备份导入逻辑：重构为非破坏性增量合并引擎，导入备份时绝不删除本地已有但备份中未包含的对话",
+    "新增复制对话功能：支持深拷贝整个会话生成全新独立对话，全量复制消息、高级参数、角色卡设定与会话专属记忆",
+    "复制对话入口对齐：普通对话与隐藏对话均在「置顶」同一层级提供「复制对话」入口，体验 100% 同步对齐",
+    "复制隐藏对话特性同步：复制隐藏对话自动继承隐藏标签与隐私安全属性，即刻出现在隐藏会话列表中",
+    "新增单对话备份功能：支持将单个会话及其完整消息、角色扮演与专属记忆导出为独立备份，入口在「置顶」同一层级",
+    "单对话备份导入隔离：导入单对话备份时仅新增或更新该对话，对其余所有会话 100% 隔离，绝无覆盖消失风险",
+    "备份管理卡片增强：自动区分展示全量备份（ZIP）与单对话备份（JSON），提供针对性增量恢复安全提示",
+    "分支功能原子事务、生成成功确认弹窗与隐藏会话密码维持特性完美保持"
+)
+
+internal val V204UserUpdates = listOf(
     "分支功能完整重构：基于数据库事务与严格切片，规范严格递增时序，全链路杜绝历史记录颠倒或截断缺失",
     "分支生成弹窗确认与跳转：创建分支后弹出精致液态玻璃对话框，支持「确定」留在当前会话与「跳转到新对话」灵活选择",
     "隐藏对话解锁会话维持：解锁密码后持久维持会话解锁态，从隐藏对话返回直达已解锁会话列表，支持一键「重新锁定」",
@@ -4758,6 +4769,22 @@ fun HiddenConversationsTab(
                             scope.launch {
                                 repository.setPinned(conversation.id, !conversation.isPinned)
                             }
+                        },
+                        onDuplicate = {
+                            scope.launch {
+                                val newId = repository.duplicateConversation(conversation.id)
+                                if (newId > 0) {
+                                    android.widget.Toast.makeText(context, "已成功复制隐藏对话", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        },
+                        onBackup = {
+                            val backupPath = BackupManager.createSingleConversationBackup(context, conversation.id)
+                            if (backupPath != null) {
+                                android.widget.Toast.makeText(context, "隐藏对话已备份至 Echo_Backups", android.widget.Toast.LENGTH_SHORT).show()
+                            } else {
+                                android.widget.Toast.makeText(context, "对话备份失败", android.widget.Toast.LENGTH_SHORT).show()
+                            }
                         }
                     )
                 }
@@ -4921,7 +4948,9 @@ private fun HiddenConversationCard(
     onUnhide: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
-    onTogglePin: () -> Unit
+    onTogglePin: () -> Unit,
+    onDuplicate: () -> Unit,
+    onBackup: () -> Unit
 ) {
     val dateFormat = remember { SimpleDateFormat("MM/dd HH:mm", Locale.getDefault()) }
 
@@ -4957,6 +4986,22 @@ private fun HiddenConversationCard(
                         imageVector = Icons.Default.PushPin,
                         contentDescription = if (conversation.isPinned) "取消置顶" else "置顶",
                         tint = if (conversation.isPinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                IconButton(onClick = onDuplicate, modifier = Modifier.size(32.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.ContentCopy,
+                        contentDescription = "复制对话",
+                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                IconButton(onClick = onBackup, modifier = Modifier.size(32.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Backup,
+                        contentDescription = "备份此对话",
+                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
                         modifier = Modifier.size(18.dp)
                     )
                 }
@@ -5041,7 +5086,7 @@ fun BackupTab(
                 isBackingUp = true
                 val result = BackupManager.restoreBackupFromUri(context, it)
                 isBackingUp = false
-                showMessage = if (result) "导入成功，请重启应用后查看恢复的数据" else "导入失败，请确认文件是 Echo 备份 zip"
+                showMessage = if (result) "导入成功，已安全合并备份数据" else "导入失败，请确认文件格式有效"
                 backups = BackupManager.getBackupList(context)
             }
         }
@@ -5132,7 +5177,7 @@ fun BackupTab(
                 }
                 OutlinedButton(
                     onClick = {
-                        importBackupLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
+                        importBackupLauncher.launch(arrayOf("application/zip", "application/json", "application/octet-stream", "text/plain", "*/*"))
                     },
                     modifier = Modifier.weight(1f),
                     enabled = !isBackingUp
@@ -5208,6 +5253,8 @@ fun BackupItemCard(
     var showDeleteDialog by remember { mutableStateOf(false) }
     val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
 
+    val isSingleConv = backup.fileName.endsWith(".json", ignoreCase = true)
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -5227,16 +5274,35 @@ fun BackupItemCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                Icons.Default.FolderZip,
-                contentDescription = null,
+                imageVector = if (isSingleConv) Icons.Default.ChatBubble else Icons.Default.FolderZip,
+                contentDescription = if (isSingleConv) "单对话备份" else "全量备份",
                 tint = MaterialTheme.colorScheme.primary
             )
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = backup.fileName,
-                    style = MaterialTheme.typography.titleSmall
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = backup.fileName,
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.weight(1f, fill = false),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
+                    ) {
+                        Text(
+                            text = if (isSingleConv) "单对话" else "全量",
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                }
                 Text(
                     text = dateFormat.format(Date(backup.lastModified)),
                     style = MaterialTheme.typography.bodySmall,
@@ -5264,11 +5330,14 @@ fun BackupItemCard(
             hazeState = hazeState,
             onDismissRequest = { showRestoreDialog = false },
             title = {
-                Text("恢复备份", style = MaterialTheme.typography.titleLarge)
+                Text(if (isSingleConv) "恢复单对话备份" else "恢复全量备份", style = MaterialTheme.typography.titleLarge)
             },
             content = {
                 Text(
-                    text = "确定要从 ${backup.fileName} 恢复数据吗？恢复后建议重启应用。",
+                    text = if (isSingleConv)
+                        "确定要从 ${backup.fileName} 恢复该对话吗？仅增量导入该对话，绝不影响其它任何对话。"
+                    else
+                        "确定要从 ${backup.fileName} 恢复数据吗？将增量合并备份数据，本地已有且未在备份中的对话也将完整保留。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

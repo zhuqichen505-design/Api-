@@ -1,5 +1,57 @@
 # Echo AI 助手更新日志 (Update Log)
 
+## [v2.0.5] - 2026-09-11
+
+### 1. 本次升级与 3 项用户核心需求（含隐藏对话 100% 同步铁律）完整落地
+1. **优化备份导入逻辑：非破坏性智能增量合并（Req 1）**：
+   - 彻底告别原 `FileOutputStream` 覆盖 SQLite 数据库文件导致的未备份新对话被粗暴清空问题；
+   - 重构备份恢复引擎为 `mergeDatabaseFromBackup`：通过只读挂载临时数据库，逐表（`folders`, `api_configs`, `character_profiles`, `roleplay_scenarios`, `conversations`, `messages`, `roleplay_sessions`, `roleplay_memories` 等）增量对比合并；
+   - 自动映射并解决主键冲突，保留外键关联完整性，合并过程绝无任何 `DELETE` 语句，本地已有但备份中未包含的对话 100% 完好无损保留。
+2. **新增复制对话功能：全量深拷贝与同级入口（Req 2，隐藏对话 100% 同步）**：
+   - 数据层原子深拷贝：在 `AiRepository` 中提供 `duplicateConversation` 事务，完整克隆会话模型参数、系统提示词、全量历史消息（重新规范严格递增时间戳）、角色卡设定与剧情专属记忆；
+   - 智能标题命名：通过 `generateDuplicateTitle` 自动追加与自增副本后缀（如 `讨论 (副本)` -> `讨论 (副本 2)`）；
+   - 隐藏对话无缝同步：隐藏会话复制后深度继承 `hidden` 标签，默认 `isPinned = false`，复制后直达隐藏列表；
+   - 入口层级 100% 对齐：普通会话卡片在下拉菜单「置顶」同级增加「复制对话」；隐藏会话卡片在顶部操作栏「置顶」图标旁同级增加「复制对话」图标按钮。
+3. **新增单对话备份与隔离导入功能（Req 3，隐藏对话 100% 同步）**：
+   - 单对话独立导出：在 `BackupManager` 中实现 `createSingleConversationBackup`，将指定会话、全量消息、角色设定与剧情记忆序列化为规范 JSON 包（`SingleConversationExport`），保存在 `Echo_Backups` 并支持一键分享；
+   - 单对话隔离恢复：导入单对话备份时执行 `restoreSingleConversationFromJson`，仅针对该对话进行插入/增量合并，对本地其余任何对话零触碰、零干扰、绝无覆盖丢失风险；
+   - 入口层级 100% 对齐：普通会话卡片在下拉菜单「置顶」同级增加「备份此对话」；隐藏会话卡片在顶部操作栏「置顶」图标旁同级增加「备份此对话」图标按钮；
+   - 备份管理界面全面升级：`BackupTab` 与 `BackupItemCard` 智能识别 JSON 单对话与 ZIP 全量备份，显示不同图标、徽章标签与精准恢复说明。
+
+### 2. 自动化测试与质量保障
+- 全量 171 项单元测试 100% 全部通过（退出码 0）；
+- 专项新增与复核 `V205FeaturesTest` 7 项核心测试用例：
+  - `testDuplicateTitleIncrement`：对话副本标题多层自增命名算法验证；
+  - `testDuplicateConversationHiddenTagInheritance`：隐藏对话复制时严格继承 `hidden` 标签且置顶重置；
+  - `testDuplicateConversationNormalNotHidden`：普通对话复制不含隐藏属性，隔离性验证；
+  - `testSingleConversationExportSerializationAndDeserialization`：单对话全量导出包 JSON 序列化与反序列化双向契约；
+  - `testNonDestructiveMergeInvariant`：全量增量合并引擎非破坏性不变性验证（本地未备份对话绝对不丢失）；
+  - `testSingleConversationIsolatedRestoreInvariant`：单对话导入隔离性验证（导入仅作用于单对话，其余会话 100% 隔离）；
+  - `testV205CurrentVersionUserUpdatesCompleteness`：版本特性说明完备性检验。
+
+### 3. 发布产物信息
+- **安装包路径**：`releases/Echo-v2.0.5-arm64-v8a.apk`
+- **文件体积**：16,074,749 字节 (约 15.33 MB)
+- **SHA256**：`01AFB9D134A688DC07CD1CD8C580751C093830179902A3E95D9A12FC03577231`
+- **Package**：`com.aiassistant` | **VersionCode**：`115` | **VersionName**：`2.0.5` | **ABI**：`arm64-v8a`
+- **签名验证**：APK Signature Scheme v2 (release 签名验证通过，1 signer)
+- **历史版本永久保留**：所有历史版本安装包完整保留无删除，当前 releases 目录累计 115 个独立版本安装包。
+
+### 4. 改动文件列表
+- `app/src/main/java/com/aiassistant/utils/BackupManager.kt`
+- `app/src/main/java/com/aiassistant/data/repository/AiRepository.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/home/HomeViewModel.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/home/HomeScreen.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/settings/SettingsScreen.kt`
+- `app/src/test/java/com/aiassistant/V205FeaturesTest.kt`
+- `app/src/test/java/com/aiassistant/V203FeaturesTest.kt`
+- `app/build.gradle.kts`
+- `CHANGELOG.md`
+- `UPDATE_LOG.md` (root & app)
+- `README.md`
+- `PROJECT.md`
+- `WORKFLOW_GUIDELINES.md`
+
 ## [v2.0.4] - 2026-09-11
 
 ### 1. 本次升级与 3 项用户反馈深度修复重构落实

@@ -160,7 +160,7 @@ class V203FeaturesTest {
 
     @Test
     fun testV203CurrentVersionUserUpdatesCompleteness() {
-        val updates = com.aiassistant.ui.screens.settings.CurrentVersionUserUpdates
+        val updates = com.aiassistant.ui.screens.settings.V203UserUpdates
         assertTrue("V2.0.3 更新列表不得为空", updates.isNotEmpty())
         assertEquals(8, updates.size)
         assertTrue(updates.any { it.contains("分支功能深度修复") || it.contains("切片") })

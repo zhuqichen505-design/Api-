@@ -182,6 +182,20 @@ class AiRepository(
             val title = firstLine.take(18).trim()
             return title.ifBlank { null }
         }
+
+        fun generateDuplicateTitle(originalTitle: String): String {
+            val trimmed = originalTitle.trim()
+            if (trimmed.isEmpty()) return "未命名对话 (副本)"
+            val copyRegex = Regex("""^(.*?)\s*\(副本(?:\s*(\d+))?\)$""")
+            val match = copyRegex.find(trimmed)
+            return if (match != null) {
+                val baseName = match.groupValues[1].trim()
+                val copyIndex = match.groupValues[2].toIntOrNull() ?: 1
+                "$baseName (副本 ${copyIndex + 1})"
+            } else {
+                "$trimmed (副本)"
+            }
+        }
     }
 
     fun cancelActiveRequest(conversationId: Long) {
@@ -3082,6 +3096,117 @@ class AiRepository(
 
     suspend fun deleteBranch(branch: ConversationBranch) =
         conversationBranchDao.deleteBranch(branch)
+
+    /**
+     * 完整复制整个对话生成新对话：
+     * 包含全量消息流、模型与高级配置、会话专属记忆、角色卡与场景世界观关联及剧情专属记忆，并严格继承隐藏属性
+     */
+    suspend fun duplicateConversation(conversationId: Long): Long = withContext(Dispatchers.IO) {
+        val originalConv = conversationDao.getConversationById(conversationId)
+            ?: return@withContext -1L
+
+        val isParentHidden = hasConversationTag(originalConv, "hidden") ||
+            originalConv.tags?.contains("hidden") == true
+        val duplicatedTags = if (isParentHidden) {
+            updateTag(originalConv.tags, "hidden", true)
+        } else {
+            originalConv.tags
+        }
+
+        val duplicateTitle = generateDuplicateTitle(originalConv.title)
+        val originalMessages = messageDao.getMessagesList(conversationId)
+
+        val db = try {
+            com.aiassistant.AiAssistantApp.instance.database
+        } catch (e: Exception) {
+            null
+        }
+
+        val performDuplicate = suspend {
+            val now = System.currentTimeMillis()
+            val newConversation = originalConv.copy(
+                id = 0L,
+                title = duplicateTitle,
+                isPinned = false,
+                tags = duplicatedTags,
+                createdAt = now,
+                updatedAt = now
+            )
+            val newId = conversationDao.insertConversation(newConversation)
+
+            if (originalMessages.isNotEmpty()) {
+                val baseTime = now - (originalMessages.size * 1000L)
+                val preparedMessages = originalMessages.mapIndexed { index, msg ->
+                    msg.copy(
+                        id = 0L,
+                        conversationId = newId,
+                        createdAt = baseTime + (index * 1000L)
+                    )
+                }
+                messageDao.insertMessages(preparedMessages)
+                val totalTokens = preparedMessages.sumOf { it.tokenCount }
+                conversationDao.updateStats(newId, preparedMessages.size, totalTokens)
+            }
+
+            if (isParentHidden) {
+                conversationDao.updateTags(newId, duplicatedTags)
+            }
+
+            // 深度克隆 Roleplay 剧情会话与记忆
+            try {
+                val roleplayRepo = com.aiassistant.AiAssistantApp.instance.roleplayRepository
+                val rpSession = roleplayRepo.getSessionByConversationId(conversationId)
+                if (rpSession != null) {
+                    val clonedSessionId = roleplayRepo.insertSession(
+                        rpSession.copy(
+                            id = 0L,
+                            conversationId = newId,
+                            createdAt = now,
+                            updatedAt = now
+                        )
+                    )
+                    val sessionMemories = roleplayRepo.getMemoriesListBySession(rpSession.id)
+                    sessionMemories.forEach { mem ->
+                        roleplayRepo.insertMemory(
+                            mem.copy(
+                                id = 0L,
+                                sessionId = clonedSessionId,
+                                createdAt = now,
+                                updatedAt = now
+                            )
+                        )
+                    }
+                }
+            } catch (rpEx: Exception) {
+                Log.e(tag, "克隆角色扮演会话异常", rpEx)
+            }
+
+            // 复制普通会话专属记忆
+            try {
+                val convMemories = memoryDao.getConversationMemories(conversationId)
+                convMemories.forEach { mem ->
+                    memoryDao.insertMemory(
+                        mem.copy(
+                            id = 0L,
+                            conversationId = newId,
+                            createdAt = now,
+                            updatedAt = now
+                        )
+                    )
+                }
+            } catch (memEx: Exception) {
+                Log.e(tag, "克隆会话专属记忆异常", memEx)
+            }
+
+            newId
+        }
+
+        if (db != null) {
+            db.withTransaction { performDuplicate() }
+        } else {
+            performDuplicate()
+        }
+    }
 
     // ============ 选择的模型相关 ============
 
