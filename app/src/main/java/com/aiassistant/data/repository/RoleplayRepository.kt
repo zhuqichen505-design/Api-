@@ -14,7 +14,9 @@ class RoleplayRepository(
     private val roleplayScenarioDao: RoleplayScenarioDao,
     private val roleplaySessionDao: RoleplaySessionDao,
     private val roleplayMemoryDao: RoleplayMemoryDao,
-    private val characterTagDao: CharacterTagDao
+    private val characterTagDao: CharacterTagDao,
+    private val conversationDao: ConversationDao? = null,
+    private val messageDao: MessageDao? = null
 ) {
     // ============ 角色卡操作 ============
 
@@ -100,9 +102,22 @@ class RoleplayRepository(
 
     suspend fun updateSession(session: RoleplaySession) = roleplaySessionDao.updateSession(session)
 
-    suspend fun deleteSession(session: RoleplaySession) = roleplaySessionDao.deleteSession(session)
+    suspend fun deleteSession(session: RoleplaySession) {
+        roleplaySessionDao.deleteSession(session)
+        roleplayMemoryDao.deleteAllMemories(session.id)
+        conversationDao?.deleteConversationById(session.conversationId)
+        messageDao?.deleteMessagesByConversation(session.conversationId)
+    }
 
-    suspend fun deleteSessionById(id: Long) = roleplaySessionDao.deleteSessionById(id)
+    suspend fun deleteSessionById(id: Long) {
+        val session = roleplaySessionDao.getSessionById(id)
+        if (session != null) {
+            deleteSession(session)
+        } else {
+            roleplaySessionDao.deleteSessionById(id)
+            roleplayMemoryDao.deleteAllMemories(id)
+        }
+    }
 
     suspend fun updateSessionMemoryState(id: Long, summary: String, pinnedFacts: String?) =
         roleplaySessionDao.updateMemoryState(id, summary, pinnedFacts)
@@ -406,21 +421,8 @@ class RoleplayRepository(
     /**
      * 构建叙事模式提示词
      */
-    private fun buildNarrativeModePrompt(mode: String): String {
-        return when (NarrativeMode.fromValue(mode)) {
-            NarrativeMode.CHARACTER -> {
-                "【叙事模式：角色内指令】\n" +
-                "你将完全以登场角色的身份做出回应与互动，严格沉浸在角色设定中，使用角色的口吻习惯与语言风格。"
-            }
-            NarrativeMode.AUTHOR -> {
-                "【叙事模式：作者/导演指令】\n" +
-                "用户为主导故事的大纲导演，你负责根据用户的剧情指示推进故事发展，精细铺陈所有登场角色的互动与情节进展。"
-            }
-            NarrativeMode.NARRATOR -> {
-                "【叙事模式：旁白模式】\n" +
-                "你只负责客观环境描写与第三人称剧情旁白，不代替用户做决定，不替用户角色做主观发言。"
-            }
-        }
+    fun buildNarrativeModePrompt(mode: String): String {
+        return Companion.buildNarrativeModePrompt(mode)
     }
 
     /**
@@ -433,30 +435,7 @@ class RoleplayRepository(
     ): String {
         val session = roleplaySessionDao.getSessionById(sessionId)
             ?: return ""
-
-        return when (action) {
-            PlotAction.CONTINUE -> "请继续发展剧情。"
-            PlotAction.REGENERATE -> "请重新生成上一段内容，保持角色设定和场景一致性。"
-            PlotAction.REWRITE -> "请改写上一段内容，可以调整细节但保持剧情走向。"
-            PlotAction.EXTEND -> "请延长当前内容，增加更多细节描写和对话。"
-            PlotAction.SHORTEN -> "请缩短当前内容，保留核心情节和关键对话。"
-            PlotAction.CHANGE_PERSPECTIVE -> "请从不同的叙事视角重写当前内容。"
-            PlotAction.CHANGE_TONE -> "请改变当前内容的语气和氛围。"
-            PlotAction.BRANCH -> {
-                // 创建分支会话的逻辑
-                "请从当前点开始一个新的剧情分支。"
-            }
-            PlotAction.ROLLBACK -> {
-                // 回滚到上一个版本的逻辑
-                "请回到上一个版本重新开始。"
-            }
-            PlotAction.SUMMARY -> "请总结提炼当前所有剧情进展与核心事实摘要，包括登场人物状态变化、关键剧情转折与未解决的伏笔。"
-            PlotAction.BRANCH_CHOICES -> "【导演剧情分支决策】请不要直接输出单一走向。请基于当前局势与角色动机，提供 3~4 个不同节奏和方向的剧情分支选项（例如：A. 正面冲突方向；B. 智取暗中调查方向；C. 意外第三方介入方向；D. 情感转折方向），每个选项简要说明剧情走向预测与潜在风险。等待我做出选择后再正式展开后续详尽剧情。"
-            PlotAction.DIALOGUE_ONLY -> "请只生成角色的对话，不要添加旁白和动作描写。"
-            PlotAction.NARRATION_ONLY -> "请只生成旁白和环境描写，不要生成角色对话。"
-            PlotAction.DIALOGUE_ACTION -> "请生成角色对话和动作描写，不要添加旁白。"
-            PlotAction.CUSTOM -> customInstruction ?: "请继续。"
-        }
+        return buildPlotActionPrompt(action, customInstruction)
     }
 
     /**
@@ -539,5 +518,46 @@ class RoleplayRepository(
 2. 【台词与动作交融】：台词契合角色身份经历，富有生活温度与张力，避免空洞说教或假大空独白。
 3. 【世界观沉浸度】：严格遵守当前场景与世界设定的物理法则、社会关系与时代背景，严禁出戏或产生违背设定的现代/异质词汇。
 4. 【用户主导与留白互动】：严禁擅自代替用户发言或替用户角色做主观决定；段落结尾保持情节动力，为用户留出推进空间。"""
+
+        fun buildNarrativeModePrompt(mode: String): String {
+            return when (NarrativeMode.fromValue(mode)) {
+                NarrativeMode.CHARACTER -> {
+                    "【叙事模式：角色内指令】\n" +
+                    "你将完全以登场角色的身份做出回应与互动，严格沉浸在角色设定中，使用角色的口吻习惯与语言风格。"
+                }
+                NarrativeMode.AUTHOR -> {
+                    "【叙事模式：作者/导演指令】\n" +
+                    "用户为主导故事的大纲导演，你负责根据用户的剧情指示推进故事发展，精细铺陈所有登场角色的互动与情节进展。"
+                }
+                NarrativeMode.NARRATOR -> {
+                    "【叙事模式：旁白模式】\n" +
+                    "你只负责客观环境描写与第三人称剧情旁白，不代替用户做决定，不替用户角色做主观发言。"
+                }
+                NarrativeMode.MULTI -> {
+                    "【叙事模式：多角色群像模式】\n" +
+                    "多位登场角色共同参与情节互动。模型需根据各角色的独立人设、立场、动机与说话风格，生动推演群像戏，展现角色间交锋、合作与多方互动。"
+                }
+            }
+        }
+
+        fun buildPlotActionPrompt(action: PlotAction, customInstruction: String? = null): String {
+            return when (action) {
+                PlotAction.CONTINUE -> "请紧接上文末尾，顺畅自然地继续向下推进剧情，保持文风、角色人设与细节描写连贯，不要重复已有内容。"
+                PlotAction.REGENERATE -> "请重新生成上一段内容，保持角色设定和场景一致性。"
+                PlotAction.REWRITE -> "请改写上一段内容，可以调整细节但保持剧情走向。"
+                PlotAction.EXTEND -> "请延长当前内容，增加更多细节描写和对话。"
+                PlotAction.SHORTEN -> "请缩短当前内容，保留核心情节和关键对话。"
+                PlotAction.CHANGE_PERSPECTIVE -> "请从不同的叙事视角重写当前内容。"
+                PlotAction.CHANGE_TONE -> "请改变当前内容的语气和氛围。"
+                PlotAction.BRANCH -> "请从当前点开始一个新的剧情分支。"
+                PlotAction.ROLLBACK -> "请回到上一个版本重新开始。"
+                PlotAction.SUMMARY -> "请总结提炼当前所有剧情进展与核心事实摘要，包括登场人物状态变化、关键剧情转折与未解决的伏笔。"
+                PlotAction.BRANCH_CHOICES -> "【导演剧情分支决策】请不要直接输出单一走向。请基于当前局势与角色动机，提供 3~4 个不同节奏和方向的剧情分支选项（例如：A. 正面冲突方向；B. 智取暗中调查方向；C. 意外第三方介入方向；D. 情感转折方向），每个选项简要说明剧情走向预测与潜在风险。等待我做出选择后再正式展开后续详尽剧情。"
+                PlotAction.DIALOGUE_ONLY -> "请只生成角色的对话，不要添加旁白和动作描写。"
+                PlotAction.NARRATION_ONLY -> "请只生成旁白和环境描写，不要生成角色对话。"
+                PlotAction.DIALOGUE_ACTION -> "请生成角色对话和动作描写，不要添加旁白。"
+                PlotAction.CUSTOM -> customInstruction ?: "请继续。"
+            }
+        }
     }
 }

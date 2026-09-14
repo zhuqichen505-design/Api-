@@ -185,4 +185,148 @@ class ConversationConverter(
         )
         gson.toJson(bundle)
     }
+
+    /**
+     * 导出为 Markdown 文档格式
+     */
+    suspend fun exportAsMarkdown(conversationId: Long): String = withContext(Dispatchers.IO) {
+        val conv = conversationDao.getConversationById(conversationId)
+            ?: throw IllegalArgumentException("会话不存在: $conversationId")
+        val messages = messageDao.getMessagesList(conversationId)
+        val session = roleplaySessionDao.getSessionByConversationId(conversationId)
+        val character = session?.characterId?.let { characterProfileDao.getCharacterById(it) }
+        val scenario = session?.scenarioId?.let { roleplayScenarioDao.getScenarioById(it) }
+
+        buildString {
+            append("# ${conv.title}\n\n")
+            append("- **导出时间**: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())}\n")
+            if (conv.modelName != null) {
+                append("- **使用模型**: ${conv.modelName}\n")
+            }
+            if (character != null) {
+                append("- **扮演角色**: ${character.name} (${character.identity})\n")
+            }
+            if (scenario != null) {
+                append("- **设定场景**: ${scenario.name}\n")
+            }
+            if (!conv.systemPrompt.isNullOrBlank()) {
+                append("\n> **系统提示词**:\n> ${conv.systemPrompt.replace("\n", "\n> ")}\n")
+            }
+            append("\n---\n\n")
+
+            for (msg in messages) {
+                val roleTitle = when (msg.role) {
+                    "user" -> "👤 **用户**"
+                    "assistant" -> if (character != null) "🎭 **${character.name}**" else "🤖 **${conv.modelName ?: "AI 助手"}**"
+                    "system" -> "⚙️ **系统设定**"
+                    else -> "📝 **${msg.role}**"
+                }
+                append("$roleTitle\n\n")
+                if (!msg.thinkingContent.isNullOrBlank()) {
+                    append("<details>\n<summary>💭 思考过程</summary>\n\n")
+                    append(msg.thinkingContent)
+                    append("\n</details>\n\n")
+                }
+                append(msg.content)
+                append("\n\n---\n\n")
+            }
+        }
+    }
+
+    /**
+     * 导出为纯文本 TXT 格式
+     */
+    suspend fun exportAsPlainText(conversationId: Long): String = withContext(Dispatchers.IO) {
+        val conv = conversationDao.getConversationById(conversationId)
+            ?: throw IllegalArgumentException("会话不存在: $conversationId")
+        val messages = messageDao.getMessagesList(conversationId)
+        val session = roleplaySessionDao.getSessionByConversationId(conversationId)
+        val character = session?.characterId?.let { characterProfileDao.getCharacterById(it) }
+
+        buildString {
+            append("【会话标题】: ${conv.title}\n")
+            append("【导出时间】: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())}\n")
+            if (character != null) {
+                append("【角色】: ${character.name}\n")
+            }
+            append("=".repeat(40)).append("\n\n")
+
+            for (msg in messages) {
+                val sender = when (msg.role) {
+                    "user" -> "用户"
+                    "assistant" -> character?.name ?: "AI"
+                    else -> msg.role
+                }
+                append("[$sender]:\n")
+                append(msg.content)
+                append("\n\n")
+            }
+        }
+    }
+
+    /**
+     * 单张角色卡导出与导入
+     */
+    fun exportCharacter(character: CharacterProfile): String = gson.toJson(character)
+    fun importCharacter(json: String): CharacterProfile? = runCatching { gson.fromJson(json, CharacterProfile::class.java) }.getOrNull()
+
+    /**
+     * 单张场景卡导出与导入
+     */
+    fun exportScenario(scenario: RoleplayScenario): String = gson.toJson(scenario)
+    fun importScenario(json: String): RoleplayScenario? = runCatching { gson.fromJson(json, RoleplayScenario::class.java) }.getOrNull()
+
+    /**
+     * 单个提示词模板导出与导入
+     */
+    fun exportTemplate(template: com.aiassistant.domain.model.PromptTemplate): String = gson.toJson(template)
+    fun importTemplate(json: String): com.aiassistant.domain.model.PromptTemplate? = runCatching { gson.fromJson(json, com.aiassistant.domain.model.PromptTemplate::class.java) }.getOrNull()
+
+    /**
+     * 导入会话 Bundle
+     */
+    suspend fun importBundle(json: String): Long = withContext(Dispatchers.IO) {
+        val bundle = gson.fromJson(json, ConversationExportBundle::class.java)
+            ?: throw IllegalArgumentException("无效的会话导出数据")
+        val now = System.currentTimeMillis()
+        val importedConv = bundle.conversation.copy(
+            id = 0,
+            title = "${bundle.conversation.title} (导入)",
+            createdAt = now,
+            updatedAt = now
+        )
+        val newConvId = conversationDao.insertConversation(importedConv)
+
+        val newCharId = bundle.character?.let { char ->
+            characterProfileDao.insertCharacter(char.copy(id = 0, createdAt = now, updatedAt = now))
+        }
+
+        val newScenarioId = bundle.scenario?.let { scen ->
+            roleplayScenarioDao.insertScenario(scen.copy(id = 0, createdAt = now, updatedAt = now))
+        }
+
+        if (bundle.isRoleplay && bundle.roleplaySession != null) {
+            val newSession = bundle.roleplaySession.copy(
+                id = 0,
+                conversationId = newConvId,
+                characterId = newCharId ?: bundle.roleplaySession.characterId,
+                scenarioId = newScenarioId ?: bundle.roleplaySession.scenarioId,
+                characterIds = (newCharId ?: bundle.roleplaySession.characterId)?.toString(),
+                createdAt = now,
+                updatedAt = now
+            )
+            roleplaySessionDao.insertSession(newSession)
+        }
+
+        bundle.messages.forEach { msg ->
+            messageDao.insertMessage(
+                msg.copy(
+                    id = 0,
+                    conversationId = newConvId
+                )
+            )
+        }
+
+        newConvId
+    }
 }

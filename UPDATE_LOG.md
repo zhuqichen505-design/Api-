@@ -1,5 +1,62 @@
 # Echo AI 助手更新日志 (Update Log)
 
+## [v2.1.0] - 2026-09-14
+
+### 1. 本次升级与决策记录（8项P0、44项P1、3项P2）全面落地
+1. **角色扮演工作室全链路与开场白统一控制**：
+   - 统一使用「让角色开场」控制开场白：当角色卡配置了初始问候语时，点击「让角色开场」直接作为第一条助手消息展示并落库；未设置时由模型作为导演指令自动构思开场；
+   - 角色头像选择与渲染：角色编辑页全面接入系统图片选择器 `PickVisualMedia`，圆角裁剪、实时预览与一键清除；会话中助手头像优先呈现角色专属头像；
+   - 级联安全删除：删除角色扮演会话时原子级联清理 Session、专属 Memories、Conversation 及 Messages，杜绝数据库脏数据孤岛；
+   - 多角色群像模式：扩展 `NarrativeMode.MULTI`，支持多角色互动推演与独立人设动机交锋；
+   - 剧情提示指令支持：增强 `PlotAction`（继续、重生成、撤回上一条等），精准控制故事节奏。
+2. **上下文安全管理与超长文本输出保证**：
+   - 废除 2400 字符硬截断限制：彻底解除 `compactMessageForHistory` 对历史内容的强制截取，保证大模型能接收完整前文细节；
+   - 消息固定 (Pin) 与排除 (Exclude)：消息实体增加 `isPinned` 与 `isExcluded` 字段；`isPinned` 保证消息在上下文压缩时不被裁剪；`isExcluded` 允许临时排除某条消息不参与模型上下文（UI 呈现透明度降低与专属徽标）；
+   - 彻底避免用户输入双重污染：角色扮演上下文组装时不再将用户输入强行拼接进 System Prompt，保持 System 与 User 消息规范分离；
+   - 请求超时与缓冲区保护：网络层拆分为长流式 client 与短 REST client；遇到切 Key 或重试时通过 `onResetBuffer` 彻底清空临时 UI 缓冲，防止内容拼接错乱；
+   - 切换对话后台继续生成：生成任务运行于 `applicationScope`，用户在切换对话后后台生成不受干扰，完毕后自动落库。
+3. **数据安全、线性迁移与平滑覆盖更新保证**：
+   - 签名体系 100% 一致：固化正式签名体系，证书 SHA-256 (`939638f6d3e9af7f8a980e62af52d275fee73381f2130cc4e20a0d349f98e21f`) 与过往所有版本完全一致，覆盖安装零冲突、零卸载；
+   - 线性数据库增量迁移：Room 版本由 23 升至 24，提供单步无损迁移 `MIGRATION_23_24`，彻底移除破坏性回退，保护用户历史数据；
+   - 密文透明兼容：API Key 密文引入 `enc:v1:` 显式标头，兼容旧明文并支持静默补密；
+   - 导入导出增强：`ConversationConverter` 增加单卡片（角色、场景、提示词模板）独立 JSON 导入导出，支持整会话导出为 Markdown 与 TXT 纯文本。
+
+### 2. 自动化测试与质量保障
+- 基础测试套件（v1.9.15 ~ v2.0.5 历史数百项测试用例）100% 全部通过；
+- 专项新增 `V210FeaturesTest` 7 项核心测试：
+  - `testMessagePinningAndExclusionDefaults`：消息固定与排除默认状态及拷贝验证；
+  - `testDatabaseMigration23To24Registered`：Room 增量迁移注册校验；
+  - `testNarrativeModeMultiCharacter`：多角色群像模式提示词构建；
+  - `testPlotActionProcessing`：剧情推进动作提示词构建；
+  - `testSingleCardExportAndImport`：角色卡与场景卡独立序列化与反序列化；
+  - `testContextExclusionFilteringLogic`：上下文过滤排除逻辑；
+  - `testCryptoManagerHeaderDetection`：API Key 密文标头智能识别。
+
+### 3. 发布产物信息
+- **安装包路径**：`releases/Echo-v2.1.0-arm64-v8a.apk`
+- **文件体积**：16,091,133 字节 (约 15.35 MB)
+- **SHA256**：`F53530ABEE40DAE4AFFF4E318ED5A051DE41BA497671FA3DA214074046602976`
+- **Package**：`com.aiassistant` | **VersionCode**：`116` | **VersionName**：`2.1.0` | **ABI**：`arm64-v8a`
+- **签名验证**：APK Signature Scheme v2 (release 签名验证通过，1 signer，证书 SHA-256 与历史版本 100% 吻合)
+- **历史版本永久保留**：所有历史版本安装包完整保留无删除，当前 releases 目录累计 116 个独立版本安装包。
+
+### 4. 改动文件列表
+- `app/build.gradle.kts`
+- `app/src/main/AndroidManifest.xml`
+- `app/src/main/java/com/aiassistant/AiAssistantApp.kt`
+- `app/src/main/java/com/aiassistant/data/local/AppDatabase.kt`
+- `app/src/main/java/com/aiassistant/data/remote/RetrofitClient.kt`
+- `app/src/main/java/com/aiassistant/data/repository/AiRepository.kt`
+- `app/src/main/java/com/aiassistant/data/repository/RoleplayRepository.kt`
+- `app/src/main/java/com/aiassistant/domain/model/Models.kt`
+- `app/src/main/java/com/aiassistant/domain/model/RoleplayModels.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatScreen.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatViewModel.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/roleplay/CharacterEditorScreen.kt`
+- `app/src/main/java/com/aiassistant/utils/ConversationConverter.kt`
+- `app/src/main/java/com/aiassistant/utils/CryptoManager.kt`
+- `app/src/test/java/com/aiassistant/V210FeaturesTest.kt`
+
 ## [v2.0.5] - 2026-09-11
 
 ### 1. 本次升级与 3 项用户核心需求（含隐藏对话 100% 同步铁律）完整落地

@@ -253,7 +253,8 @@ data class CharacterTagCrossRef(
 enum class NarrativeMode(val value: String, val displayName: String, val description: String) {
     CHARACTER("character", "角色内指令", "模型以登场角色身份互动，沉浸式第一人称对话"),
     AUTHOR("author", "作者/导演指令", "用户控制剧情大纲与方向，模型负责铺陈与推进故事"),
-    NARRATOR("narrator", "旁白模式", "纯客观环境描写与剧情旁白叙事，不代替用户做决定");
+    NARRATOR("narrator", "旁白模式", "纯客观环境描写与剧情旁白叙事，不代替用户做决定"),
+    MULTI("multi", "多角色群像模式", "多角色共同参与，推演交互群像戏");
 
     companion object {
         fun fromValue(value: String): NarrativeMode {

@@ -1,10 +1,18 @@
 package com.aiassistant.ui.screens.roleplay
 
+import android.content.Intent
+import android.graphics.BitmapFactory
+import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -13,6 +21,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -32,6 +43,7 @@ fun CharacterEditorScreen(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
+    var avatarUri by remember { mutableStateOf(character?.avatarUri) }
     var name by remember { mutableStateOf(character?.name ?: "") }
     var identity by remember { mutableStateOf(character?.identity ?: "") }
     var personality by remember { mutableStateOf(character?.personality ?: "") }
@@ -164,6 +176,8 @@ fun CharacterEditorScreen(
             // 内容区域
             when (currentSection) {
                 0 -> BasicInfoSection(
+                    avatarUri = avatarUri,
+                    onAvatarUriChange = { avatarUri = it },
                     name = name,
                     onNameChange = { name = it },
                     identity = identity,
@@ -210,7 +224,7 @@ fun CharacterEditorScreen(
                         val newCharacter = CharacterProfile(
                             id = character?.id ?: 0,
                             name = name,
-                            avatarUri = character?.avatarUri,
+                            avatarUri = avatarUri,
                             identity = identity,
                             personality = personality,
                             background = background,
@@ -251,7 +265,7 @@ fun CharacterEditorScreen(
             currentProfile = CharacterProfile(
                 id = character?.id ?: 0,
                 name = name,
-                avatarUri = character?.avatarUri,
+                avatarUri = avatarUri,
                 identity = identity,
                 personality = personality,
                 background = background,
@@ -269,6 +283,7 @@ fun CharacterEditorScreen(
             ),
             onDismiss = { showSmartReadDialog = false },
             onApply = { parsed ->
+                if (!parsed.avatarUri.isNullOrBlank()) avatarUri = parsed.avatarUri
                 if (parsed.name.isNotBlank()) name = parsed.name
                 if (parsed.identity.isNotBlank()) identity = parsed.identity
                 if (parsed.personality.isNotBlank()) personality = parsed.personality
@@ -318,7 +333,7 @@ fun CharacterEditorScreen(
             character = CharacterProfile(
                 id = character?.id ?: 0,
                 name = name,
-                avatarUri = character?.avatarUri,
+                avatarUri = avatarUri,
                 identity = identity,
                 personality = personality,
                 background = background,
@@ -580,6 +595,8 @@ private fun SmartReadCharacterDialog(
 
 @Composable
 private fun BasicInfoSection(
+    avatarUri: String?,
+    onAvatarUriChange: (String?) -> Unit,
     name: String,
     onNameChange: (String) -> Unit,
     identity: String,
@@ -589,6 +606,21 @@ private fun BasicInfoSection(
     isDefault: Boolean,
     onIsDefaultChange: (Boolean) -> Unit
 ) {
+    val context = LocalContext.current
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }
+            onAvatarUriChange(uri.toString())
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -599,6 +631,81 @@ private fun BasicInfoSection(
             text = "基本信息",
             style = MaterialTheme.typography.titleMedium
         )
+
+        // 角色头像选择器
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterHorizontally)
+                .padding(vertical = 4.dp),
+            contentAlignment = Alignment.BottomEnd
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(88.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .clickable {
+                        photoPickerLauncher.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                        )
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                val avatarBitmap = remember(avatarUri) {
+                    avatarUri?.let { uriStr ->
+                        runCatching {
+                            val uri = Uri.parse(uriStr)
+                            context.contentResolver.openInputStream(uri)?.use { stream ->
+                                BitmapFactory.decodeStream(stream)
+                            }
+                        }.getOrNull()
+                    }
+                }
+                if (avatarBitmap != null) {
+                    Image(
+                        bitmap = avatarBitmap.asImageBitmap(),
+                        contentDescription = "角色头像",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            Icons.Default.AddPhotoAlternate,
+                            contentDescription = "添加角色头像",
+                            modifier = Modifier.size(36.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "选择头像",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            if (avatarUri != null) {
+                IconButton(
+                    onClick = { onAvatarUriChange(null) },
+                    modifier = Modifier
+                        .size(24.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.error)
+                ) {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = "清除头像",
+                        modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.onError
+                    )
+                }
+            }
+        }
 
         OutlinedTextField(
             value = name,

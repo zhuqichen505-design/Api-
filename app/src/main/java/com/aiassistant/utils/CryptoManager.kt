@@ -17,6 +17,7 @@ class CryptoManager(private val context: Context) {
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
         private const val GCM_TAG_LENGTH = 128
         private const val IV_LENGTH = 12
+        const val CIPHER_PREFIX = "enc:v1:"
     }
 
     private val keyStore: KeyStore = KeyStore.getInstance(KEYSTORE_NAME).apply {
@@ -51,8 +52,11 @@ class CryptoManager(private val context: Context) {
         return entry.secretKey
     }
 
+    fun isEncrypted(text: String): Boolean = text.startsWith(CIPHER_PREFIX)
+
     fun encrypt(plainText: String): String {
         if (plainText.isEmpty()) return plainText
+        if (isEncrypted(plainText)) return plainText
 
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, getKey())
@@ -65,14 +69,18 @@ class CryptoManager(private val context: Context) {
         System.arraycopy(iv, 0, combined, 0, iv.size)
         System.arraycopy(encrypted, 0, combined, iv.size, encrypted.size)
 
-        return Base64.encodeToString(combined, Base64.NO_WRAP)
+        return CIPHER_PREFIX + Base64.encodeToString(combined, Base64.NO_WRAP)
     }
 
     fun decrypt(encryptedText: String): String {
         if (encryptedText.isEmpty()) return encryptedText
 
-        try {
-            val combined = Base64.decode(encryptedText, Base64.NO_WRAP)
+        val hasPrefix = encryptedText.startsWith(CIPHER_PREFIX)
+        val rawCipher = if (hasPrefix) encryptedText.removePrefix(CIPHER_PREFIX) else encryptedText
+
+        return try {
+            val combined = Base64.decode(rawCipher, Base64.NO_WRAP)
+            if (combined.size <= IV_LENGTH) return encryptedText
 
             val iv = combined.sliceArray(0 until IV_LENGTH)
             val encrypted = combined.sliceArray(IV_LENGTH until combined.size)
@@ -82,10 +90,10 @@ class CryptoManager(private val context: Context) {
             cipher.init(Cipher.DECRYPT_MODE, getKey(), spec)
 
             val decrypted = cipher.doFinal(encrypted)
-            return String(decrypted, Charsets.UTF_8)
+            String(decrypted, Charsets.UTF_8)
         } catch (e: Exception) {
-            // 如果解密失败，可能是因为数据未加密（旧数据兼容）
-            return encryptedText
+            // 解密失败说明是明文或旧数据，返回原文
+            encryptedText
         }
     }
 }

@@ -565,6 +565,13 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
             val requestStartTime = System.currentTimeMillis()
             runtimeMessageModelMap[requestStartTime] = currentCallingModel
 
+            val slowTimeoutJob = launch {
+                kotlinx.coroutines.delay(120_000L)
+                if (_isGenerating.value && _reconnectStatus.value == null) {
+                    _reconnectStatus.value = "响应耗时较长（已持续 120s+），若为长篇生成或深度推理请耐心稍候，也可随时点击停止..."
+                }
+            }
+
             try {
                 if (saveUserMessage) {
                     val userMessage = Message(
@@ -602,7 +609,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                     roleplayRepo.assembleRoleplayContext(
                         sessionId = currentRoleplaySession.id,
                         globalSystemPrompt = currentSystemPrompt,
-                        userMessage = content,
+                        userMessage = null, // 设定与上下文纯净解耦，用户消息由 user 角色独立发送
                         globalRoleplayPrompt = globalRpPrompt
                     )
                 } else {
@@ -641,7 +648,12 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                         onStatusUpdate = { status ->
                             _reconnectStatus.value = status
                         },
+                        onResetBuffer = {
+                            _currentResponse.value = ""
+                            _currentThinking.value = ""
+                        },
                         onComplete = { _, _, _ ->
+                            slowTimeoutJob.cancel()
                             isMessageSaved = true
                             _isGenerating.value = false
                             activeAssistantVariantGroupId = null
@@ -654,6 +666,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                             evaluateAutoCompression()
                         },
                         onError = { errorMsg ->
+                            slowTimeoutJob.cancel()
                             _reconnectStatus.value = null
                             if (isUserStopping || errorMsg.contains("Socket closed", ignoreCase = true) || errorMsg.contains("Canceled", ignoreCase = true)) {
                                 _isGenerating.value = false
@@ -671,6 +684,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                     )
                 }
             } catch (e: Exception) {
+                slowTimeoutJob.cancel()
                 _reconnectStatus.value = null
                 if (isUserStopping || e is CancellationException || e.message?.contains("Socket closed", ignoreCase = true) == true || e.message?.contains("Canceled", ignoreCase = true) == true) {
                     _isGenerating.value = false
@@ -1089,9 +1103,63 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
 
     fun sendPlotAction(action: PlotAction, customInstruction: String? = null) {
         val session = _uiState.value.roleplaySession ?: return
+        when (action) {
+            PlotAction.REGENERATE -> {
+                regenerateLastMessage()
+            }
+            PlotAction.ROLLBACK -> {
+                viewModelScope.launch {
+                    val messages = repository.getMessagesList(conversationId)
+                    val lastAssistant = messages.lastOrNull { it.role == "assistant" }
+                    if (lastAssistant != null) {
+                        repository.deleteMessage(lastAssistant)
+                    }
+                }
+            }
+            else -> {
+                viewModelScope.launch {
+                    val instruction = AiAssistantApp.instance.roleplayRepository.processPlotAction(session.id, action, customInstruction)
+                    sendMessage(instruction)
+                }
+            }
+        }
+    }
+
+    fun triggerCharacterOpening() {
+        val session = _uiState.value.roleplaySession ?: return
+        val character = _uiState.value.roleplayCharacter
+        val scenario = _uiState.value.roleplayScenario
         viewModelScope.launch {
-            val instruction = AiAssistantApp.instance.roleplayRepository.processPlotAction(session.id, action, customInstruction)
-            sendMessage(instruction)
+            val greeting = character?.greeting?.trim()
+            if (!greeting.isNullOrBlank()) {
+                val assistantMsg = Message(
+                    conversationId = conversationId,
+                    role = "assistant",
+                    content = greeting,
+                    tokenCount = com.aiassistant.data.repository.AiRepository.estimateTokenCount(greeting)
+                )
+                repository.saveMessage(assistantMsg)
+            } else {
+                val charName = character?.name ?: "角色"
+                val scenarioDesc = scenario?.let { "当前场景为【${it.name}】（${it.location.ifBlank { "" }} ${it.environment.ifBlank { "" }}）。" }.orEmpty()
+                val openingPrompt = "【导演开场指令】${scenarioDesc}请以【$charName】的身份，根据角色设定与当前场景世界观，开启故事的第一幕，展现角色当前的动作、神态与首句对话，为故事奠定氛围并留出互动切入点。"
+                sendMessage(openingPrompt)
+            }
+        }
+    }
+
+    fun togglePinMessage(message: Message) {
+        viewModelScope.launch {
+            val updated = message.copy(isPinned = !message.isPinned)
+            repository.updateMessage(updated)
+        }
+    }
+
+    fun toggleExcludeMessage(message: Message) {
+        viewModelScope.launch {
+            val updated = message.copy(isExcluded = !message.isExcluded)
+            repository.updateMessage(updated)
+            refreshContextUsage()
         }
     }
 
@@ -1594,9 +1662,9 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                     withContext(Dispatchers.Main) { onError("暂无剧情记录可提炼") }
                     return@launch
                 }
-                val transcript = allMessages.takeLast(16).joinToString("\n") { m ->
+                val transcript = allMessages.takeLast(30).joinToString("\n") { m ->
                     val role = if (m.role == "user") "【导演/用户】" else "【模型剧情】"
-                    "$role: ${m.content.take(300)}"
+                    "$role: ${m.content}"
                 }
                 val prompt = """
                     请分析以下故事剧本对白与情节发展：

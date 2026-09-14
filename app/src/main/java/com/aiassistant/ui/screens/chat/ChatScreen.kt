@@ -618,7 +618,13 @@ fun ChatScreen(
                     // 空状态
                     if (displayMessages.isEmpty() && currentResponse.isEmpty() && currentThinking.isEmpty()) {
                         item {
-                            EmptyChatPlaceholder()
+                            EmptyChatPlaceholder(
+                                isRoleplay = uiState.isRoleplay,
+                                characterName = uiState.roleplayCharacter?.name,
+                                scenarioTitle = uiState.roleplayScenario?.name,
+                                characterAvatarUri = uiState.roleplayCharacter?.avatarUri,
+                                onTriggerOpening = { viewModel.triggerCharacterOpening() }
+                            )
                         }
                     }
 
@@ -704,7 +710,8 @@ fun ChatScreen(
                                             val quoteBlock = currentResponse.lines().joinToString("\n") { line -> "> $line" } + "\n针对以上内容：\n"
                                             inputText = if (inputText.isBlank()) quoteBlock else "$inputText\n\n$quoteBlock"
                                         }
-                                    } else null
+                                    } else null,
+                                    customAvatarUri = uiState.roleplayCharacter?.avatarUri
                                 )
                             } else {
                                 val dynamicVariantInfo = if (isBranchStreamingHere) {
@@ -789,7 +796,10 @@ fun ChatScreen(
                                     } else null,
                                     onDelete = {
                                         messagePendingDelete = message
-                                    }
+                                    },
+                                    customAvatarUri = uiState.roleplayCharacter?.avatarUri,
+                                    onTogglePin = { msg -> viewModel.togglePinMessage(msg) },
+                                    onToggleExclude = { msg -> viewModel.toggleExcludeMessage(msg) }
                                 )
                             }
 
@@ -825,7 +835,8 @@ fun ChatScreen(
                                     },
                                     onCopyThinking = {
                                         clipboardManager.setText(AnnotatedString(currentThinking))
-                                    }
+                                    },
+                                    customAvatarUri = uiState.roleplayCharacter?.avatarUri
                                 )
                             }
                         }
@@ -853,7 +864,8 @@ fun ChatScreen(
                                 },
                                 onCopyThinking = {
                                     clipboardManager.setText(AnnotatedString(currentThinking))
-                                }
+                                },
+                                customAvatarUri = uiState.roleplayCharacter?.avatarUri
                             )
                         }
                     }
@@ -2265,7 +2277,10 @@ private fun MessageBubble(
     onBranch: (() -> Unit)? = null,
     onRegenerate: (() -> Unit)? = null,
     onEdit: (() -> Unit)? = null,
-    onDelete: (() -> Unit)? = null
+    onDelete: (() -> Unit)? = null,
+    customAvatarUri: String? = null,
+    onTogglePin: ((Message) -> Unit)? = null,
+    onToggleExclude: ((Message) -> Unit)? = null
 ) {
     val isUser = message.role == "user"
     val resolvedReadableBackdrop = readableBackdrop.takeOrElse {
@@ -2453,7 +2468,13 @@ private fun MessageBubble(
         }
     }
 
-    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxWidth()
+            .graphicsLayer {
+                alpha = if (message.isExcluded) 0.52f else 1f
+            }
+    ) {
         val bubbleMaxWidth = (maxWidth - 52.dp).coerceAtLeast(160.dp).coerceAtMost(360.dp)
 
         if (isUser) {
@@ -2503,6 +2524,8 @@ private fun MessageBubble(
                         onRegenerate = onRegenerate,
                         onEdit = onEdit,
                         onDelete = onDelete,
+                        onTogglePin = onTogglePin?.let { cb -> { cb(message) } },
+                        onToggleExclude = onToggleExclude?.let { cb -> { cb(message) } },
                         modifier = Modifier
                             .widthIn(max = bubbleMaxWidth)
                             .fillMaxWidth()
@@ -2533,7 +2556,8 @@ private fun MessageBubble(
                     ChatAvatar(
                         isUser = false,
                         avatarRevision = assistantAvatarRevision,
-                        apiConfigId = assistantApiConfigId
+                        apiConfigId = assistantApiConfigId,
+                        customAvatarUri = customAvatarUri
                     )
                     Spacer(modifier = Modifier.width(8.dp))
 
@@ -2911,6 +2935,8 @@ private fun MessageBubble(
                         onRegenerate = onRegenerate,
                         onEdit = onEdit,
                         onDelete = onDelete,
+                        onTogglePin = onTogglePin?.let { cb -> { cb(message) } },
+                        onToggleExclude = onToggleExclude?.let { cb -> { cb(message) } },
                         modifier = Modifier.fillMaxWidth()
                     )
 
@@ -2947,6 +2973,8 @@ private fun MessageFooter(
     onRegenerate: (() -> Unit)?,
     onEdit: (() -> Unit)?,
     onDelete: (() -> Unit)?,
+    onTogglePin: (() -> Unit)? = null,
+    onToggleExclude: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val thinkingTokensInThinkingBubble = message.role == "assistant" &&
@@ -2966,6 +2994,19 @@ private fun MessageFooter(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
         ) {
+            if (message.isPinned) {
+                MessageMetaText(
+                    text = "📌已固定",
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+            if (message.isExcluded) {
+                MessageMetaText(
+                    text = "🚫已排除",
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+
             MessageMetaText(
                 text = formatMessageClock(message.createdAt),
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
@@ -3055,6 +3096,24 @@ private fun MessageFooter(
                     contentDescription = "重新编辑",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     onClick = onEdit
+                )
+            }
+
+            if (onTogglePin != null) {
+                FooterIconButton(
+                    icon = Icons.Default.PushPin,
+                    contentDescription = if (message.isPinned) "取消固定" else "固定到上下文",
+                    tint = if (message.isPinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                    onClick = onTogglePin
+                )
+            }
+
+            if (onToggleExclude != null) {
+                FooterIconButton(
+                    icon = if (message.isExcluded) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                    contentDescription = if (message.isExcluded) "恢复参与上下文" else "从上下文中排除",
+                    tint = if (message.isExcluded) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                    onClick = onToggleExclude
                 )
             }
 
@@ -3158,11 +3217,22 @@ private fun VariantSwitcher(
 private fun ChatAvatar(
     isUser: Boolean,
     avatarRevision: Int = 0,
-    apiConfigId: Long? = null
+    apiConfigId: Long? = null,
+    customAvatarUri: String? = null
 ) {
     val context = LocalContext.current
     val userAvatarBitmap = if (isUser) remember(context) { AvatarManager.getAvatarBitmap(context) } else null
-    val modelAvatarBitmap = if (!isUser) {
+    val customAvatarBitmap = if (!isUser && !customAvatarUri.isNullOrBlank()) {
+        remember(customAvatarUri) {
+            runCatching {
+                val uri = Uri.parse(customAvatarUri)
+                context.contentResolver.openInputStream(uri)?.use { stream ->
+                    android.graphics.BitmapFactory.decodeStream(stream)
+                }
+            }.getOrNull()
+        }
+    } else null
+    val modelAvatarBitmap = if (!isUser && customAvatarBitmap == null) {
         remember(context, avatarRevision, apiConfigId) {
             AvatarManager.getPreferredModelAvatarBitmap(context, apiConfigId)
         }
@@ -3187,7 +3257,16 @@ private fun ChatAvatar(
                 contentScale = ContentScale.Crop
             )
         } else if (!isUser) {
-            if (modelAvatarBitmap != null) {
+            if (customAvatarBitmap != null) {
+                Image(
+                    bitmap = customAvatarBitmap.asImageBitmap(),
+                    contentDescription = "角色头像",
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(CircleShape),
+                    contentScale = ContentScale.Crop
+                )
+            } else if (modelAvatarBitmap != null) {
                 Image(
                     bitmap = modelAvatarBitmap.asImageBitmap(),
                     contentDescription = "模型头像",
@@ -4735,40 +4814,133 @@ fun AttachmentPreview(
 }
 
 @Composable
-fun EmptyChatPlaceholder() {
+fun EmptyChatPlaceholder(
+    isRoleplay: Boolean = false,
+    characterName: String? = null,
+    scenarioTitle: String? = null,
+    characterAvatarUri: String? = null,
+    onTriggerOpening: (() -> Unit)? = null
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 72.dp),
+            .padding(horizontal = 16.dp, vertical = if (isRoleplay) 36.dp else 72.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Surface(
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.primaryContainer,
-            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-        ) {
-            Icon(
-                Icons.Default.ChatBubbleOutline,
-                contentDescription = null,
-                modifier = Modifier
-                    .padding(18.dp)
-                    .size(42.dp)
+        if (isRoleplay) {
+            val context = LocalContext.current
+            val customAvatarBitmap = remember(characterAvatarUri) {
+                characterAvatarUri?.let { uriStr ->
+                    runCatching {
+                        val uri = Uri.parse(uriStr)
+                        context.contentResolver.openInputStream(uri)?.use { stream ->
+                            android.graphics.BitmapFactory.decodeStream(stream)
+                        }
+                    }.getOrNull()
+                }
+            }
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.size(68.dp)
+            ) {
+                if (customAvatarBitmap != null) {
+                    Image(
+                        bitmap = customAvatarBitmap.asImageBitmap(),
+                        contentDescription = "角色头像",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                        Icon(
+                            Icons.Default.AutoAwesome,
+                            contentDescription = null,
+                            modifier = Modifier.size(36.dp)
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = characterName ?: "角色扮演",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+            if (!scenarioTitle.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f)
+                ) {
+                    Text(
+                        text = "剧本：$scenarioTitle",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = "点击下方按钮让角色主动开场，或者直接输入剧情提示开始故事。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(20.dp))
+            Button(
+                onClick = { onTriggerOpening?.invoke() },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                ),
+                shape = RoundedCornerShape(20.dp),
+                contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
+            ) {
+                Icon(
+                    Icons.Default.PlayArrow,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "让角色开场",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        } else {
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+            ) {
+                Icon(
+                    Icons.Default.ChatBubbleOutline,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .padding(18.dp)
+                        .size(42.dp)
+                )
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = "准备开始",
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "有什么想法，直接开始吧。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                textAlign = TextAlign.Center
             )
         }
-        Spacer(modifier = Modifier.height(16.dp))
-        Text(
-            text = "准备开始",
-            style = MaterialTheme.typography.headlineSmall,
-            color = MaterialTheme.colorScheme.onBackground
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = "有什么想法，直接开始吧。",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-            textAlign = TextAlign.Center
-        )
     }
 }
 

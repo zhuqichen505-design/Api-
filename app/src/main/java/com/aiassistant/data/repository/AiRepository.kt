@@ -20,10 +20,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.Call
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.util.concurrent.ConcurrentHashMap
+
+class ApiException(val statusCode: Int, message: String, val errorBody: String? = null) : Exception(message)
 
 class AiRepository(
     private val folderDao: FolderDao,
@@ -287,12 +290,12 @@ class AiRepository(
     suspend fun getDefaultApiConfig(): ApiConfig? = apiConfigDao.getDefaultConfig()
 
     suspend fun saveApiConfig(config: ApiConfig): Long {
-        // 检查apiKey是否已经加密（通过尝试解密来判断）
-        val apiKeyToSave = if (config.id != 0L && isAlreadyEncrypted(config.apiKey)) {
-            // 如果是编辑现有配置且key已经加密，保持原值
+        // 检查apiKey是否已经加密（以 enc:v1: 标头为准）
+        val apiKeyToSave = if (isAlreadyEncrypted(config.apiKey)) {
+            // 如果key已经带有 enc:v1: 密文标头，保持原密文
             config.apiKey
         } else {
-            // 否则加密
+            // 否则加密并打上 enc:v1: 标头
             cryptoManager.encrypt(config.apiKey)
         }
 
@@ -361,13 +364,7 @@ class AiRepository(
 
     // 检查是否已经加密
     private fun isAlreadyEncrypted(value: String): Boolean {
-        return try {
-            // 尝试解密，如果成功说明已经加密过
-            cryptoManager.decrypt(value)
-            true
-        } catch (e: Exception) {
-            false
-        }
+        return cryptoManager.isEncrypted(value)
     }
 
     suspend fun deleteApiConfig(config: ApiConfig) = apiConfigDao.deleteConfig(config)
@@ -380,7 +377,12 @@ class AiRepository(
     suspend fun getDecryptedConfig(id: Long): ApiConfig? {
         val config = apiConfigDao.getConfigById(id) ?: return null
         return try {
-            config.copy(apiKey = cryptoManager.decrypt(config.apiKey))
+            val decryptedKey = cryptoManager.decrypt(config.apiKey)
+            if (!cryptoManager.isEncrypted(config.apiKey) && config.apiKey.isNotBlank()) {
+                val newEncryptedKey = cryptoManager.encrypt(decryptedKey)
+                apiConfigDao.updateConfig(config.copy(apiKey = newEncryptedKey))
+            }
+            config.copy(apiKey = decryptedKey)
         } catch (e: Exception) {
             Log.e(tag, "解密API Key失败", e)
             config // 返回原始配置，让调用者处理
@@ -906,6 +908,10 @@ class AiRepository(
         return id
     }
 
+    suspend fun updateMessage(message: Message) {
+        messageDao.updateMessage(message)
+    }
+
     suspend fun updateTranslatedThinking(messageId: Long, translatedThinking: String?) {
         messageDao.updateTranslatedThinking(messageId, translatedThinking)
     }
@@ -989,6 +995,7 @@ class AiRepository(
         onToken: (String) -> Unit,
         onThinkingToken: (String) -> Unit = {},
         onStatusUpdate: ((String) -> Unit)? = null,
+        onResetBuffer: (() -> Unit)? = null,
         onComplete: (String, String?, Any?) -> Unit,
         onError: (String) -> Unit
     ) {
@@ -1004,6 +1011,7 @@ class AiRepository(
                 onToken = onToken,
                 onThinkingToken = onThinkingToken,
                 onStatusUpdate = onStatusUpdate,
+                onResetBuffer = onResetBuffer,
                 onComplete = onComplete
             )
         } catch (e: Exception) {
@@ -1018,6 +1026,7 @@ class AiRepository(
                     assistantVariantIndex = assistantVariantIndex,
                     onToken = onToken,
                     onThinkingToken = onThinkingToken,
+                    onResetBuffer = onResetBuffer,
                     onComplete = onComplete,
                     originalError = e
                 )
@@ -1054,11 +1063,22 @@ class AiRepository(
         onToken: (String) -> Unit,
         onThinkingToken: (String) -> Unit,
         onStatusUpdate: ((String) -> Unit)? = null,
+        onResetBuffer: (() -> Unit)? = null,
         onComplete: (String, String?, Any?) -> Unit
     ) {
         val historyMessages = getMessagesList(conversationId)
         val allKeys = parseApiKeys(config.apiKey).ifEmpty { listOf(config.apiKey) }
         var lastException: Exception? = null
+        var hasEmittedTokens = false
+
+        val wrappedOnToken: (String) -> Unit = { token ->
+            hasEmittedTokens = true
+            onToken(token)
+        }
+        val wrappedOnThinkingToken: (String) -> Unit = { token ->
+            hasEmittedTokens = true
+            onThinkingToken(token)
+        }
 
         for ((keyIndex, currentKey) in allKeys.withIndex()) {
             val keyConfig = config.copy(apiKey = currentKey)
@@ -1071,18 +1091,30 @@ class AiRepository(
                         "anthropic" -> sendAnthropicMessage(
                             keyConfig, conversationId, historyMessages, userMessage, attachments,
                             options, assistantVariantGroupId, assistantVariantIndex,
-                            onToken, onThinkingToken, onComplete
+                            wrappedOnToken, wrappedOnThinkingToken, onComplete
                         )
                         else -> sendOpenAIMessage(
                             keyConfig, conversationId, historyMessages, userMessage, attachments,
                             options, assistantVariantGroupId, assistantVariantIndex,
-                            onToken, onThinkingToken, onComplete
+                            wrappedOnToken, wrappedOnThinkingToken, onComplete
                         )
                     }
                     return // 请求成功完成
                 } catch (e: Exception) {
                     if (isRequestCancellation(e)) throw e
                     lastException = e
+
+                    // 若已经输出了 token，在重试或切换 Key 前必须通知 UI 清空残损内容
+                    if (hasEmittedTokens) {
+                        onResetBuffer?.invoke()
+                        hasEmittedTokens = false
+                    }
+
+                    // 客户端参数错误或模型不存在 (400, 404, 422)，换 Key 无效，立即抛出
+                    if (e is ApiException && (e.statusCode == 400 || e.statusCode == 404 || e.statusCode == 422)) {
+                        throw e
+                    }
+
                     if (isTimeoutException(e)) {
                         attempt++
                         if (attempt <= maxTimeoutAttempts) {
@@ -1130,6 +1162,7 @@ class AiRepository(
         assistantVariantIndex: Int,
         onToken: (String) -> Unit,
         onThinkingToken: (String) -> Unit,
+        onResetBuffer: (() -> Unit)? = null,
         onComplete: (String, String?, Any?) -> Unit,
         originalError: Exception
     ): Boolean {
@@ -1161,6 +1194,7 @@ class AiRepository(
                 assistantVariantIndex = assistantVariantIndex,
                 onToken = onToken,
                 onThinkingToken = onThinkingToken,
+                onResetBuffer = onResetBuffer,
                 onComplete = onComplete
             )
         }.onFailure {
@@ -1469,13 +1503,9 @@ class AiRepository(
                 onComplete(fullContent, fullThinking, toolCalls)
             } else {
                 val errorBody = okResponse.body?.string() ?: "未知错误"
-                val errorMsg = try {
-                    val error = gson.fromJson(errorBody, ApiError::class.java)
-                    error.message ?: errorBody
-                } catch (e: Exception) {
-                    errorBody
-                }
-                throw Exception("API错误: $errorMsg")
+                val errorMsg = parseApiErrorMessage(errorBody)
+                val statusCode = okResponse.code
+                throw ApiException(statusCode, "API错误 ($statusCode): $errorMsg", errorBody)
             }
         }
         } finally {
@@ -1613,6 +1643,12 @@ class AiRepository(
                                 val event = gson.fromJson(data, AnthropicStreamEvent::class.java)
 
                                 when (event.type) {
+                                    "message_start" -> {
+                                        event.message?.usage?.let { usage ->
+                                            inputTokens = usage.input_tokens ?: inputTokens
+                                            cachedTokens = (usage.cache_read_input_tokens ?: 0) + (usage.cache_creation_input_tokens ?: 0)
+                                        }
+                                    }
                                     "content_block_delta" -> {
                                         // 处理文本内容
                                         event.delta?.text?.let { text ->
@@ -1632,6 +1668,10 @@ class AiRepository(
                                             cachedTokens = usage.cache_read_input_tokens ?: cachedTokens
                                             totalTokens = inputTokens + outputTokens
                                         }
+                                    }
+                                    "error" -> {
+                                        val errText = event.error?.message ?: "Anthropic 流式返回错误"
+                                        throw Exception(errText)
                                     }
                                 }
                             } catch (e: Exception) {
@@ -1700,14 +1740,9 @@ class AiRepository(
                 onComplete(fullContent, fullThinking, toolCalls)
             } else {
                 val errorBody = okResponse.body?.string() ?: "未知错误"
-                val errorMsg = try {
-                    // 尝试解析Anthropic错误格式
-                    val errorJson = gson.fromJson(errorBody, AnthropicError::class.java)
-                    errorJson.error?.message ?: errorBody
-                } catch (e: Exception) {
-                    errorBody
-                }
-                throw Exception("API错误: $errorMsg")
+                val errorMsg = parseApiErrorMessage(errorBody)
+                val statusCode = okResponse.code
+                throw ApiException(statusCode, "API错误 ($statusCode): $errorMsg", errorBody)
             }
         }
         } finally {
@@ -1805,28 +1840,50 @@ class AiRepository(
     }
 
     private fun requestTemperature(config: ApiConfig, options: ChatRequestOptions): Float? {
-        if (options.enableThinking == true && (isDeepSeekConfig(config) || isMiMoConfig(config))) {
-            return null
+        val identity = listOf(config.provider, config.baseUrl, config.modelName).joinToString(" ").lowercase()
+        val isAnthropic = config.apiType == "anthropic" || config.provider.equals("anthropic", ignoreCase = true) || "anthropic" in identity || "claude" in identity
+        if (options.enableThinking == true) {
+            if (isAnthropic) {
+                return 1.0f
+            }
+            if (isDeepSeekConfig(config) || isMiMoConfig(config) || Regex("""(^|[-_/])(o[134]|gpt-5|r1)""").containsMatchIn(config.modelName.lowercase())) {
+                return null
+            }
         }
         return options.temperature?.coerceIn(0f, temperatureMaxForConfig(config))
     }
 
     private fun resolveRequestModel(config: ApiConfig, options: ChatRequestOptions): String {
-        val model = config.modelName
-        if (options.enableThinking != true) return model
+        return config.modelName
+    }
 
-        val identity = listOf(config.provider, config.baseUrl, model)
-            .joinToString(" ")
-            .lowercase()
-        val isOfficialDeepSeek = "api.deepseek.com" in identity || config.provider.equals("deepseek", ignoreCase = true)
-        val isDeepSeekChat = model.equals("deepseek-chat", ignoreCase = true)
-        val isAlreadyReasoner = "reasoner" in model.lowercase()
-
-        return if (isOfficialDeepSeek && isDeepSeekChat && !isAlreadyReasoner) {
-            "deepseek-reasoner"
-        } else {
-            model
-        }
+    fun parseApiErrorMessage(errorBody: String?): String {
+        if (errorBody.isNullOrBlank()) return "未知错误"
+        return runCatching {
+            val json = JsonParser.parseString(errorBody).asJsonObject
+            when {
+                json.has("error") -> {
+                    val errorElem = json.get("error")
+                    when {
+                        errorElem.isJsonObject -> {
+                            val errObj = errorElem.asJsonObject
+                            errObj.get("message")?.asString
+                                ?: errObj.get("msg")?.asString
+                                ?: errObj.toString()
+                        }
+                        errorElem.isJsonPrimitive -> errorElem.asString
+                        else -> errorElem.toString()
+                    }
+                }
+                json.has("message") -> json.get("message").asString
+                json.has("detail") -> {
+                    val detail = json.get("detail")
+                    if (detail.isJsonPrimitive) detail.asString else detail.toString()
+                }
+                json.has("msg") -> json.get("msg").asString
+                else -> errorBody
+            }
+        }.getOrDefault(errorBody)
     }
 
     private fun buildOpenAiProviderToggles(
@@ -1869,7 +1926,7 @@ class AiRepository(
         maxOutputTokens: Int?
     ): ConversationContextUsage {
         val usableMessages = messages.filter { message ->
-            (message.role == "user" || message.role == "assistant") && message.content.isNotBlank()
+            (message.role == "user" || message.role == "assistant") && message.content.isNotBlank() && !message.isExcluded
         }
 
         val contextWindow = estimateModelContextWindowTokens(modelName)
@@ -1884,7 +1941,7 @@ class AiRepository(
         var recentCount = 0
         for (message in usableMessages.asReversed()) {
             val cost = estimateTokenCount(compactMessageForHistory(message.content)) + 24
-            if (recentCount > 0 && recentTokens + cost > recentBudget) break
+            if (recentCount > 0 && recentTokens + cost > recentBudget && !message.isPinned) break
             recentTokens += cost
             recentCount++
         }
@@ -1942,7 +1999,7 @@ class AiRepository(
         options: ChatRequestOptions? = null
     ): ContextBundle {
         val usableMessages = messages.filter { message ->
-            (message.role == "user" || message.role == "assistant") && message.content.isNotBlank()
+            (message.role == "user" || message.role == "assistant") && message.content.isNotBlank() && !message.isExcluded
         }
 
         val promptBudget = estimatePromptBudgetTokens(
@@ -1966,7 +2023,7 @@ class AiRepository(
         for (message in usableMessages.asReversed()) {
             val compact = compactMessageForHistory(message.content)
             val cost = estimateTokenCount(compact) + 24
-            if (recentReversed.isNotEmpty() && usedTokens + cost > recentBudget) {
+            if (recentReversed.isNotEmpty() && usedTokens + cost > recentBudget && !message.isPinned) {
                 break
             }
             recentReversed.add(message)
@@ -2073,7 +2130,9 @@ class AiRepository(
         }
 
         val generated = runCatching {
-            generateRollingSummary(config, modelName, existingSummary, pendingMessages, tokenBudget)
+            withTimeoutOrNull(15_000L) {
+                generateRollingSummary(config, modelName, existingSummary, pendingMessages, tokenBudget)
+            }
         }.onFailure {
             Log.w(tag, "Rolling summary generation failed", it)
         }.getOrNull()
@@ -2278,7 +2337,7 @@ class AiRepository(
         }
     }
 
-    private fun compactMessageForHistory(content: String, limit: Int = 2_400): String {
+    private fun compactMessageForHistory(content: String, limit: Int = Int.MAX_VALUE): String {
         val normalized = content
             .lineSequence()
             .map { it.trimEnd() }

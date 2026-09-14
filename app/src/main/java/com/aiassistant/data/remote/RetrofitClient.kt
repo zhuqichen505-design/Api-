@@ -23,14 +23,22 @@ object RetrofitClient {
     private val lock = Any()
 
     private val loggingInterceptor = HttpLoggingInterceptor().apply {
-        // BODY 日志会完整读取响应体，SSE 会因此等到结束才交给界面。
         level = HttpLoggingInterceptor.Level.BASIC
     }
 
-    private val httpClient = OkHttpClient.Builder()
+    // 专用于长文本与深度思考 SSE 流式输出（读超时为 0 无限等待）
+    val streamHttpClient = OkHttpClient.Builder()
         .addInterceptor(loggingInterceptor)
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .build()
+
+    // 专用于普通 REST 请求、模型拉取与摘要生成（设置明确 30s 超时，防止永久挂死）
+    val restHttpClient = OkHttpClient.Builder()
+        .addInterceptor(loggingInterceptor)
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
 
@@ -43,7 +51,7 @@ object RetrofitClient {
                     currentBaseUrl = normalizedUrl
                     currentRetrofit = Retrofit.Builder()
                         .baseUrl(normalizedUrl)
-                        .client(httpClient)
+                        .client(restHttpClient)
                         .addConverterFactory(GsonConverterFactory.create())
                         .build()
                     currentService = currentRetrofit!!.create(AiApiService::class.java)
@@ -70,7 +78,7 @@ object RetrofitClient {
             requestBuilder.header(name, value)
         }
 
-        val call = httpClient.newCall(requestBuilder.build())
+        val call = streamHttpClient.newCall(requestBuilder.build())
         onCallCreated?.invoke(call)
         return call.execute()
     }
@@ -85,7 +93,7 @@ object RetrofitClient {
             requestBuilder.header(name, value)
         }
 
-        return httpClient.newCall(requestBuilder.build()).execute()
+        return restHttpClient.newCall(requestBuilder.build()).execute()
     }
 
     private fun normalizeBaseUrl(url: String): String {

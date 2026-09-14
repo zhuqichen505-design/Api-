@@ -13,8 +13,8 @@ android {
         applicationId = "com.aiassistant"
         minSdk = 26
         targetSdk = 34
-        versionCode = 115
-        versionName = "2.0.5"
+        versionCode = 116
+        versionName = "2.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -24,9 +24,15 @@ android {
 
     signingConfigs {
         create("echoRelease") {
-            val releaseKeystore = System.getenv("ECHO_RELEASE_KEYSTORE")
-                ?: "${System.getProperty("user.home")}/.android/debug.keystore"
-            storeFile = file(releaseKeystore)
+            val envKeystore = System.getenv("ECHO_RELEASE_KEYSTORE")
+            val projectKeystore = rootProject.file("keystore/echo-release.jks")
+            val fallbackKeystore = file("${System.getProperty("user.home")}/.android/debug.keystore")
+            val releaseKeystore = when {
+                !envKeystore.isNullOrBlank() -> file(envKeystore)
+                projectKeystore.exists() -> projectKeystore
+                else -> fallbackKeystore
+            }
+            storeFile = releaseKeystore
             storePassword = "android"
             keyAlias = "androiddebugkey"
             keyPassword = "android"

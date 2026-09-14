@@ -84,7 +84,9 @@ class AiAssistantApp : Application() {
                 roleplayScenarioDao = database.roleplayScenarioDao(),
                 roleplaySessionDao = database.roleplaySessionDao(),
                 roleplayMemoryDao = database.roleplayMemoryDao(),
-                characterTagDao = database.characterTagDao()
+                characterTagDao = database.characterTagDao(),
+                conversationDao = database.conversationDao(),
+                messageDao = database.messageDao()
             )
             isDatabaseInitialized = true
         } catch (e: Exception) {

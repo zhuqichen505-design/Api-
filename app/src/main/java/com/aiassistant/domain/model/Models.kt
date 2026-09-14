@@ -104,6 +104,8 @@ data class Message(
     val responseTime: Long = 0,
     val toolCalls: String? = null,
     val translatedThinking: String? = null,
+    val isPinned: Boolean = false,
+    val isExcluded: Boolean = false,
     val createdAt: Long = System.currentTimeMillis()
 )
 
@@ -561,7 +563,17 @@ data class AnthropicUsage(
 data class AnthropicStreamEvent(
     val type: String?,
     val delta: AnthropicDelta?,
-    val usage: AnthropicUsage?
+    val usage: AnthropicUsage?,
+    val message: AnthropicMessageObject? = null,
+    val error: AnthropicErrorDetail? = null
+)
+
+data class AnthropicMessageObject(
+    val id: String? = null,
+    val type: String? = null,
+    val role: String? = null,
+    val model: String? = null,
+    val usage: AnthropicUsage? = null
 )
 
 data class AnthropicDelta(
