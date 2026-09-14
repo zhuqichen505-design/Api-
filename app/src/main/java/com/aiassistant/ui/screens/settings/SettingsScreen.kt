@@ -21,6 +21,8 @@ import androidx.compose.foundation.text.BasicTextField
 import com.aiassistant.domain.model.ChatModelOption
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -5788,20 +5790,31 @@ fun ApiConfigDialog(
                                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
                                     if (keyList.size > 1) {
-                                        var dragAccumulator by remember { mutableFloatStateOf(0f) }
+                                        var isDraggingThisKey by remember { mutableStateOf(false) }
                                         Box(
                                             modifier = Modifier
-                                                .size(32.dp)
+                                                .size(34.dp)
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(if (isDraggingThisKey) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else Color.Transparent)
                                                 .pointerInput(keyList.size, index) {
-                                                    detectVerticalDragGestures(
-                                                        onDragStart = { dragAccumulator = 0f },
-                                                        onDragEnd = { dragAccumulator = 0f },
-                                                        onDragCancel = { dragAccumulator = 0f },
-                                                        onVerticalDrag = { change, dragAmount ->
-                                                            change.consume()
-                                                            dragAccumulator += dragAmount
-                                                            if (dragAccumulator < -40f && index > 0) {
-                                                                dragAccumulator = 0f
+                                                    awaitEachGesture {
+                                                        val down = awaitFirstDown(requireUnconsumed = false)
+                                                        isDraggingThisKey = true
+                                                        var totalDragY = 0f
+                                                        while (true) {
+                                                            val event = awaitPointerEvent()
+                                                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                                            if (!change.pressed) break
+
+                                                            val deltaY = change.position.y - change.previousPosition.y
+                                                            totalDragY += deltaY
+
+                                                            // 立即消费指针移动事件，阻止外层父级可滚动容器抢夺拖动手势
+                                                            if (kotlin.math.abs(totalDragY) > 6f) {
+                                                                change.consume()
+                                                            }
+
+                                                            if (totalDragY < -22f && index > 0) {
                                                                 val updated = keyList.toMutableList()
                                                                 val temp = updated[index]
                                                                 updated[index] = updated[index - 1]
@@ -5815,8 +5828,8 @@ fun ApiConfigDialog(
                                                                     nextVis[index - 1] = tempV
                                                                     keyVisibilityList = nextVis
                                                                 }
-                                                            } else if (dragAccumulator > 40f && index < keyList.size - 1) {
-                                                                dragAccumulator = 0f
+                                                                break
+                                                            } else if (totalDragY > 22f && index < keyList.size - 1) {
                                                                 val updated = keyList.toMutableList()
                                                                 val temp = updated[index]
                                                                 updated[index] = updated[index + 1]
@@ -5830,16 +5843,18 @@ fun ApiConfigDialog(
                                                                     nextVis[index + 1] = tempV
                                                                     keyVisibilityList = nextVis
                                                                 }
+                                                                break
                                                             }
                                                         }
-                                                    )
+                                                        isDraggingThisKey = false
+                                                    }
                                                 },
                                             contentAlignment = Alignment.Center
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.DragIndicator,
-                                                contentDescription = "上下拖动调整优先级",
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                                contentDescription = "按住上下拖动调整优先级",
+                                                tint = if (isDraggingThisKey) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
                                                 modifier = Modifier.size(20.dp)
                                             )
                                         }

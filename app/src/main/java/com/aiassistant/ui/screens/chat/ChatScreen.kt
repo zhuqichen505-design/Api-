@@ -23,6 +23,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
@@ -8751,35 +8753,51 @@ private fun MessageQueueCard(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // 左侧拖动手柄 (支持上下拖拽调序)
+                        var isDraggingItem by remember { mutableStateOf(false) }
+                        // 左侧拖动手柄 (按住六个点上下拖拽调序，需求 3)
                         Box(
                             modifier = Modifier
-                                .size(28.dp)
+                                .size(32.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (isDraggingItem) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else Color.Transparent)
                                 .pointerInput(queue.size, index) {
-                                    detectVerticalDragGestures(
-                                        onDragStart = { dragY = 0f },
-                                        onDragEnd = { dragY = 0f },
-                                        onDragCancel = { dragY = 0f },
-                                        onVerticalDrag = { change, dragAmount ->
-                                            change.consume()
-                                            dragY += dragAmount
-                                            if (dragY < -32f && index > 0) {
-                                                dragY = 0f
+                                    awaitEachGesture {
+                                        val down = awaitFirstDown(requireUnconsumed = false)
+                                        isDraggingItem = true
+                                        var totalDragY = 0f
+                                        while (true) {
+                                            val event = awaitPointerEvent()
+                                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                            if (!change.pressed) break
+
+                                            val deltaY = change.position.y - change.previousPosition.y
+                                            totalDragY += deltaY
+
+                                            // 立即消费移动事件，阻止父级滚动干扰
+                                            if (kotlin.math.abs(totalDragY) > 6f) {
+                                                change.consume()
+                                            }
+
+                                            if (totalDragY < -22f && index > 0) {
                                                 onMove(index, index - 1)
-                                            } else if (dragY > 32f && index < queue.size - 1) {
-                                                dragY = 0f
+                                                totalDragY = 0f
+                                                break
+                                            } else if (totalDragY > 22f && index < queue.size - 1) {
                                                 onMove(index, index + 1)
+                                                totalDragY = 0f
+                                                break
                                             }
                                         }
-                                    )
+                                        isDraggingItem = false
+                                    }
                                 },
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = Icons.Default.DragIndicator,
-                                contentDescription = "上下拖动调整顺序",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
-                                modifier = Modifier.size(18.dp)
+                                contentDescription = "按住上下拖动调整顺序",
+                                tint = if (isDraggingItem) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                                modifier = Modifier.size(19.dp)
                             )
                         }
 
@@ -8792,22 +8810,11 @@ private fun MessageQueueCard(
                             modifier = Modifier.weight(1f)
                         )
 
-                        // 右侧操作区：撤回回填(↑)、编辑(铅笔)、删除(✕)
+                        // 右侧操作区：编辑(铅笔)、撤回回填输入框(✕)（需求 4：删除无用发送键，仅保留编辑与撤回）
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            IconButton(
-                                onClick = { onRecall(msg.id) },
-                                modifier = Modifier.size(28.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.ArrowUpward,
-                                    contentDescription = "撤回至输入框",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
-                                    modifier = Modifier.size(17.dp)
-                                )
-                            }
                             IconButton(
                                 onClick = { onEdit(msg) },
                                 modifier = Modifier.size(28.dp)
@@ -8820,12 +8827,12 @@ private fun MessageQueueCard(
                                 )
                             }
                             IconButton(
-                                onClick = { onRemove(msg.id) },
+                                onClick = { onRecall(msg.id) },
                                 modifier = Modifier.size(28.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Close,
-                                    contentDescription = "删除排队消息",
+                                    contentDescription = "撤回排队消息至输入框",
                                     tint = MaterialTheme.colorScheme.error.copy(alpha = 0.85f),
                                     modifier = Modifier.size(17.dp)
                                 )

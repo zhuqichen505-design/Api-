@@ -92,11 +92,11 @@ object SmartMemoryExtractor {
             }
         }
 
-        // 2.3 中括号结构化记忆提取（需求 2：支持 [] 与 【】 提取并进行规范化提炼）
+        // 2.3 中括号结构化记忆提取（需求 1：增加剧情推进过滤与记忆价值判定，识别是否值得成为记忆）
         val bracketRegex = Regex("""[\[【]([^\[\]【】]{2,100})[\]】]""")
         bracketRegex.find(trimmed)?.let { match ->
             val inner = match.groupValues[1].trim()
-            if (!isCodeOrTechnicalNoise(inner)) {
+            if (!isCodeOrTechnicalNoise(inner) && isWorthBecomingMemory(inner)) {
                 val (distilled, category) = refineMemoryContent(inner)
                 if (distilled.isNotBlank()) {
                     val isConv = isConversationScoped(inner.lowercase(Locale.ROOT))
@@ -365,6 +365,58 @@ object SmartMemoryExtractor {
         if (trimmed.all { it.isDigit() }) return true
         if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return true
         if (trimmed.equals("todo", ignoreCase = true) || trimmed.equals("fixme", ignoreCase = true)) return true
+        return false
+    }
+
+    /**
+     * 判定中括号识别出的内容是否真正值得沉淀为持久记忆（需求 1）
+     * 区分普通剧情推进/瞬态动作描写/时间场景过渡与具有长期价值的设定/规则/偏好
+     */
+    fun isWorthBecomingMemory(text: String): Boolean {
+        val trimmed = text.trim()
+        if (trimmed.length < 3) return false
+        val lower = trimmed.lowercase(Locale.ROOT)
+
+        // 1. 剧情推进/动作描写/瞬时旁白/时间过渡/镜头转换特征词
+        val plotProgressionMarkers = listOf(
+            "此时", "这时", "随后", "紧接着", "突然", "片刻后", "过了一会儿", "不久后",
+            "翌日", "第二天", "半小时后", "一小时后", "几天后", "镜头一转", "场景转换",
+            "场景切换", "来到", "走进了", "走出了", "推开门", "转过身", "转头", "叹了一口气",
+            "叹了口气", "叹气", "摇了摇头", "摇了头", "点了点头", "冷笑一声", "微微一笑",
+            "笑了笑", "沉默片刻", "沉默良久", "深吸一口气", "皱了皱眉", "皱起眉头",
+            "拔出", "握紧", "跳下", "冲向", "抱住", "看向", "望向", "倒在地上",
+            "站起身", "坐下", "第一幕", "第二幕", "画外音", "动作描写", "心理描写",
+            "旁白", "环境描写", "过场", "缓缓", "悄悄", "突然间", "猛然", "快步", "飞速"
+        )
+        val hasPlotProgression = plotProgressionMarkers.any { lower.contains(it) }
+
+        // 2. 核心持久设定/偏好/约束/规则特征词（赋予内容长期记忆价值）
+        val persistentValueMarkers = listOf(
+            "设定", "身份", "职业", "性格", "特征", "背景", "关系", "好感", "能力", "异能",
+            "技能", "武器", "装备", "弱点", "秘密", "禁忌", "雷区", "法则", "规则", "约束",
+            "要求", "世界观", "阵营", "线索", "道具", "契约", "同盟", "宿敌", "喜欢", "讨厌",
+            "偏好", "习惯", "爱吃", "爱喝", "过敏", "害怕", "必须", "严禁", "禁止", "不能",
+            "始终", "记住", "牢记", "已知事实", "情报", "密码", "代号", "真名", "年龄", "住址"
+        )
+        val hasPersistentValue = persistentValueMarkers.any { lower.contains(it) }
+
+        // 如果明确命中瞬态剧情推进/动作词，且缺乏强烈的长期设定/规则/偏好标签，则坚决排除
+        if (hasPlotProgression && !hasPersistentValue) {
+            return false
+        }
+
+        // 如果含有长期设定/偏好/约束特征词，判定为高价值记忆
+        if (hasPersistentValue) {
+            return true
+        }
+
+        // 结构化设定格式判定（如 [主角: 林渊]、[阵营 - 帝国反抗军]、[关系: 盟友] 等键值对设定）
+        val isKeyValueStructure = trimmed.contains("：") || trimmed.contains(":") || trimmed.contains(" - ") || trimmed.contains("——")
+        if (isKeyValueStructure && !hasPlotProgression) {
+            return true
+        }
+
+        // 普通无特殊设定标识的陈述句或动作推进，默认不作为记忆
         return false
     }
 }

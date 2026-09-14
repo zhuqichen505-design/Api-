@@ -59,12 +59,22 @@ class V211FeaturesTest {
     @Test
     fun testSmartMemoryExtractorBracketContents() {
         val candidate1 = SmartMemoryExtractor.extractCandidate("[用户喜欢喝无糖乌龙茶，对坚果过敏]")
-        assertNotNull("应提取出括号内的记忆", candidate1)
+        assertNotNull("应提取出括号内的偏好记忆", candidate1)
         assertTrue("应包含偏好内容", candidate1!!.distilledContent.contains("用户喜欢喝无糖乌龙茶"))
 
         val candidate2 = SmartMemoryExtractor.extractCandidate("【设定：主角名为林渊，代号破晓】")
         assertNotNull("应提取出【】括号内的设定记忆", candidate2)
         assertTrue("应包含设定内容", candidate2!!.distilledContent.contains("主角名为林渊"))
+
+        // 测试剧情推进/瞬态动作/时间场景过渡等不应作为记忆提取（需求 1）
+        val plotAction1 = SmartMemoryExtractor.extractCandidate("[他叹了一口气，转身走进了暴风雨中]")
+        assertNull("瞬态动作描写绝不应提取为记忆", plotAction1)
+
+        val plotAction2 = SmartMemoryExtractor.extractCandidate("[一小时后，飞船降落在火星基地]")
+        assertNull("时间场景过渡绝不应提取为记忆", plotAction2)
+
+        val plotAction3 = SmartMemoryExtractor.extractCandidate("[场景切换到议会控制室]")
+        assertNull("分镜镜头指示绝不应提取为记忆", plotAction3)
     }
 
     @Test
