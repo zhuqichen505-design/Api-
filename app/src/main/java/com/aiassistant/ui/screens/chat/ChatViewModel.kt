@@ -145,6 +145,8 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                 // 设置当前模型
                 _currentModel.value = conv.modelName
                 // 使用对话级别配置，如果没有则使用API配置默认值
+                val rpRepoForInit = AiAssistantApp.instance.roleplayRepository
+                val rpSessionForInit = rpRepoForInit.getSessionByConversationId(conversationId)
                 _tempSettings.value = TempChatSettings(
                     temperature = conv.temperature ?: apiConfig?.temperature ?: 0.95f,
                     maxTokens = conv.maxTokens ?: 50000,
@@ -152,7 +154,10 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                     enableThinking = conv.enableThinking ?: true,
                     thinkingEffort = conv.thinkingEffort ?: apiConfig?.thinkingEffort ?: "high",
                     enableWebSearch = conv.enableWebSearch ?: false,
-                    enableSessionMemory = conv.enableSessionMemory ?: false
+                    enableSessionMemory = conv.enableSessionMemory ?: false,
+                    enableExternalMemory = conv.enableExternalMemory ?: rpSessionForInit?.enableExternalMemory ?: true,
+                    enableWorldBook = conv.enableWorldBook ?: rpSessionForInit?.enableWorldBook ?: true,
+                    activeWorldBookIds = conv.activeWorldBookIds ?: rpSessionForInit?.activeWorldBookIds
                 )
                 // 如果对话有自定义配置，自动启用临时设置
                 _useTempSettings.value = true
@@ -297,13 +302,18 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                 apiConfig = repository.getApiConfigById(option.apiConfigId)
                 if (!_useTempSettings.value) {
                     apiConfig?.let { cfg ->
+                        val current = _tempSettings.value
                         _tempSettings.value = TempChatSettings(
                             temperature = cfg.temperature,
                             maxTokens = cfg.maxTokens,
                             topP = cfg.topP,
                             enableThinking = cfg.enableThinking,
                             thinkingEffort = cfg.thinkingEffort,
-                            enableWebSearch = cfg.enableWebSearch
+                            enableWebSearch = cfg.enableWebSearch,
+                            enableSessionMemory = current.enableSessionMemory,
+                            enableExternalMemory = current.enableExternalMemory,
+                            enableWorldBook = current.enableWorldBook,
+                            activeWorldBookIds = current.activeWorldBookIds
                         )
                     }
                 }
@@ -325,13 +335,18 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                 }
                 if (!_useTempSettings.value) {
                     apiConfig?.let { cfg ->
+                        val current = _tempSettings.value
                         _tempSettings.value = TempChatSettings(
                             temperature = cfg.temperature,
                             maxTokens = cfg.maxTokens,
                             topP = cfg.topP,
                             enableThinking = cfg.enableThinking,
                             thinkingEffort = cfg.thinkingEffort,
-                            enableWebSearch = cfg.enableWebSearch
+                            enableWebSearch = cfg.enableWebSearch,
+                            enableSessionMemory = current.enableSessionMemory,
+                            enableExternalMemory = current.enableExternalMemory,
+                            enableWorldBook = current.enableWorldBook,
+                            activeWorldBookIds = current.activeWorldBookIds
                         )
                     }
                 }
@@ -456,12 +471,28 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                 thinkingEffort = settings?.thinkingEffort,
                 enableWebSearch = settings?.enableWebSearch,
                 enableSessionMemory = settings?.enableSessionMemory ?: conv.enableSessionMemory ?: false,
+                enableExternalMemory = settings?.enableExternalMemory ?: conv.enableExternalMemory ?: true,
+                enableWorldBook = settings?.enableWorldBook ?: conv.enableWorldBook ?: true,
+                activeWorldBookIds = settings?.activeWorldBookIds ?: conv.activeWorldBookIds,
                 systemPrompt = normalizeSystemPrompt(systemPrompt)
             )
             conversation = updated
             systemPromptSaveJob?.cancel()
             systemPromptSaveJob = viewModelScope.launch {
                 AiAssistantApp.instance.database.conversationDao().updateConversation(updated)
+                // 若当前会话为角色扮演会话，同步保存至角色扮演会话实体
+                val rpRepo = AiAssistantApp.instance.roleplayRepository
+                val rpSession = _uiState.value.roleplaySession ?: rpRepo.getSessionByConversationId(conversationId)
+                if (rpSession != null && settings != null) {
+                    val updatedRp = rpSession.copy(
+                        enableExternalMemory = settings.enableExternalMemory,
+                        enableWorldBook = settings.enableWorldBook,
+                        activeWorldBookIds = settings.activeWorldBookIds,
+                        updatedAt = System.currentTimeMillis()
+                    )
+                    rpRepo.updateSession(updatedRp)
+                    _uiState.update { it.copy(roleplaySession = updatedRp) }
+                }
             }
         }
     }
@@ -648,9 +679,9 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                     )
                     val savedMsgId = repository.saveMessage(userMessage)
 
-                    // 智能记忆提取（仅在普通会话生效，且在开启会话记忆时，需用户在界面主动确认才入库）
+                    // 智能记忆提取（仅在普通会话生效，且在开启会话记忆时，需用户在界面主动确认才入库；优先辅助模型，故障时自动平滑降级为本地规则）
                     if (_uiState.value.roleplaySession == null && content.isNotBlank() && settings?.enableSessionMemory != false) {
-                        val candidate = com.aiassistant.utils.SmartMemoryExtractor.extractCandidate(
+                        val candidate = repository.extractMemoryCandidate(
                             content = content,
                             conversationId = conversationId,
                             messageId = savedMsgId
@@ -674,7 +705,8 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                         sessionId = currentRoleplaySession.id,
                         globalSystemPrompt = currentSystemPrompt,
                         userMessage = null, // 设定与上下文纯净解耦，用户消息由 user 角色独立发送
-                        globalRoleplayPrompt = globalRpPrompt
+                        globalRoleplayPrompt = globalRpPrompt,
+                        queryText = content // 用于动态匹配世界书设定与外置记忆库相关条目
                     )
                 } else {
                     currentSystemPrompt
@@ -688,6 +720,9 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                     thinkingEffort = settings?.thinkingEffort,
                     enableWebSearch = settings?.enableWebSearch,
                     enableSessionMemory = settings?.enableSessionMemory ?: conversation?.enableSessionMemory ?: true,
+                    enableExternalMemory = settings?.enableExternalMemory ?: conversation?.enableExternalMemory ?: true,
+                    enableWorldBook = settings?.enableWorldBook ?: conversation?.enableWorldBook ?: true,
+                    activeWorldBookIds = settings?.activeWorldBookIds ?: conversation?.activeWorldBookIds,
                     overrideSystemPrompt = true,
                     systemPromptOverride = effectiveSystemPrompt
                 )
@@ -1888,5 +1923,8 @@ data class TempChatSettings(
     val enableThinking: Boolean = true,
     val thinkingEffort: String = "high",
     val enableWebSearch: Boolean = false,
-    val enableSessionMemory: Boolean = false
+    val enableSessionMemory: Boolean = false,
+    val enableExternalMemory: Boolean = true,
+    val enableWorldBook: Boolean = true,
+    val activeWorldBookIds: String? = null
 )

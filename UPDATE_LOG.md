@@ -1,5 +1,48 @@
 # Echo AI 助手更新日志 (Update Log)
 
+## [v2.1.2] - 2026-09-14
+
+### 1. 本次核心功能升级与用户需求落地
+1. **外置记忆库与世界书 (Lorebook) 完整实现**：
+   - **数据与业务模型**：新增独立的世界书实体 `WorldBook` 与词条实体 `WorldBookEntry`（支持关键词触发、常驻激活 `isConstant`、优先级权重排序 `priority`、单条及书本启用/停用控制）；
+   - **UI 界面与词条管理**：在设置页新增独立卡片“世界书与设定库 (Lorebook)”，支持世界书的增删改查、词条编辑管理，并提供“一键载入示例世界书《奇幻与机械纪元》”快速上手体验；
+   - **普通对话与故事对话双模态原生生效**：
+     - 普通对话设置弹窗（`ChatSettingsDialog`）新增“外置记忆库与世界书”专属配置开关；
+     - 故事创作/角色扮演统一设置弹窗（`StoryUnifiedSettingsDialog` Tab 4）新增外置记忆库与世界书开关；
+     - 对话发送消息时动态扫描用户输入，智能检索命中的世界书词条与全局外置记忆并精准注入上下文；未命中时 0 Token 浪费。
+2. **辅助模型提炼记忆（支持指定模型与本地纯规则平滑兜底）**：
+   - 在设置中“记忆与个性化”专区新增“辅助模型提炼记忆”配置，可指定任一已添加的 API 配置与模型作为记忆提炼辅助模型；
+   - 提供辅助模型记忆提炼测试弹窗（输入样例文本即可快速测试模型调用与提炼效果）；
+   - **安全平滑降级**：当辅助模型未配置、网络离线、报错、鉴权失败或返回 IGNORE 时，系统 100% 自动无缝降级为本地规则引擎（`SmartMemoryExtractor`），确保记忆识别与提炼永不中断。
+
+### 2. 自动化测试与质量保障
+- 新增 `V212FeaturesTest.kt` 核心单元测试，涵盖关键词分词与命中、常驻条目激活、按权重排序、会话开关持久化及辅助模型规则降级，5 项测试全部通过；
+- 回归测试 `V211FeaturesTest` 9 项核心测试全部通过；
+- 构建与编译 0 报错。
+
+### 3. 发布产物信息
+- **安装包路径**：`releases/Echo-v2.1.2-arm64-v8a.apk`
+- **文件体积**：16,156,669 字节 (约 15.41 MB)
+- **SHA256**：`8180041D0100373593511D42C858C7E8192B6EBD375A5341B442DB386A8C0A80`
+- **Package**：`com.aiassistant` | **VersionCode**：`118` | **VersionName**：`2.1.2` | **ABI**：`arm64-v8a`
+- **签名验证**：APK Signature Scheme v2 (release 签名验证通过，1 signer)
+- **历史版本永久保留**：`releases/` 目录中全部 125 个历史安装包完整保留，未进行任何删除。
+
+### 4. 改动文件列表
+- `app/build.gradle.kts`
+- `app/src/main/java/com/aiassistant/data/local/AppDatabase.kt`
+- `app/src/main/java/com/aiassistant/data/local/WorldBookDao.kt`
+- `app/src/main/java/com/aiassistant/domain/model/WorldBookModels.kt`
+- `app/src/main/java/com/aiassistant/domain/model/Models.kt`
+- `app/src/main/java/com/aiassistant/domain/model/RoleplayModels.kt`
+- `app/src/main/java/com/aiassistant/data/repository/AiRepository.kt`
+- `app/src/main/java/com/aiassistant/data/repository/RoleplayRepository.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatViewModel.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatScreen.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/settings/SettingsScreen.kt`
+- `app/src/main/java/com/aiassistant/utils/PersonalizationManager.kt`
+- `app/src/test/java/com/aiassistant/V212FeaturesTest.kt`
+
 ## [v2.1.1] - 2026-09-14
 
 ### 1. 本次 7 项核心功能升级与用户需求落实

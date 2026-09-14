@@ -6219,6 +6219,103 @@ fun ChatSettingsSessionMemorySection(
 }
 
 @Composable
+private fun ChatSettingsWorldBookAndExternalMemorySection(
+    enableExternalMemory: Boolean,
+    onEnableExternalMemoryChange: (Boolean) -> Unit,
+    enableWorldBook: Boolean,
+    onEnableWorldBookChange: (Boolean) -> Unit,
+    contentColor: Color,
+    secondaryColor: Color,
+    hazeState: dev.chrisbanes.haze.HazeState? = null
+) {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+        ),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Default.MenuBook,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "外置记忆库与世界书 (Lorebook)",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = contentColor
+                )
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
+
+            // 外置长期记忆库
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
+                    Text(
+                        text = "外置长期记忆库",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = contentColor
+                    )
+                    Text(
+                        text = "跨会话的全局事实库，按输入意图和关键词动态检索注入，未命中时不消耗 Token",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = secondaryColor
+                    )
+                }
+                Switch(
+                    checked = enableExternalMemory,
+                    onCheckedChange = onEnableExternalMemoryChange,
+                    modifier = Modifier.scale(0.85f)
+                )
+            }
+
+            // 世界书设定
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
+                    Text(
+                        text = "世界书设定 (Lorebook)",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = contentColor
+                    )
+                    Text(
+                        text = "根据关键词动态唤醒世界观设定与专有名词知识，可在系统设置中管理词条",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = secondaryColor
+                    )
+                }
+                Switch(
+                    checked = enableWorldBook,
+                    onCheckedChange = onEnableWorldBookChange,
+                    modifier = Modifier.scale(0.85f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun glassTextFieldColors(
     contentColor: Color,
     secondaryColor: Color,
@@ -6274,6 +6371,8 @@ fun ChatSettingsDialog(
     var thinkingEffort by remember { mutableStateOf(tempSettings.thinkingEffort) }
     var enableWebSearch by remember { mutableStateOf(tempSettings.enableWebSearch) }
     var enableSessionMemory by remember { mutableStateOf(tempSettings.enableSessionMemory) }
+    var enableExternalMemory by remember { mutableStateOf(tempSettings.enableExternalMemory) }
+    var enableWorldBook by remember { mutableStateOf(tempSettings.enableWorldBook) }
     var promptTextFieldValue by remember(currentPrompt) {
         mutableStateOf(
             TextFieldValue(
@@ -6312,6 +6411,8 @@ fun ChatSettingsDialog(
         thinkingEffort = tempSettings.thinkingEffort
         enableWebSearch = tempSettings.enableWebSearch
         enableSessionMemory = tempSettings.enableSessionMemory
+        enableExternalMemory = tempSettings.enableExternalMemory
+        enableWorldBook = tempSettings.enableWorldBook
     }
 
     fun notifyTempSettingsChange() {
@@ -6322,7 +6423,10 @@ fun ChatSettingsDialog(
             enableThinking = enableThinking,
             thinkingEffort = thinkingEffort,
             enableWebSearch = enableWebSearch,
-            enableSessionMemory = enableSessionMemory
+            enableSessionMemory = enableSessionMemory,
+            enableExternalMemory = enableExternalMemory,
+            enableWorldBook = enableWorldBook,
+            activeWorldBookIds = tempSettings.activeWorldBookIds
         )
         onTempSettingsChange?.invoke(updated)
     }
@@ -6421,6 +6525,24 @@ fun ChatSettingsDialog(
                         onToggleMemory = onToggleSessionMemory,
                         onDeleteMemory = onDeleteSessionMemory,
                         onClearMemories = onClearSessionMemories
+                    )
+                }
+
+                item {
+                    ChatSettingsWorldBookAndExternalMemorySection(
+                        enableExternalMemory = enableExternalMemory,
+                        onEnableExternalMemoryChange = {
+                            enableExternalMemory = it
+                            notifyTempSettingsChange()
+                        },
+                        enableWorldBook = enableWorldBook,
+                        onEnableWorldBookChange = {
+                            enableWorldBook = it
+                            notifyTempSettingsChange()
+                        },
+                        contentColor = dialogContentColor,
+                        secondaryColor = dialogSecondaryColor,
+                        hazeState = hazeState
                     )
                 }
 
@@ -6754,7 +6876,10 @@ fun ChatSettingsDialog(
                             enableThinking = enableThinking,
                             thinkingEffort = thinkingEffort,
                             enableWebSearch = enableWebSearch,
-                            enableSessionMemory = enableSessionMemory
+                            enableSessionMemory = enableSessionMemory,
+                            enableExternalMemory = enableExternalMemory,
+                            enableWorldBook = enableWorldBook,
+                            activeWorldBookIds = tempSettings.activeWorldBookIds
                         )
                         onSave(settings, promptTextFieldValue.text.ifBlank { null })
                     }
@@ -6862,6 +6987,8 @@ private fun StoryUnifiedSettingsDialog(
     var enableThinking by remember { mutableStateOf(tempSettings.enableThinking) }
     var thinkingEffort by remember { mutableStateOf(tempSettings.thinkingEffort) }
     var enableWebSearch by remember { mutableStateOf(tempSettings.enableWebSearch) }
+    var enableExternalMemory by remember { mutableStateOf(session.enableExternalMemory) }
+    var enableWorldBook by remember { mutableStateOf(session.enableWorldBook) }
     var promptTextFieldValue by remember(currentPrompt) {
         mutableStateOf(
             TextFieldValue(
@@ -7560,6 +7687,40 @@ private fun StoryUnifiedSettingsDialog(
                             }
 
                             item {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                                        Text("外置记忆库", style = MaterialTheme.typography.titleSmall, color = dialogContentColor)
+                                        Text("结合角色长期事实库，意图匹配自动注入", style = MaterialTheme.typography.bodySmall, color = dialogSecondaryColor)
+                                    }
+                                    Switch(
+                                        checked = enableExternalMemory,
+                                        onCheckedChange = { enableExternalMemory = it }
+                                    )
+                                }
+                            }
+
+                            item {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                                        Text("世界书设定 (Lorebook)", style = MaterialTheme.typography.titleSmall, color = dialogContentColor)
+                                        Text("根据关键词动态唤醒世界观词条或常驻条目", style = MaterialTheme.typography.bodySmall, color = dialogSecondaryColor)
+                                    }
+                                    Switch(
+                                        checked = enableWorldBook,
+                                        onCheckedChange = { enableWorldBook = it }
+                                    )
+                                }
+                            }
+
+                            item {
                                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                     Text("模型头像", style = MaterialTheme.typography.titleSmall, color = dialogContentColor)
                                     Row(
@@ -7638,7 +7799,10 @@ private fun StoryUnifiedSettingsDialog(
                             enableThinking = enableThinking,
                             thinkingEffort = thinkingEffort,
                             enableWebSearch = enableWebSearch,
-                            enableSessionMemory = tempSettings.enableSessionMemory
+                            enableSessionMemory = tempSettings.enableSessionMemory,
+                            enableExternalMemory = enableExternalMemory,
+                            enableWorldBook = enableWorldBook,
+                            activeWorldBookIds = tempSettings.activeWorldBookIds
                         )
                         val charListToDisplay = (allCharacters + characters).distinctBy { it.id }
                         val validCharIds = charListToDisplay.map { it.id }.toSet()

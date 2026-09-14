@@ -77,7 +77,8 @@ class AiAssistantApp : Application() {
                 cryptoManager = cryptoManager,
                 personalizationManager = personalizationManager,
                 tavilySearchManager = tavilySearchManager,
-                echoToolHub = echoToolHub
+                echoToolHub = echoToolHub,
+                worldBookDao = database.worldBookDao()
             )
             roleplayRepository = com.aiassistant.data.repository.RoleplayRepository(
                 characterProfileDao = database.characterProfileDao(),
@@ -86,7 +87,9 @@ class AiAssistantApp : Application() {
                 roleplayMemoryDao = database.roleplayMemoryDao(),
                 characterTagDao = database.characterTagDao(),
                 conversationDao = database.conversationDao(),
-                messageDao = database.messageDao()
+                messageDao = database.messageDao(),
+                worldBookDao = database.worldBookDao(),
+                memoryDao = database.memoryDao()
             )
             isDatabaseInitialized = true
         } catch (e: Exception) {
@@ -116,14 +119,19 @@ class AiAssistantApp : Application() {
                         cryptoManager = cryptoManager,
                         personalizationManager = personalizationManager,
                         tavilySearchManager = tavilySearchManager,
-                        echoToolHub = echoToolHub
+                        echoToolHub = echoToolHub,
+                        worldBookDao = database.worldBookDao()
                     )
                     roleplayRepository = com.aiassistant.data.repository.RoleplayRepository(
                         characterProfileDao = database.characterProfileDao(),
                         roleplayScenarioDao = database.roleplayScenarioDao(),
                         roleplaySessionDao = database.roleplaySessionDao(),
                         roleplayMemoryDao = database.roleplayMemoryDao(),
-                        characterTagDao = database.characterTagDao()
+                        characterTagDao = database.characterTagDao(),
+                        conversationDao = database.conversationDao(),
+                        messageDao = database.messageDao(),
+                        worldBookDao = database.worldBookDao(),
+                        memoryDao = database.memoryDao()
                     )
                     isDatabaseInitialized = true
                 }
@@ -150,14 +158,19 @@ class AiAssistantApp : Application() {
                     cryptoManager = cryptoManager,
                     personalizationManager = personalizationManager,
                     tavilySearchManager = tavilySearchManager,
-                    echoToolHub = echoToolHub
+                    echoToolHub = echoToolHub,
+                    worldBookDao = database.worldBookDao()
                 )
                 roleplayRepository = com.aiassistant.data.repository.RoleplayRepository(
                     characterProfileDao = database.characterProfileDao(),
                     roleplayScenarioDao = database.roleplayScenarioDao(),
                     roleplaySessionDao = database.roleplaySessionDao(),
                     roleplayMemoryDao = database.roleplayMemoryDao(),
-                    characterTagDao = database.characterTagDao()
+                    characterTagDao = database.characterTagDao(),
+                    conversationDao = database.conversationDao(),
+                    messageDao = database.messageDao(),
+                    worldBookDao = database.worldBookDao(),
+                    memoryDao = database.memoryDao()
                 )
                 isDatabaseInitialized = true
             } catch (fatalEx: Exception) {

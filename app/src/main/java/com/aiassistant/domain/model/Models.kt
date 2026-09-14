@@ -80,6 +80,9 @@ data class Conversation(
     val thinkingEffort: String? = null,
     val enableWebSearch: Boolean? = null,
     val enableSessionMemory: Boolean? = null,
+    val enableExternalMemory: Boolean? = null,
+    val enableWorldBook: Boolean? = null,
+    val activeWorldBookIds: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 )
@@ -308,7 +311,10 @@ data class ChatRequestOptions(
     val overrideSystemPrompt: Boolean = false,
     val systemPromptOverride: String? = null,
     val contextWindowOverrideTokens: Int? = null,
-    val enableSessionMemory: Boolean? = null
+    val enableSessionMemory: Boolean? = null,
+    val enableExternalMemory: Boolean? = null,
+    val enableWorldBook: Boolean? = null,
+    val activeWorldBookIds: String? = null
 )
 
 data class ConversationContextUsage(

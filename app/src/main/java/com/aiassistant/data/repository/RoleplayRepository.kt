@@ -16,7 +16,9 @@ class RoleplayRepository(
     private val roleplayMemoryDao: RoleplayMemoryDao,
     private val characterTagDao: CharacterTagDao,
     private val conversationDao: ConversationDao? = null,
-    private val messageDao: MessageDao? = null
+    private val messageDao: MessageDao? = null,
+    private val worldBookDao: WorldBookDao? = null,
+    private val memoryDao: MemoryDao? = null
 ) {
     // ============ 角色卡操作 ============
 
@@ -300,7 +302,8 @@ class RoleplayRepository(
         userMessage: String?,
         globalRoleplayPrompt: String? = null,
         includeHistory: Boolean = true,
-        maxHistoryMessages: Int = 50
+        maxHistoryMessages: Int = 50,
+        queryText: String? = null
     ): String {
         val session = roleplaySessionDao.getSessionById(sessionId)
             ?: return userMessage ?: ""
@@ -340,22 +343,66 @@ class RoleplayRepository(
             parts.add(buildScenarioCardPrompt(effectiveScenario))
         }
 
-        // 4. 长期记忆
+        // 4. 世界书设定 (如果启用了世界书，根据用户输入和当前剧情动态匹配词条)
+        if (session.enableWorldBook && worldBookDao != null) {
+            val scanText = listOfNotNull(
+                queryText ?: userMessage,
+                session.currentPlotSummary,
+                teachingPrompt
+            ).joinToString(" ")
+            val bookIds = session.activeWorldBookIds?.split(",")?.mapNotNull { it.trim().toLongOrNull() }
+            val candidateEntries = if (!bookIds.isNullOrEmpty()) {
+                worldBookDao.getActiveEntriesForBooks(bookIds)
+            } else {
+                worldBookDao.getActiveEntriesFromEnabledBooks()
+            }
+            val matchedEntries = candidateEntries.filter { it.matchesText(scanText) }
+                .sortedWith(compareByDescending<WorldBookEntry> { it.priority }.thenByDescending { it.updatedAt })
+                .take(15)
+            if (matchedEntries.isNotEmpty()) {
+                val loreLines = matchedEntries.map { "- 【${it.name}】${it.content.trim()}" }
+                parts.add("【世界书设定】\n" + loreLines.joinToString("\n"))
+            }
+        }
+
+        // 5. 长期记忆与重要事实
         val pinnedFacts = roleplayMemoryDao.getPinnedFacts(sessionId)
         if (pinnedFacts.isNotEmpty()) {
             val factsText = pinnedFacts.joinToString("\n") { "- ${it.content}" }
             parts.add("【重要事实】\n$factsText")
         }
 
-        // 5. 当前剧情摘要
+        // 外置记忆库 (如果启用了外置记忆库，按相关性匹配注入)
+        if (session.enableExternalMemory && memoryDao != null) {
+            val effectiveQuery = (queryText ?: userMessage).orEmpty()
+            val scanText = (if (effectiveQuery.isNotBlank()) effectiveQuery else session.currentPlotSummary).lowercase()
+            val candidates = memoryDao.getCandidateMemories(session.conversationId).filter { it.isEnabled && it.scope == "user" }
+            if (candidates.isNotEmpty()) {
+                val matched = if (scanText.isNotBlank()) {
+                    candidates.filter { mem ->
+                        val keys = mem.keywords?.split(",") ?: emptyList()
+                        keys.any { k -> k.isNotBlank() && scanText.contains(k.lowercase()) } ||
+                        scanText.contains(mem.content.take(12).lowercase())
+                    }.ifEmpty { candidates.take(5) }
+                } else {
+                    candidates.take(5)
+                }
+                if (matched.isNotEmpty()) {
+                    val memLines = matched.map { "- ${it.content.trim()}" }
+                    parts.add("【外置记忆库】\n" + memLines.joinToString("\n"))
+                }
+            }
+        }
+
+        // 6. 当前剧情摘要
         if (session.currentPlotSummary.isNotBlank()) {
             parts.add("【当前剧情摘要】\n${session.currentPlotSummary}")
         }
 
-        // 6. 叙事模式说明
+        // 7. 叙事模式说明
         parts.add(buildNarrativeModePrompt(session.narrativeMode))
 
-        // 7. 用户最新消息或剧情提示
+        // 8. 用户最新消息或剧情提示
         if (!userMessage.isNullOrBlank()) {
             parts.add("【用户输入】\n$userMessage")
         }

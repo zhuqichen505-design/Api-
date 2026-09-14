@@ -25,9 +25,11 @@ import com.aiassistant.domain.model.*
         RoleplaySession::class,
         RoleplayMemory::class,
         CharacterTag::class,
-        CharacterTagCrossRef::class
+        CharacterTagCrossRef::class,
+        WorldBook::class,
+        WorldBookEntry::class
     ],
-    version = 24,
+    version = 25,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -46,6 +48,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun roleplaySessionDao(): RoleplaySessionDao
     abstract fun roleplayMemoryDao(): RoleplayMemoryDao
     abstract fun characterTagDao(): CharacterTagDao
+    abstract fun worldBookDao(): WorldBookDao
 
     companion object {
         @Volatile
@@ -418,6 +421,52 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_24_25 = object : Migration(24, 25) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `world_books` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `description` TEXT NOT NULL DEFAULT '',
+                        `isEnabled` INTEGER NOT NULL DEFAULT 1,
+                        `tags` TEXT,
+                        `createdAt` INTEGER NOT NULL DEFAULT 0,
+                        `updatedAt` INTEGER NOT NULL DEFAULT 0
+                    )
+                """)
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_world_books_isEnabled` ON `world_books` (`isEnabled`)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_world_books_createdAt` ON `world_books` (`createdAt`)")
+
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `world_book_entries` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `bookId` INTEGER NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `keys` TEXT NOT NULL,
+                        `content` TEXT NOT NULL,
+                        `isEnabled` INTEGER NOT NULL DEFAULT 1,
+                        `isConstant` INTEGER NOT NULL DEFAULT 0,
+                        `priority` INTEGER NOT NULL DEFAULT 100,
+                        `createdAt` INTEGER NOT NULL DEFAULT 0,
+                        `updatedAt` INTEGER NOT NULL DEFAULT 0,
+                        FOREIGN KEY(`bookId`) REFERENCES `world_books`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                """)
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_world_book_entries_bookId` ON `world_book_entries` (`bookId`)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_world_book_entries_isEnabled` ON `world_book_entries` (`isEnabled`)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_world_book_entries_isConstant` ON `world_book_entries` (`isConstant`)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_world_book_entries_priority` ON `world_book_entries` (`priority`)")
+
+                addColumnIfMissing(database, "conversations", "enableExternalMemory", "INTEGER")
+                addColumnIfMissing(database, "conversations", "enableWorldBook", "INTEGER")
+                addColumnIfMissing(database, "conversations", "activeWorldBookIds", "TEXT")
+
+                addColumnIfMissing(database, "roleplay_sessions", "enableExternalMemory", "INTEGER NOT NULL DEFAULT 1")
+                addColumnIfMissing(database, "roleplay_sessions", "enableWorldBook", "INTEGER NOT NULL DEFAULT 1")
+                addColumnIfMissing(database, "roleplay_sessions", "activeWorldBookIds", "TEXT")
+            }
+        }
+
         private val LEGACY_REPAIR_MIGRATIONS: Array<Migration> = ((1..22)
             .map { startVersion ->
                 object : Migration(startVersion, 23) {
@@ -425,7 +474,7 @@ abstract class AppDatabase : RoomDatabase() {
                         repairSchema(database)
                     }
                 }
-            } + MIGRATION_17_18 + MIGRATION_18_19 + MIGRATION_19_20 + MIGRATION_20_21 + MIGRATION_21_22 + MIGRATION_22_23 + MIGRATION_23_24)
+            } + MIGRATION_17_18 + MIGRATION_18_19 + MIGRATION_19_20 + MIGRATION_20_21 + MIGRATION_21_22 + MIGRATION_22_23 + MIGRATION_23_24 + MIGRATION_24_25)
             .toTypedArray()
 
         private fun repairSchema(database: SupportSQLiteDatabase) {
@@ -501,6 +550,9 @@ abstract class AppDatabase : RoomDatabase() {
                     ColumnSpec("thinkingEffort", "TEXT", "NULL", nullable = true),
                     ColumnSpec("enableWebSearch", "INTEGER", "NULL", nullable = true),
                     ColumnSpec("enableSessionMemory", "INTEGER", "NULL", nullable = true),
+                    ColumnSpec("enableExternalMemory", "INTEGER", "NULL", nullable = true),
+                    ColumnSpec("enableWorldBook", "INTEGER", "NULL", nullable = true),
+                    ColumnSpec("activeWorldBookIds", "TEXT", "NULL", nullable = true),
                     ColumnSpec("createdAt", "INTEGER NOT NULL", "0"),
                     ColumnSpec("updatedAt", "INTEGER NOT NULL", "0")
                 ),
@@ -523,6 +575,8 @@ abstract class AppDatabase : RoomDatabase() {
                     ColumnSpec("responseTime", "INTEGER NOT NULL", "0"),
                     ColumnSpec("toolCalls", "TEXT", "NULL", nullable = true),
                     ColumnSpec("translatedThinking", "TEXT", "NULL", nullable = true),
+                    ColumnSpec("isPinned", "INTEGER NOT NULL", "0"),
+                    ColumnSpec("isExcluded", "INTEGER NOT NULL", "0"),
                     ColumnSpec("createdAt", "INTEGER NOT NULL", "0")
                 ),
                 indices = listOf("CREATE INDEX IF NOT EXISTS `index_messages_conversationId` ON `messages` (`conversationId`)")
@@ -703,6 +757,9 @@ abstract class AppDatabase : RoomDatabase() {
                     ColumnSpec("characterIds", "TEXT", "NULL", nullable = true),
                     ColumnSpec("customCharacterData", "TEXT", "NULL", nullable = true),
                     ColumnSpec("customScenarioData", "TEXT", "NULL", nullable = true),
+                    ColumnSpec("enableExternalMemory", "INTEGER NOT NULL", "1"),
+                    ColumnSpec("enableWorldBook", "INTEGER NOT NULL", "1"),
+                    ColumnSpec("activeWorldBookIds", "TEXT", "NULL", nullable = true),
                     ColumnSpec("createdAt", "INTEGER NOT NULL", "0"),
                     ColumnSpec("updatedAt", "INTEGER NOT NULL", "0")
                 ),
@@ -750,6 +807,45 @@ abstract class AppDatabase : RoomDatabase() {
                     ColumnSpec("tagId", "INTEGER NOT NULL", "0")
                 ),
                 indices = listOf("CREATE INDEX IF NOT EXISTS `index_character_tag_cross_ref_tagId` ON `character_tag_cross_ref` (`tagId`)")
+            )
+            repairTable(
+                database,
+                tableName = "world_books",
+                columns = listOf(
+                    ColumnSpec("id", "INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL", "0"),
+                    ColumnSpec("name", "TEXT NOT NULL", "''"),
+                    ColumnSpec("description", "TEXT NOT NULL", "''"),
+                    ColumnSpec("isEnabled", "INTEGER NOT NULL", "1"),
+                    ColumnSpec("tags", "TEXT", "NULL", nullable = true),
+                    ColumnSpec("createdAt", "INTEGER NOT NULL", "0"),
+                    ColumnSpec("updatedAt", "INTEGER NOT NULL", "0")
+                ),
+                indices = listOf(
+                    "CREATE INDEX IF NOT EXISTS `index_world_books_isEnabled` ON `world_books` (`isEnabled`)",
+                    "CREATE INDEX IF NOT EXISTS `index_world_books_createdAt` ON `world_books` (`createdAt`)"
+                )
+            )
+            repairTable(
+                database,
+                tableName = "world_book_entries",
+                columns = listOf(
+                    ColumnSpec("id", "INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL", "0"),
+                    ColumnSpec("bookId", "INTEGER NOT NULL", "0"),
+                    ColumnSpec("name", "TEXT NOT NULL", "''"),
+                    ColumnSpec("keys", "TEXT NOT NULL", "''"),
+                    ColumnSpec("content", "TEXT NOT NULL", "''"),
+                    ColumnSpec("isEnabled", "INTEGER NOT NULL", "1"),
+                    ColumnSpec("isConstant", "INTEGER NOT NULL", "0"),
+                    ColumnSpec("priority", "INTEGER NOT NULL", "100"),
+                    ColumnSpec("createdAt", "INTEGER NOT NULL", "0"),
+                    ColumnSpec("updatedAt", "INTEGER NOT NULL", "0")
+                ),
+                indices = listOf(
+                    "CREATE INDEX IF NOT EXISTS `index_world_book_entries_bookId` ON `world_book_entries` (`bookId`)",
+                    "CREATE INDEX IF NOT EXISTS `index_world_book_entries_isEnabled` ON `world_book_entries` (`isEnabled`)",
+                    "CREATE INDEX IF NOT EXISTS `index_world_book_entries_isConstant` ON `world_book_entries` (`isConstant`)",
+                    "CREATE INDEX IF NOT EXISTS `index_world_book_entries_priority` ON `world_book_entries` (`priority`)"
+                )
             )
         } finally {
             database.execSQL("PRAGMA foreign_keys=ON;")

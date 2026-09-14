@@ -9,6 +9,7 @@ import com.aiassistant.tools.EnrichedPromptResult
 import com.aiassistant.utils.CryptoManager
 import com.aiassistant.utils.FileUtils
 import com.aiassistant.utils.PersonalizationManager
+import com.aiassistant.utils.SmartMemoryExtractor
 import com.aiassistant.utils.TavilySearchManager
 import com.google.gson.Gson
 import com.google.gson.JsonElement
@@ -42,7 +43,8 @@ class AiRepository(
     private val cryptoManager: CryptoManager,
     private val personalizationManager: PersonalizationManager,
     private val tavilySearchManager: TavilySearchManager,
-    private val echoToolHub: com.aiassistant.tools.EchoToolHub? = null
+    private val echoToolHub: com.aiassistant.tools.EchoToolHub? = null,
+    private val worldBookDao: WorldBookDao? = null
 ) {
     private val gson = Gson()
     private val tag = "AiRepository"
@@ -272,6 +274,14 @@ class AiRepository(
             }
 
             return "$rootBaseTitle (分支 $nextIndex)"
+        }
+
+        fun formatWorldBookPrompt(entries: List<WorldBookEntry>): String {
+            if (entries.isEmpty()) return ""
+            val lines = entries.map { entry ->
+                "- 【${entry.name}】${entry.content.trim()}"
+            }
+            return "【世界书设定】\n" + lines.joinToString("\n")
         }
     }
 
@@ -901,6 +911,90 @@ class AiRepository(
         return memoryDao.insertMemory(item)
     }
 
+    // ============ 世界书 (World Book / Lorebook) 相关 ============
+    val worldBookDaoInstance: WorldBookDao? get() = worldBookDao
+
+    fun getAllWorldBooks(): Flow<List<WorldBook>> =
+        worldBookDao?.getAllBooks() ?: kotlinx.coroutines.flow.flowOf(emptyList())
+
+    suspend fun getAllWorldBooksList(): List<WorldBook> =
+        worldBookDao?.getAllBooksList() ?: emptyList()
+
+    suspend fun getWorldBookById(id: Long): WorldBook? =
+        worldBookDao?.getBookById(id)
+
+    suspend fun insertWorldBook(book: WorldBook): Long =
+        worldBookDao?.insertBook(book) ?: 0L
+
+    suspend fun updateWorldBook(book: WorldBook) {
+        worldBookDao?.updateBook(book)
+    }
+
+    suspend fun deleteWorldBook(id: Long) {
+        worldBookDao?.deleteBookById(id)
+    }
+
+    suspend fun setWorldBookEnabled(id: Long, isEnabled: Boolean) {
+        worldBookDao?.setBookEnabled(id, isEnabled)
+    }
+
+    fun getWorldBookEntries(bookId: Long): Flow<List<WorldBookEntry>> =
+        worldBookDao?.getEntriesForBook(bookId) ?: kotlinx.coroutines.flow.flowOf(emptyList())
+
+    suspend fun getWorldBookEntriesList(bookId: Long): List<WorldBookEntry> =
+        worldBookDao?.getEntriesForBookList(bookId) ?: emptyList()
+
+    suspend fun getWorldBookEntryById(id: Long): WorldBookEntry? =
+        worldBookDao?.getEntryById(id)
+
+    suspend fun insertWorldBookEntry(entry: WorldBookEntry): Long =
+        worldBookDao?.insertEntry(entry) ?: 0L
+
+    suspend fun updateWorldBookEntry(entry: WorldBookEntry) {
+        worldBookDao?.updateEntry(entry)
+    }
+
+    suspend fun deleteWorldBookEntry(id: Long) {
+        worldBookDao?.deleteEntryById(id)
+    }
+
+    suspend fun setWorldBookEntryEnabled(id: Long, isEnabled: Boolean) {
+        worldBookDao?.setEntryEnabled(id, isEnabled)
+    }
+
+    fun searchWorldBookEntries(query: String): Flow<List<WorldBookEntry>> =
+        worldBookDao?.searchEntries(query) ?: kotlinx.coroutines.flow.flowOf(emptyList())
+
+    suspend fun matchWorldBookEntries(
+        text: String,
+        activeBookIds: List<Long>? = null,
+        maxTokenBudget: Int = 1500
+    ): List<WorldBookEntry> {
+        val dao = worldBookDao ?: return emptyList()
+        val candidateEntries = if (!activeBookIds.isNullOrEmpty()) {
+            dao.getActiveEntriesForBooks(activeBookIds)
+        } else {
+            dao.getActiveEntriesFromEnabledBooks()
+        }
+        if (candidateEntries.isEmpty()) return emptyList()
+
+        val matched = candidateEntries.filter { it.matchesText(text) }
+        val sorted = matched.sortedWith(
+            compareByDescending<WorldBookEntry> { it.priority }
+                .thenByDescending { it.updatedAt }
+        )
+
+        val results = mutableListOf<WorldBookEntry>()
+        var estimatedTokens = 0
+        for (entry in sorted) {
+            val cost = (entry.name.length + entry.content.length) / 2 + 10
+            if (results.isNotEmpty() && estimatedTokens + cost > maxTokenBudget) break
+            results.add(entry)
+            estimatedTokens += cost
+        }
+        return results
+    }
+
     // ============ 消息相关 ============
 
     fun getMessages(conversationId: Long): Flow<List<Message>> =
@@ -1313,13 +1407,22 @@ class AiRepository(
         val isRoleplayConv = conversation != null && (hasConversationTag(conversation, "roleplay") || hasConversationTag(conversation, "story"))
         val promptResolution = resolveSystemPromptWithPriority(conversation, effectiveOptions, isRoleplayConv)
 
+        val worldBookBlock = if (!isRoleplayConv && effectiveOptions.enableWorldBook != false && userMessage.isNotBlank()) {
+            val bookIds = effectiveOptions.activeWorldBookIds?.split(",")?.mapNotNull { it.trim().toLongOrNull() }
+            val matchedEntries = matchWorldBookEntries(userMessage, bookIds)
+            if (matchedEntries.isNotEmpty()) {
+                "<world_book_lore>\n${formatWorldBookPrompt(matchedEntries)}\n</world_book_lore>"
+            } else null
+        } else null
+
         buildEffectiveSystemPrompt(
             customPrompt = promptResolution.first,
             olderSummary = contextBundle.summary,
             memoryBlock = contextBundle.memoryBlock,
             options = effectiveOptions,
             isConversationSpecific = promptResolution.second,
-            isRoleplay = isRoleplayConv
+            isRoleplay = isRoleplayConv,
+            worldBookBlock = worldBookBlock
         )?.let {
             chatMessages.add(ChatMessage(role = "system", content = it))
         }
@@ -1619,13 +1722,23 @@ class AiRepository(
         )
         val isRoleplayConv = conversation != null && (hasConversationTag(conversation, "roleplay") || hasConversationTag(conversation, "story"))
         val promptResolution = resolveSystemPromptWithPriority(conversation, effectiveOptions, isRoleplayConv)
+
+        val worldBookBlock = if (!isRoleplayConv && effectiveOptions.enableWorldBook != false && userMessage.isNotBlank()) {
+            val bookIds = effectiveOptions.activeWorldBookIds?.split(",")?.mapNotNull { it.trim().toLongOrNull() }
+            val matchedEntries = matchWorldBookEntries(userMessage, bookIds)
+            if (matchedEntries.isNotEmpty()) {
+                "<world_book_lore>\n${formatWorldBookPrompt(matchedEntries)}\n</world_book_lore>"
+            } else null
+        } else null
+
         val systemPrompt = buildEffectiveSystemPrompt(
             customPrompt = promptResolution.first,
             olderSummary = contextBundle.summary,
             memoryBlock = contextBundle.memoryBlock,
             options = effectiveOptions,
             isConversationSpecific = promptResolution.second,
-            isRoleplay = isRoleplayConv
+            isRoleplay = isRoleplayConv,
+            worldBookBlock = worldBookBlock
         )
         val anthropicMessages = mutableListOf<AnthropicMessage>()
 
@@ -1846,6 +1959,9 @@ class AiRepository(
             thinkingEffort = normalizeThinkingEffort(overrides?.thinkingEffort ?: config.thinkingEffort, config),
             enableWebSearch = overrides?.enableWebSearch ?: config.enableWebSearch,
             enableSessionMemory = overrides?.enableSessionMemory,
+            enableExternalMemory = overrides?.enableExternalMemory,
+            enableWorldBook = overrides?.enableWorldBook,
+            activeWorldBookIds = overrides?.activeWorldBookIds,
             overrideSystemPrompt = overrides?.overrideSystemPrompt == true,
             systemPromptOverride = overrides?.systemPromptOverride,
             contextWindowOverrideTokens = overrides?.contextWindowOverrideTokens
@@ -2310,7 +2426,8 @@ class AiRepository(
         memoryBlock: String?,
         options: ChatRequestOptions?,
         isConversationSpecific: Boolean = true,
-        isRoleplay: Boolean = false
+        isRoleplay: Boolean = false,
+        worldBookBlock: String? = null
     ): String? {
         if (isRoleplay) {
             // 角色与故事创作严格隔离：只使用角色卡与场景组装的上下文，不注入通用助手规则与常规偏好
@@ -2344,6 +2461,7 @@ class AiRepository(
             buildRuntimeFeaturePrompt(options),
             promptPart,
             memoryBlock,
+            worldBookBlock,
             olderSummary
         ).joinToString("\n\n").ifBlank { null }
     }
@@ -2453,7 +2571,7 @@ class AiRepository(
             hasConversationTag(conversation, "story")
         ) return
 
-        val candidate = com.aiassistant.utils.SmartMemoryExtractor.extractCandidate(
+        val candidate = extractMemoryCandidate(
             content = message.content,
             conversationId = message.conversationId,
             messageId = message.id
@@ -2466,7 +2584,7 @@ class AiRepository(
         val existing = memoryDao.getByScopeAndContent(scope, memoryContent)
         val now = System.currentTimeMillis()
 
-        // 仅自动保存经 SmartMemoryExtractor 结构化提炼的高置信度偏好或项目背景，彻底杜绝噪音
+        // 仅自动保存经 SmartMemoryExtractor 或辅助模型提炼的高置信度偏好或项目背景，彻底杜绝噪音
         if (existing != null) {
             memoryDao.updateMemory(
                 existing.copy(
@@ -2492,27 +2610,208 @@ class AiRepository(
         )
     }
 
+    suspend fun extractMemoryCandidate(
+        content: String,
+        conversationId: Long = 0L,
+        messageId: Long? = null
+    ): PendingMemoryCandidate? = withContext(Dispatchers.IO) {
+        val settings = personalizationManager.getSettings()
+        // 1. 如果启用了辅助模型，尝试使用指定的辅助模型进行提炼
+        if (settings.auxiliaryMemoryEnabled && settings.auxiliaryMemoryApiConfigId > 0L) {
+            try {
+                val candidate = extractMemoryWithAuxiliaryModel(
+                    content = content,
+                    conversationId = conversationId,
+                    messageId = messageId,
+                    apiConfigId = settings.auxiliaryMemoryApiConfigId,
+                    modelName = settings.auxiliaryMemoryModel,
+                    customPrompt = settings.auxiliaryMemoryPrompt
+                )
+                if (candidate != null) {
+                    return@withContext candidate
+                }
+            } catch (e: Exception) {
+                Log.w(tag, "辅助模型提取记忆失败，自动降级为本地规则提取: ${e.message}")
+            }
+        }
+
+        // 2. 本地纯规则提取兜底（当辅助模型未开启、不可用、超时、报错或返回空时无缝生效）
+        SmartMemoryExtractor.extractCandidate(
+            content = content,
+            conversationId = conversationId,
+            messageId = messageId
+        )
+    }
+
+    private suspend fun extractMemoryWithAuxiliaryModel(
+        content: String,
+        conversationId: Long,
+        messageId: Long?,
+        apiConfigId: Long,
+        modelName: String,
+        customPrompt: String
+    ): PendingMemoryCandidate? = withContext(Dispatchers.IO) {
+        val rawConfig = getDecryptedConfig(apiConfigId) ?: return@withContext null
+        val targetModel = modelName.trim().ifBlank { rawConfig.modelName }
+        val config = rawConfig.copy(modelName = targetModel)
+
+        val promptTemplate = customPrompt.trim().ifBlank {
+            PersonalizationManager.DEFAULT_AUXILIARY_MEMORY_PROMPT
+        }
+        val prompt = """
+            $promptTemplate
+
+            【待识别内容】
+            $content
+        """.trimIndent()
+
+        val responseText = try {
+            if (config.apiType == "anthropic") {
+                generateAnthropicMemoryExtraction(config, prompt)
+            } else {
+                generateOpenAIMemoryExtraction(config, prompt)
+            }
+        } catch (e: Exception) {
+            Log.w(tag, "调用辅助模型API提取记忆异常: ${e.message}")
+            null
+        }
+
+        if (responseText.isNullOrBlank()) return@withContext null
+        val cleaned = responseText.trim().removePrefix("```").removeSuffix("```").trim()
+        if (cleaned.contains("IGNORE", ignoreCase = true) || cleaned.length < 3) {
+            return@withContext null
+        }
+
+        val distilled = cleaned.lines().firstOrNull { it.isNotBlank() }?.trim() ?: return@withContext null
+        val finalContent = if (!distilled.startsWith("用户") && !distilled.startsWith("设定") && !distilled.startsWith("偏好")) {
+            "记忆：$distilled"
+        } else {
+            distilled
+        }
+
+        PendingMemoryCandidate(
+            distilledContent = finalContent,
+            originalSnippet = content.take(80),
+            suggestedScope = if (SmartMemoryExtractor.isConversationScoped(content)) "conversation" else "user",
+            conversationId = conversationId,
+            sourceMessageId = messageId,
+            category = if (listOf("喜欢", "习惯", "偏好", "要求", "风格").any { finalContent.contains(it) }) "PREFERENCE" else "FACT"
+        )
+    }
+
+    private suspend fun generateOpenAIMemoryExtraction(config: ApiConfig, prompt: String): String? {
+        val request = ChatCompletionRequest(
+            model = config.modelName,
+            messages = listOf(ChatMessage(role = "user", content = prompt)),
+            temperature = 0.1f,
+            max_tokens = 96,
+            stream = false
+        )
+        val response = RetrofitClient.getService(config.baseUrl)
+            .chatCompletion(RetrofitClient.formatApiKey(config.apiKey), request)
+            .execute()
+        if (!response.isSuccessful) {
+            throw Exception("HTTP ${response.code()}: ${response.errorBody()?.string()?.take(200)}")
+        }
+        return response.body()?.choices?.firstOrNull()?.message?.content
+    }
+
+    private suspend fun generateAnthropicMemoryExtraction(config: ApiConfig, prompt: String): String? {
+        val request = AnthropicRequest(
+            model = config.modelName,
+            messages = listOf(AnthropicMessage(role = "user", content = prompt)),
+            max_tokens = 96,
+            temperature = 0.1f
+        )
+        val response = RetrofitClient.getService(config.baseUrl)
+            .anthropicMessages(
+                apiKey = config.apiKey.removePrefix("Bearer ").trim(),
+                request = request
+            )
+            .execute()
+        if (!response.isSuccessful) {
+            throw Exception("HTTP ${response.code()}: ${response.errorBody()?.string()?.take(200)}")
+        }
+        val contents = response.body()?.content
+        return contents?.firstOrNull { it.type == "text" }?.text
+    }
+
+    suspend fun testAuxiliaryMemoryExtraction(
+        apiConfigId: Long,
+        modelName: String,
+        testText: String,
+        customPrompt: String = ""
+    ): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val rawConfig = getDecryptedConfig(apiConfigId)
+                ?: return@withContext Result.failure(Exception("API配置不存在，请重新选择配置"))
+            val targetModel = modelName.trim().ifBlank { rawConfig.modelName }
+            val config = rawConfig.copy(modelName = targetModel)
+
+            val promptTemplate = customPrompt.trim().ifBlank {
+                PersonalizationManager.DEFAULT_AUXILIARY_MEMORY_PROMPT
+            }
+            val prompt = """
+                $promptTemplate
+
+                【待识别内容】
+                $testText
+            """.trimIndent()
+
+            val raw = if (config.apiType == "anthropic") {
+                generateAnthropicMemoryExtraction(config, prompt)
+            } else {
+                generateOpenAIMemoryExtraction(config, prompt)
+            }
+
+            if (raw.isNullOrBlank()) {
+                val localFallback = SmartMemoryExtractor.extractCandidate(testText, 0L, null)
+                if (localFallback != null) {
+                    Result.success("【辅助模型返回空，自动降级为本地规则提炼】：\n${localFallback.distilledContent}")
+                } else {
+                    Result.success("【辅助模型与本地规则均判定该内容无需成为记忆（输出 IGNORE）】")
+                }
+            } else if (raw.contains("IGNORE", ignoreCase = true)) {
+                Result.success("【辅助模型判定无需记录】：$raw")
+            } else {
+                Result.success("【辅助模型成功提取记忆】：\n$raw")
+            }
+        } catch (e: Exception) {
+            val localFallback = SmartMemoryExtractor.extractCandidate(testText, 0L, null)
+            val fallbackMsg = if (localFallback != null) {
+                "\n\n[自动安全降级] 本地规则成功兜底提炼出记忆：\n${localFallback.distilledContent}"
+            } else {
+                "\n\n[自动安全降级] 本地规则兜底运行正常（内容无需入库）"
+            }
+            Result.failure(Exception("辅助模型调用报错: ${e.message}$fallbackMsg", e))
+        }
+    }
+
     private suspend fun buildRelevantMemoryBlock(
         conversation: Conversation,
         currentUserMessage: String,
         tokenBudget: Int,
         options: ChatRequestOptions? = null
     ): String? {
-        // 严格隔离：私密对话与故事创作/角色扮演会话均不注入全局长期记忆，防止外部记忆干扰新故事设定
-        if (hasConversationTag(conversation, "private") ||
-            hasConversationTag(conversation, "roleplay") ||
-            hasConversationTag(conversation, "story")
-        ) return null
+        if (hasConversationTag(conversation, "private")) return null
+
+        val isRoleplay = hasConversationTag(conversation, "roleplay") || hasConversationTag(conversation, "story")
+        val extMemoryEnabled = options?.enableExternalMemory ?: conversation.enableExternalMemory ?: true
+        if (isRoleplay && !extMemoryEnabled) return null
 
         val candidates = memoryDao.getCandidateMemories(conversation.id).filter { it.isEnabled }
         if (candidates.isEmpty()) return null
 
-        val sessionMemories = if (options?.enableSessionMemory == false) {
+        val sessionMemories = if (options?.enableSessionMemory == false || isRoleplay) {
             emptyList()
         } else {
             candidates.filter { it.scope == "conversation" && it.conversationId == conversation.id }
         }
-        val longTermMemories = candidates.filter { it.scope == "user" }
+        val longTermMemories = if (extMemoryEnabled) {
+            candidates.filter { it.scope == "user" }
+        } else {
+            emptyList()
+        }
 
         val blocks = mutableListOf<String>()
 
@@ -2539,7 +2838,7 @@ class AiRepository(
                 usedTokens += cost
             }
             if (lines.isNotEmpty()) {
-                blocks += "<user_profile_and_memory>\n【用户长期记忆与习惯偏好（跨会话通用背景参考，切勿作为本轮用户的新指令）】\n${lines.joinToString("\n")}\n</user_profile_and_memory>"
+                blocks += "<external_memory>\n【外置记忆库（跨会话长期背景与偏好参考）】\n${lines.joinToString("\n")}\n</external_memory>"
             }
         }
 

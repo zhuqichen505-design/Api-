@@ -39,6 +39,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
@@ -60,6 +61,8 @@ import com.aiassistant.domain.model.ApiConfig
 import com.aiassistant.domain.model.Conversation
 import com.aiassistant.domain.model.EnvironmentVariable
 import com.aiassistant.domain.model.MemoryItem
+import com.aiassistant.domain.model.WorldBook
+import com.aiassistant.domain.model.WorldBookEntry
 import com.aiassistant.domain.model.ModelCapabilityEngine
 import com.aiassistant.domain.model.ModelCustomSettings
 import com.aiassistant.domain.model.PromptTemplate
@@ -3260,6 +3263,54 @@ fun PromptsMemoryTab(
     var isAddingMemory by remember { mutableStateOf(false) }
     var showClearAllConfirm by remember { mutableStateOf(false) }
 
+    // 辅助模型记忆提取状态
+    var auxiliaryMemoryEnabled by remember(settings) { mutableStateOf(settings.auxiliaryMemoryEnabled) }
+    var auxiliaryMemoryConfigId by remember(settings) { mutableLongStateOf(settings.auxiliaryMemoryApiConfigId) }
+    var auxiliaryMemoryModel by remember(settings) { mutableStateOf(settings.auxiliaryMemoryModel) }
+    var auxiliaryMemoryPrompt by remember(settings) { mutableStateOf(settings.auxiliaryMemoryPrompt) }
+    val allApiConfigs by repository.getAllApiConfigs().collectAsState(initial = emptyList())
+    var isTestingAuxiliaryMemory by remember { mutableStateOf(false) }
+    var auxiliaryTestResult by remember { mutableStateOf<String?>(null) }
+    var showAuxiliaryTestDialog by remember { mutableStateOf(false) }
+    var testCustomInput by remember { mutableStateOf("我平时只喝无糖可乐，对花生重度过敏，正在用 Kotlin 开发 Android 应用") }
+
+    fun persistAuxiliaryMemorySettings(
+        enabled: Boolean = auxiliaryMemoryEnabled,
+        configId: Long = auxiliaryMemoryConfigId,
+        model: String = auxiliaryMemoryModel,
+        prompt: String = auxiliaryMemoryPrompt
+    ) {
+        manager.saveSettings(
+            settings.copy(
+                auxiliaryMemoryEnabled = enabled,
+                auxiliaryMemoryApiConfigId = configId,
+                auxiliaryMemoryModel = model.trim(),
+                auxiliaryMemoryPrompt = prompt.trim()
+            )
+        )
+        settings = manager.getSettings()
+    }
+
+    // 世界书 (Lorebook) 状态
+    var isWorldBooksExpanded by remember { mutableStateOf(false) }
+    var worldBookSearchQuery by remember { mutableStateOf("") }
+    val allWorldBooks by repository.getAllWorldBooks().collectAsState(initial = emptyList())
+    val filteredWorldBooks = remember(allWorldBooks, worldBookSearchQuery) {
+        if (worldBookSearchQuery.isBlank()) allWorldBooks
+        else allWorldBooks.filter {
+            it.name.contains(worldBookSearchQuery.trim(), ignoreCase = true) ||
+            it.description.contains(worldBookSearchQuery.trim(), ignoreCase = true) ||
+            (it.tags?.contains(worldBookSearchQuery.trim(), ignoreCase = true) == true)
+        }
+    }
+    var isAddingWorldBook by remember { mutableStateOf(false) }
+    var worldBookToEdit by remember { mutableStateOf<WorldBook?>(null) }
+    var worldBookToDelete by remember { mutableStateOf<WorldBook?>(null) }
+    var selectedWorldBookForEntries by remember { mutableStateOf<WorldBook?>(null) }
+    var isAddingEntryForBookId by remember { mutableStateOf<Long?>(null) }
+    var entryToEdit by remember { mutableStateOf<WorldBookEntry?>(null) }
+    var entryToDelete by remember { mutableStateOf<WorldBookEntry?>(null) }
+
     // 提示词模板状态
     var isTemplatesExpanded by remember { mutableStateOf(false) }
     var templateSearchQuery by remember { mutableStateOf("") }
@@ -3672,6 +3723,133 @@ fun PromptsMemoryTab(
                                             Text("清空所有记忆", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
                                         }
                                     }
+
+                                    HorizontalDivider(
+                                        modifier = Modifier.padding(vertical = 6.dp),
+                                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                                    )
+
+                                    // 辅助模型识别与提炼记忆专区
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                                Text(
+                                                    "辅助模型提炼记忆 (可选)",
+                                                    style = MaterialTheme.typography.titleSmall,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                                Text(
+                                                    "指定已配置模型协助提炼与识别记忆。若模型不可用或网络异常，系统自动平滑降级为本地规则引擎，保证记忆识别稳定运行。",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                            Switch(
+                                                checked = auxiliaryMemoryEnabled,
+                                                onCheckedChange = {
+                                                    auxiliaryMemoryEnabled = it
+                                                    persistAuxiliaryMemorySettings(enabled = it)
+                                                    savedMessage = if (it) "已开启辅助模型识别记忆" else "已关闭辅助模型（使用本地规则引擎）"
+                                                }
+                                            )
+                                        }
+
+                                        AnimatedVisibility(visible = auxiliaryMemoryEnabled) {
+                                            Column(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                var configDropdownExpanded by remember { mutableStateOf(false) }
+                                                val selectedConfig = allApiConfigs.firstOrNull { it.id == auxiliaryMemoryConfigId }
+                                                    ?: allApiConfigs.firstOrNull()
+
+                                                LaunchedEffect(allApiConfigs) {
+                                                    if (auxiliaryMemoryConfigId == 0L && allApiConfigs.isNotEmpty()) {
+                                                        val firstCfg = allApiConfigs.first()
+                                                        auxiliaryMemoryConfigId = firstCfg.id
+                                                        if (auxiliaryMemoryModel.isBlank()) {
+                                                            auxiliaryMemoryModel = firstCfg.modelName
+                                                        }
+                                                        persistAuxiliaryMemorySettings(
+                                                            configId = firstCfg.id,
+                                                            model = auxiliaryMemoryModel
+                                                        )
+                                                    }
+                                                }
+
+                                                Box(modifier = Modifier.fillMaxWidth()) {
+                                                    OutlinedTextField(
+                                                        value = selectedConfig?.let { "${it.name} (${it.provider})" } ?: "请选择 API 配置",
+                                                        onValueChange = {},
+                                                        readOnly = true,
+                                                        label = { Text("辅助识别 API 配置") },
+                                                        trailingIcon = {
+                                                            IconButton(onClick = { configDropdownExpanded = true }) {
+                                                                Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                                                            }
+                                                        },
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        shape = SettingsInnerShape
+                                                    )
+                                                    DropdownMenu(
+                                                        expanded = configDropdownExpanded,
+                                                        onDismissRequest = { configDropdownExpanded = false }
+                                                    ) {
+                                                        allApiConfigs.forEach { cfg ->
+                                                            DropdownMenuItem(
+                                                                text = { Text("${cfg.name} (${cfg.provider} - ${cfg.modelName})") },
+                                                                onClick = {
+                                                                    auxiliaryMemoryConfigId = cfg.id
+                                                                    if (auxiliaryMemoryModel.isBlank()) {
+                                                                        auxiliaryMemoryModel = cfg.modelName
+                                                                    }
+                                                                    persistAuxiliaryMemorySettings(
+                                                                        configId = cfg.id,
+                                                                        model = auxiliaryMemoryModel
+                                                                    )
+                                                                    configDropdownExpanded = false
+                                                                }
+                                                            )
+                                                        }
+                                                    }
+                                                }
+
+                                                OutlinedTextField(
+                                                    value = auxiliaryMemoryModel,
+                                                    onValueChange = {
+                                                        auxiliaryMemoryModel = it
+                                                        persistAuxiliaryMemorySettings(model = it)
+                                                    },
+                                                    label = { Text("辅助模型名称") },
+                                                    placeholder = { Text(selectedConfig?.modelName ?: "例如：deepseek-chat 或 gpt-4o-mini") },
+                                                    singleLine = true,
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    shape = SettingsInnerShape
+                                                )
+
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.End
+                                                ) {
+                                                    FilledTonalButton(
+                                                        onClick = { showAuxiliaryTestDialog = true },
+                                                        shape = RoundedCornerShape(999.dp)
+                                                    ) {
+                                                        Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                        Spacer(modifier = Modifier.width(4.dp))
+                                                        Text("即时测试记忆识别与降级", style = MaterialTheme.typography.labelMedium)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -3680,7 +3858,182 @@ fun PromptsMemoryTab(
             }
         }
 
-        // 6. 提示词模板系统
+        // 6. 世界书与设定库 (Lorebook)
+        item {
+            SettingsGlassCard(hazeState = hazeState) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.MenuBook,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("世界书与设定库 (Lorebook)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text(
+                            "基于关键词自动唤醒设定或常驻注入世界观，普通对话与故事模式均可自由生效",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .echoShapeClick(SettingsInnerShape) { isWorldBooksExpanded = !isWorldBooksExpanded },
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("世界书列表", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Surface(shape = RoundedCornerShape(999.dp), color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)) {
+                            Text("${allWorldBooks.size} 本", modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(
+                            onClick = {
+                                coroutineScope.launch {
+                                    val sampleBook = WorldBook(
+                                        name = "奇幻与机械纪元",
+                                        description = "以太魔法与重工业机械神谕并存的世界观设定集",
+                                        isEnabled = true,
+                                        tags = "奇幻,机械,设定集"
+                                    )
+                                    val bookId = repository.insertWorldBook(sampleBook)
+                                    if (bookId > 0L) {
+                                        repository.insertWorldBookEntry(
+                                            WorldBookEntry(
+                                                bookId = bookId,
+                                                name = "以太灵素",
+                                                keys = "以太, 灵素, 魔法, 施法",
+                                                content = "以太是构筑天地万物的灵性能量，过度抽取会导致现实空间裂隙与灵力枯竭。",
+                                                isEnabled = true,
+                                                isConstant = false,
+                                                priority = 20
+                                            )
+                                        )
+                                        repository.insertWorldBookEntry(
+                                            WorldBookEntry(
+                                                bookId = bookId,
+                                                name = "铁心重工神谕",
+                                                keys = "铁心, 机械, 齿轮, 蒸汽, 议会",
+                                                content = "掌控大陆重工科技的机械神殿，崇尚秩序与严酷法典，对野生法师保持警惕。",
+                                                isEnabled = true,
+                                                isConstant = false,
+                                                priority = 15
+                                            )
+                                        )
+                                        repository.insertWorldBookEntry(
+                                            WorldBookEntry(
+                                                bookId = bookId,
+                                                name = "世界基底铁律 (常驻)",
+                                                keys = "",
+                                                content = "大陆的一切能量转换严格遵循等价守恒，严禁任何形式的亡者逆转复活。",
+                                                isEnabled = true,
+                                                isConstant = true,
+                                                priority = 30
+                                            )
+                                        )
+                                        savedMessage = "已成功载入示例世界书《奇幻与机械纪元》"
+                                    }
+                                }
+                            }
+                        ) {
+                            Icon(Icons.Default.AutoStories, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("示例载入", style = MaterialTheme.typography.labelSmall)
+                        }
+                        IconButton(onClick = { isAddingWorldBook = true }, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Default.Add, contentDescription = "新建世界书", tint = MaterialTheme.colorScheme.primary)
+                        }
+                        IconButton(onClick = { isWorldBooksExpanded = !isWorldBooksExpanded }, modifier = Modifier.size(32.dp)) {
+                            Icon(if (isWorldBooksExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+
+                AnimatedVisibility(visible = isWorldBooksExpanded) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = worldBookSearchQuery,
+                            onValueChange = { worldBookSearchQuery = it },
+                            placeholder = { Text("搜索世界书名称或标签...") },
+                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                            trailingIcon = {
+                                if (worldBookSearchQuery.isNotBlank()) {
+                                    IconButton(onClick = { worldBookSearchQuery = "" }) {
+                                        Icon(Icons.Default.Close, contentDescription = "清除", modifier = Modifier.size(16.dp))
+                                    }
+                                }
+                            },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(999.dp)
+                        )
+
+                        if (allWorldBooks.isEmpty()) {
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = SettingsInnerShape,
+                                color = glass.control
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(20.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Icon(
+                                        Icons.Default.MenuBook,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                        modifier = Modifier.size(32.dp)
+                                    )
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        "暂无世界书设定\n点击右上角「示例载入」可一键生成《奇幻与机械纪元》，或点击「+」新建专属设定集。",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                    )
+                                }
+                            }
+                        } else {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                filteredWorldBooks.forEach { book ->
+                                    WorldBookCardItem(
+                                        book = book,
+                                        onToggleEnabled = { enabled ->
+                                            coroutineScope.launch {
+                                                repository.setWorldBookEnabled(book.id, enabled)
+                                            }
+                                        },
+                                        onManageEntries = { selectedWorldBookForEntries = book },
+                                        onEdit = { worldBookToEdit = book },
+                                        onDelete = { worldBookToDelete = book }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 7. 提示词模板系统
         item {
             SettingsGlassCard(hazeState = hazeState) {
                 Row(
@@ -4040,6 +4393,180 @@ fun PromptsMemoryTab(
             }
         )
     }
+
+    // 辅助模型测试与平滑降级弹窗
+    if (showAuxiliaryTestDialog) {
+        AuxiliaryMemoryTestDialog(
+            hazeState = hazeState,
+            testInput = testCustomInput,
+            onInputChange = { testCustomInput = it },
+            isTesting = isTestingAuxiliaryMemory,
+            testResult = auxiliaryTestResult,
+            onRunTest = {
+                coroutineScope.launch {
+                    isTestingAuxiliaryMemory = true
+                    auxiliaryTestResult = null
+                    val res = repository.testAuxiliaryMemoryExtraction(
+                        apiConfigId = auxiliaryMemoryConfigId,
+                        modelName = auxiliaryMemoryModel,
+                        testText = testCustomInput,
+                        customPrompt = auxiliaryMemoryPrompt
+                    )
+                    auxiliaryTestResult = res.getOrNull() ?: res.exceptionOrNull()?.message ?: "测试完成"
+                    isTestingAuxiliaryMemory = false
+                }
+            },
+            onDismiss = {
+                showAuxiliaryTestDialog = false
+                auxiliaryTestResult = null
+            }
+        )
+    }
+
+    // 世界书新建/编辑弹窗
+    if (isAddingWorldBook || worldBookToEdit != null) {
+        WorldBookEditDialog(
+            hazeState = hazeState,
+            book = worldBookToEdit,
+            onDismiss = {
+                isAddingWorldBook = false
+                worldBookToEdit = null
+            },
+            onConfirm = { name, description, tags ->
+                coroutineScope.launch {
+                    val target = worldBookToEdit?.copy(
+                        name = name,
+                        description = description,
+                        tags = tags,
+                        updatedAt = System.currentTimeMillis()
+                    ) ?: WorldBook(
+                        name = name,
+                        description = description,
+                        tags = tags
+                    )
+                    if (worldBookToEdit != null) {
+                        repository.updateWorldBook(target)
+                    } else {
+                        repository.insertWorldBook(target)
+                    }
+                    isAddingWorldBook = false
+                    worldBookToEdit = null
+                    savedMessage = "世界书已保存"
+                }
+            }
+        )
+    }
+
+    // 世界书删除确认弹窗
+    worldBookToDelete?.let { book ->
+        EchoGlassDialog(
+            hazeState = hazeState,
+            title = { Text("删除世界书") },
+            text = { Text("确定要删除世界书《${book.name}》及其所有包含的词条设定吗？此操作不可撤销。") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        coroutineScope.launch {
+                            repository.deleteWorldBook(book.id)
+                            worldBookToDelete = null
+                            savedMessage = "已删除世界书《${book.name}》"
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("删除")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { worldBookToDelete = null }) {
+                    Text("取消")
+                }
+            },
+            onDismissRequest = { worldBookToDelete = null }
+        )
+    }
+
+    // 世界书词条管理弹窗
+    selectedWorldBookForEntries?.let { book ->
+        WorldBookEntriesManageDialog(
+            hazeState = hazeState,
+            book = book,
+            onDismiss = { selectedWorldBookForEntries = null },
+            onAddEntry = { isAddingEntryForBookId = book.id },
+            onEditEntry = { entryToEdit = it },
+            onDeleteEntry = { entryToDelete = it }
+        )
+    }
+
+    // 词条新建/编辑弹窗
+    val currentBookIdForEntry = isAddingEntryForBookId ?: entryToEdit?.bookId
+    if (currentBookIdForEntry != null && (isAddingEntryForBookId != null || entryToEdit != null)) {
+        WorldBookEntryEditDialog(
+            hazeState = hazeState,
+            entry = entryToEdit,
+            bookId = currentBookIdForEntry,
+            onDismiss = {
+                isAddingEntryForBookId = null
+                entryToEdit = null
+            },
+            onConfirm = { name, keys, content, isConstant, priority ->
+                coroutineScope.launch {
+                    val target = entryToEdit?.copy(
+                        name = name,
+                        keys = keys,
+                        content = content,
+                        isConstant = isConstant,
+                        priority = priority,
+                        updatedAt = System.currentTimeMillis()
+                    ) ?: WorldBookEntry(
+                        bookId = currentBookIdForEntry,
+                        name = name,
+                        keys = keys,
+                        content = content,
+                        isConstant = isConstant,
+                        priority = priority
+                    )
+                    if (entryToEdit != null) {
+                        repository.updateWorldBookEntry(target)
+                    } else {
+                        repository.insertWorldBookEntry(target)
+                    }
+                    isAddingEntryForBookId = null
+                    entryToEdit = null
+                    savedMessage = "设定词条已保存"
+                }
+            }
+        )
+    }
+
+    // 词条删除确认弹窗
+    entryToDelete?.let { entry ->
+        EchoGlassDialog(
+            hazeState = hazeState,
+            title = { Text("删除设定词条") },
+            text = { Text("确定要删除词条【${entry.name}】吗？") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        coroutineScope.launch {
+                            repository.deleteWorldBookEntry(entry.id)
+                            entryToDelete = null
+                            savedMessage = "已删除词条【${entry.name}】"
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("删除")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { entryToDelete = null }) {
+                    Text("取消")
+                }
+            },
+            onDismissRequest = { entryToDelete = null }
+        )
+    }
 }
 
 @Composable
@@ -4157,6 +4684,537 @@ private fun MemoryItemCard(
             }
         }
     }
+}
+
+@Composable
+private fun WorldBookCardItem(
+    book: WorldBook,
+    onToggleEnabled: (Boolean) -> Unit,
+    onManageEntries: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val glass = echoGlassPalette()
+    val repository = AiAssistantApp.instance.repository
+    val entries by repository.getWorldBookEntries(book.id).collectAsState(initial = emptyList())
+
+    Surface(
+        shape = SettingsInnerShape,
+        color = if (book.isEnabled) glass.control else glass.control.copy(alpha = 0.4f),
+        contentColor = if (book.isEnabled) glass.textPrimary else glass.textPrimary.copy(alpha = 0.5f),
+        border = androidx.compose.foundation.BorderStroke(1.dp, glass.outline),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = book.name,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = if (book.isEnabled) glass.textPrimary else glass.textPrimary.copy(alpha = 0.6f)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Surface(
+                        shape = RoundedCornerShape(999.dp),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                    ) {
+                        Text(
+                            text = "${entries.size} 条设定",
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onEdit, modifier = Modifier.size(28.dp)) {
+                        Icon(Icons.Default.Edit, contentDescription = "编辑", modifier = Modifier.size(16.dp))
+                    }
+                    IconButton(onClick = onDelete, modifier = Modifier.size(28.dp)) {
+                        Icon(Icons.Default.Delete, contentDescription = "删除", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error)
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Switch(
+                        checked = book.isEnabled,
+                        onCheckedChange = onToggleEnabled,
+                        modifier = Modifier.scale(0.8f)
+                    )
+                }
+            }
+
+            if (book.description.isNotBlank()) {
+                Text(
+                    text = book.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = glass.textSecondary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (!book.tags.isNullOrBlank()) {
+                    Text(
+                        text = "标签: ${book.tags}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                    )
+                } else {
+                    Spacer(modifier = Modifier.width(1.dp))
+                }
+
+                FilledTonalButton(
+                    onClick = onManageEntries,
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    shape = RoundedCornerShape(999.dp),
+                    modifier = Modifier.height(30.dp)
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.List, contentDescription = null, modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("管理词条 (${entries.size})", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WorldBookEditDialog(
+    hazeState: dev.chrisbanes.haze.HazeState,
+    book: WorldBook?,
+    onDismiss: () -> Unit,
+    onConfirm: (name: String, description: String, tags: String) -> Unit
+) {
+    var name by remember { mutableStateOf(book?.name.orEmpty()) }
+    var description by remember { mutableStateOf(book?.description.orEmpty()) }
+    var tags by remember { mutableStateOf(book?.tags.orEmpty()) }
+
+    EchoGlassDialog(
+        hazeState = hazeState,
+        title = { Text(if (book == null) "新建世界书" else "编辑世界书") },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text("世界书名称", style = MaterialTheme.typography.titleSmall)
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    placeholder = { Text("例如：赛博朋克 2077、奇幻大陆编年史...") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = SettingsInnerShape
+                )
+
+                Text("世界观简述 (可选)", style = MaterialTheme.typography.titleSmall)
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    placeholder = { Text("概括世界观核心冲突、时代背景或核心规则...") },
+                    minLines = 2,
+                    maxLines = 4,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = SettingsInnerShape
+                )
+
+                Text("标签分类 (可选)", style = MaterialTheme.typography.titleSmall)
+                OutlinedTextField(
+                    value = tags,
+                    onValueChange = { tags = it },
+                    placeholder = { Text("逗号分隔，例如：科幻, 赛博朋克, 设定集") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = SettingsInnerShape
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onConfirm(name, description, tags) },
+                enabled = name.isNotBlank()
+            ) {
+                Text("保存")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        },
+        onDismissRequest = onDismiss
+    )
+}
+
+@Composable
+private fun WorldBookEntriesManageDialog(
+    hazeState: dev.chrisbanes.haze.HazeState,
+    book: WorldBook,
+    onDismiss: () -> Unit,
+    onAddEntry: () -> Unit,
+    onEditEntry: (WorldBookEntry) -> Unit,
+    onDeleteEntry: (WorldBookEntry) -> Unit
+) {
+    val repository = AiAssistantApp.instance.repository
+    val entries by repository.getWorldBookEntries(book.id).collectAsState(initial = emptyList())
+    val coroutineScope = rememberCoroutineScope()
+    val glass = echoGlassPalette()
+
+    EchoGlassDialog(
+        hazeState = hazeState,
+        onDismissRequest = onDismiss,
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("《${book.name}》词条管理", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("命中关键词即刻将设定动态注入上下文", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                IconButton(onClick = onAddEntry) {
+                    Icon(Icons.Default.Add, contentDescription = "添加词条", tint = MaterialTheme.colorScheme.primary)
+                }
+            }
+        },
+        text = {
+            Box(modifier = Modifier.fillMaxWidth().heightIn(min = 200.dp, max = 450.dp)) {
+                if (entries.isEmpty()) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(Icons.Default.MenuBook, contentDescription = null, modifier = Modifier.size(36.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("当前世界书暂无词条设定", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(onClick = onAddEntry) {
+                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("添加首个设定词条")
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(entries) { entry ->
+                            Surface(
+                                shape = SettingsInnerShape,
+                                color = if (entry.isEnabled) glass.control else glass.control.copy(alpha = 0.35f),
+                                contentColor = if (entry.isEnabled) glass.textPrimary else glass.textPrimary.copy(alpha = 0.5f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                            Text(entry.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                            if (entry.isConstant) {
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Surface(
+                                                    shape = RoundedCornerShape(999.dp),
+                                                    color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.2f)
+                                                ) {
+                                                    Text(
+                                                        "常驻",
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.tertiary,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+                                            }
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Surface(
+                                                shape = RoundedCornerShape(999.dp),
+                                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
+                                            ) {
+                                                Text(
+                                                    "优先级:${entry.priority}",
+                                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                                                    style = MaterialTheme.typography.labelSmall
+                                                )
+                                            }
+                                        }
+
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            IconButton(onClick = { onEditEntry(entry) }, modifier = Modifier.size(26.dp)) {
+                                                Icon(Icons.Default.Edit, contentDescription = "编辑", modifier = Modifier.size(14.dp))
+                                            }
+                                            IconButton(onClick = { onDeleteEntry(entry) }, modifier = Modifier.size(26.dp)) {
+                                                Icon(Icons.Default.Delete, contentDescription = "删除", modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.error)
+                                            }
+                                            Switch(
+                                                checked = entry.isEnabled,
+                                                onCheckedChange = { en ->
+                                                    coroutineScope.launch {
+                                                        repository.setWorldBookEntryEnabled(entry.id, en)
+                                                    }
+                                                },
+                                                modifier = Modifier.scale(0.75f)
+                                            )
+                                        }
+                                    }
+
+                                    if (entry.keys.isNotBlank()) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            entry.getKeyList().forEach { key ->
+                                                Surface(
+                                                    shape = RoundedCornerShape(6.dp),
+                                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                                ) {
+                                                    Text(
+                                                        text = key,
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.primary,
+                                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    Text(
+                                        text = entry.content,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (entry.isEnabled) glass.textPrimary else glass.textPrimary.copy(alpha = 0.6f),
+                                        maxLines = 3,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onDismiss) {
+                Text("关闭")
+            }
+        }
+    )
+}
+
+@Composable
+private fun WorldBookEntryEditDialog(
+    hazeState: dev.chrisbanes.haze.HazeState,
+    entry: WorldBookEntry?,
+    bookId: Long,
+    onDismiss: () -> Unit,
+    onConfirm: (name: String, keys: String, content: String, isConstant: Boolean, priority: Int) -> Unit
+) {
+    var name by remember { mutableStateOf(entry?.name.orEmpty()) }
+    var keys by remember { mutableStateOf(entry?.keys.orEmpty()) }
+    var content by remember { mutableStateOf(entry?.content.orEmpty()) }
+    var isConstant by remember { mutableStateOf(entry?.isConstant ?: false) }
+    var priorityText by remember { mutableStateOf((entry?.priority ?: 10).toString()) }
+
+    EchoGlassDialog(
+        hazeState = hazeState,
+        title = { Text(if (entry == null) "添加设定词条" else "编辑设定词条") },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text("词条名称", style = MaterialTheme.typography.titleSmall)
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    placeholder = { Text("例如：以太灵素、深渊裂隙、铁心重工...") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = SettingsInnerShape
+                )
+
+                Text("触发关键词", style = MaterialTheme.typography.titleSmall)
+                OutlinedTextField(
+                    value = keys,
+                    onValueChange = { keys = it },
+                    placeholder = { Text("多个关键词用逗号分隔，例如：以太, 灵素, 魔法") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = SettingsInnerShape
+                )
+
+                Text("词条设定内容", style = MaterialTheme.typography.titleSmall)
+                OutlinedTextField(
+                    value = content,
+                    onValueChange = { content = it },
+                    placeholder = { Text("详细阐述该名词的背景、规则、属性或设定细节...") },
+                    minLines = 3,
+                    maxLines = 8,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = SettingsInnerShape
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text("常驻词条设定", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                        Text("开启后无需命中关键词，也会默认注入会话上下文", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(checked = isConstant, onCheckedChange = { isConstant = it })
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("优先级权重 (数值越大越优先注入)", style = MaterialTheme.typography.bodyMedium)
+                    OutlinedTextField(
+                        value = priorityText,
+                        onValueChange = { priorityText = it.filter { ch -> ch.isDigit() }.take(3) },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.width(80.dp),
+                        shape = SettingsInnerShape
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val prio = priorityText.toIntOrNull() ?: 10
+                    onConfirm(name, keys, content, isConstant, prio)
+                },
+                enabled = name.isNotBlank() && content.isNotBlank()
+            ) {
+                Text("保存")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        },
+        onDismissRequest = onDismiss
+    )
+}
+
+@Composable
+private fun AuxiliaryMemoryTestDialog(
+    hazeState: dev.chrisbanes.haze.HazeState,
+    testInput: String,
+    onInputChange: (String) -> Unit,
+    isTesting: Boolean,
+    testResult: String?,
+    onRunTest: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    EchoGlassDialog(
+        hazeState = hazeState,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Psychology, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("辅助模型提炼与平滑降级验证", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text("测试对话文本", style = MaterialTheme.typography.titleSmall)
+                OutlinedTextField(
+                    value = testInput,
+                    onValueChange = onInputChange,
+                    placeholder = { Text("输入包含个人偏好、重要事实或剧情背景的测试对话...") },
+                    minLines = 3,
+                    maxLines = 6,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = SettingsInnerShape
+                )
+
+                if (isTesting) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text("正在调用辅助模型识别提炼（若失败将自动触发本地规则兜底）...", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+
+                testResult?.let { result ->
+                    val isFallback = result.contains("降级") || result.contains("本地规则")
+                    Surface(
+                        shape = SettingsInnerShape,
+                        color = if (isFallback) MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.7f)
+                                else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    if (isFallback) Icons.Default.Info else Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = if (isFallback) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    if (isFallback) "【已触发本地规则兜底保障】" else "【辅助模型识别成功】",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isFallback) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                            Text(
+                                text = result,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (isFallback) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onRunTest,
+                enabled = !isTesting && testInput.isNotBlank()
+            ) {
+                Text(if (isTesting) "正在识别..." else "开始测试识别")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("关闭")
+            }
+        },
+        onDismissRequest = onDismiss
+    )
 }
 
 @Composable

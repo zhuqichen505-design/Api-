@@ -23,7 +23,11 @@ data class PersonalizationSettings(
     val thinkingTranslationApiConfigId: Long = 0L,
     val thinkingTranslationModel: String = "",
     val connectingTextTemplate: String = "{model} 正在连接中...",
-    val thinkingTextTemplate: String = "{model} 正在思考中..."
+    val thinkingTextTemplate: String = "{model} 正在思考中...",
+    val auxiliaryMemoryEnabled: Boolean = false,
+    val auxiliaryMemoryApiConfigId: Long = 0L,
+    val auxiliaryMemoryModel: String = "",
+    val auxiliaryMemoryPrompt: String = ""
 )
 
 class PersonalizationManager(private val context: Context) {
@@ -62,7 +66,11 @@ class PersonalizationManager(private val context: Context) {
             thinkingTranslationApiConfigId = prefs.getLong(KEY_THINKING_TRANSLATION_API_CONFIG_ID, 0L),
             thinkingTranslationModel = prefs.getString(KEY_THINKING_TRANSLATION_MODEL, "").orEmpty(),
             connectingTextTemplate = prefs.getString(KEY_CONNECTING_TEXT_TEMPLATE, "{model} 正在连接中...").orEmpty().ifBlank { "{model} 正在连接中..." },
-            thinkingTextTemplate = prefs.getString(KEY_THINKING_TEXT_TEMPLATE, "{model} 正在思考中...").orEmpty().ifBlank { "{model} 正在思考中..." }
+            thinkingTextTemplate = prefs.getString(KEY_THINKING_TEXT_TEMPLATE, "{model} 正在思考中...").orEmpty().ifBlank { "{model} 正在思考中..." },
+            auxiliaryMemoryEnabled = prefs.getBoolean(KEY_AUXILIARY_MEMORY_ENABLED, false),
+            auxiliaryMemoryApiConfigId = prefs.getLong(KEY_AUXILIARY_MEMORY_API_CONFIG_ID, 0L),
+            auxiliaryMemoryModel = prefs.getString(KEY_AUXILIARY_MEMORY_MODEL, "").orEmpty(),
+            auxiliaryMemoryPrompt = prefs.getString(KEY_AUXILIARY_MEMORY_PROMPT, DEFAULT_AUXILIARY_MEMORY_PROMPT).orEmpty().ifBlank { DEFAULT_AUXILIARY_MEMORY_PROMPT }
         )
     }
 
@@ -90,6 +98,10 @@ class PersonalizationManager(private val context: Context) {
             .putString(KEY_THINKING_TRANSLATION_MODEL, settings.thinkingTranslationModel)
             .putString(KEY_CONNECTING_TEXT_TEMPLATE, settings.connectingTextTemplate)
             .putString(KEY_THINKING_TEXT_TEMPLATE, settings.thinkingTextTemplate)
+            .putBoolean(KEY_AUXILIARY_MEMORY_ENABLED, settings.auxiliaryMemoryEnabled)
+            .putLong(KEY_AUXILIARY_MEMORY_API_CONFIG_ID, settings.auxiliaryMemoryApiConfigId)
+            .putString(KEY_AUXILIARY_MEMORY_MODEL, settings.auxiliaryMemoryModel)
+            .putString(KEY_AUXILIARY_MEMORY_PROMPT, settings.auxiliaryMemoryPrompt)
             .commit()
     }
 
@@ -143,5 +155,11 @@ class PersonalizationManager(private val context: Context) {
         private const val KEY_THINKING_TRANSLATION_MODEL = "thinking_translation_model"
         private const val KEY_CONNECTING_TEXT_TEMPLATE = "connecting_text_template"
         private const val KEY_THINKING_TEXT_TEMPLATE = "thinking_text_template"
+        private const val KEY_AUXILIARY_MEMORY_ENABLED = "auxiliary_memory_enabled"
+        private const val KEY_AUXILIARY_MEMORY_API_CONFIG_ID = "auxiliary_memory_api_config_id"
+        private const val KEY_AUXILIARY_MEMORY_MODEL = "auxiliary_memory_model"
+        private const val KEY_AUXILIARY_MEMORY_PROMPT = "auxiliary_memory_prompt"
+
+        const val DEFAULT_AUXILIARY_MEMORY_PROMPT = "你是一个专业的记忆与设定提炼助手。请阅读以下用户发言与对话内容，判断是否包含值得跨会话长期记住的用户画像、长期偏好、重要事实或剧情设定。若包含，请直接输出一条精炼事实（25字以内），禁止输出解释或标点废话；若只是客套、单次任务、临时疑问或瞬态动作，请只输出'IGNORE'。"
     }
 }
