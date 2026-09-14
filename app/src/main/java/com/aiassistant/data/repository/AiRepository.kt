@@ -199,6 +199,80 @@ class AiRepository(
                 "$trimmed (副本)"
             }
         }
+
+        fun isNetworkFluctuationException(e: Throwable): Boolean {
+            if (isTimeoutException(e)) return true
+            var current: Throwable? = e
+            while (current != null) {
+                if (current is java.net.UnknownHostException ||
+                    current is java.net.ConnectException ||
+                    current is java.net.NoRouteToHostException ||
+                    current is java.net.SocketException ||
+                    current is javax.net.ssl.SSLException ||
+                    current is java.net.SocketTimeoutException
+                ) {
+                    return true
+                }
+                val msg = current.message?.lowercase().orEmpty()
+                if (msg.contains("connection abort") ||
+                    msg.contains("unexpected end of stream") ||
+                    msg.contains("stream was reset") ||
+                    msg.contains("broken pipe") ||
+                    msg.contains("network is unreachable") ||
+                    msg.contains("connection reset") ||
+                    msg.contains("connection closed") ||
+                    msg.contains("unable to resolve host") ||
+                    msg.contains("failed to connect") ||
+                    msg.contains("route to host")
+                ) {
+                    return true
+                }
+                current = current.cause
+            }
+            return false
+        }
+
+        fun extractRootBaseTitle(rawTitle: String): String {
+            var current = rawTitle.trim()
+            val branchSuffixRegex = Regex("""[\s_]*[\(（]分支[\s_]*\d*[\)）]\s*$""")
+            while (true) {
+                val next = current.replace(branchSuffixRegex, "").trim()
+                if (next == current || next.isEmpty()) break
+                current = next
+            }
+            return current.ifBlank { "对话" }
+        }
+
+        fun calculateNextBranchTitle(rootBaseTitle: String, existingTitles: List<String>): String {
+            val escapedBase = Regex.escape(rootBaseTitle)
+            val branchIndexRegex = Regex("""^$escapedBase[\s_]*[\(（]分支[\s_]*(\d*)[\)）]$""")
+            var maxIndex = 0
+            var hasUnnumberedBranch = false
+
+            for (title in existingTitles) {
+                val trimmed = title.trim()
+                val match = branchIndexRegex.find(trimmed)
+                if (match != null) {
+                    val numStr = match.groupValues[1]
+                    if (numStr.isNotBlank()) {
+                        val num = numStr.toIntOrNull() ?: 0
+                        if (num > maxIndex) maxIndex = num
+                    } else {
+                        hasUnnumberedBranch = true
+                    }
+                }
+            }
+
+            val nextIndex = if (maxIndex > 0) {
+                maxIndex + 1
+            } else if (hasUnnumberedBranch) {
+                2
+            } else {
+                1
+            }
+
+            return "$rootBaseTitle (分支 $nextIndex)"
+        }
     }
 
     fun cancelActiveRequest(conversationId: Long) {
@@ -1115,26 +1189,26 @@ class AiRepository(
                         throw e
                     }
 
-                    if (isTimeoutException(e)) {
+                    if (isNetworkFluctuationException(e)) {
                         attempt++
                         if (attempt <= maxTimeoutAttempts) {
-                            val retryText = "连接超时，正在重试 ($attempt/$maxTimeoutAttempts)..."
-                            Log.w(tag, "Key[$keyIndex] $retryText")
+                            val retryText = "网络波动，正在尝试重新连接 ($attempt/$maxTimeoutAttempts)..."
+                            Log.w(tag, "Key[$keyIndex] $retryText - 异常: ${e.javaClass.simpleName}: ${e.message}")
                             onStatusUpdate?.invoke(retryText)
-                            kotlinx.coroutines.delay(500L * attempt)
+                            kotlinx.coroutines.delay(1000L * attempt)
                             continue
                         } else {
                             val failText = if (keyIndex + 1 < allKeys.size) {
-                                "Key[${keyIndex + 1}] 超时，切换下一个 Key (${keyIndex + 2}/${allKeys.size})..."
+                                "网络重连重试已达 $maxTimeoutAttempts 次，尝试切换下一个 Key (${keyIndex + 2}/${allKeys.size})..."
                             } else {
-                                "Key[${keyIndex + 1}] 超时重试已达 $maxTimeoutAttempts 次"
+                                "网络波动，重连重试已达 $maxTimeoutAttempts 次"
                             }
                             Log.w(tag, failText)
                             onStatusUpdate?.invoke(failText)
                             break
                         }
                     } else {
-                        // 非超时报错（如 401, 403, 429, 500 等 API 错误）
+                        // 非网络波动报错（如 401, 403, 429, 500 等 API 业务错误）
                         val failText = if (keyIndex + 1 < allKeys.size) {
                             "当前 Key 异常，正在尝试备用 Key (${keyIndex + 2}/${allKeys.size})..."
                         } else {
@@ -3021,15 +3095,10 @@ class AiRepository(
             originalConv.tags
         }
 
-        // 计算优雅自增的分支标题
-        val baseTitle = originalConv.title.trim()
-        val branchTitle = if (baseTitle.contains("(分支")) {
-            val prefix = baseTitle.substringBefore("(分支").trim()
-            val existingBranchesCount = conversationBranchDao.getBranchesByParent(parentId).first().size + 1
-            "$prefix (分支 $existingBranchesCount)"
-        } else {
-            "$baseTitle (分支)"
-        }
+        // 计算全局唯一、优雅单调自增的分支标题（彻底解决 XX(分支1) 重复问题，需求 1）
+        val rootBaseTitle = extractRootBaseTitle(originalConv.title)
+        val existingTitles = conversationDao.getTitlesStartingWith(rootBaseTitle)
+        val branchTitle = calculateNextBranchTitle(rootBaseTitle, existingTitles)
 
         val effectiveApiConfigId = activeApiConfigId ?: originalConv.apiConfigId
         val effectiveModelName = (activeModelName?.takeIf { it.isNotBlank() }) ?: originalConv.modelName
@@ -3063,21 +3132,53 @@ class AiRepository(
             )
             val newId = conversationDao.insertConversation(newConversation)
 
-            // 2. 准备待复制的消息序列：严格截取到分支目标消息
-            val targetIdx = sourceMessages.indexOfFirst { it.id == branchMessageId }
-            val messagesToCopy = if (targetIdx >= 0) {
-                sourceMessages.subList(0, targetIdx + 1)
+            // 2. 准备待复制的消息序列：完整保留纳入分支历史的单条消息所有历史版本（需求 7）
+            val allParentMessages = messageDao.getMessagesList(parentId)
+            val targetGroupIds = mutableSetOf<String>()
+            val targetStandaloneIds = mutableSetOf<Long>()
+
+            if (!sourceMessages.isNullOrEmpty()) {
+                val targetIdx = sourceMessages.indexOfFirst { it.id == branchMessageId }
+                val effectiveSlice = if (targetIdx >= 0) sourceMessages.subList(0, targetIdx + 1) else sourceMessages
+                for (msg in effectiveSlice) {
+                    if (!msg.variantGroupId.isNullOrBlank()) {
+                        targetGroupIds.add(msg.variantGroupId!!)
+                    } else {
+                        targetStandaloneIds.add(msg.id)
+                    }
+                }
             } else {
-                sourceMessages
+                val branchMsg = allParentMessages.firstOrNull { it.id == branchMessageId }
+                val maxTime = branchMsg?.createdAt ?: Long.MAX_VALUE
+                for (msg in allParentMessages) {
+                    if (msg.createdAt <= maxTime) {
+                        if (!msg.variantGroupId.isNullOrBlank()) {
+                            targetGroupIds.add(msg.variantGroupId!!)
+                        } else {
+                            targetStandaloneIds.add(msg.id)
+                        }
+                    }
+                }
+            }
+
+            val messagesToCopy = allParentMessages.filter { msg ->
+                (!msg.variantGroupId.isNullOrBlank() && msg.variantGroupId in targetGroupIds) ||
+                (msg.id in targetStandaloneIds)
+            }.sortedWith(compareBy<Message> { it.createdAt }.thenBy { it.variantIndex })
+
+            val groupIdMapping = mutableMapOf<String, String>()
+            targetGroupIds.forEach { oldGroup ->
+                groupIdMapping[oldGroup] = "${oldGroup}_b${newId}"
             }
 
             val baseTime = System.currentTimeMillis() - (messagesToCopy.size * 1000L)
             val preparedMessages = messagesToCopy.mapIndexed { index, msg ->
+                val newGroupId = msg.variantGroupId?.let { groupIdMapping[it] ?: "${it}_b${newId}" }
                 msg.copy(
                     id = 0,
                     conversationId = newId,
-                    variantGroupId = null,
-                    variantIndex = 1,
+                    variantGroupId = newGroupId,
+                    variantIndex = msg.variantIndex,
                     createdAt = baseTime + (index * 1000L)
                 )
             }

@@ -29,6 +29,7 @@ object RetrofitClient {
     // 专用于长文本与深度思考 SSE 流式输出（读超时为 0 无限等待）
     val streamHttpClient = OkHttpClient.Builder()
         .addInterceptor(loggingInterceptor)
+        .retryOnConnectionFailure(true)
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
@@ -37,6 +38,7 @@ object RetrofitClient {
     // 专用于普通 REST 请求、模型拉取与摘要生成（设置明确 30s 超时，防止永久挂死）
     val restHttpClient = OkHttpClient.Builder()
         .addInterceptor(loggingInterceptor)
+        .retryOnConnectionFailure(true)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)

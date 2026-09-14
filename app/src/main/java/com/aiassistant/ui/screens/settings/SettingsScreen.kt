@@ -21,9 +21,11 @@ import androidx.compose.foundation.text.BasicTextField
 import com.aiassistant.domain.model.ChatModelOption
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
@@ -105,7 +107,7 @@ private val CurrentFeatureHighlights = listOf(
     "全界面 Echo 液态玻璃设计与暗色主题适配"
 )
 
-internal val CurrentVersionUserUpdates = listOf(
+internal val V205UserUpdates = listOf(
     "优化备份导入逻辑：重构为非破坏性增量合并引擎，导入备份时绝不删除本地已有但备份中未包含的对话",
     "新增复制对话功能：支持深拷贝整个会话生成全新独立对话，全量复制消息、高级参数、角色卡设定与会话专属记忆",
     "复制对话入口对齐：普通对话与隐藏对话均在「置顶」同一层级提供「复制对话」入口，体验 100% 同步对齐",
@@ -115,6 +117,18 @@ internal val CurrentVersionUserUpdates = listOf(
     "备份管理卡片增强：自动区分展示全量备份（ZIP）与单对话备份（JSON），提供针对性增量恢复安全提示",
     "分支功能原子事务、生成成功确认弹窗与隐藏会话密码维持特性完美保持"
 )
+
+internal val V211UserUpdates = listOf(
+    "分支命名单调自增：彻底修复 XX(分支1) 再次生成分支仍为 XX(分支1) 的重名问题，支持中文半角全角括号与自动编号递增",
+    "记忆提取与提炼增强：支持 [] 与 【】 结构化中括号记忆提取，支持「注意」「特别注意」等关键词引导，并自动进行语义规范化加工提炼",
+    "模型配置快速清空：设置中已添加的模型自定义参数支持单个一键清空与头部批量重置，快速恢复默认参数",
+    "多 Key 优先级快捷切换：设置中多个 API Key 支持通过拖动手柄或上下微调箭头灵活快捷调整优先级",
+    "网络波动容错重连机制：遇到 WiFi 抖动、断网重连或连接重置时自动执行退避重连（最多 3 次），并实时展示友好提示",
+    "生成中消息排队与专属浮窗：模型回复过程中输入框保持可用，发送内容进入专属排队浮窗，支持拖动手柄调序、撤回回填输入框、编辑、删除与暂停控制",
+    "分支创建完整保留多版本：创建分支截断历史时，完整克隆所选轮次的所有生成变体（版本 1、2、3...），保留新会话内的版本自由切换"
+)
+
+internal val CurrentVersionUserUpdates = V211UserUpdates
 
 internal val V204UserUpdates = listOf(
     "分支功能完整重构：基于数据库事务与严格切片，规范严格递增时序，全链路杜绝历史记录颠倒或截断缺失",
@@ -5751,9 +5765,15 @@ fun ApiConfigDialog(
                             }
                         }
 
+                        Text(
+                            text = "提示：排在前面的 Key 拥有更高调用优先级，可通过左侧拖动手柄或上下箭头快速调整位序。",
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
+                        )
+
                         keyList.forEachIndexed { index, currentKey ->
                             val isVisible = keyVisibilityList.getOrElse(index) { false }
-                            val keyLabel = if (index == 0) "Key 1 (主密钥)" else "Key ${index + 1} (备用密钥 $index)"
+                            val keyLabel = if (index == 0) "Key 1 (主密钥 · 最高优先级)" else "Key ${index + 1} (备用密钥 $index)"
 
                             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                 Text(
@@ -5762,74 +5782,196 @@ fun ApiConfigDialog(
                                     color = if (index == 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                                     fontWeight = if (index == 0) FontWeight.Bold else FontWeight.Medium
                                 )
-                                OutlinedTextField(
-                                    value = currentKey,
-                                    onValueChange = { newVal ->
-                                        val splitKeys = AiRepository.parseApiKeys(newVal)
-                                        if (splitKeys.size > 1) {
-                                            val updated = keyList.toMutableList()
-                                            updated.removeAt(index)
-                                            updated.addAll(index, splitKeys)
-                                            keyList = updated
-                                            apiKey = updated.filter { it.isNotBlank() }.joinToString("\n")
-                                        } else {
-                                            val updated = keyList.toMutableList()
-                                            updated[index] = newVal.trim()
-                                            keyList = updated
-                                            apiKey = updated.filter { it.isNotBlank() }.joinToString("\n")
-                                        }
-                                    },
-                                    placeholder = { Text(if (index == 0) "填写主密钥 (sk-...)" else "填写备用密钥 (sk-...)", style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp)) },
-                                    visualTransformation = if (isVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                                    singleLine = true,
-                                    shape = SettingsInnerShape,
-                                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.5.sp),
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                                        focusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.45f),
-                                        unfocusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.28f)
-                                    ),
-                                    trailingIcon = {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            IconButton(
-                                                onClick = {
-                                                    val nextVis = keyVisibilityList.toMutableList()
-                                                    while (nextVis.size <= index) nextVis.add(false)
-                                                    nextVis[index] = !isVisible
-                                                    keyVisibilityList = nextVis
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    if (keyList.size > 1) {
+                                        var dragAccumulator by remember { mutableFloatStateOf(0f) }
+                                        Box(
+                                            modifier = Modifier
+                                                .size(32.dp)
+                                                .pointerInput(keyList.size, index) {
+                                                    detectVerticalDragGestures(
+                                                        onDragStart = { dragAccumulator = 0f },
+                                                        onDragEnd = { dragAccumulator = 0f },
+                                                        onDragCancel = { dragAccumulator = 0f },
+                                                        onVerticalDrag = { change, dragAmount ->
+                                                            change.consume()
+                                                            dragAccumulator += dragAmount
+                                                            if (dragAccumulator < -40f && index > 0) {
+                                                                dragAccumulator = 0f
+                                                                val updated = keyList.toMutableList()
+                                                                val temp = updated[index]
+                                                                updated[index] = updated[index - 1]
+                                                                updated[index - 1] = temp
+                                                                keyList = updated
+                                                                apiKey = updated.filter { it.isNotBlank() }.joinToString("\n")
+                                                                val nextVis = keyVisibilityList.toMutableList()
+                                                                if (index < nextVis.size && index - 1 < nextVis.size) {
+                                                                    val tempV = nextVis[index]
+                                                                    nextVis[index] = nextVis[index - 1]
+                                                                    nextVis[index - 1] = tempV
+                                                                    keyVisibilityList = nextVis
+                                                                }
+                                                            } else if (dragAccumulator > 40f && index < keyList.size - 1) {
+                                                                dragAccumulator = 0f
+                                                                val updated = keyList.toMutableList()
+                                                                val temp = updated[index]
+                                                                updated[index] = updated[index + 1]
+                                                                updated[index + 1] = temp
+                                                                keyList = updated
+                                                                apiKey = updated.filter { it.isNotBlank() }.joinToString("\n")
+                                                                val nextVis = keyVisibilityList.toMutableList()
+                                                                if (index < nextVis.size && index + 1 < nextVis.size) {
+                                                                    val tempV = nextVis[index]
+                                                                    nextVis[index] = nextVis[index + 1]
+                                                                    nextVis[index + 1] = tempV
+                                                                    keyVisibilityList = nextVis
+                                                                }
+                                                            }
+                                                        }
+                                                    )
                                                 },
-                                                modifier = Modifier.size(32.dp)
-                                            ) {
-                                                Icon(
-                                                    imageVector = if (isVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                                    contentDescription = if (isVisible) "隐藏密钥" else "显示密钥",
-                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                                    modifier = Modifier.size(17.dp)
-                                                )
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.DragIndicator,
+                                                contentDescription = "上下拖动调整优先级",
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                    }
+
+                                    OutlinedTextField(
+                                        value = currentKey,
+                                        onValueChange = { newVal ->
+                                            val splitKeys = AiRepository.parseApiKeys(newVal)
+                                            if (splitKeys.size > 1) {
+                                                val updated = keyList.toMutableList()
+                                                updated.removeAt(index)
+                                                updated.addAll(index, splitKeys)
+                                                keyList = updated
+                                                apiKey = updated.filter { it.isNotBlank() }.joinToString("\n")
+                                            } else {
+                                                val updated = keyList.toMutableList()
+                                                updated[index] = newVal.trim()
+                                                keyList = updated
+                                                apiKey = updated.filter { it.isNotBlank() }.joinToString("\n")
                                             }
-                                            if (keyList.size > 1) {
+                                        },
+                                        placeholder = { Text(if (index == 0) "填写主密钥 (sk-...)" else "填写备用密钥 (sk-...)", style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp)) },
+                                        visualTransformation = if (isVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                                        singleLine = true,
+                                        shape = SettingsInnerShape,
+                                        textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.5.sp),
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                            focusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.45f),
+                                            unfocusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.28f)
+                                        ),
+                                        trailingIcon = {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                if (keyList.size > 1) {
+                                                    IconButton(
+                                                        onClick = {
+                                                            if (index > 0) {
+                                                                val updated = keyList.toMutableList()
+                                                                val temp = updated[index]
+                                                                updated[index] = updated[index - 1]
+                                                                updated[index - 1] = temp
+                                                                keyList = updated
+                                                                apiKey = updated.filter { it.isNotBlank() }.joinToString("\n")
+                                                                val nextVis = keyVisibilityList.toMutableList()
+                                                                if (index < nextVis.size && index - 1 < nextVis.size) {
+                                                                    val tempV = nextVis[index]
+                                                                    nextVis[index] = nextVis[index - 1]
+                                                                    nextVis[index - 1] = tempV
+                                                                    keyVisibilityList = nextVis
+                                                                }
+                                                            }
+                                                        },
+                                                        enabled = index > 0,
+                                                        modifier = Modifier.size(28.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.ArrowUpward,
+                                                            contentDescription = "提升优先级",
+                                                            tint = if (index > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f),
+                                                            modifier = Modifier.size(16.dp)
+                                                        )
+                                                    }
+                                                    IconButton(
+                                                        onClick = {
+                                                            if (index < keyList.size - 1) {
+                                                                val updated = keyList.toMutableList()
+                                                                val temp = updated[index]
+                                                                updated[index] = updated[index + 1]
+                                                                updated[index + 1] = temp
+                                                                keyList = updated
+                                                                apiKey = updated.filter { it.isNotBlank() }.joinToString("\n")
+                                                                val nextVis = keyVisibilityList.toMutableList()
+                                                                if (index < nextVis.size && index + 1 < nextVis.size) {
+                                                                    val tempV = nextVis[index]
+                                                                    nextVis[index] = nextVis[index + 1]
+                                                                    nextVis[index + 1] = tempV
+                                                                    keyVisibilityList = nextVis
+                                                                }
+                                                            }
+                                                        },
+                                                        enabled = index < keyList.size - 1,
+                                                        modifier = Modifier.size(28.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.ArrowDownward,
+                                                            contentDescription = "降低优先级",
+                                                            tint = if (index < keyList.size - 1) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f),
+                                                            modifier = Modifier.size(16.dp)
+                                                        )
+                                                    }
+                                                }
                                                 IconButton(
                                                     onClick = {
-                                                        val updated = keyList.toMutableList()
-                                                        updated.removeAt(index)
-                                                        keyList = updated.ifEmpty { listOf("") }
-                                                        apiKey = keyList.filter { it.isNotBlank() }.joinToString("\n")
+                                                        val nextVis = keyVisibilityList.toMutableList()
+                                                        while (nextVis.size <= index) nextVis.add(false)
+                                                        nextVis[index] = !isVisible
+                                                        keyVisibilityList = nextVis
                                                     },
-                                                    modifier = Modifier.size(32.dp)
+                                                    modifier = Modifier.size(28.dp)
                                                 ) {
                                                     Icon(
-                                                        imageVector = Icons.Default.Close,
-                                                        contentDescription = "删除此密钥",
-                                                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
-                                                        modifier = Modifier.size(17.dp)
+                                                        imageVector = if (isVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                                        contentDescription = if (isVisible) "隐藏密钥" else "显示密钥",
+                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                                        modifier = Modifier.size(16.dp)
                                                     )
                                                 }
+                                                if (keyList.size > 1) {
+                                                    IconButton(
+                                                        onClick = {
+                                                            val updated = keyList.toMutableList()
+                                                            updated.removeAt(index)
+                                                            keyList = updated.ifEmpty { listOf("") }
+                                                            apiKey = keyList.filter { it.isNotBlank() }.joinToString("\n")
+                                                        },
+                                                        modifier = Modifier.size(28.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Close,
+                                                            contentDescription = "删除此密钥",
+                                                            tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
+                                                            modifier = Modifier.size(16.dp)
+                                                        )
+                                                    }
+                                                }
                                             }
-                                        }
-                                    },
-                                    modifier = Modifier.fillMaxWidth()
-                                )
+                                        },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
                             }
                         }
 
@@ -5922,7 +6064,13 @@ fun ApiConfigDialog(
                                         onClick = { enabledModelNames = emptySet() },
                                         contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
                                     ) {
-                                        Text("清空", style = MaterialTheme.typography.labelSmall)
+                                        Text("清空启用", style = MaterialTheme.typography.labelSmall)
+                                    }
+                                    TextButton(
+                                        onClick = { modelCustomSettings = emptyMap() },
+                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Text("重置配置", style = MaterialTheme.typography.labelSmall)
                                     }
                                 }
                             }
@@ -6029,6 +6177,9 @@ fun ApiConfigDialog(
                                                 if (modelName == model) {
                                                     modelName = availableModels.firstOrNull() ?: ""
                                                 }
+                                            },
+                                            onResetCustomSettings = {
+                                                modelCustomSettings = modelCustomSettings - model
                                             },
                                             onCustomSettingsChange = { newSettings ->
                                                 modelCustomSettings = modelCustomSettings + (model to newSettings)
@@ -6332,6 +6483,7 @@ private fun ModelCustomSettingCard(
     onCheckedChange: (Boolean) -> Unit,
     onSelectAsDefault: () -> Unit,
     onRemove: () -> Unit,
+    onResetCustomSettings: () -> Unit = {},
     onCustomSettingsChange: (ModelCustomSettings) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -6505,12 +6657,43 @@ private fun ModelCustomSettingCard(
                 ) {
                     HorizontalDivider(color = glass.outline.copy(alpha = 0.35f))
 
-                    Text(
-                        text = "模型自定义配置",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "模型自定义配置",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Surface(
+                            onClick = onResetCustomSettings,
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f),
+                            border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.45f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.RestartAlt,
+                                    contentDescription = "清空模型配置",
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Text(
+                                    text = "清空配置",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                                    color = MaterialTheme.colorScheme.error,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
 
                     // 上下文大小配置 (支持快捷预设标签与自定义精确数值输入)
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {

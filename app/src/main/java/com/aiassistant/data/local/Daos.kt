@@ -131,6 +131,9 @@ interface ConversationDao {
     @Query("SELECT * FROM conversations WHERE title LIKE '%' || :query || '%' AND (tags IS NULL OR (tags NOT LIKE '%hidden%' AND tags NOT LIKE '%private%')) ORDER BY updatedAt DESC")
     fun searchConversations(query: String): Flow<List<Conversation>>
 
+    @Query("SELECT title FROM conversations WHERE title LIKE :prefix || '%'")
+    suspend fun getTitlesStartingWith(prefix: String): List<String>
+
     @Query("UPDATE conversations SET tags = :tags, updatedAt = :timestamp WHERE id = :id")
     suspend fun updateTags(id: Long, tags: String?, timestamp: Long = System.currentTimeMillis())
 

@@ -1,5 +1,58 @@
 # Echo AI 助手更新日志 (Update Log)
 
+## [v2.1.1] - 2026-09-14
+
+### 1. 本次 7 项核心功能升级与用户需求落实
+1. **分支命名自增机制彻底修复**：
+   - 解决 `XX（分支1）` 对话生成的分支依然重复命名为 `XX（分支1）` 的重名问题；
+   - 提取根标题函数 `extractRootBaseTitle`，多层清洗中文全角 `（分支X）` 与英文半角 `(分支 X)` 后缀；
+   - 数据库新增 `getTitlesStartingWith`，计算全局最大编号后单调自增 `calculateNextBranchTitle`，彻底杜绝重名冲突。
+2. **记忆提取增强与智能规范化提炼**：
+   - 支持 `[...]` 与 `【...】` 中括号结构化记忆直接提取；
+   - 支持以“注意”、“特别注意”、“请注意”、“温馨提示”等关键词引导的记忆提取；
+   - 新增 `refineMemoryContent` 深度加工清洗（剥离多余标点与助词，按用户偏好、行为约束、会话设定与重要事实规范化分类，过滤代码与 URL 噪声）。
+3. **已添加模型配置快速清空**：
+   - 设置界面的已添加模型展开卡片中提供单个“清空配置”按钮（`RestartAlt` 图标）；
+   - 头部提供“重置配置”快捷入口，一键恢复默认全局参数。
+4. **多 Key 优先级快捷切换**：
+   - 在 API 配置编辑中，多个 Key 支持通过 6 点拖动手柄或上下微调箭头（`ArrowUpward`/`ArrowDownward`）拖动/调整 Key 优先级，实时保存。
+5. **网络波动容错重连机制**：
+   - 建立 `isNetworkFluctuationException` 异常特征判定体系（识别 WiFi 暂时中断、连接重置 `Connection reset`、域名解析失败、SSL 握手抖动等）；
+   - 遇到网络波动时执行最多 3 次退避自动重连，并在 UI 实时呈现“网络波动，正在尝试重新连接...”状态提示，避免因网络瞬态波动误切备用 Key。
+6. **回复中消息排队与专属浮窗 UI**：
+   - 模型生成回复时输入框保持可用，用户可继续输入并发送多条消息进行排队；
+   - 专属排队浮窗完整还原设计图：左侧 `::` 拖动手柄调整排队顺序、中间内容预览、右侧支持撤回（回填输入框并从队列移除）、编辑与删除；
+   - 浮窗右上角提供暂停/播放按钮，暂停时只排队不自动发送，恢复后继续按序自动发送；
+   - 模型回复结束后自动按顺序连续发送排队消息。
+7. **创建分支完整保留多版本变体**：
+   - 解决分支仅克隆单条展示消息导致历史多个重生成版本丢失的问题；
+   - 完整提取截断点轮次及之前的所有 `variantGroupId` 历史变体，映射新分组 ID 并克隆至新会话，完整保留 `< 1/3 >` 多版本自由切换。
+
+### 2. 自动化测试与质量保障
+- 全量单元测试（含 30 套测试用例集、200+ 项测试用例）100% 全部通过；
+- 专项新增 `V211FeaturesTest` 8 项核心测试全部通过。
+
+### 3. 发布产物信息
+- **安装包路径**：`releases/Echo-v2.1.1-arm64-v8a.apk`
+- **文件体积**：16,107,517 字节 (约 15.36 MB)
+- **SHA256**：`0638BCA89F2B571A570D32B31FEAFEA41A151E0EA55A718F1BA4FD19684D8652`
+- **Package**：`com.aiassistant` | **VersionCode**：`117` | **VersionName**：`2.1.1` | **ABI**：`arm64-v8a`
+- **签名验证**：APK Signature Scheme v2 (release 签名验证通过，1 signer，证书 SHA-256 与历史版本 100% 吻合: `939638f6d3e9af7f8a980e62af52d275fee73381f2130cc4e20a0d349f98e21f`)
+- **历史版本永久保留**：所有历史版本安装包完整保留无删除。
+
+### 4. 改动文件列表
+- `app/build.gradle.kts`
+- `app/src/main/java/com/aiassistant/data/local/Daos.kt`
+- `app/src/main/java/com/aiassistant/data/remote/RetrofitClient.kt`
+- `app/src/main/java/com/aiassistant/data/repository/AiRepository.kt`
+- `app/src/main/java/com/aiassistant/domain/model/Models.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatScreen.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatViewModel.kt`
+- `app/src/main/java/com/aiassistant/ui/screens/settings/SettingsScreen.kt`
+- `app/src/main/java/com/aiassistant/utils/SmartMemoryExtractor.kt`
+- `app/src/test/java/com/aiassistant/V205FeaturesTest.kt`
+- `app/src/test/java/com/aiassistant/V211FeaturesTest.kt`
+
 ## [v2.1.0] - 2026-09-14
 
 ### 1. 本次升级与决策记录（8项P0、44项P1、3项P2）全面落地

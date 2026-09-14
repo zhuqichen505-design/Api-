@@ -248,7 +248,7 @@ class V205FeaturesTest {
 
     @Test
     fun testV205CurrentVersionUserUpdatesCompleteness() {
-        val updates = com.aiassistant.ui.screens.settings.CurrentVersionUserUpdates
+        val updates = com.aiassistant.ui.screens.settings.V205UserUpdates
         assertFalse("本次更新日志列表不得为空", updates.isEmpty())
         assertTrue("必须包含当前版本主要更新项 (>=5项)", updates.size >= 5)
         assertTrue("必须说明备份导入逻辑优化", updates.any { it.contains("备份导入") && it.contains("非破坏性") })

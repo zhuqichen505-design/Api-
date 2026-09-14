@@ -26,6 +26,13 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
     private val _isGenerating = MutableStateFlow(false)
     val isGenerating: StateFlow<Boolean> = _isGenerating.asStateFlow()
 
+    // 正在回复时的输入排队系统（需求 6）
+    private val _messageQueue = MutableStateFlow<List<QueuedMessage>>(emptyList())
+    val messageQueue: StateFlow<List<QueuedMessage>> = _messageQueue.asStateFlow()
+
+    private val _isQueuePaused = MutableStateFlow(false)
+    val isQueuePaused: StateFlow<Boolean> = _isQueuePaused.asStateFlow()
+
     private val _currentResponse = MutableStateFlow("")
     val currentResponse: StateFlow<String> = _currentResponse.asStateFlow()
 
@@ -460,7 +467,64 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
     }
 
     fun sendMessage(content: String, attachments: List<Attachment> = emptyList()) {
+        if (_isGenerating.value) {
+            enqueueMessage(content, attachments)
+            return
+        }
         sendMessageInternal(content, attachments, saveUserMessage = true)
+    }
+
+    fun enqueueMessage(content: String, attachments: List<Attachment> = emptyList()) {
+        val trimmed = content.trim()
+        if (trimmed.isBlank() && attachments.isEmpty()) return
+        _messageQueue.update { it + QueuedMessage(content = trimmed, attachments = attachments) }
+    }
+
+    fun toggleQueuePause() {
+        _isQueuePaused.update { !it }
+        if (!_isQueuePaused.value && !_isGenerating.value && _messageQueue.value.isNotEmpty()) {
+            checkAndDispatchQueue()
+        }
+    }
+
+    fun removeQueuedMessage(id: String) {
+        _messageQueue.update { list -> list.filter { it.id != id } }
+    }
+
+    fun recallQueuedMessage(id: String): QueuedMessage? {
+        val target = _messageQueue.value.firstOrNull { it.id == id }
+        if (target != null) {
+            _messageQueue.update { list -> list.filter { it.id != id } }
+        }
+        return target
+    }
+
+    fun editQueuedMessage(id: String, newContent: String) {
+        val trimmed = newContent.trim()
+        if (trimmed.isBlank()) return
+        _messageQueue.update { list ->
+            list.map { if (it.id == id) it.copy(content = trimmed) else it }
+        }
+    }
+
+    fun moveQueuedMessage(fromIndex: Int, toIndex: Int) {
+        _messageQueue.update { list ->
+            if (fromIndex !in list.indices || toIndex !in list.indices || fromIndex == toIndex) return@update list
+            val mutable = list.toMutableList()
+            val item = mutable.removeAt(fromIndex)
+            mutable.add(toIndex, item)
+            mutable
+        }
+    }
+
+    fun checkAndDispatchQueue() {
+        if (_isQueuePaused.value || _isGenerating.value) return
+        val next = _messageQueue.value.firstOrNull() ?: return
+        _messageQueue.update { it.drop(1) }
+        viewModelScope.launch {
+            kotlinx.coroutines.delay(200L)
+            sendMessage(next.content, next.attachments)
+        }
     }
 
     fun sendEditedMessage(source: Message, content: String, attachments: List<Attachment> = emptyList()) {
@@ -664,6 +728,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                             autoNameIfNeeded()
                             refreshContextUsage()
                             evaluateAutoCompression()
+                            checkAndDispatchQueue()
                         },
                         onError = { errorMsg ->
                             slowTimeoutJob.cancel()

@@ -30,6 +30,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.selection.SelectionContainer
 import com.aiassistant.domain.model.ToolCallRecord
+import com.aiassistant.domain.model.QueuedMessage
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
@@ -202,6 +203,9 @@ fun ChatScreen(
     var autoFollowOutput by remember { mutableStateOf(true) }
     var isBarsHidden by remember { mutableStateOf(false) }
     var branchSuccessDialog by remember { mutableStateOf<BranchSuccessDialogState?>(null) }
+    val messageQueue by viewModel.messageQueue.collectAsState()
+    val isQueuePaused by viewModel.isQueuePaused.collectAsState()
+    var editingQueueItem by remember { mutableStateOf<QueuedMessage?>(null) }
 
     var lastStreamScrollAt by remember { mutableLongStateOf(0L) }
     val variantSelections = remember { mutableStateMapOf<String, Int>() }
@@ -500,6 +504,31 @@ fun ChatScreen(
                             }
                         }
                     }
+                }
+
+                // 需求 6：模型回复时排队消息悬浮卡片 (UI 严格按照 media_1789390149204.png 设计落地)
+                AnimatedVisibility(
+                    visible = messageQueue.isNotEmpty(),
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically()
+                ) {
+                    MessageQueueCard(
+                        queue = messageQueue,
+                        isPaused = isQueuePaused,
+                        onTogglePause = { viewModel.toggleQueuePause() },
+                        onRecall = { id ->
+                            val recalled = viewModel.recallQueuedMessage(id)
+                            if (recalled != null) {
+                                inputText = if (inputText.isBlank()) recalled.content else "$inputText\n${recalled.content}"
+                                if (recalled.attachments.isNotEmpty()) {
+                                    selectedAttachments = selectedAttachments + recalled.attachments
+                                }
+                            }
+                        },
+                        onEdit = { msg -> editingQueueItem = msg },
+                        onRemove = { id -> viewModel.removeQueuedMessage(id) },
+                        onMove = { from, to -> viewModel.moveQueuedMessage(from, to) }
+                    )
                 }
 
                 ChatInputBar(
@@ -1418,6 +1447,42 @@ fun ChatScreen(
                 showStorySmartAnalyzeDialog = false
                 viewModel.appendAndMergeStoryBundle(chars, scenario, resMap) { msg ->
                     Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                }
+            }
+        )
+    }
+
+    if (editingQueueItem != null) {
+        var draftText by remember(editingQueueItem) { mutableStateOf(editingQueueItem!!.content) }
+        EchoGlassDialog(
+            hazeState = hazeState,
+            onDismissRequest = { editingQueueItem = null },
+            title = { Text("编辑排队消息") },
+            text = {
+                OutlinedTextField(
+                    value = draftText,
+                    onValueChange = { draftText = it },
+                    label = { Text("消息内容") },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 100.dp, max = 240.dp),
+                    textStyle = MaterialTheme.typography.bodyMedium
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        editingQueueItem?.let {
+                            viewModel.editQueuedMessage(it.id, draftText)
+                        }
+                        editingQueueItem = null
+                    },
+                    enabled = draftText.isNotBlank()
+                ) {
+                    Text("保存")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { editingQueueItem = null }) {
+                    Text("取消")
                 }
             }
         )
@@ -3802,22 +3867,47 @@ fun ChatInputBar(
                         }
                     }
 
+                    val canSend = !isProcessingAttachments && (inputText.isNotBlank() || attachments.isNotEmpty() || !quotedText.isNullOrBlank())
                     if (isGenerating) {
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.error,
-                            contentColor = MaterialTheme.colorScheme.onError,
-                            border = BorderStroke(1.2.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.85f)),
-                            modifier = Modifier
-                                .size(34.dp)
-                                .echoShapeClick(CircleShape, onClick = onStopGeneration)
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                                Icon(Icons.Default.Stop, contentDescription = "停止", modifier = Modifier.size(18.dp))
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.error,
+                                contentColor = MaterialTheme.colorScheme.onError,
+                                border = BorderStroke(1.2.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.85f)),
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .echoShapeClick(CircleShape, onClick = onStopGeneration)
+                            ) {
+                                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                                    Icon(Icons.Default.Stop, contentDescription = "停止当前生成", modifier = Modifier.size(18.dp))
+                                }
+                            }
+
+                            if (canSend) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                                    border = BorderStroke(1.2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)),
+                                    modifier = Modifier
+                                        .size(34.dp)
+                                        .echoShapeClick(CircleShape, enabled = true, onClick = onSend)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                                        Icon(
+                                            imageVector = Icons.Default.ArrowUpward,
+                                            contentDescription = "加入排队",
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
                             }
                         }
                     } else {
-                        val canSend = !isProcessingAttachments && (inputText.isNotBlank() || attachments.isNotEmpty() || !quotedText.isNullOrBlank())
                         val sendBorderColor = if (canSend) MaterialTheme.colorScheme.primary.copy(alpha = 0.85f) else glass.outlineSelected
                         Surface(
                             shape = CircleShape,
@@ -8594,4 +8684,156 @@ fun ToolCallDetailDialog(
             }
         }
     )
+}
+
+// 需求 6：模型回复时排队消息悬浮卡片 (UI 严格按照 media_1789390149204.png 设计落地)
+@Composable
+private fun MessageQueueCard(
+    queue: List<QueuedMessage>,
+    isPaused: Boolean,
+    onTogglePause: () -> Unit,
+    onRecall: (String) -> Unit,
+    onEdit: (QueuedMessage) -> Unit,
+    onRemove: (String) -> Unit,
+    onMove: (Int, Int) -> Unit
+) {
+    val glass = echoGlassPalette()
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f),
+        border = BorderStroke(1.dp, glass.outline.copy(alpha = 0.55f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 4.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // 顶部标题行: 排队中 (N) + 暂停/开启图标
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "排队中 (${queue.size})${if (isPaused) " · 已暂停" else ""}",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                IconButton(
+                    onClick = onTogglePause,
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isPaused) Icons.Default.PlayArrow else Icons.Default.Pause,
+                        contentDescription = if (isPaused) "开启自动发送" else "暂停自动发送（只排队）",
+                        tint = if (isPaused) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            // 队列列表项
+            queue.forEachIndexed { index, msg ->
+                var dragY by remember { mutableFloatStateOf(0f) }
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
+                    border = BorderStroke(0.8.dp, glass.outline.copy(alpha = 0.35f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // 左侧拖动手柄 (支持上下拖拽调序)
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .pointerInput(queue.size, index) {
+                                    detectVerticalDragGestures(
+                                        onDragStart = { dragY = 0f },
+                                        onDragEnd = { dragY = 0f },
+                                        onDragCancel = { dragY = 0f },
+                                        onVerticalDrag = { change, dragAmount ->
+                                            change.consume()
+                                            dragY += dragAmount
+                                            if (dragY < -32f && index > 0) {
+                                                dragY = 0f
+                                                onMove(index, index - 1)
+                                            } else if (dragY > 32f && index < queue.size - 1) {
+                                                dragY = 0f
+                                                onMove(index, index + 1)
+                                            }
+                                        }
+                                    )
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.DragIndicator,
+                                contentDescription = "上下拖动调整顺序",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        // 中间文本内容预览
+                        Text(
+                            text = msg.content.ifBlank { "[附件消息]" },
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+
+                        // 右侧操作区：撤回回填(↑)、编辑(铅笔)、删除(✕)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            IconButton(
+                                onClick = { onRecall(msg.id) },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ArrowUpward,
+                                    contentDescription = "撤回至输入框",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
+                                    modifier = Modifier.size(17.dp)
+                                )
+                            }
+                            IconButton(
+                                onClick = { onEdit(msg) },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Edit,
+                                    contentDescription = "编辑排队消息",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                            IconButton(
+                                onClick = { onRemove(msg.id) },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "删除排队消息",
+                                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.85f),
+                                    modifier = Modifier.size(17.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

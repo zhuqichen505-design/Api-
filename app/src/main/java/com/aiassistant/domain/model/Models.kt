@@ -133,6 +133,14 @@ data class Attachment(
     val processingNote: String? = null
 )
 
+// 正在回复时的排队消息模型（需求 6）
+data class QueuedMessage(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val content: String,
+    val attachments: List<Attachment> = emptyList(),
+    val timestamp: Long = System.currentTimeMillis()
+)
+
 // API使用统计
 @Entity(tableName = "api_usage_stats")
 data class ApiUsageStat(

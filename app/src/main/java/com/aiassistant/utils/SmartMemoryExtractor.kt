@@ -92,6 +92,46 @@ object SmartMemoryExtractor {
             }
         }
 
+        // 2.3 中括号结构化记忆提取（需求 2：支持 [] 与 【】 提取并进行规范化提炼）
+        val bracketRegex = Regex("""[\[【]([^\[\]【】]{2,100})[\]】]""")
+        bracketRegex.find(trimmed)?.let { match ->
+            val inner = match.groupValues[1].trim()
+            if (!isCodeOrTechnicalNoise(inner)) {
+                val (distilled, category) = refineMemoryContent(inner)
+                if (distilled.isNotBlank()) {
+                    val isConv = isConversationScoped(inner.lowercase(Locale.ROOT))
+                    return PendingMemoryCandidate(
+                        distilledContent = distilled,
+                        originalSnippet = trimmed.take(80),
+                        suggestedScope = if (isConv) "conversation" else "user",
+                        conversationId = conversationId,
+                        sourceMessageId = messageId,
+                        category = category
+                    )
+                }
+            }
+        }
+
+        // 2.4 “注意”及衍生关键词提取（需求 2：以“注意”、“特别注意”、“请注意”等引出的记忆提取与提炼）
+        val noticeRegex = Regex("""^(?:(?:另外|特别|务必|请)?注意|温馨提示|提示|Note)[：:，,\s]\s*(.{3,100})$""", RegexOption.IGNORE_CASE)
+        noticeRegex.find(trimmed)?.let { match ->
+            val noticeBody = match.groupValues[1].trim()
+            if (!SINGLE_TURN_TASK_VERBS.any { noticeBody.startsWith(it) }) {
+                val (distilled, category) = refineMemoryContent(noticeBody, defaultCategory = "PREFERENCE")
+                if (distilled.isNotBlank()) {
+                    val isConv = isConversationScoped(noticeBody.lowercase(Locale.ROOT))
+                    return PendingMemoryCandidate(
+                        distilledContent = distilled,
+                        originalSnippet = trimmed.take(80),
+                        suggestedScope = if (isConv) "conversation" else "user",
+                        conversationId = conversationId,
+                        sourceMessageId = messageId,
+                        category = category
+                    )
+                }
+            }
+        }
+
         // 3. 过滤疑问句（疑问句绝不作为事实或偏好入库）
         if (QUESTION_MARKERS.any { trimmed.endsWith(it) || trimmed.contains(it) }) return null
 
@@ -289,5 +329,42 @@ object SmartMemoryExtractor {
     private fun isConversationScoped(lower: String): Boolean {
         return listOf("这个项目", "当前项目", "本项目", "这个对话", "当前会话", "本会话", "此会话", "该会话", "这个会话", "当前对话", "此对话", "该对话", "this project", "this conversation")
             .any { lower.contains(it) }
+    }
+
+    fun refineMemoryContent(rawText: String, defaultCategory: String = "FACT"): Pair<String, String> {
+        var text = rawText.trim()
+        // 剥离首尾常见包裹符与标点
+        text = text.trim('[', ']', '【', '】', '`', '"', '\'', '“', '”', '，', ',', '。', '.', '；', ';')
+
+        // 剥离冒号类前缀标签
+        val prefixRegex = Regex("""^(?:记忆|设定|事实|注意|特别注意|务必注意|规则|要求|约束|偏好|提醒|提示|Note)[：:]\s*""", RegexOption.IGNORE_CASE)
+        text = text.replace(prefixRegex, "").trim()
+
+        // 剥离无意义语气助词
+        val fillerRegex = Regex("""^(?:那个|就是|还有|请|麻烦|务必)\s*""")
+        text = text.replace(fillerRegex, "").trim()
+
+        if (text.length < 2) return "" to defaultCategory
+
+        val isPreference = listOf("喜欢", "偏好", "习惯", "讨厌", "风格", "爱喝", "爱吃", "倾向", "简短", "精炼", "注释").any { text.contains(it) }
+        val isConstraint = listOf("不要", "别", "禁止", "严禁", "必须", "避免", "务必", "始终", "格式", "规范", "限制", "不许").any { text.contains(it) }
+        val isRoleOrWorld = listOf("身份", "角色", "设定", "世界观", "背景", "关系", "扮演", "你是一个", "你是").any { text.contains(it) }
+
+        return when {
+            isPreference -> "用户偏好：$text" to "PREFERENCE"
+            isConstraint -> "行为约束：$text" to "PREFERENCE"
+            isRoleOrWorld -> "会话设定：$text" to "PROJECT"
+            defaultCategory == "PROJECT" -> "会话事实：$text" to "PROJECT"
+            defaultCategory == "PREFERENCE" -> "行为约束：$text" to "PREFERENCE"
+            else -> "重要事实：$text" to "FACT"
+        }
+    }
+
+    fun isCodeOrTechnicalNoise(text: String): Boolean {
+        val trimmed = text.trim()
+        if (trimmed.all { it.isDigit() }) return true
+        if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return true
+        if (trimmed.equals("todo", ignoreCase = true) || trimmed.equals("fixme", ignoreCase = true)) return true
+        return false
     }
 }
