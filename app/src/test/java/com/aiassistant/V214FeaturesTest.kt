@@ -1,6 +1,6 @@
 package com.aiassistant
 
-import com.aiassistant.ui.screens.settings.CurrentVersionUserUpdates
+import com.aiassistant.ui.screens.settings.V214UserUpdates
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -8,7 +8,7 @@ class V214FeaturesTest {
 
     @Test
     fun testV214CurrentVersionUserUpdatesCompleteness() {
-        val updates = CurrentVersionUserUpdates
+        val updates = V214UserUpdates
         assertFalse("本次更新日志列表不得为空", updates.isEmpty())
         assertTrue("必须包含当前版本主要更新项 (>=7项)", updates.size >= 7)
         assertTrue("必须包含时间输入框修复", updates.any { it.contains("时间输入框") && it.contains("打字") })

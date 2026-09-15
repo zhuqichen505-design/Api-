@@ -1,5 +1,50 @@
 # Echo AI 助手更新日志 (Update Log)
 
+## [2026-09-15] - v2.1.5：180s深度推理大模型接入、固有设定原子化提炼、长篇里程碑脉络与固有设定分类筛选
+
+### 1. 本次 4 大核心缺陷彻底修复与功能升级
+1. **彻底解决大模型提炼静默降级问题（180s 长文本深度分析通道）**：
+   - **痛点根治**：大模型深度通读上万字长篇历史并生成详尽 JSON 普遍需要 40~90 秒，而此前通用 `restHttpClient` 硬编码了 `readTimeout = 30s`，导致请求在 30 秒被 OkHttp 强制超时中断，异常被捕获后静默退避到本地正则切片，造成用户误以为“大模型根本没有接入”；
+   - **机制落地**：在 `RetrofitClient` 中新增 `longAnalysisHttpClient` 与 `getAnalysisService(baseUrl)`，将读取超时延长至 180 秒（同时配置 30s 连接超时、60s 写入超时与自动重连），为大模型深度推理预留充分时间；
+   - **活动模型动态绑定**：`reconcileConversationTimeline` 动态获取当前聊天窗口正在使用的活动 API 配置与模型名称，优先复用当前会话模型，多级安全降级回退（活动模型 -> 辅助提炼模型 -> 默认模型 -> 首个配置）；
+   - **透明提炼状态条**：提炼结果携带 `extractionSource`、`modelUsed`、`extractionErrorMessage`；UI 顶部明确展示 `✨ AI 大模型智慧深度提炼完成（模型：xxx）`；如发生降级显式展示黄色警示原因与重试按钮，彻底拒绝黑盒与假实现。
+2. **固有设定作为顶级分类参与工作台筛选与集中管理**：
+   - **痛点根治**：固有设定此前仅作为浮层混杂，无法在时间线事件列表分类中进行专项查看与筛选；
+   - **分类扩展**：`TimelineCategory` 枚举新增 `ATEMPORAL_SETTING("固有设定", "💡", "#E91E63")`，支持在分类筛选 Chips 栏中一键过滤；
+   - **视图精准联动**：在工作台顶部选中「【💡 固有设定】」标签时，专注于展示固有设定卡片并支持直接编辑/删除/切换作用域；选中「全部」时两者兼顾；选中其他时序类别时专注于该类时序事件，体验清晰整洁。
+3. **彻底根治大段文学描写当作设定（固有设定原子化提纯铁律）**：
+   - **痛点根治**：此前将正文小说中包含“习惯”、“喜欢”、“规则”的 70~90 字大段文学描写长句直接抄录为设定，毫无实际约束与记忆价值；
+   - **提示词铁律约束**：在系统提示词中注入严苛的【固有设定原子化提炼铁律】——强制提炼为 8~25 字高度概括的原子化事实（如“林恩对深渊迷雾有严重过敏性排斥”），严禁直接复制文学描写、心理独白或环境修辞；
+   - **本地安全兜底净化**：本地 fallback 扫描过滤掉带有双引号对话、外貌神态修饰及长句文学描写，只保留具有实体约束意义的陈述句。
+4. **长篇故事编年史里程碑脉络梳理**：
+   - **痛点根治**：此前仅机械提取“早晨”、“次日”等零散时间词和片段动词的流水账；
+   - **里程碑编年史法则**：注入【时间轴剧情编年史铁律】，要求提炼具有完整事实结构（主谓宾清晰、谁在何时何地完成何事、造成何种转折）的故事发展里程碑事件，让时间线成为真正具备回顾与推演价值的故事编年史。
+
+### 2. 自动化测试与构建交付
+- **全新自动化单元测试**：
+  - `ChronicleTimelineStudioTest.kt`：新增 `ATEMPORAL_SETTING` 枚举解析、格式化、提炼元数据结构测试；
+  - `TimelineDeepModelExtractionTest.kt`：新增大模型 JSON 深度提炼、五大分类色彩完整性、导演指令过滤测试；
+  - `V215FeaturesTest.kt`：新增 v2.1.5 版本更新日志完整性自检测试；
+- **全量单元测试**：234 个单元测试 100% 全部通过 (BUILD SUCCESSFUL)；
+- **版本配置**：`versionCode = 121`，`versionName = "2.1.5"`；
+- **单一安装包构建与历史包永久保留（最高铁律）**：
+  - 严格执行单一安装包命名规则，仅输出 `Echo-v2.1.5.apk`；
+  - 严禁删除或清理任何历史版本安装包，所有历史版本完整保留；
+
+### 3. 改动文件列表
+- `app/src/main/java/com/aiassistant/data/remote/RetrofitClient.kt` [MODIFY]
+- `app/src/main/java/com/aiassistant/utils/TimelineMemoryHelper.kt` [MODIFY]
+- `app/src/main/java/com/aiassistant/data/repository/AiRepository.kt` [MODIFY]
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatScreen.kt` [MODIFY]
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatViewModel.kt` [MODIFY]
+- `app/src/main/java/com/aiassistant/ui/screens/settings/SettingsScreen.kt` [MODIFY]
+- `app/src/test/java/com/aiassistant/ChronicleTimelineStudioTest.kt` [MODIFY]
+- `app/src/test/java/com/aiassistant/TimelineDeepModelExtractionTest.kt` [NEW]
+- `app/src/test/java/com/aiassistant/V214FeaturesTest.kt` [MODIFY]
+- `app/src/test/java/com/aiassistant/V215FeaturesTest.kt` [NEW]
+- `app/build.gradle.kts` [MODIFY]
+- `UPDATE_LOG.md` [MODIFY]
+
 ## [2026-09-15] - v2.1.4：全量时间线单调递增状态机、指令解耦深度概括、全景深度提炼与输入排版重构
 
 ### 1. 本次 6 大核心缺陷彻底修复与功能升级

@@ -170,4 +170,51 @@ class ChronicleTimelineStudioTest {
         item.category = "人际羁绊"
         assertEquals("角色特质", item.nextCategory())
     }
+
+    @Test
+    fun testAtemporalSettingCategoryAndFromKey() {
+        assertEquals(TimelineCategory.ATEMPORAL_SETTING, TimelineCategory.fromKey("固有设定"))
+        assertEquals(TimelineCategory.ATEMPORAL_SETTING, TimelineCategory.fromKey("常驻设定"))
+        assertEquals(TimelineCategory.ATEMPORAL_SETTING, TimelineCategory.fromKey("atemporal"))
+        assertEquals(TimelineCategory.ATEMPORAL_SETTING, TimelineCategory.fromKey("固有特质"))
+
+        assertEquals("固有设定", TimelineCategory.ATEMPORAL_SETTING.displayName)
+        assertEquals("💡", TimelineCategory.ATEMPORAL_SETTING.emoji)
+        assertEquals("#E91E63", TimelineCategory.ATEMPORAL_SETTING.tagColorHex)
+    }
+
+    @Test
+    fun testParseAndFormatContent_withAtemporalSettingCategory() {
+        val raw = "[第 2 天·清晨] [固有设定] 主角习惯在日出前练习剑术且极度厌恶胡萝卜"
+        val event = TimelineMemoryHelper.parseContentToEvent(raw)
+        assertEquals("第 2 天·清晨", event.timeTag)
+        assertEquals(TimelineCategory.ATEMPORAL_SETTING, event.category)
+        assertEquals("主角习惯在日出前练习剑术且极度厌恶胡萝卜", event.content)
+
+        val formatted = TimelineMemoryHelper.formatEventContent(event.timeTag, event.content, event.category)
+        assertEquals("[第 2 天·清晨] [固有设定] 主角习惯在日出前练习剑术且极度厌恶胡萝卜", formatted)
+    }
+
+    @Test
+    fun testTimelineReconcileResultMetadata_modelAndFallback() {
+        val aiResult = com.aiassistant.utils.TimelineReconcileResult(
+            currentStoryTime = "第 3 天·夜间",
+            extractionSource = "AI_MODEL",
+            modelUsed = "deepseek-chat"
+        )
+        assertEquals("AI_MODEL", aiResult.extractionSource)
+        assertEquals("deepseek-chat", aiResult.modelUsed)
+        assertNull(aiResult.extractionErrorMessage)
+
+        val fallbackResult = com.aiassistant.utils.TimelineReconcileResult(
+            currentStoryTime = "第 1 天·下午",
+            extractionSource = "LOCAL_FALLBACK",
+            modelUsed = "",
+            extractionErrorMessage = "模型响应超时（已超过180秒），自动触发本地启发式安全解析"
+        )
+        assertEquals("LOCAL_FALLBACK", fallbackResult.extractionSource)
+        assertEquals("", fallbackResult.modelUsed)
+        assertNotNull(fallbackResult.extractionErrorMessage)
+        assertTrue(fallbackResult.extractionErrorMessage!!.contains("超时"))
+    }
 }

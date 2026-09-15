@@ -44,6 +44,21 @@ object RetrofitClient {
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
 
+    // 专用于全量时间线提炼、长文本深度分析与设定提炼（设置 180s 充足超时，允许大模型充分推理输出）
+    val longAnalysisHttpClient = OkHttpClient.Builder()
+        .addInterceptor(loggingInterceptor)
+        .retryOnConnectionFailure(true)
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(180, TimeUnit.SECONDS)
+        .writeTimeout(60, TimeUnit.SECONDS)
+        .build()
+
+    @Volatile
+    private var currentAnalysisBaseUrl: String = ""
+
+    @Volatile
+    private var currentAnalysisService: AiApiService? = null
+
     fun getService(baseUrl: String): AiApiService {
         val normalizedUrl = normalizeBaseUrl(baseUrl)
 
@@ -61,6 +76,25 @@ object RetrofitClient {
             }
         }
         return currentService!!
+    }
+
+    fun getAnalysisService(baseUrl: String): AiApiService {
+        val normalizedUrl = normalizeBaseUrl(baseUrl)
+
+        if (normalizedUrl != currentAnalysisBaseUrl || currentAnalysisService == null) {
+            synchronized(lock) {
+                if (normalizedUrl != currentAnalysisBaseUrl || currentAnalysisService == null) {
+                    currentAnalysisBaseUrl = normalizedUrl
+                    val retrofit = Retrofit.Builder()
+                        .baseUrl(normalizedUrl)
+                        .client(longAnalysisHttpClient)
+                        .addConverterFactory(GsonConverterFactory.create())
+                        .build()
+                    currentAnalysisService = retrofit.create(AiApiService::class.java)
+                }
+            }
+        }
+        return currentAnalysisService!!
     }
 
     fun postJson(

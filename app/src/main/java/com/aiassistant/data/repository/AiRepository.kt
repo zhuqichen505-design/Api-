@@ -2820,13 +2820,21 @@ class AiRepository(
     /**
      * 读取会话全量历史，调用模型对时间推进轴与日常记忆进行提取、消灭相对时间词并校对推断
      */
-    suspend fun reconcileConversationTimeline(conversationId: Long): TimelineReconcileResult = withContext(Dispatchers.IO) {
+    suspend fun reconcileConversationTimeline(
+        conversationId: Long,
+        activeConfigId: Long? = null,
+        activeModelName: String? = null
+    ): TimelineReconcileResult = withContext(Dispatchers.IO) {
         val messages = messageDao.getMessagesList(conversationId)
             .filter { !it.isExcluded && it.role != "system" && it.content.isNotBlank() }
             .sortedBy { it.createdAt }
 
         if (messages.isEmpty()) {
-            return@withContext TimelineReconcileResult(currentStoryTime = "未确定", events = mutableListOf())
+            return@withContext TimelineReconcileResult(
+                currentStoryTime = "未确定",
+                events = mutableListOf(),
+                extractionSource = "AI_MODEL"
+            )
         }
 
         // 解决问题 3：取消死板截断，全量分析历史对话，让脉络完整连贯
@@ -2865,58 +2873,88 @@ class AiRepository(
         val settings = personalizationManager.getSettings()
         val conversation = conversationDao.getConversationById(conversationId)
 
-        // 优先使用辅助模型配置；若未配置则使用当前会话绑定的 API 配置
-        val configId = if (settings.auxiliaryMemoryEnabled && settings.auxiliaryMemoryApiConfigId > 0L) {
-            settings.auxiliaryMemoryApiConfigId
-        } else {
-            conversation?.apiConfigId ?: 0L
+        var rawConfig: ApiConfig? = null
+        var targetModel: String = ""
+
+        // 1. 优先使用专属【辅助记忆提炼模型】（若开启且已配置）
+        if (settings.auxiliaryMemoryEnabled && settings.auxiliaryMemoryApiConfigId > 0L && settings.auxiliaryMemoryModel.isNotBlank()) {
+            rawConfig = getDecryptedConfig(settings.auxiliaryMemoryApiConfigId)
+            targetModel = settings.auxiliaryMemoryModel
+            Log.d(tag, "时间轴提炼：优先调度辅助模型 [${targetModel}] (configId=${settings.auxiliaryMemoryApiConfigId})")
         }
 
-        val rawConfig = if (configId > 0L) getDecryptedConfig(configId) else null
-        val targetModel = if (settings.auxiliaryMemoryEnabled && settings.auxiliaryMemoryModel.isNotBlank()) {
-            settings.auxiliaryMemoryModel
-        } else {
-            conversation?.modelName?.ifBlank { rawConfig?.modelName } ?: rawConfig?.modelName ?: ""
+        // 2. 若未启用辅助模型，依次寻找：ChatViewModel 当前活动配置 -> 会话绑定配置 -> 全局默认配置 -> 首个有效配置
+        if (rawConfig == null || targetModel.isBlank()) {
+            val candidateConfigId = activeConfigId?.takeIf { it > 0L }
+                ?: conversation?.apiConfigId?.takeIf { it > 0L }
+                ?: getDefaultApiConfig()?.id
+                ?: getAllApiConfigs().first().firstOrNull()?.id
+                ?: 0L
+
+            if (candidateConfigId > 0L) {
+                rawConfig = getDecryptedConfig(candidateConfigId)
+            }
+            if (rawConfig == null) {
+                rawConfig = getDefaultApiConfig() ?: getAllApiConfigs().first().firstOrNull()
+            }
+
+            targetModel = activeModelName?.ifBlank { null }
+                ?: conversation?.modelName?.ifBlank { null }
+                ?: rawConfig?.modelName.orEmpty()
+        }
+
+        if (rawConfig != null && targetModel.isBlank()) {
+            targetModel = try {
+                selectedModelDao.getEnabledModelsByConfig(rawConfig.id).first().firstOrNull()?.modelName.orEmpty()
+            } catch (e: Exception) {
+                ""
+            }.ifBlank { rawConfig.modelName }
         }
 
         val prompt = """
-            你是一个专业的小说时间线、剧情推进与高维设定知识提炼专家。
-            请仔细通读以下完整的历史对话记录，梳理出故事内部真实的【单向递增时间推进轴（In-Story Timeline）】、【在各个时间点确立的规则与设定】以及【与时间无关的全局角色与世界设定】。
+            你是一个专业的小说时间线、剧情推进与常驻设定深度提炼专家。
+            请通读以下完整的历史对话记录，梳理出故事内部真实的【单向递增时间推进轴（In-Story Timeline）】、【在各时间点确立的规则与设定】以及【与时间无关的全局角色与世界固有设定（Atemporal Settings）】。
 
             【特别警戒核心铁律（违背任一条视为严重提炼事故）】：
 
-            1.【时序单向累进与“第二天”推断铁律（核心解决时序倒流）】：
-               - 故事剧情的时间推进必须是【单向绝对向前（单调递增）】的，绝对不存在时光倒退！
+            1.【固有设定原子化提炼铁律（绝对严禁长篇抄录！）】：
+               - 必须从角色的言行、对话、反应及背景中，敏锐捕捉【具有长久约束力的常驻设定】。
+               - 覆盖 5 大核心维度：
+                 ① 角色特质：核心性格特质、身份背景、隐秘过往、行为底线；
+                 ② 习惯偏好：生活习惯、特定爱好、食物与作息嗜好、下意识肢体动作；
+                 ③ 生理禁忌：过敏原、生理弱点、旧伤旧疾、体能限制、不可触碰的生理禁区；
+                 ④ 世界规则：不可违背的世界法则、律法禁令、超自然力量代价、社会制度规范；
+                 ⑤ 人际羁绊：角色之间的信任底线、特定情感承诺、誓言、不可跨越的关系界限。
+               - 💥【原子化概括法则（核心要求）】：
+                 - 严禁原句抄录正文中的大段描写、对话句子、环境氛围或心理活动！
+                 - 必须将正文情节压缩提炼为 8~25 个字以内、具有明确规则属性的【原子设定事实】！
+                 - 错误示范（摘抄大段描写）：“他的动作带着某种刻在骨子里的习惯，目光微微偏转看着窗外的雨水，语气波澜不惊地说道：‘无论发生什么，我滴酒不沾。’”
+                 - 正确示范（原子设定属性）：“生理禁忌：酒精严重过敏，滴酒不沾。”
+                 - 错误示范（摘抄长句）：“在古老的帝国律法中，夜幕降临之后任何平民不得携带武器穿行于中央广场，否则将被视为谋逆。”
+                 - 正确示范（原子设定属性）：“世界规则：帝国宵禁生效时，平民严禁携武器穿行中央广场。”
+                 - 错误示范（摘抄长句）：“她习惯性地在说话时用手指轻轻叩击桌面三下，这是她在思考对策时暴露无遗的小动作。”
+                 - 正确示范（原子设定属性）：“习惯偏好：焦虑或思考对策时习惯叩击桌面三下。”
+
+            2.【时间轴剧情编年史铁律（拒绝零碎时间词，输出完整里程碑事实）】：
+               - 绝对拒绝孤立提取表示时间的单个词语（如“早晨”、“次日”、“傍晚”、“晚上”）或碎片动词（如“来到车站”、“决定出发”）！
+               - 每一条时间线事件必须是【结构完整的剧情里程碑事实（Milestone Plot Event）】！
+                 格式要求：[第X天·时段] 主体（谁）在何处（何地）发生了什么关键转折/达成了什么共识/经历了什么重大事件。
+                 - 错误示例：“早晨”、“第二天”、“来到车站”、“决定出发”
+                 - 正确示例：“[第1天·上午] 两人在旧城区废弃车站首次碰面，交换了关于遗迹线索并达成组队同行的约定。”
+                 - 正确示例：“[第1天·夜晚] 两人在密林猎人小屋遭遇影兽夜袭，同伴施展防御结界击退敌人但受了轻伤。”
+                 - 正确示例：“[第2天·清晨] 主角为同伴清洗包扎伤口，两人在晨光中促膝长谈，彼此信任度显著加深。”
+               - 全面梳理故事脉络：从故事开局 -> 剧情展开 -> 冲突/转折 -> 感情推进 -> 当前停留节点，让整个故事的发展脉络清晰充实（提炼 10~35 条）。
+
+            3.【时序单向累进与“第二天”推断铁律（彻底解决时序倒流）】：
+               - 故事剧情的时间推进必须是【单向绝对向前（单调递增）】的，绝不存在时光倒流！
                - 中文小说叙事特殊规律：剧情正文中出现的“第二天”、“次日”、“翌日”、“又过了一天”、“第二天早上”，均是指【相对于上一段情节节点的次日（即跨越过一夜后的新一天）】！
-               - 经典累进范例：
-                 若前文剧情已经发生过“第 2 天”的事件（如第2天两人在商场相聚），后文再次描写“第二天早上两人收拾行囊”，这绝非时间倒退回第 2 天，而是从第 2 天迈入了【第 3 天·早晨】！
-                 同理，若第 3 天剧情发生后，后续再次写到“第二天清晨”，必须累进推算为【第 4 天·清晨】！
-               - 绝不允许将后期的“第二天”强行合并或回退为第 2 天！一旦跨越夜晚入睡、晨光初醒或提到次日，天数必须单调累加！
+               - 范例：前文发生过“第2天”剧情，后文再次描写“第二天早上”，必须推断为【第3天·早晨】；后续若再描写“次日清晨”，必须推断为【第4天·清晨】，天数必须单调累加！
 
-            2.【用户指令 `[...]` 与剧情事实严格解耦与总结法则（彻底消灭机械抄袭指令）】：
-               - 用户发送的带有中括号的内容（如 `[让两人在雨夜的车站相遇]`、`[推进剧情]`、`【写一段日常对话】`）是【编剧/导演提出的写作指令】，绝对禁止将指令原句当做事件记录！
-               - 必须阅读助手在正文中具体演出的剧情细节，提炼总结出故事世界内客观发生的事实动作：
-                 - 错误示例："[让两人在雨夜相遇]"、"指令：在车站相遇"
-                 - 正确示例："大雨之夜，两人在空旷的车站站台重逢并达成了结伴同行的共识。"
-               - 任何事件必须以客观第三人称事实陈述句输出，真实反映角色做了什么、谈成了什么、发生了什么。
+            4.【用户写作指令 `[...]` 与正文剧情严格解耦】：
+               - 用户发送的中括号内容（如 `[让两人在雨夜再次相遇]`、`[推进剧情]`）是【编剧/导演提出的写作指令】，严禁将指令原话当作剧情事件记录！
+               - 必须依据助手在正文中演出的实际事实进行提炼概括。
 
-            3.【全景深度捕捉，绝不遗漏关键节点（脉络完整性）】：
-               - 全面扫描故事全文（从开局到最新进展），提炼出所有具有转折、情感升温、重要对话、外出行踪、约定确立的时间节点。
-               - 杜绝仅提炼寥寥两三条的敷衍行为！若篇幅丰富，请梳理出充实连贯（10~40条）的时间脉络，让整个故事发展历历在目。
-
-            4.【固有设定与长期世界规则的敏锐多维挖掘（atemporalSettings）】：
-               - 从角色的日常言行、反应、对话及背景中，敏锐捕捉【不随剧情天数变化而失效的常驻设定】，严格覆盖 6 大维度：
-                 ① 生理禁忌与弱点（如：畏寒怕冷、对猫毛严重过敏、夜盲症、酒量极浅一碰就醉、右肩有陈旧伤）
-                 ② 习惯嗜好与日常偏好（如：习惯早起晨练、喝咖啡绝不加糖、偏爱暗色系着装、习惯随身携带银币）
-                 ③ 身份背景与隐秘过往（如：隐藏贵族身份、前特工出身、曾经历过某次家族剧变）
-                 ④ 世界规则与法则常识（如：使用高阶魔法需透支生命力、宵禁后城门封锁、死亡无法跨纬度逆转）
-                 ⑤ 人际羁绊与动态底线（如：对主角抱有强烈的保护欲、对欺瞒背叛零容忍、视对方为唯一挚友）
-                 ⑥ 语言风格与独特口癖（如：说话喜欢带有略微讽刺却行动关心、习惯称呼对方为特定昵称）
-
-            5.【时间标签标准化】：
-               - 彻底消除‘刚才’、‘昨天’、‘今天’、‘上次’等相对词，统一格式：[第X天·时段]（如：[第1天·上午]、[第2天·傍晚]、[第3天·清晨]、[第4天·深夜]）。
-
-            请严格按照以下 JSON 格式输出，杜绝任何额外解释：
+            请严格按照以下 JSON 格式输出，杜绝任何额外客套或解释：
             ```json
             {
               "currentStoryTime": "第X天·时段",
@@ -2924,23 +2962,28 @@ class AiRepository(
                 {
                   "timeTag": "第1天·上午",
                   "category": "PLOT_EVENT",
-                  "content": "具体事件事实陈述（概括正文事实，绝不抄写导演指令）"
+                  "content": "两人在车站碰面并达成同行契约（客观完整的剧情里程碑总结）"
                 },
                 {
-                  "timeTag": "第2天·傍晚",
+                  "timeTag": "第1天·夜晚",
                   "category": "RULE_CONSTRAINT",
-                  "content": "在该时间节点确立的规则或禁忌"
+                  "content": "在此节点确认的具体规则或约束"
                 }
               ],
               "atemporalSettings": [
                 {
-                  "category": "角色特质",
-                  "content": "角色固有生理特征、习惯嗜好或性格底线",
+                  "category": "生理禁忌",
+                  "content": "酒精严重过敏，滴酒不沾（8~25字凝练原子设定）",
+                  "targetScope": "session"
+                },
+                {
+                  "category": "习惯偏好",
+                  "content": "思考对策时习惯以指尖轻叩桌面（凝练原子设定）",
                   "targetScope": "session"
                 },
                 {
                   "category": "世界规则",
-                  "content": "常驻的世界法则或不可违背的客观常识",
+                  "content": "帝国宵禁生效时，平民严禁携武器穿行中央广场",
                   "targetScope": "global"
                 }
               ]
@@ -2951,27 +2994,42 @@ class AiRepository(
             $formattedHistory
         """.trimIndent()
 
+        var modelException: Exception? = null
+        var responseText: String? = null
+
         if (rawConfig != null && targetModel.isNotBlank()) {
             val config = rawConfig.copy(modelName = targetModel)
+            Log.i(tag, "开始调用大模型深度分析全量时间线与设定: provider=${config.provider}, model=${config.modelName}")
             try {
-                val responseText = if (config.apiType == "anthropic") {
+                responseText = if (config.apiType == "anthropic") {
                     generateAnthropicTimelineAnalysis(config, prompt)
                 } else {
                     generateOpenAITimelineAnalysis(config, prompt)
                 }
-                if (!responseText.isNullOrBlank()) {
-                    val result = TimelineMemoryHelper.parseModelOutput(responseText)
-                    if (result.events.isNotEmpty() || result.currentStoryTime.isNotBlank() || result.atemporalSettings.isNotEmpty()) {
-                        return@withContext result
-                    }
-                }
+                Log.i(tag, "大模型分析全量时间线响应成功，返回长度=${responseText?.length ?: 0}")
             } catch (e: Exception) {
-                Log.w(tag, "调用模型分析全量时间线异常，降级为本地启发式扫描: ${e.message}")
+                modelException = e
+                Log.e(tag, "调用大模型分析全量时间线异常: ${e.message}", e)
+            }
+        } else {
+            modelException = IllegalStateException("未找到可用的 API 配置或模型名称，请先配置模型 API")
+        }
+
+        if (!responseText.isNullOrBlank()) {
+            val parsedResult = TimelineMemoryHelper.parseModelOutput(responseText)
+            if (parsedResult.events.isNotEmpty() || parsedResult.atemporalSettings.isNotEmpty()) {
+                parsedResult.extractionSource = "AI_MODEL"
+                parsedResult.modelUsed = targetModel
+                return@withContext parsedResult
             }
         }
 
-        // 降级兜底：从消息中进行本地时序启发式扫描
-        fallbackLocalTimelineScan(messages)
+        // 降级兜底：从消息中进行本地精纯时序扫描
+        val fallback = fallbackLocalTimelineScan(messages)
+        fallback.extractionSource = "LOCAL_FALLBACK"
+        fallback.modelUsed = targetModel
+        fallback.extractionErrorMessage = modelException?.message ?: "模型返回解析内容为空"
+        return@withContext fallback
     }
 
     private suspend fun generateOpenAITimelineAnalysis(config: ApiConfig, prompt: String): String? {
@@ -2982,13 +3040,20 @@ class AiRepository(
             max_tokens = 4096,
             stream = false
         )
-        val response = RetrofitClient.getService(config.baseUrl)
+        val response = RetrofitClient.getAnalysisService(config.baseUrl)
             .chatCompletion(RetrofitClient.formatApiKey(config.apiKey), request)
             .execute()
         if (!response.isSuccessful) {
-            throw Exception("HTTP ${response.code()}: ${response.errorBody()?.string()?.take(200)}")
+            val errBody = response.errorBody()?.string()?.take(300).orEmpty()
+            throw Exception("HTTP ${response.code()}: $errBody")
         }
-        return response.body()?.choices?.firstOrNull()?.message?.content
+        val body = response.body()
+        if (body?.error != null) {
+            throw Exception(body.error.message ?: "OpenAI API 返回错误")
+        }
+        val choice = body?.choices?.firstOrNull()
+        return choice?.message?.content?.ifBlank { null }
+            ?: choice?.message?.reasoning_content?.ifBlank { null }
     }
 
     private suspend fun generateAnthropicTimelineAnalysis(config: ApiConfig, prompt: String): String? {
@@ -2998,14 +3063,15 @@ class AiRepository(
             max_tokens = 4096,
             temperature = 0.2f
         )
-        val response = RetrofitClient.getService(config.baseUrl)
+        val response = RetrofitClient.getAnalysisService(config.baseUrl)
             .anthropicMessages(
                 apiKey = config.apiKey.removePrefix("Bearer ").trim(),
                 request = request
             )
             .execute()
         if (!response.isSuccessful) {
-            throw Exception("HTTP ${response.code()}: ${response.errorBody()?.string()?.take(200)}")
+            val errBody = response.errorBody()?.string()?.take(300).orEmpty()
+            throw Exception("HTTP ${response.code()}: $errBody")
         }
         return response.body()?.content?.firstOrNull { it.type == "text" }?.text
     }
@@ -3099,20 +3165,27 @@ class AiRepository(
             }
 
             if (matchedCat != null) {
-                val cleanLine = content.lines().firstOrNull { l ->
+                val candidateLine = content.lines().firstOrNull { l ->
                     listOf(physiologicalKeywords, habitKeywords, identityKeywords, ruleKeywords, bondKeywords)
                         .flatten().any { l.contains(it) }
-                }?.trim()?.take(90) ?: content.take(70)
+                }?.trim()
 
-                if (cleanLine.isNotBlank() && atemporalSettings.none { it.content == cleanLine }) {
-                    atemporalSettings.add(
-                        AtemporalSettingItem(
-                            category = matchedCat,
-                            content = cleanLine,
-                            isSelected = true,
-                            targetScope = if (matchedCat == "世界规则") "global" else "session"
+                // 严控设定提炼质量：长篇文学叙事、带对话引号、包含神态氛围描写的长句绝不当作设定
+                if (candidateLine != null && candidateLine.length <= 40 &&
+                    !candidateLine.contains("目光") && !candidateLine.contains("神情") &&
+                    !candidateLine.contains("微皱") && !candidateLine.contains("叹息")
+                ) {
+                    val cleanLine = candidateLine.replace("“", "").replace("”", "").replace("\"", "").trim()
+                    if (cleanLine.length in 4..35 && atemporalSettings.none { it.content == cleanLine }) {
+                        atemporalSettings.add(
+                            AtemporalSettingItem(
+                                category = matchedCat,
+                                content = cleanLine,
+                                isSelected = true,
+                                targetScope = if (matchedCat == "世界规则") "global" else "session"
+                            )
                         )
-                    )
+                    }
                 }
             }
 
@@ -3124,17 +3197,18 @@ class AiRepository(
                     hasSeenEventsOnCurrentDay = true
                 }
             } else if (msg.role == "assistant" && content.length in 12..250 &&
-                listOf("前往", "来到", "决定", "相遇", "发现", "答应", "拒绝", "吃", "买", "战斗", "救下", "商量", "告别").any { content.contains(it) }) {
-                val timeTag = "第 $currentTrackedDay 天"
-                val eventSummary = content.lines().firstOrNull { l ->
-                    listOf("前往", "来到", "决定", "相遇", "发现", "答应", "拒绝", "吃", "买", "战斗", "救下", "商量", "告别").any { l.contains(it) }
-                }?.trim()?.take(110) ?: content.take(80)
+                listOf("前往", "来到", "决定", "相遇", "发现", "答应", "拒绝", "战斗", "救下", "商量", "告别").any { content.contains(it) }) {
+                val timeTag = "第 $currentTrackedDay 天·剧情节点"
+                val rawSummary = content.lines().firstOrNull { l ->
+                    listOf("前往", "来到", "决定", "相遇", "发现", "答应", "拒绝", "战斗", "救下", "商量", "告别").any { l.contains(it) }
+                }?.trim()?.take(80) ?: content.take(60)
+                val cleanSummary = rawSummary.replace("“", "").replace("”", "").replace("\"", "").trim()
 
-                if (events.none { it.content == eventSummary }) {
+                if (cleanSummary.isNotBlank() && events.none { it.content == cleanSummary }) {
                     events.add(
                         TimelineEventItem(
                             timeTag = timeTag,
-                            content = eventSummary,
+                            content = cleanSummary,
                             category = TimelineCategory.PLOT_EVENT
                         )
                     )

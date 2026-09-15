@@ -11,13 +11,15 @@ enum class TimelineCategory(val displayName: String, val emoji: String, val tagC
     PLOT_EVENT("剧情推进", "📖", "#2196F3"),
     RULE_CONSTRAINT("规则约束", "⚖️", "#FF9800"),
     CHARACTER_SETTING("角色设定", "🎭", "#9C27B0"),
-    WORLD_SETTING("剧情设定", "🌍", "#4CAF50");
+    WORLD_SETTING("剧情设定", "🌍", "#4CAF50"),
+    ATEMPORAL_SETTING("固有设定", "💡", "#E91E63");
 
     companion object {
         fun fromKey(key: String?): TimelineCategory {
             if (key.isNullOrBlank()) return PLOT_EVENT
             val lower = key.lowercase()
             return when {
+                lower.contains("atemporal") || lower.contains("固有") || lower.contains("常驻") || lower.contains("固有设定") -> ATEMPORAL_SETTING
                 lower.contains("rule") || lower.contains("constraint") || lower.contains("规则") || lower.contains("约束") || lower.contains("禁止") -> RULE_CONSTRAINT
                 lower.contains("char") || lower.contains("role") || lower.contains("角色") || lower.contains("人物") || lower.contains("关系") -> CHARACTER_SETTING
                 lower.contains("world") || lower.contains("scene") || lower.contains("世界") || lower.contains("设定") || lower.contains("状态") -> WORLD_SETTING
@@ -37,9 +39,6 @@ data class TimelineEventItem(
     var category: TimelineCategory = TimelineCategory.PLOT_EVENT
 )
 
-/**
- * 与具体时间无关的全局角色/世界设定模型（用于确认加入记忆）
- */
 /**
  * 与具体时间无关的全局角色/世界设定模型（用于确认加入记忆）
  */
@@ -65,7 +64,10 @@ data class AtemporalSettingItem(
 data class TimelineReconcileResult(
     var currentStoryTime: String = "",
     val events: MutableList<TimelineEventItem> = mutableListOf(),
-    val atemporalSettings: MutableList<AtemporalSettingItem> = mutableListOf()
+    val atemporalSettings: MutableList<AtemporalSettingItem> = mutableListOf(),
+    var extractionSource: String = "AI_MODEL", // "AI_MODEL" 或 "LOCAL_FALLBACK"
+    var modelUsed: String = "",
+    var extractionErrorMessage: String? = null
 )
 
 /**
@@ -76,7 +78,7 @@ object TimelineMemoryHelper {
     // 匹配如 [第3天·傍晚]、[第3天]、[DAY 2]、[10月5日·上午]、[周三·晚上] 等时间标签
     private val TIME_TAG_PATTERN = Pattern.compile("""^[\s\[【](?:第\s*(\d+)\s*天(?:[·\s\-]([^\]】]+))?|DAY\s*(\d+)|([^\]】]+))[\]】]\s*(.*)$""", Pattern.CASE_INSENSITIVE)
     private val DAY_NUMBER_PATTERN = Pattern.compile("""(?:第\s*(\d+)\s*天|DAY\s*(\d+))""", Pattern.CASE_INSENSITIVE)
-    private val CATEGORY_TAG_PATTERN = Pattern.compile("""^\[(剧情推进|规则约束|角色设定|剧情设定)\]\s*(.*)$""")
+    private val CATEGORY_TAG_PATTERN = Pattern.compile("""^\[(剧情推进|规则约束|角色设定|剧情设定|固有设定)\]\s*(.*)$""")
 
     /**
      * 判断某文本是否为纯用户导演/作者剧情指导（而非故事发生的客观事实）
@@ -201,6 +203,9 @@ object TimelineMemoryHelper {
                 eventContent = eventContent.replace(Regex("""^[\[【][^\]】]+[\]】]\s*"""), "").trim()
             } else if (eventContent.startsWith("【设定") || eventContent.startsWith("[设定") || eventContent.startsWith("【世界")) {
                 cat = TimelineCategory.WORLD_SETTING
+                eventContent = eventContent.replace(Regex("""^[\[【][^\]】]+[\]】]\s*"""), "").trim()
+            } else if (eventContent.startsWith("【固有") || eventContent.startsWith("[固有") || eventContent.startsWith("【常驻") || eventContent.startsWith("[常驻")) {
+                cat = TimelineCategory.ATEMPORAL_SETTING
                 eventContent = eventContent.replace(Regex("""^[\[【][^\]】]+[\]】]\s*"""), "").trim()
             }
 

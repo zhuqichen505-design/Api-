@@ -9200,6 +9200,64 @@ fun TimelineReconcileDialog(
                     .heightIn(max = 520.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                // 0. 模型提炼来源与状态指示
+                if (initialResult.extractionSource == "AI_MODEL") {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (initialResult.modelUsed.isNotBlank()) {
+                                    "✨ AI 大模型智慧深度提炼完成（模型：${initialResult.modelUsed}）"
+                                } else {
+                                    "✨ AI 大模型智慧深度提炼完成"
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                } else {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.45f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.Warning,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "⚠️ 模型响应未成功（${initialResult.extractionErrorMessage ?: "未检测到模型响应"}），当前显示本地精纯扫描。请检查 API 配置或网络。",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        }
+                    }
+                }
+
                 // 1. 顶部当前故事时间编辑卡片
                 Surface(
                     shape = RoundedCornerShape(12.dp),
@@ -9264,8 +9322,8 @@ fun TimelineReconcileDialog(
 
                 // 2. 筛选控制栏 (时间过滤 Chips + 类别过滤 Chips)
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    // 时间过滤 Chips
-                    if (distinctTimeTags.size > 2) {
+                    // 时间过滤 Chips (当筛选固有设定时隐藏时间过滤)
+                    if (selectedCategoryFilter != TimelineCategory.ATEMPORAL_SETTING && distinctTimeTags.size > 2) {
                         LazyRow(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             contentPadding = PaddingValues(horizontal = 2.dp)
@@ -9322,12 +9380,16 @@ fun TimelineReconcileDialog(
                 }
 
                 // 3. 核心滚动区 (包含时间无关设定确认卡片 + 垂直时间轴事件流)
+                val showAtemporalSection = (selectedCategoryFilter == null && selectedTimeFilter == "全部") ||
+                        (selectedCategoryFilter == TimelineCategory.ATEMPORAL_SETTING)
+                val showTimelineEvents = selectedCategoryFilter != TimelineCategory.ATEMPORAL_SETTING
+
                 LazyColumn(
                     modifier = Modifier.weight(1f, fill = false),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     // A. 与时间无关设定确认卡片 (Atemporal Settings Section)
-                    if (atemporalSettings.isNotEmpty()) {
+                    if (showAtemporalSection && (atemporalSettings.isNotEmpty() || selectedCategoryFilter == TimelineCategory.ATEMPORAL_SETTING)) {
                         item {
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
@@ -9533,250 +9595,274 @@ fun TimelineReconcileDialog(
                         }
                     }
 
-                    // B. 编年史事件列表标题
-                    item {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "时间轴发展脉络 (${filteredEvents.size}/${events.size}条)：",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            if (selectedTimeFilter != "全部" || selectedCategoryFilter != null) {
-                                TextButton(
-                                    onClick = {
-                                        selectedTimeFilter = "全部"
-                                        selectedCategoryFilter = null
-                                    },
-                                    contentPadding = PaddingValues(0.dp)
-                                ) {
-                                    Text("重置筛选", style = MaterialTheme.typography.labelSmall)
+                    if (showTimelineEvents) {
+                        // B. 编年史事件列表标题
+                        item {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "时间轴发展脉络 (${filteredEvents.size}/${events.size}条)：",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                if (selectedTimeFilter != "全部" || selectedCategoryFilter != null) {
+                                    TextButton(
+                                        onClick = {
+                                            selectedTimeFilter = "全部"
+                                            selectedCategoryFilter = null
+                                        },
+                                        contentPadding = PaddingValues(0.dp)
+                                    ) {
+                                        Text("重置筛选", style = MaterialTheme.typography.labelSmall)
+                                    }
                                 }
                             }
                         }
-                    }
 
-                    // C. 垂直流线型时间轴卡片
-                    itemsIndexed(filteredEvents, key = { _, item -> item.id }) { _, item ->
-                        val catColor = Color(android.graphics.Color.parseColor(item.category.tagColorHex))
-                        val relativeTime = remember(item.timeTag, storyTime) {
-                            TimelineMemoryHelper.calculateRelativeTime(item.timeTag, storyTime)
-                        }
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.Top
-                        ) {
-                            // 左侧垂直连线与发光节点圆点
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier.width(24.dp).padding(top = 10.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(12.dp)
-                                        .background(catColor, CircleShape)
-                                        .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape)
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .width(2.dp)
-                                        .height(60.dp)
-                                        .background(catColor.copy(alpha = 0.35f))
-                                )
+                        // 垂直时间轴事件流 (Timeline Events Stream)
+                        itemsIndexed(filteredEvents) { idx, item ->
+                            val isLast = (idx == filteredEvents.size - 1)
+                            val catColor = Color(android.graphics.Color.parseColor(item.category.tagColorHex))
+                            val relativeTime = remember(item.timeTag, storyTime) {
+                                TimelineMemoryHelper.calculateRelativeTime(item.timeTag, storyTime)
                             }
 
-                            Spacer(modifier = Modifier.width(6.dp))
-
-                            // 右侧事件卡片
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                                border = BorderStroke(1.dp, catColor.copy(alpha = 0.35f)),
-                                modifier = Modifier.weight(1f)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 2.dp)
                             ) {
+                                // 垂直流线与发光节点列
                                 Column(
-                                    modifier = Modifier.padding(8.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier.width(26.dp)
                                 ) {
-                                    // 头部栏：时间标签、相对时间距离、类别切换、删除
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    Box(
+                                        modifier = Modifier
+                                            .size(14.dp)
+                                            .background(catColor.copy(alpha = 0.22f), CircleShape)
+                                            .border(2.dp, catColor, CircleShape),
+                                        contentAlignment = Alignment.Center
                                     ) {
-                                        // 类别选择胶囊
-                                        Surface(
-                                            shape = RoundedCornerShape(6.dp),
-                                            color = catColor.copy(alpha = 0.15f),
-                                            modifier = Modifier.clickable {
-                                                val all = TimelineCategory.values()
-                                                val nextIdx = (all.indexOf(item.category) + 1) % all.size
-                                                val idx = events.indexOfFirst { it.id == item.id }
-                                                if (idx != -1) {
-                                                    events[idx] = item.copy(category = all[nextIdx])
+                                        Box(
+                                            modifier = Modifier
+                                                .size(5.dp)
+                                                .background(catColor, CircleShape)
+                                        )
+                                    }
+
+                                    if (!isLast) {
+                                        Box(
+                                            modifier = Modifier
+                                                .width(2.dp)
+                                                .height(72.dp)
+                                                .background(
+                                                    Brush.verticalGradient(
+                                                        listOf(
+                                                            catColor.copy(alpha = 0.65f),
+                                                            catColor.copy(alpha = 0.15f)
+                                                        )
+                                                    )
+                                                )
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.width(8.dp))
+
+                                // 事件编辑卡片
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
+                                    border = BorderStroke(1.dp, catColor.copy(alpha = 0.35f)),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(bottom = 6.dp)
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(10.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        // 头部操作行：类别切换胶囊 + 时间标签修改 + 相对时间距离徽章 + 删除
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            // 类别胶囊 (点击循环切换分类)
+                                            Surface(
+                                                shape = RoundedCornerShape(6.dp),
+                                                color = catColor.copy(alpha = 0.16f),
+                                                modifier = Modifier.clickable {
+                                                    val all = TimelineCategory.values()
+                                                    val nextIdx = (all.indexOf(item.category) + 1) % all.size
+                                                    val idxInMaster = events.indexOfFirst { it.id == item.id }
+                                                    if (idxInMaster != -1) {
+                                                        events[idxInMaster] = item.copy(category = all[nextIdx])
+                                                    }
+                                                }
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Text(
+                                                        text = "${item.category.emoji} ${item.category.displayName}",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = catColor,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
                                                 }
                                             }
-                                        ) {
-                                            Row(
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Text(
-                                                    "${item.category.emoji} ${item.category.displayName}",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = catColor,
+
+                                            Spacer(modifier = Modifier.width(6.dp))
+
+                                            // 时间标签直接编辑输入框
+                                            BasicTextField(
+                                                value = item.timeTag,
+                                                onValueChange = { newTag ->
+                                                    val idxInMaster = events.indexOfFirst { it.id == item.id }
+                                                    if (idxInMaster != -1) {
+                                                        events[idxInMaster] = item.copy(timeTag = newTag)
+                                                    }
+                                                },
+                                                singleLine = true,
+                                                textStyle = MaterialTheme.typography.labelSmall.copy(
+                                                    color = MaterialTheme.colorScheme.primary,
                                                     fontWeight = FontWeight.Bold
+                                                ),
+                                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                                decorationBox = { innerTextField ->
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .background(
+                                                                MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+                                                                RoundedCornerShape(6.dp)
+                                                            )
+                                                            .border(
+                                                                BorderStroke(0.8.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
+                                                                RoundedCornerShape(6.dp)
+                                                            )
+                                                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                                                        contentAlignment = Alignment.CenterStart
+                                                    ) {
+                                                        if (item.timeTag.isEmpty()) {
+                                                            Text(
+                                                                text = "如：第1天·傍晚",
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+                                                            )
+                                                        }
+                                                        innerTextField()
+                                                    }
+                                                },
+                                                modifier = Modifier.weight(1f)
+                                            )
+
+                                            // 相对时间距离胶囊
+                                            if (!relativeTime.isNullOrBlank()) {
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Surface(
+                                                    shape = RoundedCornerShape(6.dp),
+                                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                                ) {
+                                                    Text(
+                                                        text = relativeTime,
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.primary,
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                                                    )
+                                                }
+                                            }
+
+                                            // 删除按钮
+                                            IconButton(
+                                                onClick = {
+                                                    val idx = events.indexOfFirst { it.id == item.id }
+                                                    if (idx != -1) {
+                                                        events.removeAt(idx)
+                                                    }
+                                                },
+                                                modifier = Modifier.size(30.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.DeleteOutline,
+                                                    contentDescription = "删除该条",
+                                                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
+                                                    modifier = Modifier.size(16.dp)
                                                 )
                                             }
                                         }
 
-                                        Spacer(modifier = Modifier.width(6.dp))
-
-                                        // 时间标签输入框（使用 BasicTextField 彻底解决高度压扁与 placeholder 吞字故障）
+                                        // 正文多行直接编辑输入框
                                         BasicTextField(
-                                            value = item.timeTag,
-                                            onValueChange = { newTag ->
+                                            value = item.content,
+                                            onValueChange = { newContent ->
                                                 val idx = events.indexOfFirst { it.id == item.id }
                                                 if (idx != -1) {
-                                                    events[idx] = item.copy(timeTag = newTag)
+                                                    events[idx] = item.copy(content = newContent)
                                                 }
                                             },
-                                            singleLine = true,
-                                            textStyle = MaterialTheme.typography.labelMedium.copy(
+                                            textStyle = MaterialTheme.typography.bodySmall.copy(
                                                 color = MaterialTheme.colorScheme.onSurface,
-                                                fontWeight = FontWeight.SemiBold
+                                                lineHeight = 18.sp
                                             ),
                                             cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                                             decorationBox = { innerTextField ->
                                                 Box(
                                                     modifier = Modifier
+                                                        .fillMaxWidth()
                                                         .background(
-                                                            MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                                                            MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
                                                             RoundedCornerShape(6.dp)
                                                         )
                                                         .border(
-                                                            BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
+                                                            BorderStroke(0.8.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
                                                             RoundedCornerShape(6.dp)
                                                         )
-                                                        .padding(horizontal = 8.dp, vertical = 5.dp),
-                                                    contentAlignment = Alignment.CenterStart
+                                                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                                                    contentAlignment = Alignment.TopStart
                                                 ) {
-                                                    if (item.timeTag.isEmpty()) {
+                                                    if (item.content.isEmpty()) {
                                                         Text(
-                                                            text = "时间 如: 第1天·上午",
-                                                            style = MaterialTheme.typography.labelSmall,
-                                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                                            text = "输入在此时间节点发生的客观剧情事实或确立的设定规则...",
+                                                            style = MaterialTheme.typography.bodySmall,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
                                                         )
                                                     }
                                                     innerTextField()
                                                 }
                                             },
-                                            modifier = Modifier.weight(1f)
+                                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                                         )
-
-                                        // 相对时间距离胶囊
-                                        if (relativeTime != null) {
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Surface(
-                                                shape = RoundedCornerShape(6.dp),
-                                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                                            ) {
-                                                Text(
-                                                    text = relativeTime,
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
-                                                )
-                                            }
-                                        }
-
-                                        // 删除按钮
-                                        IconButton(
-                                            onClick = {
-                                                val idx = events.indexOfFirst { it.id == item.id }
-                                                if (idx != -1) {
-                                                    events.removeAt(idx)
-                                                }
-                                            },
-                                            modifier = Modifier.size(30.dp)
-                                        ) {
-                                            Icon(
-                                                Icons.Default.DeleteOutline,
-                                                contentDescription = "删除该条",
-                                                tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                        }
                                     }
-
-                                    // 正文多行直接编辑输入框
-                                    BasicTextField(
-                                        value = item.content,
-                                        onValueChange = { newContent ->
-                                            val idx = events.indexOfFirst { it.id == item.id }
-                                            if (idx != -1) {
-                                                events[idx] = item.copy(content = newContent)
-                                            }
-                                        },
-                                        textStyle = MaterialTheme.typography.bodySmall.copy(
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        ),
-                                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                                        decorationBox = { innerTextField ->
-                                            Box(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .background(
-                                                        MaterialTheme.colorScheme.surface.copy(alpha = 0.55f),
-                                                        RoundedCornerShape(8.dp)
-                                                    )
-                                                    .border(
-                                                        BorderStroke(0.8.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
-                                                        RoundedCornerShape(8.dp)
-                                                    )
-                                                    .padding(horizontal = 10.dp, vertical = 8.dp),
-                                                contentAlignment = Alignment.TopStart
-                                            ) {
-                                                if (item.content.isEmpty()) {
-                                                    Text(
-                                                        text = "输入在此时间节点发生的客观剧情事实或确立的设定规则...",
-                                                        style = MaterialTheme.typography.bodySmall,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
-                                                    )
-                                                }
-                                                innerTextField()
-                                            }
-                                        },
-                                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                                    )
                                 }
                             }
                         }
-                    }
 
-                    // 补充遗漏事件按钮
-                    item {
-                        OutlinedButton(
-                            onClick = {
-                                events.add(
-                                    TimelineEventItem(
-                                        timeTag = if (selectedTimeFilter != "全部") selectedTimeFilter else (storyTime.ifBlank { "第 1 天" }),
-                                        content = "",
-                                        category = selectedCategoryFilter ?: TimelineCategory.PLOT_EVENT
+                        // 补充遗漏事件按钮
+                        item {
+                            OutlinedButton(
+                                onClick = {
+                                    events.add(
+                                        TimelineEventItem(
+                                            timeTag = if (selectedTimeFilter != "全部") selectedTimeFilter else (storyTime.ifBlank { "第 1 天" }),
+                                            content = "",
+                                            category = if (selectedCategoryFilter != null && selectedCategoryFilter != TimelineCategory.ATEMPORAL_SETTING) selectedCategoryFilter!! else TimelineCategory.PLOT_EVENT
+                                        )
                                     )
-                                )
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(8.dp),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
-                        ) {
-                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("＋ 手动添加时间节点事件", style = MaterialTheme.typography.labelSmall)
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("＋ 手动添加时间节点事件", style = MaterialTheme.typography.labelSmall)
+                            }
                         }
                     }
                 }

@@ -1146,11 +1146,22 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
         _isReconcilingTimeline.value = true
         viewModelScope.launch {
             try {
-                val result = repository.reconcileConversationTimeline(conversationId)
+                val activeCfgId = apiConfig?.id ?: _currentModelOption.value?.apiConfigId
+                val activeModel = _currentModel.value?.ifBlank { null } ?: _currentModelOption.value?.modelName.orEmpty()
+                val result = repository.reconcileConversationTimeline(
+                    conversationId = conversationId,
+                    activeConfigId = activeCfgId,
+                    activeModelName = activeModel
+                )
                 _timelineReconcileResult.value = result
                 _showTimelineReconcileDialog.value = true
             } catch (e: Exception) {
-                _timelineReconcileResult.value = TimelineReconcileResult(currentStoryTime = "未确定", events = mutableListOf())
+                _timelineReconcileResult.value = TimelineReconcileResult(
+                    currentStoryTime = "未确定",
+                    events = mutableListOf(),
+                    extractionSource = "LOCAL_FALLBACK",
+                    extractionErrorMessage = e.message ?: "提炼请求异常"
+                )
                 _showTimelineReconcileDialog.value = true
             } finally {
                 _isReconcilingTimeline.value = false
