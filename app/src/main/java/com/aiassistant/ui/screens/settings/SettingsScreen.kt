@@ -3756,134 +3756,153 @@ fun PromptsMemoryTab(
                                             Text("清空所有记忆", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
                                         }
                                     }
-
-                                    HorizontalDivider(
-                                        modifier = Modifier.padding(vertical = 6.dp),
-                                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
-                                    )
-
-                                    // 辅助模型识别与提炼记忆专区
-                                    Column(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.SpaceBetween
-                                        ) {
-                                            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                                                Text(
-                                                    "辅助模型提炼记忆 (可选)",
-                                                    style = MaterialTheme.typography.titleSmall,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                                Text(
-                                                    "指定已配置模型协助提炼与识别记忆。若模型不可用或网络异常，系统自动平滑降级为本地规则引擎，保证记忆识别稳定运行。",
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                )
-                                            }
-                                            Switch(
-                                                checked = auxiliaryMemoryEnabled,
-                                                onCheckedChange = {
-                                                    auxiliaryMemoryEnabled = it
-                                                    persistAuxiliaryMemorySettings(enabled = it)
-                                                    savedMessage = if (it) "已开启辅助模型识别记忆" else "已关闭辅助模型（使用本地规则引擎）"
-                                                }
-                                            )
-                                        }
-
-                                        AnimatedVisibility(visible = auxiliaryMemoryEnabled) {
-                                            Column(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                                            ) {
-                                                var configDropdownExpanded by remember { mutableStateOf(false) }
-                                                val selectedConfig = allApiConfigs.firstOrNull { it.id == auxiliaryMemoryConfigId }
-                                                    ?: allApiConfigs.firstOrNull()
-
-                                                LaunchedEffect(allApiConfigs) {
-                                                    if (auxiliaryMemoryConfigId == 0L && allApiConfigs.isNotEmpty()) {
-                                                        val firstCfg = allApiConfigs.first()
-                                                        auxiliaryMemoryConfigId = firstCfg.id
-                                                        if (auxiliaryMemoryModel.isBlank()) {
-                                                            auxiliaryMemoryModel = firstCfg.modelName
-                                                        }
-                                                        persistAuxiliaryMemorySettings(
-                                                            configId = firstCfg.id,
-                                                            model = auxiliaryMemoryModel
-                                                        )
-                                                    }
-                                                }
-
-                                                Box(modifier = Modifier.fillMaxWidth()) {
-                                                    OutlinedTextField(
-                                                        value = selectedConfig?.let { "${it.name} (${it.provider})" } ?: "请选择 API 配置",
-                                                        onValueChange = {},
-                                                        readOnly = true,
-                                                        label = { Text("辅助识别 API 配置") },
-                                                        trailingIcon = {
-                                                            IconButton(onClick = { configDropdownExpanded = true }) {
-                                                                Icon(Icons.Default.ArrowDropDown, contentDescription = null)
-                                                            }
-                                                        },
-                                                        modifier = Modifier.fillMaxWidth(),
-                                                        shape = SettingsInnerShape
-                                                    )
-                                                    DropdownMenu(
-                                                        expanded = configDropdownExpanded,
-                                                        onDismissRequest = { configDropdownExpanded = false }
-                                                    ) {
-                                                        allApiConfigs.forEach { cfg ->
-                                                            DropdownMenuItem(
-                                                                text = { Text("${cfg.name} (${cfg.provider} - ${cfg.modelName})") },
-                                                                onClick = {
-                                                                    auxiliaryMemoryConfigId = cfg.id
-                                                                    if (auxiliaryMemoryModel.isBlank()) {
-                                                                        auxiliaryMemoryModel = cfg.modelName
-                                                                    }
-                                                                    persistAuxiliaryMemorySettings(
-                                                                        configId = cfg.id,
-                                                                        model = auxiliaryMemoryModel
-                                                                    )
-                                                                    configDropdownExpanded = false
-                                                                }
-                                                            )
-                                                        }
-                                                    }
-                                                }
-
-                                                OutlinedTextField(
-                                                    value = auxiliaryMemoryModel,
-                                                    onValueChange = {
-                                                        auxiliaryMemoryModel = it
-                                                        persistAuxiliaryMemorySettings(model = it)
-                                                    },
-                                                    label = { Text("辅助模型名称") },
-                                                    placeholder = { Text(selectedConfig?.modelName ?: "例如：deepseek-chat 或 gpt-4o-mini") },
-                                                    singleLine = true,
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    shape = SettingsInnerShape
-                                                )
-
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    horizontalArrangement = Arrangement.End
-                                                ) {
-                                                    FilledTonalButton(
-                                                        onClick = { showAuxiliaryTestDialog = true },
-                                                        shape = RoundedCornerShape(999.dp)
-                                                    ) {
-                                                        Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
-                                                        Spacer(modifier = Modifier.width(4.dp))
-                                                        Text("即时测试记忆识别与降级", style = MaterialTheme.typography.labelMedium)
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 5.1 独立辅助模型：记忆提炼与全量时间线分析 (方案 1)
+        item {
+            SettingsGlassCard(hazeState = hazeState) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Psychology,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("辅助模型：记忆提炼与时间线", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Surface(
+                                shape = RoundedCornerShape(999.dp),
+                                color = if (auxiliaryMemoryEnabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
+                            ) {
+                                Text(
+                                    text = if (auxiliaryMemoryEnabled) "方案1生效中" else "未启用",
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (auxiliaryMemoryEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                        Text(
+                            "指定独立 API 与模型（如 deepseek-chat、gpt-4o-mini）专门提炼记忆与全量时间线梳理，彻底避免干扰主模型上下文与计费",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Switch(
+                        checked = auxiliaryMemoryEnabled,
+                        onCheckedChange = {
+                            auxiliaryMemoryEnabled = it
+                            persistAuxiliaryMemorySettings(enabled = it)
+                            savedMessage = if (it) "已开启辅助模型（用于记忆提炼与全量时间线分析）" else "已关闭辅助模型"
+                        }
+                    )
+                }
+
+                AnimatedVisibility(visible = auxiliaryMemoryEnabled) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                        var configDropdownExpanded by remember { mutableStateOf(false) }
+                        val selectedConfig = allApiConfigs.firstOrNull { it.id == auxiliaryMemoryConfigId }
+                            ?: allApiConfigs.firstOrNull()
+
+                        LaunchedEffect(allApiConfigs) {
+                            if (auxiliaryMemoryConfigId == 0L && allApiConfigs.isNotEmpty()) {
+                                val firstCfg = allApiConfigs.first()
+                                auxiliaryMemoryConfigId = firstCfg.id
+                                if (auxiliaryMemoryModel.isBlank()) {
+                                    auxiliaryMemoryModel = firstCfg.modelName
+                                }
+                                persistAuxiliaryMemorySettings(
+                                    configId = firstCfg.id,
+                                    model = auxiliaryMemoryModel
+                                )
+                            }
+                        }
+
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            OutlinedTextField(
+                                value = selectedConfig?.let { "${it.name} (${it.provider})" } ?: "请选择 API 配置",
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text("辅助调度 API 配置") },
+                                trailingIcon = {
+                                    IconButton(onClick = { configDropdownExpanded = true }) {
+                                        Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = SettingsInnerShape
+                            )
+                            DropdownMenu(
+                                expanded = configDropdownExpanded,
+                                onDismissRequest = { configDropdownExpanded = false }
+                            ) {
+                                allApiConfigs.forEach { cfg ->
+                                    DropdownMenuItem(
+                                        text = { Text("${cfg.name} (${cfg.provider} - ${cfg.modelName})") },
+                                        onClick = {
+                                            auxiliaryMemoryConfigId = cfg.id
+                                            if (auxiliaryMemoryModel.isBlank()) {
+                                                auxiliaryMemoryModel = cfg.modelName
+                                            }
+                                            persistAuxiliaryMemorySettings(
+                                                configId = cfg.id,
+                                                model = auxiliaryMemoryModel
+                                            )
+                                            configDropdownExpanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                        OutlinedTextField(
+                            value = auxiliaryMemoryModel,
+                            onValueChange = {
+                                auxiliaryMemoryModel = it
+                                persistAuxiliaryMemorySettings(model = it)
+                            },
+                            label = { Text("辅助模型名称") },
+                            placeholder = { Text(selectedConfig?.modelName ?: "例如：deepseek-chat 或 gpt-4o-mini") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = SettingsInnerShape
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "支持记忆提炼与全量时间线分析",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            FilledTonalButton(
+                                onClick = { showAuxiliaryTestDialog = true },
+                                shape = RoundedCornerShape(999.dp)
+                            ) {
+                                Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("即时测试辅助连接", style = MaterialTheme.typography.labelMedium)
                             }
                         }
                     }
