@@ -172,7 +172,7 @@ class V211FeaturesTest {
     // 6. 测试 v2.1.1 更新日志完整性
     @Test
     fun testV211CurrentVersionUserUpdatesCompleteness() {
-        val updates = com.aiassistant.ui.screens.settings.CurrentVersionUserUpdates
+        val updates = com.aiassistant.ui.screens.settings.V211UserUpdates
         assertFalse("本次更新日志列表不得为空", updates.isEmpty())
         assertTrue("必须包含当前版本主要更新项 (>=7项)", updates.size >= 7)
         assertTrue("必须说明分支命名自增", updates.any { it.contains("分支命名") && it.contains("自增") })

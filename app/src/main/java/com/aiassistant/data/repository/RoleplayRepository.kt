@@ -2,6 +2,7 @@ package com.aiassistant.data.repository
 
 import com.aiassistant.data.local.*
 import com.aiassistant.domain.model.*
+import com.aiassistant.utils.TimelineMemoryHelper
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.firstOrNull
@@ -365,14 +366,22 @@ class RoleplayRepository(
             }
         }
 
-        // 5. 长期记忆与重要事实
-        val pinnedFacts = roleplayMemoryDao.getPinnedFacts(sessionId)
-        if (pinnedFacts.isNotEmpty()) {
-            val factsText = pinnedFacts.joinToString("\n") { "- ${it.content}" }
-            parts.add("【重要事实】\n$factsText")
+        // 5. 剧情专属记忆与时间线
+        val pinnedFacts = roleplayMemoryDao.getPinnedFacts(sessionId).map { it.content }
+        val sessionMemories = memoryDao?.getCandidateMemories(session.conversationId)
+            ?.filter { it.isEnabled && it.scope == "conversation" }
+            ?.map { it.content } ?: emptyList()
+
+        val allRoleplayMemories = (pinnedFacts + sessionMemories).distinct()
+        if (allRoleplayMemories.isNotEmpty()) {
+            val timelineContext = TimelineMemoryHelper.buildTimelinePromptContext(
+                currentStoryTime = session.currentPlotSummary.takeIf { it.isNotBlank() },
+                memoryContents = allRoleplayMemories
+            )
+            parts.add(timelineContext)
         }
 
-        // 外置记忆库 (如果启用了外置记忆库，按相关性匹配注入)
+        // 跨会话长期背景参考 (若明确开启，按相关性匹配注入)
         if (session.enableExternalMemory && memoryDao != null) {
             val effectiveQuery = (queryText ?: userMessage).orEmpty()
             val scanText = (if (effectiveQuery.isNotBlank()) effectiveQuery else session.currentPlotSummary).lowercase()
@@ -389,7 +398,7 @@ class RoleplayRepository(
                 }
                 if (matched.isNotEmpty()) {
                     val memLines = matched.map { "- ${it.content.trim()}" }
-                    parts.add("【外置记忆库】\n" + memLines.joinToString("\n"))
+                    parts.add("【跨会话背景参考】\n" + memLines.joinToString("\n"))
                 }
             }
         }

@@ -5,6 +5,11 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.aiassistant.AiAssistantApp
 import com.aiassistant.domain.model.*
+import com.aiassistant.utils.TimelineMemoryHelper
+import com.aiassistant.utils.TimelineReconcileResult
+import com.aiassistant.utils.TimelineEventItem
+import com.aiassistant.utils.TimelineCategory
+import com.aiassistant.utils.AtemporalSettingItem
 import com.google.gson.Gson
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -87,6 +92,16 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = emptyList()
         )
+
+    // 全量历史时间轴梳理与校对状态
+    private val _isReconcilingTimeline = MutableStateFlow(false)
+    val isReconcilingTimeline: StateFlow<Boolean> = _isReconcilingTimeline.asStateFlow()
+
+    private val _timelineReconcileResult = MutableStateFlow<TimelineReconcileResult?>(null)
+    val timelineReconcileResult: StateFlow<TimelineReconcileResult?> = _timelineReconcileResult.asStateFlow()
+
+    private val _showTimelineReconcileDialog = MutableStateFlow(false)
+    val showTimelineReconcileDialog: StateFlow<Boolean> = _showTimelineReconcileDialog.asStateFlow()
 
     private var activeAssistantVariantGroupId: String? = null
     private var activeAssistantVariantIndex: Int = 1
@@ -1123,6 +1138,79 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
         viewModelScope.launch {
             repository.clearConversationMemories(conversationId)
             loadConversation()
+        }
+    }
+
+    fun startTimelineReconciliation() {
+        if (_isReconcilingTimeline.value) return
+        _isReconcilingTimeline.value = true
+        viewModelScope.launch {
+            try {
+                val result = repository.reconcileConversationTimeline(conversationId)
+                _timelineReconcileResult.value = result
+                _showTimelineReconcileDialog.value = true
+            } catch (e: Exception) {
+                _timelineReconcileResult.value = TimelineReconcileResult(currentStoryTime = "未确定", events = mutableListOf())
+                _showTimelineReconcileDialog.value = true
+            } finally {
+                _isReconcilingTimeline.value = false
+            }
+        }
+    }
+
+    fun dismissTimelineReconcileDialog() {
+        _showTimelineReconcileDialog.value = false
+        _timelineReconcileResult.value = null
+    }
+
+    fun applyReconciledTimeline(
+        currentStoryTime: String,
+        events: List<TimelineEventItem>,
+        confirmedSettings: List<AtemporalSettingItem> = emptyList()
+    ) {
+        viewModelScope.launch {
+            // 1. 清空当前会话旧的专属记忆
+            repository.clearConversationMemories(conversationId)
+
+            // 2. 如果指定了当前故事时间，存入当前故事时间锚点记忆
+            val cleanStoryTime = currentStoryTime.trim()
+            if (cleanStoryTime.isNotBlank() && cleanStoryTime != "未确定") {
+                repository.addConversationMemory(conversationId, "【当前故事时间】：$cleanStoryTime")
+            }
+
+            // 3. 逐条保存用户审核与编辑后的事件/时间锚定设定
+            for (event in events) {
+                val formatted = TimelineMemoryHelper.formatEventContent(event.timeTag, event.content, event.category)
+                if (formatted.isNotBlank()) {
+                    repository.addConversationMemory(conversationId, formatted)
+                }
+            }
+
+            // 4. 保存用户确认加入的时间无关全局角色与世界设定
+            for (setting in confirmedSettings) {
+                if (setting.isSelected && setting.content.isNotBlank()) {
+                    val formatted = "【${setting.category}】${setting.content.trim()}"
+                    if (setting.targetScope == "global") {
+                        repository.addUserMemory(formatted)
+                    } else {
+                        repository.addConversationMemory(conversationId, formatted)
+                    }
+                }
+            }
+
+            dismissTimelineReconcileDialog()
+            loadConversation()
+        }
+    }
+
+    fun updateSessionMemoryWithTimeline(memoryId: Long, timeTag: String, content: String, category: TimelineCategory = TimelineCategory.PLOT_EVENT) {
+        viewModelScope.launch {
+            val formatted = TimelineMemoryHelper.formatEventContent(timeTag, content, category)
+            val current = sessionMemories.value.find { it.id == memoryId }
+            if (current != null) {
+                repository.updateMemory(current.copy(content = formatted, updatedAt = System.currentTimeMillis()))
+                loadConversation()
+            }
         }
     }
 

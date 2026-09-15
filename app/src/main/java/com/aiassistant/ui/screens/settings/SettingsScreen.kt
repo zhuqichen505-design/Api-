@@ -81,6 +81,9 @@ import com.aiassistant.ui.components.echoHazePanel
 import com.aiassistant.ui.components.echoHazeSource
 import com.aiassistant.ui.components.echoShapeClick
 import com.aiassistant.ui.components.rememberEchoHazeState
+import com.aiassistant.ui.components.rememberSmoothReorderState
+import com.aiassistant.ui.components.reorderItem
+import com.aiassistant.ui.components.reorderDragHandle
 import com.aiassistant.utils.AvatarManager
 import com.aiassistant.utils.BackgroundImageManager
 import com.aiassistant.utils.BackupManager
@@ -123,6 +126,26 @@ internal val V205UserUpdates = listOf(
     "分支功能原子事务、生成成功确认弹窗与隐藏会话密码维持特性完美保持"
 )
 
+internal val V214UserUpdates = listOf(
+    "时间输入框全面可用：重构文本输入组件与 Compose 响应状态机，彻底消除预览文字被吞与无法打字故障",
+    "时序单向递增状态机：解决在‘第2天’剧情后后续‘第二天早上/次日’被错误倒流识别为第2天的逻辑缺陷，单调累加至第3天、第4天",
+    "放开时间轴捕捉上限：取消历史消息截断限制，全量通读百轮对话历史并扩充模型输出上限至 4096 Tokens，脉络完整连贯",
+    "编剧写作指导深度脱敏：严格解耦并脱敏 [] 与 【】 中括号导演指令，深度结合正文事实生成客观陈述句，严禁照抄指令原词",
+    "固有设定 6 维敏锐挖掘：深入提炼生理禁忌、习惯嗜好、身份过往、世界规则、人际羁绊与言语风格，大幅提升敏感度与精准度",
+    "底栏重构为 Echo 胶囊 Dock：重构保存同步按键为立体液态玻璃渐变光泽胶囊，优化统计指示微徽章与文字排版",
+    "开源前沿记忆体系与平滑拖拽重排动画特性稳定保持"
+)
+
+internal val V213UserUpdates = listOf(
+    "开源前沿记忆体系升级：借鉴 Mem0 原子事实分类体系与重要度分级（不可违背约束、偏好习惯、时空经历、世界状态、客观事实）",
+    "排他性属性冲突智能消解：居住地更替、称呼更替、偏好技术栈更迭等自动识别并覆盖替换，杜绝新旧矛盾冲突记忆共存",
+    "三维混合动态检索：融合语义相关度 (40%)、静态重要度 (25%)、时间半衰期衰减 (20%) 与实体精准命中加成 (15%)，实现高保真记忆召回",
+    "结构化多维上下文压缩：摒弃单段流式摘要，采用【核心背景固定约束】+【关键里程碑推进】+【未决待办事项】三层状态机，极大提高信息密度与信噪比",
+    "智能无损信息密度提纯：自动识别并过滤纯寒暄废话轮次，杜绝无意义 Token 消耗",
+    "长按拖拽平滑动画：多 Key 列表与消息排队浮窗长按移动时支持平滑重排位移动画，拖拽手感更自然直观",
+    "剧情记忆与时间线提取核对：对话菜单支持一键读取完整历史，智能提炼故事时间线与重要记忆，支持用户可视化核对与二次编辑"
+)
+
 internal val V211UserUpdates = listOf(
     "分支命名单调自增：彻底修复 XX(分支1) 再次生成分支仍为 XX(分支1) 的重名问题，支持中文半角全角括号与自动编号递增",
     "记忆提取与提炼增强：支持 [] 与 【】 结构化中括号记忆提取，支持「注意」「特别注意」等关键词引导，并自动进行语义规范化加工提炼",
@@ -133,7 +156,7 @@ internal val V211UserUpdates = listOf(
     "分支创建完整保留多版本：创建分支截断历史时，完整克隆所选轮次的所有生成变体（版本 1、2、3...），保留新会话内的版本自由切换"
 )
 
-internal val CurrentVersionUserUpdates = V211UserUpdates
+internal val CurrentVersionUserUpdates = V214UserUpdates
 
 internal val V204UserUpdates = listOf(
     "分支功能完整重构：基于数据库事务与严格切片，规范严格递增时序，全链路杜绝历史记录颠倒或截断缺失",
@@ -6623,6 +6646,14 @@ fun ApiConfigDialog(
         } else emptyList()
         mutableStateOf(initialList.ifEmpty { listOf("") })
     }
+    val keyIds = remember {
+        mutableStateListOf<String>().apply {
+            repeat(keyList.size.coerceAtLeast(1)) {
+                add(java.util.UUID.randomUUID().toString())
+            }
+        }
+    }
+    val keyReorderState = rememberSmoothReorderState()
     var keyVisibilityList by remember {
         mutableStateOf(List(16) { false })
     }
@@ -6680,6 +6711,10 @@ fun ApiConfigDialog(
                 apiKey = decrypted.apiKey
                 val parsed = AiRepository.parseApiKeys(decrypted.apiKey)
                 keyList = parsed.ifEmpty { listOf("") }
+                keyIds.clear()
+                repeat(keyList.size) {
+                    keyIds.add(java.util.UUID.randomUUID().toString())
+                }
             }
             val selectedModels = repository.getSelectedModels(config.id).first()
             if (selectedModels.isNotEmpty()) {
@@ -6834,8 +6869,16 @@ fun ApiConfigDialog(
                         keyList.forEachIndexed { index, currentKey ->
                             val isVisible = keyVisibilityList.getOrElse(index) { false }
                             val keyLabel = if (index == 0) "Key 1 (主密钥 · 最高优先级)" else "Key ${index + 1} (备用密钥 $index)"
+                            val itemId = keyIds.getOrElse(index) { "key_$index" }
+                            val isActive = keyReorderState.isItemActive(index)
 
-                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .reorderItem(keyReorderState, index, itemId)
+                                    .padding(vertical = 2.dp),
+                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
                                 Text(
                                     text = keyLabel,
                                     style = MaterialTheme.typography.labelSmall,
@@ -6848,71 +6891,46 @@ fun ApiConfigDialog(
                                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
                                     if (keyList.size > 1) {
-                                        var isDraggingThisKey by remember { mutableStateOf(false) }
                                         Box(
                                             modifier = Modifier
                                                 .size(34.dp)
                                                 .clip(RoundedCornerShape(6.dp))
-                                                .background(if (isDraggingThisKey) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else Color.Transparent)
-                                                .pointerInput(keyList.size, index) {
-                                                    awaitEachGesture {
-                                                        val down = awaitFirstDown(requireUnconsumed = false)
-                                                        isDraggingThisKey = true
-                                                        var totalDragY = 0f
-                                                        while (true) {
-                                                            val event = awaitPointerEvent()
-                                                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                                                            if (!change.pressed) break
+                                                .background(if (isActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.22f) else Color.Transparent)
+                                                .reorderDragHandle(
+                                                    state = keyReorderState,
+                                                    index = { index },
+                                                    key = { itemId },
+                                                    keys = { keyIds.toList() },
+                                                    listSize = { keyList.size },
+                                                    onMove = { fromIdx, toIdx ->
+                                                        val updated = keyList.toMutableList()
+                                                        val temp = updated[fromIdx]
+                                                        updated[fromIdx] = updated[toIdx]
+                                                        updated[toIdx] = temp
+                                                        keyList = updated
+                                                        apiKey = updated.filter { it.isNotBlank() }.joinToString("\n")
 
-                                                            val deltaY = change.position.y - change.previousPosition.y
-                                                            totalDragY += deltaY
-
-                                                            // 立即消费指针移动事件，阻止外层父级可滚动容器抢夺拖动手势
-                                                            if (kotlin.math.abs(totalDragY) > 6f) {
-                                                                change.consume()
-                                                            }
-
-                                                            if (totalDragY < -22f && index > 0) {
-                                                                val updated = keyList.toMutableList()
-                                                                val temp = updated[index]
-                                                                updated[index] = updated[index - 1]
-                                                                updated[index - 1] = temp
-                                                                keyList = updated
-                                                                apiKey = updated.filter { it.isNotBlank() }.joinToString("\n")
-                                                                val nextVis = keyVisibilityList.toMutableList()
-                                                                if (index < nextVis.size && index - 1 < nextVis.size) {
-                                                                    val tempV = nextVis[index]
-                                                                    nextVis[index] = nextVis[index - 1]
-                                                                    nextVis[index - 1] = tempV
-                                                                    keyVisibilityList = nextVis
-                                                                }
-                                                                break
-                                                            } else if (totalDragY > 22f && index < keyList.size - 1) {
-                                                                val updated = keyList.toMutableList()
-                                                                val temp = updated[index]
-                                                                updated[index] = updated[index + 1]
-                                                                updated[index + 1] = temp
-                                                                keyList = updated
-                                                                apiKey = updated.filter { it.isNotBlank() }.joinToString("\n")
-                                                                val nextVis = keyVisibilityList.toMutableList()
-                                                                if (index < nextVis.size && index + 1 < nextVis.size) {
-                                                                    val tempV = nextVis[index]
-                                                                    nextVis[index] = nextVis[index + 1]
-                                                                    nextVis[index + 1] = tempV
-                                                                    keyVisibilityList = nextVis
-                                                                }
-                                                                break
-                                                            }
+                                                        if (fromIdx < keyIds.size && toIdx < keyIds.size) {
+                                                            val tempId = keyIds[fromIdx]
+                                                            keyIds[fromIdx] = keyIds[toIdx]
+                                                            keyIds[toIdx] = tempId
                                                         }
-                                                        isDraggingThisKey = false
+
+                                                        val nextVis = keyVisibilityList.toMutableList()
+                                                        if (fromIdx < nextVis.size && toIdx < nextVis.size) {
+                                                            val tempV = nextVis[fromIdx]
+                                                            nextVis[fromIdx] = nextVis[toIdx]
+                                                            nextVis[toIdx] = tempV
+                                                            keyVisibilityList = nextVis
+                                                        }
                                                     }
-                                                },
+                                                ),
                                             contentAlignment = Alignment.Center
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.DragIndicator,
                                                 contentDescription = "按住上下拖动调整优先级",
-                                                tint = if (isDraggingThisKey) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                                                tint = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
                                                 modifier = Modifier.size(20.dp)
                                             )
                                         }
@@ -6928,6 +6946,10 @@ fun ApiConfigDialog(
                                                 updated.addAll(index, splitKeys)
                                                 keyList = updated
                                                 apiKey = updated.filter { it.isNotBlank() }.joinToString("\n")
+                                                if (index < keyIds.size) keyIds.removeAt(index)
+                                                repeat(splitKeys.size) { offset ->
+                                                    keyIds.add(index + offset, java.util.UUID.randomUUID().toString())
+                                                }
                                             } else {
                                                 val updated = keyList.toMutableList()
                                                 updated[index] = newVal.trim()
@@ -6952,12 +6974,23 @@ fun ApiConfigDialog(
                                                     IconButton(
                                                         onClick = {
                                                             if (index > 0) {
+                                                                val fromKey = keyIds.getOrElse(index) { "key_$index" }
+                                                                val toKey = keyIds.getOrElse(index - 1) { "key_${index - 1}" }
+                                                                keyReorderState.onAnimateSwap(fromKey, toKey, index, index - 1)
+
                                                                 val updated = keyList.toMutableList()
                                                                 val temp = updated[index]
                                                                 updated[index] = updated[index - 1]
                                                                 updated[index - 1] = temp
                                                                 keyList = updated
                                                                 apiKey = updated.filter { it.isNotBlank() }.joinToString("\n")
+
+                                                                if (index < keyIds.size && index - 1 < keyIds.size) {
+                                                                    val tempId = keyIds[index]
+                                                                    keyIds[index] = keyIds[index - 1]
+                                                                    keyIds[index - 1] = tempId
+                                                                }
+
                                                                 val nextVis = keyVisibilityList.toMutableList()
                                                                 if (index < nextVis.size && index - 1 < nextVis.size) {
                                                                     val tempV = nextVis[index]
@@ -6980,12 +7013,23 @@ fun ApiConfigDialog(
                                                     IconButton(
                                                         onClick = {
                                                             if (index < keyList.size - 1) {
+                                                                val fromKey = keyIds.getOrElse(index) { "key_$index" }
+                                                                val toKey = keyIds.getOrElse(index + 1) { "key_${index + 1}" }
+                                                                keyReorderState.onAnimateSwap(fromKey, toKey, index, index + 1)
+
                                                                 val updated = keyList.toMutableList()
                                                                 val temp = updated[index]
                                                                 updated[index] = updated[index + 1]
                                                                 updated[index + 1] = temp
                                                                 keyList = updated
                                                                 apiKey = updated.filter { it.isNotBlank() }.joinToString("\n")
+
+                                                                if (index < keyIds.size && index + 1 < keyIds.size) {
+                                                                    val tempId = keyIds[index]
+                                                                    keyIds[index] = keyIds[index + 1]
+                                                                    keyIds[index + 1] = tempId
+                                                                }
+
                                                                 val nextVis = keyVisibilityList.toMutableList()
                                                                 if (index < nextVis.size && index + 1 < nextVis.size) {
                                                                     val tempV = nextVis[index]
@@ -7028,6 +7072,8 @@ fun ApiConfigDialog(
                                                             val updated = keyList.toMutableList()
                                                             updated.removeAt(index)
                                                             keyList = updated.ifEmpty { listOf("") }
+                                                            if (index < keyIds.size) keyIds.removeAt(index)
+                                                            if (keyIds.isEmpty()) keyIds.add(java.util.UUID.randomUUID().toString())
                                                             apiKey = keyList.filter { it.isNotBlank() }.joinToString("\n")
                                                         },
                                                         modifier = Modifier.size(28.dp)
@@ -7052,6 +7098,7 @@ fun ApiConfigDialog(
                         OutlinedButton(
                             onClick = {
                                 keyList = keyList + ""
+                                keyIds.add(java.util.UUID.randomUUID().toString())
                             },
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(10.dp),

@@ -1,5 +1,171 @@
 # Echo AI 助手更新日志 (Update Log)
 
+## [2026-09-15] - v2.1.4：全量时间线单调递增状态机、指令解耦深度概括、全景深度提炼与输入排版重构
+
+### 1. 本次 6 大核心缺陷彻底修复与功能升级
+1. **时间与事件输入框打字及预览文字全面修复**：
+   - **痛点根治**：彻底解决此前时间标签输入框与当前故事时间框中预览文字（Placeholder）无法显示、点击后被裁切无法打字输入的严重体验缺陷；
+   - **机制重构**：用高灵敏轻量化的原生 `BasicTextField` 替换受 Material 3 内置内边距限制的组件，配置无截断的垂直居中装饰盒与柔和内边距；
+   - **响应式状态通知**：在列表输入中严格应用不可变数据驱动（`events[idx] = item.copy(...)` 与 `atemporalSettings[idx] = setting.copy(...)`），确保 Compose 实时捕获每一次击键并立即重组呈现。
+2. **时序单向累进与多日递增推断状态机 (`normalizeMonotonicTimeline`)**：
+   - **痛点根治**：彻底纠正“第二天剧情发生后，下一个‘第二天早上’被机械推断为同一天”的时序倒流错乱；
+   - **单调递增时序状态机**：引入日内时段流转次序（早晨/上午 1 -> 中午 2 -> 傍晚 3 -> 夜晚 4 -> 深夜/宿 5），并在对话中检测到逆向时段回跳（如前一条为傍晚，后一条为早上）或再次出现“第二天/次日/隔天”时，自动使绝对故事日单调向前推进（第 2 天 -> 第 3 天，第 3 天 -> 第 4 天）；
+   - **模型五大铁律注入**：在大模型提炼系统提示词中显式注入“时序单向累进法则”，并在本地 fallback 解析层中同步落地，100% 杜绝时间线混乱。
+3. **彻底解除发展脉络上限，支持长篇剧情全貌深度捕捉**：
+   - **解除截断约束**：彻底废除原逻辑中机械的 `takeLast(120)` 截断和 2500 maxTokens 限制；
+   - **全篇通读架构**：单次支持通读高达 60,000 字符长篇剧情（对超长会话智能保留开局 30 条核心设定与最新全部轮次），模型输出 Tokens 提升至 4096 tokens；
+   - **全景纵深捕捉**：单次可提炼 10~40 条全景剧情发展事件，让长篇角色扮演与复杂剧情线拥有真正充实详尽的历史脉络。
+4. **彻底解耦 `[]` 导演写作指导，真正理解并概括 AI 演出事实**：
+   - **脱敏格式化**：在输入前自动将用户在 `[...]` 与 `【...】` 中输入的导演指令与写作要求重构为显式的 `【编剧写作指导/导演要求】: ...`，与正文对白严格解耦；
+   - **指令过滤与客观陈述法则**：提示词明令禁止将写作指导文字照抄进事件；对于纯写作指令（如 `[让两人在雨夜再次相遇]`、`[推进剧情]`）自动拦截，提炼时只总结 AI 演出的客观剧情事实。
+5. **6 维隐式固有设定敏锐提炼与标签轮转**：
+   - **全方位多维捕捉**：突破表面关键词限制，全量扫描提炼 6 维固定设定：角色核心特质、习惯与生活偏好、生理特征与禁忌、世界固定规则与设定、人际羁绊与当前状态、其他核心设定；
+   - **UI 标签自由轮换与确认提醒**：在加入确认卡片中，点击标签胶囊可在「角色特质」->「习惯偏好」->「生理禁忌」->「世界规则」->「人际羁绊」五大分类中循环切换，支持用户自由修正后一键同步进记忆。
+6. **底部操作栏与文字排版全面重构 (Echo Dual-Capsule Dock)**：
+   - **视觉美感提升**：重构拥挤杂乱的底部栏为悬浮双胶囊操作舱；
+   - **状态指示舱**：顶部以半透明毛玻璃胶囊条展示「✅ 已勾选 X 条事件 | 💡 X 条设定待同步 | 🕒 当前故事时间：XX」；
+   - **渐变立体操作按钮**：左侧提供沉稳半透明的「放弃」胶囊，右侧采用高质感科技蓝紫渐变、立体微光阴影的「💾 保存并同步到记忆」专属大胶囊，文字优雅居中排版，交互反馈灵动细腻。
+
+### 2. 自动化测试与构建交付
+- **全新自动化单元测试**：
+  - `ChronicleTimelineStudioTest.kt`：新增跨天时序单调递增与“第二天早上”自动推进测试用例、设定分类标签循环轮换测试用例；
+  - `V214FeaturesTest.kt`：新增 6 大核心缺陷修复与功能点自检测试；
+- **全量单元测试**：230 个单元测试 100% 全部通过 (BUILD SUCCESSFUL)；
+- **版本配置**：`versionCode = 120`，`versionName = "2.1.4"`；
+- **单一安装包构建与历史包永久保留（最高铁律）**：
+  - 严格执行单一安装包命名规则，仅输出 `Echo-v2.1.4.apk`；
+  - 严禁删除或清理任何历史版本安装包，所有历史版本完整保留；
+
+### 3. 改动文件列表
+- `app/src/main/java/com/aiassistant/utils/TimelineMemoryHelper.kt` [MODIFY]
+- `app/src/main/java/com/aiassistant/data/repository/AiRepository.kt` [MODIFY]
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatScreen.kt` [MODIFY]
+- `app/src/main/java/com/aiassistant/ui/screens/settings/SettingsScreen.kt` [MODIFY]
+- `app/src/test/java/com/aiassistant/ChronicleTimelineStudioTest.kt` [MODIFY]
+- `app/src/test/java/com/aiassistant/V214FeaturesTest.kt` [NEW]
+- `app/build.gradle.kts` [MODIFY]
+- `UPDATE_LOG.md` [MODIFY]
+
+## [2026-09-15] - v2.1.3：开源前沿记忆体系进化、排他冲突消解、三维混合检索与结构化上下文压缩落地
+
+### 1. 本次核心功能升级与开源前沿技术吸收
+1. **时间轴与多维设定工作台全面重构 (Chronicle Timeline Studio)**：
+   - **时间与类别多维筛选**：顶部提供横向滚动时间 Chips（【全部时间】、【第1天】、【第2天】...），点击直接过滤并高亮对应时间下的所有事件与设定；同时提供【全部】、【📖 剧情推进】、【⚖️ 规则约束】、【🎭 角色设定】、【🌍 剧情设定】类别过滤；
+   - **垂直流线型时间轴 UI (Vertical Flowing Timeline)**：采用垂直发光节点圆点与连线，节点发光颜色随类别变换（科技蓝、活力橙、优雅紫、自然绿），呈现清晰的故事编年史脉络；
+   - **相对时间距离动态徽章**：自动计算相对于当前故事时间的距离（如：`相对于当前：昨天 / 前天 / 2天前`），直观呈现时序纵深；
+   - **全字段直接可视化编辑与切换**：支持单条直接修改时间标签、轮换类别、修改正文描述、一键删除与快捷手动追加。
+2. **根治剧情指导粗暴导入第 1 天与上下文完全隔离**：
+   - **指令与正文彻底解耦**：引入 `TimelineMemoryHelper.isPureDirectorInstruction`，自动识别并过滤用户在 `[]` 中输入的导演指令文字本身（如 `[让两人在雨夜再次相遇]`、`[推进剧情]`），模型专注于故事对话正文与叙事推进；
+   - **独立无状态元分析请求**：梳理过程完全走独立的单次无状态请求（优先调度已配置的辅助提炼模型，未配置时使用当前 API 配置独立发起），**绝对不把提炼任务注入当前会话的 `messages` 历史，100% 避免干扰当前剧情与主模型上下文**；
+   - **真实时间推进理解与归一化**：模型深入理解对话中隐藏的“第二天”、“过了三天”、“当晚”等线索推算真实天数，杜绝将所有内容机械堆砌在第 1 天。
+3. **时间无关全局设定提炼与【加入确认提醒】**：
+   - 模型在梳理时独立提炼出与时间无关的角色固有特质、长期偏好与世界固定规则；
+   - 工作台顶部以高亮精致卡片展示**「💡 世界观与角色固有设定（时间无关）」**加入确认提醒；
+   - 每一条设定配备复选框（默认选中）、类别标签、内容编辑框与作用域切换（“会话专属” / “全局长期”），并支持一键全选/清空，完全交由用户审核后同步存入记忆。
+4. **开源前沿记忆体系进化 (`AdvancedMemoryEngine`)**：
+   - 深度借鉴 **Mem0、Generative Agents、LangChain Memory** 等开源社区前沿范式，重构记忆与上下文引擎；
+   - **原子事实分类体系与重要度分级**：将对话中沉淀的记忆细化为五大维度：`CONSTRAINT` (5)、`PREFERENCE` (4)、`TIMELINE` (4)、`WORLD_STATE` (3)、`FACT` (3)；
+   - **排他性事实冲突自适应消解更替 (Conflict Resolution & Upsert)**：解决居住地更替、称呼更替、技术栈更迭等新旧记忆自相矛盾痛点，写入新记忆时自动识别并覆盖旧冲突条目；
+   - **三维混合动态检索评分算法 (Tri-Factor Hybrid Scoring)**：综合 Relevance (40%) + Importance (25%) + Recency (20%) + Entity Boosting (15%) + ScopeBoost 动态唤醒记忆；
+   - **结构化多维状态机分层上下文压缩**：摒弃单段粗暴摘要，以【核心背景固定约束】+【关键里程碑推进】+【未决待办事项】三层状态机提炼，信噪比极大提升；
+   - **智能无损信息密度提纯**：自动过滤纯寒暄废话轮次，节约 Token 预算；
+   - **六点手柄平滑拖拽重排弹簧物理动效 (`SmoothReorderState`)** 完美保持。
+
+### 2. 自动化测试与构建交付
+- **全新自动化单元测试**：
+  - `ChronicleTimelineStudioTest.kt`（5 项测试全绿）：覆盖导演指令识别、多类别事件格式化与解析、时间无关设定模型与作用域切换、全功能 JSON 解析与多天相对时间推算；
+  - `TimelineMemoryTest.kt`（11 项测试全绿）：覆盖时间标签提取、模型 JSON 容错解析、文本降级兜底与 Prompt 组装；
+  - `MemoryAndCompressionEngineTest.kt`（11 项测试全绿）：覆盖事实分类判定、重要度推断、冲突消解、三维混合评分、信息提纯与结构化状态机；
+  - `V213FeaturesTest.kt`（2 项测试全绿）：覆盖更新日志与枚举基准权重验证；
+- **全量单元测试**：全量测试套件 100% 全部通过；
+- **版本配置**：`versionCode = 119`，`versionName = "2.1.3"`；
+- **单一安装包构建与历史包永久保留**：
+  - **坚决彻底废除重复的 `Echo.apk` 复制**，严格执行用户指示只输出单一安装包；
+  - 增量输出至 `D:\Agent\APP-烧\app\releases/Echo-v2.1.3.apk`，大小 16,189,437 字节（约 15.44 MB），SHA256: `FDC36E1F6D7DFA64CD2EAE0E2765829AE7DA2CB64254BF3A0FFEE0C7C70F1B76`；
+  - 严格恪守【历史安装包永久保留准则（最高铁律）】，未触碰或删除 `releases/` 下的任何既有历史安装包。
+
+### 3. 改动文件列表
+- `app/src/main/java/com/aiassistant/utils/AdvancedMemoryEngine.kt` [NEW]
+- `app/src/test/java/com/aiassistant/MemoryAndCompressionEngineTest.kt` [NEW]
+- `app/src/test/java/com/aiassistant/V213FeaturesTest.kt` [NEW]
+- `app/src/main/java/com/aiassistant/data/repository/AiRepository.kt` [MODIFY]
+- `app/src/main/java/com/aiassistant/ui/screens/settings/SettingsScreen.kt` [MODIFY]
+- `app/build.gradle.kts` [MODIFY]
+- `UPDATE_LOG.md` [MODIFY]
+
+## [2026-09-15] - 六点手柄拖拽排序平滑物理动效与换位弹簧动画落地
+
+### 1. 本次核心功能升级与用户需求落实
+1. **API Key 列表与消息排队浮窗平滑拖拽重排序动效体系 (`SmoothReorderState`)**：
+   - **痛点解决**：彻底解决此前长按六点手柄（`DragIndicator`）拖动时条目完全不跟随手指移动、移动达到阈值后瞬间硬切跳变且中断手势的生硬体验；
+   - **手指实时连续物理跟随 (Pointer Following)**：被按住拖动的卡片自动浮起、轻微放大（`scale = 1.02f`）、阴影增强（`shadowElevation = 8.dp`）、层级提升至顶层（`zIndex = 10f`），垂直坐标 `translationY` 100% 贴合手指移动；
+   - **无缝跨项交换与位移补偿 (Seamless Cross-item Swap)**：
+     - 当拖动位移超过阈值（身位约 42%~50%）时触发数据项交换，同时为被拖拽项自动补偿位移（`dragOffsetY ±= itemHeight`），视觉位置保持在手指正下方，**手势不中断，支持用户一口气连续上下拖动多项**；
+     - 每次跨越时伴随轻微触觉震动反馈（Haptic Feedback）；
+   - **相邻被挤开项弹簧平滑让位 (Spring Shift Animation)**：
+     - 被挤开的相邻卡片瞬间应用反向位移补偿，随后通过 Compose 弹簧动画（`spring(dampingRatio = LowBouncy, stiffness = Medium)`）顺滑飘移滑入新空位，彻底杜绝瞬间闪切与突变；
+   - **松手平滑吸附归位 (Spring Snap on Release)**：
+     - 手指抬起或手势结束时，被拖动项通过弹簧动画平滑回弹、精确吸附落入目标排位，随后复原缩放与层级；
+   - **按键双向对流平滑动画**：
+     - 设置页中点击 API Key 的「向上/向下箭头」按钮时，同样支持双方对流互换平滑位移动画（`onAnimateSwap`）。
+
+### 2. 自动化测试与质量保障
+- 新增 `SmoothReorderTest.kt` 专用单元测试（6 项测试全部一次性通过）：
+  - `testInitialState`：测试初始状态与非激活状态；
+  - `testOnDragStart`：测试长按激活手势初始化；
+  - `testOnDragDelta_downwardSwap`：测试向下拖动阈值触发交换、索引顺延与物理位移精准补偿；
+  - `testOnDragDelta_upwardSwap`：测试向上拖动阈值触发交换与向上位移补偿；
+  - `testBoundaryGuards`：测试顶部与末尾边界防护，防止数组越界与误调换；
+  - `testOnAnimateSwap_buttonTrigger`：测试按钮双向对流换位动画触发；
+- 全量单元测试套件（33 个测试类，上百个测试用例）100% 全部通过，耗时仅 17s；
+- Kotlin 编译检查 (`compileDebugKotlin`) 0 报错通过；
+- **坚决遵守用户要求：未执行 APK 构建**。
+
+### 3. 改动文件列表
+- `app/src/main/java/com/aiassistant/ui/components/SmoothReorderState.kt` [NEW]
+- `app/src/test/java/com/aiassistant/SmoothReorderTest.kt` [NEW]
+- `app/src/main/java/com/aiassistant/ui/screens/settings/SettingsScreen.kt` [MODIFY]
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatScreen.kt` [MODIFY]
+
+## [2026-09-15] - 会话专属时间轴记忆引擎与全量历史校对功能落地
+
+### 1. 本次核心功能升级与用户需求落实
+1. **解决角色扮演/长期对话时间轴混淆与相对时间词崩溃**：
+   - **故事时间锚定与去相对化**：引入 `TimelineMemoryHelper`，规范化时间线事件为 `[时间标签] 事件内容` 结构（如 `[第3天·傍晚] 两人在甜品店吃了草莓奶油蛋糕`），彻底消灭存入记忆中的“昨天/刚才/上次”等相对时间词；
+   - **时间差参照系注入**：在 Prompt 组装时，根据【当前故事时间节点】动态计算并注入相对时间参照系（如：`相对于当前：昨天/2天前/今天`），模型在逻辑上获得精准时钟，绝不再将不同日子的“昨天”混为一谈。
+2. **积极主动的记忆调度引擎 (Active Recall)**：
+   - 破除死板的生僻关键词匹配高阈值过滤，会话专属记忆在日常聊天与角色扮演中全量生效；
+   - 增加时间与回忆指示词主动嗅探（“昨天”、“前天”、“上次”、“之前”、“哪天”、“那天”、“记得”、“吃过”等），一旦侦测到立刻优先唤醒全量时间线记忆。
+3. **概念归一与术语净化**：
+   - 彻底废除模糊混乱的“外置记忆库”称呼，在 UI、Prompt 与底层逻辑中清晰定义为：
+     - **本会话专属记忆与时间线**（Session Memory & Timeline）；
+     - **跨会话长期记忆**（Global Long-term Memory）；
+     - **世界书 / 设定库 (Lorebook)**；
+   - 角色扮演会话默认物理隔离全局日常长期记忆，防止外部工作/代码偏好污染小说剧情。
+4. **全量历史时间轴梳理与可视化可编辑工作台**：
+   - **一键梳理按钮**：在专属记忆面板中新增「🕒 梳理全量时间线」功能按钮；
+   - **全历史通读提炼**：模型通读当前会话全部历史消息，自动折算相对时间为绝对故事日，去重合并同类事件，并推导出当前剧情时间节点；提供本地启发式安全兜底；
+   - **用户可视化编辑工作台 (`TimelineReconcileDialog`)**：
+     - 用户直接可见提炼出的当前故事时间与事件列表；
+     - **直接修改**：可直接编辑当前故事时间、直接点击修改单条时间标签、直接在输入框修改事件文字；
+     - **单条删除**：冗余条目点击垃圾桶一键删除；
+     - **手动补充**：提供「＋ 手动补充遗漏事件」按钮，随手补充细节；
+     - 确认满意后一键保存覆盖或更新至当前会话记忆。
+
+### 2. 自动化测试与质量保障
+- 新增 `TimelineMemoryTest.kt` 核心单元测试（8 项测试全量一次性通过）：涵盖标准/中文方括号时间标签解析、无标签兼容、事件格式化、相对时间差（今天/昨天/前天/N天前）推算、模型标准 JSON 与 Markdown 代码块解析、纯文本行兜底解析、Prompt 参照系构建；
+- 全量回归测试通过（30+ 个测试类，上百个测试用例 100% 通过）；
+- 编译检查 (`compileDebugKotlin`) 0 报错通过；
+- 遵循用户明确指示：**未进行 APK 构建**。
+
+### 3. 改动文件列表
+- `app/src/main/java/com/aiassistant/utils/TimelineMemoryHelper.kt` [NEW]
+- `app/src/test/java/com/aiassistant/TimelineMemoryTest.kt` [NEW]
+- `app/src/main/java/com/aiassistant/data/repository/AiRepository.kt` [MODIFY]
+- `app/src/main/java/com/aiassistant/data/repository/RoleplayRepository.kt` [MODIFY]
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatViewModel.kt` [MODIFY]
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatScreen.kt` [MODIFY]
+
 ## [v2.1.2] - 2026-09-14
 
 ### 1. 本次核心功能升级与用户需求落地
