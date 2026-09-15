@@ -2895,7 +2895,8 @@ class AiRepository(
                 rawConfig = getDecryptedConfig(candidateConfigId)
             }
             if (rawConfig == null) {
-                rawConfig = getDefaultApiConfig() ?: getAllApiConfigs().first().firstOrNull()
+                rawConfig = getDefaultApiConfig()?.let { getDecryptedConfig(it.id) }
+                    ?: getAllApiConfigs().first().firstOrNull()?.let { getDecryptedConfig(it.id) }
             }
 
             targetModel = activeModelName?.ifBlank { null }
@@ -3033,14 +3034,16 @@ class AiRepository(
     }
 
     private suspend fun generateOpenAITimelineAnalysis(config: ApiConfig, prompt: String): String? {
+        val normalizedUrl = normalizeApiBaseUrl(config.baseUrl, config.apiType)
+        val isReasoning = Regex("""(^|[-_/])(o[134]|gpt-5|r1)""", RegexOption.IGNORE_CASE).containsMatchIn(config.modelName)
         val request = ChatCompletionRequest(
             model = config.modelName,
             messages = listOf(ChatMessage(role = "user", content = prompt)),
-            temperature = 0.2f,
+            temperature = if (isReasoning) null else 0.2f,
             max_tokens = 4096,
             stream = false
         )
-        val response = RetrofitClient.getAnalysisService(config.baseUrl)
+        val response = RetrofitClient.getAnalysisService(normalizedUrl)
             .chatCompletion(RetrofitClient.formatApiKey(config.apiKey), request)
             .execute()
         if (!response.isSuccessful) {
@@ -3057,13 +3060,14 @@ class AiRepository(
     }
 
     private suspend fun generateAnthropicTimelineAnalysis(config: ApiConfig, prompt: String): String? {
+        val normalizedUrl = normalizeApiBaseUrl(config.baseUrl, config.apiType)
         val request = AnthropicRequest(
             model = config.modelName,
             messages = listOf(AnthropicMessage(role = "user", content = prompt)),
             max_tokens = 4096,
             temperature = 0.2f
         )
-        val response = RetrofitClient.getAnalysisService(config.baseUrl)
+        val response = RetrofitClient.getAnalysisService(normalizedUrl)
             .anthropicMessages(
                 apiKey = config.apiKey.removePrefix("Bearer ").trim(),
                 request = request

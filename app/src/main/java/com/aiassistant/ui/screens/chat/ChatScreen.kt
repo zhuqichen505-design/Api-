@@ -9249,8 +9249,9 @@ fun TimelineReconcileDialog(
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
+                            val modelHint = if (initialResult.modelUsed.isNotBlank()) "调用模型：${initialResult.modelUsed} | " else ""
                             Text(
-                                text = "⚠️ 模型响应未成功（${initialResult.extractionErrorMessage ?: "未检测到模型响应"}），当前显示本地精纯扫描。请检查 API 配置或网络。",
+                                text = "⚠️ 模型响应未成功（$modelHint${initialResult.extractionErrorMessage ?: "未检测到模型响应"}），当前显示本地精纯扫描。可在「设置 -> 辅助模型」指定独立模型或检查当前网络。",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onErrorContainer
                             )
