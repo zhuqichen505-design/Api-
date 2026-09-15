@@ -9250,8 +9250,14 @@ fun TimelineReconcileDialog(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             val modelHint = if (initialResult.modelUsed.isNotBlank()) "调用模型：${initialResult.modelUsed} | " else ""
+                            val errorDetail = initialResult.extractionErrorMessage.orEmpty()
+                            val timeoutHint = if (errorDetail.contains("timeout", ignoreCase = true) || errorDetail.contains("timed out", ignoreCase = true)) {
+                                "全文较长且模型推理响应超时，可再次点击重新梳理或在「设置 -> 辅助模型」选用推理更快的模型"
+                            } else {
+                                errorDetail.ifBlank { "未检测到模型响应" }
+                            }
                             Text(
-                                text = "⚠️ 模型响应未成功（$modelHint${initialResult.extractionErrorMessage ?: "未检测到模型响应"}），当前显示本地精纯扫描。可在「设置 -> 辅助模型」指定独立模型或检查当前网络。",
+                                text = "⚠️ 模型响应未成功（$modelHint$timeoutHint），当前显示本地精纯扫描。可在「设置 -> 辅助模型」指定独立模型或检查当前网络。",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onErrorContainer
                             )

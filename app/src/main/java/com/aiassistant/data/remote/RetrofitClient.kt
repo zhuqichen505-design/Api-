@@ -44,13 +44,14 @@ object RetrofitClient {
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    // 专用于全量时间线提炼、长文本深度分析与设定提炼（设置 180s 充足超时，允许大模型充分推理输出）
+    // 专用于全量时间线提炼、长文本深度分析与设定提炼（设置 600s 充足超时与弹性连接，支持超长篇上下文深度推理）
     val longAnalysisHttpClient = OkHttpClient.Builder()
         .addInterceptor(loggingInterceptor)
         .retryOnConnectionFailure(true)
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(180, TimeUnit.SECONDS)
-        .writeTimeout(60, TimeUnit.SECONDS)
+        .connectTimeout(60, TimeUnit.SECONDS)
+        .readTimeout(600, TimeUnit.SECONDS)
+        .writeTimeout(120, TimeUnit.SECONDS)
+        .callTimeout(600, TimeUnit.SECONDS)
         .build()
 
     @Volatile

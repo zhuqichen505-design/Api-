@@ -110,9 +110,34 @@ object TimelineMemoryHelper {
     }
 
     /**
+     * 判断并估算叙事时间跨度跃迁天数（例如：两周后、一个月后、数日后）
+     * 返回跃迁的天数（> 0），若非时间跨度则返回 0
+     */
+    fun estimateTimeSpanJumpDays(tag: String): Int {
+        return when {
+            tag.contains("三年") || tag.contains("3年") -> 1095
+            tag.contains("两年") || tag.contains("2年") -> 730
+            tag.contains("一年") || tag.contains("1年") -> 365
+            tag.contains("半年") -> 180
+            tag.contains("三个月") || tag.contains("3个月") -> 90
+            tag.contains("两个月") || tag.contains("2个月") -> 60
+            tag.contains("一个月") || tag.contains("1个月") || tag.contains("一月后") || tag.contains("次月") -> 30
+            tag.contains("半个月") -> 15
+            tag.contains("三周") || tag.contains("3周") -> 21
+            tag.contains("两周") || tag.contains("2周") -> 14
+            tag.contains("一周") || tag.contains("1周") || tag.contains("一星期") || tag.contains("七天") -> 7
+            tag.contains("数日") || tag.contains("几天") || tag.contains("三天") || tag.contains("3天") -> 3
+            tag.contains("两天") || tag.contains("2天") -> 2
+            else -> 0
+        }
+    }
+
+    /**
      * 单调递增时序状态机：
-     * 解决“第二天”剧情发生后，后续再次出现的“第二天/次日/第二天早上”被机械识别为第2天的严重时序倒流错误。
-     * 将重复或相对次日单调递增累进为绝对故事天数（第3天、第4天...）。
+     * 1. 解决“第二天”剧情发生后，后续再次出现的“第二天/次日/第二天早上”被机械识别为第2天的严重时序倒流错误，
+     *    将重复或相对次日单调递增累进为绝对故事天数（第3天、第4天...）。
+     * 2. 拥抱自然文学叙事与阶段锚点：并非所有事件都以具体“第X天”为单位，全面兼容“两周过后”、“暑假开始”、“一年后·春”等
+     *    自然时间跨度与阶段性事件，合理维护内部递增推进的同时，完整保留真实文学叙事时间标签。
      */
     fun normalizeMonotonicTimeline(events: List<TimelineEventItem>): List<TimelineEventItem> {
         var currentDay = 1
@@ -124,7 +149,8 @@ object TimelineMemoryHelper {
             val tag = item.timeTag.trim()
             val matcher = DAY_NUMBER_PATTERN.matcher(tag)
             val isRelativeNextDay = tag.contains("第二天") || tag.contains("次日") || tag.contains("翌日") || tag.contains("隔天") || tag.contains("又过了一天")
-            
+            val spanJumpDays = estimateTimeSpanJumpDays(tag)
+
             val updatedTag = if (matcher.find()) {
                 val parsedDay = (matcher.group(1) ?: matcher.group(2))?.toIntOrNull() ?: 1
                 val subPhase = tag.substringAfter("·", "").ifBlank {
@@ -166,8 +192,20 @@ object TimelineMemoryHelper {
                     else -> "白天"
                 }
                 lastPhaseOrder = getPhaseOrder(subPhase)
+                hasSeenDayInCurrentEpoch = true
                 "第 $currentDay 天·$subPhase"
+            } else if (spanJumpDays > 0) {
+                // 遇到“两周过后”、“一个月后”等跨度跳跃词，在内部天数上向前推进，同时完整保留自然描述标签
+                currentDay += spanJumpDays
+                lastPhaseOrder = 0
+                hasSeenDayInCurrentEpoch = false
+                tag
             } else {
+                // 阶段性叙事节点（如“暑假开始”、“开学第一天”、“深秋·初雪”），完整保留叙事标签
+                val subPhase = tag.substringAfter("·", "")
+                if (subPhase.isNotBlank()) {
+                    lastPhaseOrder = getPhaseOrder(subPhase)
+                }
                 tag
             }
 
@@ -398,26 +436,33 @@ object TimelineMemoryHelper {
     }
 
     /**
-     * 根据事件列表中最晚的天数推断当前时间
+     * 根据事件列表推断当前故事时间：
+     * 1. 优先取倒序最新发生的事件的时间标签（支持“两周过后”、“暑假开始”、“第 5 天·傍晚”等自然与显式时间）；
+     * 2. 若列表无任何有效时间标签，返回“未确定”。
      */
     fun inferCurrentStoryTime(events: List<TimelineEventItem>): String {
-        var maxDay = 0
-        for (item in events) {
-            val matcher = DAY_NUMBER_PATTERN.matcher(item.timeTag)
-            if (matcher.find()) {
-                val num = (matcher.group(1) ?: matcher.group(2))?.toIntOrNull() ?: 0
-                if (num > maxDay) maxDay = num
+        if (events.isEmpty()) return "未确定"
+        // 倒序寻找最新发生的事件有效时间标签
+        for (item in events.reversed()) {
+            val tag = item.timeTag.trim().trim('[', ']', '【', '】')
+            if (tag.isNotBlank() && tag != "未确定") {
+                return tag
             }
         }
-        return if (maxDay > 0) "第 $maxDay 天" else "未确定"
+        return "未确定"
     }
 
     /**
-     * 计算事件时间相对于当前时间的相对参照（如：今天 / 昨天 / 2天前）
+     * 计算事件时间相对于当前时间的相对参照（如：今天 / 昨天 / 2天前 / 约两周前）
      */
     fun calculateRelativeTime(eventTimeTag: String, currentTimeTag: String): String? {
-        val eventMatcher = DAY_NUMBER_PATTERN.matcher(eventTimeTag)
-        val currentMatcher = DAY_NUMBER_PATTERN.matcher(currentTimeTag)
+        val cleanEvent = eventTimeTag.trim().trim('[', ']', '【', '】')
+        val cleanCurrent = currentTimeTag.trim().trim('[', ']', '【', '】')
+        if (cleanEvent.isBlank() || cleanCurrent.isBlank()) return null
+        if (cleanEvent == cleanCurrent) return "今天"
+
+        val eventMatcher = DAY_NUMBER_PATTERN.matcher(cleanEvent)
+        val currentMatcher = DAY_NUMBER_PATTERN.matcher(cleanCurrent)
 
         if (eventMatcher.find() && currentMatcher.find()) {
             val eventDay = (eventMatcher.group(1) ?: eventMatcher.group(2))?.toIntOrNull() ?: return null
@@ -434,6 +479,18 @@ object TimelineMemoryHelper {
                 else -> null
             }
         }
+
+        // 自然时间相对语义推导
+        if (cleanCurrent.contains("两周") && (cleanEvent.contains("第 1 天") || cleanEvent.contains("第1天") || cleanEvent.contains("初遇") || cleanEvent.contains("初期"))) {
+            return "约两周前"
+        }
+        if (cleanCurrent.contains("暑假") && cleanEvent.contains("学期")) {
+            return "放假前"
+        }
+        if (cleanCurrent.contains("开学") && cleanEvent.contains("暑假")) {
+            return "暑假期间"
+        }
+
         return null
     }
 

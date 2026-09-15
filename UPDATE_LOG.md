@@ -1,5 +1,57 @@
 # Echo AI 助手更新日志 (Update Log)
 
+## [2026-09-15] - v2.1.6：600s大模型推理超时放宽、自然叙事时间跨度支持、全景5大里程碑与6维设定提炼
+
+### 1. 本次 3 大核心诉求深度落实与功能重构
+1. **600s 充足大模型长推理超时放宽与网络抖动重试机制**：
+   - **痛点根治**：梳理全量时间线需要通读上万字长篇历史对话，并生成包含数十条事件与常驻设定的复杂结构化 JSON。此前 180 秒（3分钟）对于复杂长文或包含思考链（Reasoning）的大模型过于严苛，极易因超时中断而错误退避至本地精纯扫描；
+   - **机制落地**：在 `RetrofitClient` 中将 `longAnalysisHttpClient` 的 `readTimeout` 与 `callTimeout` 大幅放宽至 600 秒（10分钟），`connectTimeout` 设为 60 秒，`writeTimeout` 设为 120 秒；
+   - **自动重试与弹性保护**：`generateOpenAITimelineAnalysis` 与 `generateAnthropicTimelineAnalysis` 扩充 `max_tokens` 至 8192，且在遇到偶发性网络抖动或超时错误时自动执行 1 次带退避的重新请求；
+   - **智能异常语义指引**：在工作台状态卡片中对超时异常进行智能语义识别，提供清晰友好的重试建议，杜绝生硬错误。
+2. **文学叙事与自然时间跨度（两周过后、暑假开始等）深度支持**：
+   - **痛点根治**：真实故事与剧情小说的时间推进并非均以“第X天”为机械单位，常有“两周过后”、“暑假开始”、“一年后·春”、“数日后”等文学跳跃与生活阶段。此前算法与系统提示词机械排斥非天数标签，导致阶段性事件被强行抹杀或当前故事时间退回“未确定”；
+   - **时序状态机智能融合**：`TimelineMemoryHelper.normalizeMonotonicTimeline` 接入自然时间跨度估算（`estimateTimeSpanJumpDays`），遇到“两周过后”智能递进内部天数（+14），既杜绝后续天数倒流，又 100% 完整保留原汁原味的自然叙事标签（如 `两周过后`、`暑假开始·傍晚`）；
+   - **当前时间智能推断**：`inferCurrentStoryTime` 优化为倒序追踪最新发生的有效叙事节点，自然识别以“两周过后”或“暑假开始”为阶段的当前停驻时间；
+   - **自然相对时间语义**：`calculateRelativeTime` 深度支持自然时间词与阶段词的相对语义推导（如“约两周前”、“放假前”等）。
+3. **全景 5 大剧情里程碑维度与 6 维多维设定深度提炼**：
+   - **痛点根治**：此前大模型提示词过度强调惩罚性恐吓规则，导致大模型提炼极为保守，遗漏关键情节转折、人际变迁与世界观常驻设定；
+   - **5 大剧情里程碑维度**：全面引导大模型覆盖：
+     ① 剧情重大转折与抉择（危机爆发、转机出现、重大行动抉择与结果）；
+     ② 感情线与人际质变（彼此从陌生到互信托付、建立同盟契约、心结解开、发生争端或误会消除）；
+     ③ 秘密揭露与重要发现（探明隐秘真相、识破真实身份、获悉关键情报或线索）；
+     ④ 状态转变与阶段成果（获得关键信物道具、实力突破、负伤中毒或痊愈、处境改变）；
+     ⑤ 关键约定与未决悬念（暗中达成的盟约、未解决的潜伏危机、下一步核心目标）；
+   - **6 维多维常驻设定深度挖掘**：
+     ① 角色特质与心结；② 习惯偏好与小动作；③ 生理特征与禁忌；
+     ④ 世界规则与法则限制；⑤ 人际羁绊与誓言契约；⑥ 专属信物与特殊器物（新增）；
+   - **输出扩容**：将生成上限提升至 8192 Tokens，推荐提炼 15~40 条关键里程碑事件与 10~25 条多维常驻设定；
+   - **本地 Fallback 同步升级**：`fallbackLocalTimelineScan` 同步扩充自然时间跨度捕获与小说核心词库（信物、秘密、约定、阵营、结界等）。
+
+### 2. 自动化测试与质量保障
+- **新增单元测试**：
+  - `TimelineNaturalTimeTest.kt`：覆盖自然时间标签解析、时间跨度天数跳跃估算、时序单调融合状态机、当前时间自然推断、自然相对时间语义计算与复杂 JSON 深度解析；
+  - `V216FeaturesTest.kt`：覆盖 v2.1.6 用户更新日志完整性与核心要点自检；
+- **全量单元测试**：245 个单元测试 100% 全部通过 (BUILD SUCCESSFUL in 32s)；
+- **版本配置**：`versionCode = 122`，`versionName = "2.1.6"`；
+- **Release APK 产物**：
+  - 路径：`releases/Echo-v2.1.6.apk`；
+  - 大小：16,189,437 字节；
+  - SHA256：`3108EF87CE934626752189C16D41F6408F5A930AD2A1334A450BBBA3D5CA0E64`；
+  - 架构：`arm64-v8a` (`isUniversalApk = false`)；
+  - 签名验证：APK Signature Scheme v2 验证通过 (1 signer)；
+  - **历史安装包永久保留准则（最高铁律）**：`releases/` 目录历史安装包完整保留，增量输出 `Echo-v2.1.6.apk`。
+
+### 3. 改动文件列表
+- `app/src/main/java/com/aiassistant/data/remote/RetrofitClient.kt` [MODIFY]
+- `app/src/main/java/com/aiassistant/utils/TimelineMemoryHelper.kt` [MODIFY]
+- `app/src/main/java/com/aiassistant/data/repository/AiRepository.kt` [MODIFY]
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatScreen.kt` [MODIFY]
+- `app/src/main/java/com/aiassistant/ui/screens/settings/SettingsScreen.kt` [MODIFY]
+- `app/build.gradle.kts` [MODIFY]
+- `app/src/test/java/com/aiassistant/TimelineNaturalTimeTest.kt` [NEW]
+- `app/src/test/java/com/aiassistant/V216FeaturesTest.kt` [NEW]
+- `app/src/test/java/com/aiassistant/V215FeaturesTest.kt` [MODIFY]
+
 ## [2026-09-15] - v2.1.5：180s深度推理大模型接入、固有设定原子化提炼、长篇里程碑脉络与固有设定分类筛选
 
 ### 1. 本次 4 大核心缺陷彻底修复与功能升级

@@ -9,8 +9,7 @@ class V215FeaturesTest {
 
     @Test
     fun testV215CurrentVersionUserUpdatesCompleteness() {
-        val updates = CurrentVersionUserUpdates
-        assertSame("当前版本更新日志应指向 V215UserUpdates", V215UserUpdates, updates)
+        val updates = V215UserUpdates
         assertFalse("本次更新日志列表不得为空", updates.isEmpty())
         assertTrue("必须包含当前版本主要更新项 (>=7项)", updates.size >= 7)
         assertTrue("必须包含180s深度推理接入", updates.any { it.contains("180s") && it.contains("推理") })
