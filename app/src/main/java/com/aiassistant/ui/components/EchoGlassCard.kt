@@ -109,12 +109,14 @@ fun EchoGlassCard(
 }
 
 /**
- * 可点击交互的 Echo 标准玻璃卡片
+ * 可点击或长按交互的 Echo 标准玻璃卡片
  */
 @Composable
 fun EchoGlassCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    onLongClick: (() -> Unit)? = null,
+    onLongClickLabel: String? = null,
     enabled: Boolean = true,
     shape: Shape = EchoTokens.Radius.shapeLg,
     containerColor: Color? = null,
@@ -126,8 +128,19 @@ fun EchoGlassCard(
     showBorder: Boolean = true,
     content: @Composable BoxScope.() -> Unit
 ) {
+    val clickModifier = if (onLongClick != null) {
+        modifier.echoShapeCombinedClick(
+            shape = shape,
+            enabled = enabled,
+            onLongClick = onLongClick,
+            onLongClickLabel = onLongClickLabel,
+            onClick = onClick
+        )
+    } else {
+        modifier.echoShapeClick(shape = shape, enabled = enabled, onClick = onClick)
+    }
     EchoGlassCard(
-        modifier = modifier.echoShapeClick(shape = shape, enabled = enabled, onClick = onClick),
+        modifier = clickModifier,
         shape = shape,
         containerColor = containerColor,
         borderColor = borderColor,

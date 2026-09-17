@@ -9,8 +9,7 @@ class V216FeaturesTest {
 
     @Test
     fun testV216CurrentVersionUserUpdatesCompleteness() {
-        val updates = CurrentVersionUserUpdates
-        assertSame("当前版本更新日志应指向 V216UserUpdates", V216UserUpdates, updates)
+        val updates = V216UserUpdates
         assertFalse("本次更新日志列表不得为空", updates.isEmpty())
         assertTrue("必须包含当前版本主要更新项 (>=7项)", updates.size >= 7)
         assertTrue("必须包含600s充足模型响应超时放宽", updates.any { it.contains("600s") && it.contains("超时") })

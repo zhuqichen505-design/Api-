@@ -92,13 +92,16 @@ object SmartMemoryExtractor {
             }
         }
 
-        // 2.3 中括号结构化记忆提取（需求 1：增加剧情推进过滤与记忆价值判定，识别是否值得成为记忆）
+        // 2.3 中括号结构化记忆提取（增加 Markdown 链接过滤、剧情推进过滤与记忆价值判定）
         val bracketRegex = Regex("""[\[【]([^\[\]【】]{2,100})[\]】]""")
-        bracketRegex.find(trimmed)?.let { match ->
+        for (match in bracketRegex.findAll(trimmed)) {
             val inner = match.groupValues[1].trim()
-            if (!isCodeOrTechnicalNoise(inner) && isWorthBecomingMemory(inner)) {
+            val endIdx = match.range.last + 1
+            // 排除 Markdown 链接语法 [title](url)
+            val isMarkdownLink = endIdx < trimmed.length && trimmed[endIdx] == '('
+            if (!isMarkdownLink && !isCodeOrTechnicalNoise(inner) && isWorthBecomingMemory(inner)) {
                 val (distilled, category) = refineMemoryContent(inner)
-                if (distilled.isNotBlank()) {
+                if (distilled.isNotBlank() && isRelevantToOriginalContent(distilled, trimmed)) {
                     val isConv = isConversationScoped(inner.lowercase(Locale.ROOT))
                     return PendingMemoryCandidate(
                         distilledContent = distilled,
@@ -418,5 +421,38 @@ object SmartMemoryExtractor {
 
         // 普通无特殊设定标识的陈述句或动作推进，默认不作为记忆
         return false
+    }
+
+    /**
+     * 校验提取出的记忆事实与用户原始输入是否具有语义相关性（需求 1：杜绝不相关记忆或幻觉入库）
+     */
+    fun isRelevantToOriginalContent(distilled: String, originalContent: String): Boolean {
+        if (originalContent.isBlank()) return false
+        // 剥离前缀标签（如“用户偏好：”、“行为约束：”、“会话设定：”、“重要事实：”）
+        val coreFact = distilled.replace(Regex("""^(?:用户|会话|行为|重要)?(?:偏好|约束|设定|事实|习惯|环境)[：:]\s*"""), "").trim()
+        if (coreFact.length < 2) return false
+
+        val cleanOriginal = originalContent.lowercase(Locale.ROOT)
+        val cleanFact = coreFact.lowercase(Locale.ROOT)
+
+        // 1. 若原文直接包含核心事实，完全相关
+        if (cleanOriginal.contains(cleanFact)) return true
+
+        // 2. 提取分词片段或 2-gram 字符片段，避免中文无空格分词导致长句不匹配
+        val stopChars = setOf('的', '了', '是', '在', '也', '有', '和', '与', '于', '就', '不', '人', '都', '一', '个', '上', '很', '到', '说', '要', '去', '你', '我', '他', '她', '它', '这', '那', '被', '让', '把')
+
+        // 词级匹配（英文或标点分词）
+        val words = cleanFact.split(Regex("""[\s,，.。:：;；!！?？"“”'‘’\[\]【】()（）/、]+"""))
+            .map { it.trim() }
+            .filter { it.length >= 2 && !listOf("要求", "希望", "必须", "不要", "始终", "一个", "我们", "你们", "他们", "这个", "那个").contains(it) }
+
+        if (words.any { cleanOriginal.contains(it) }) return true
+
+        // 中文连续 2-gram 关键词校验
+        val nGrams = (0..cleanFact.length - 2)
+            .map { cleanFact.substring(it, it + 2) }
+            .filter { gram -> gram.none { it in stopChars } && gram.all { it.isLetterOrDigit() } }
+
+        return nGrams.any { cleanOriginal.contains(it) }
     }
 }

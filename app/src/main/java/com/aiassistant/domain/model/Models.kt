@@ -52,6 +52,12 @@ data class ApiConfig(
     val updatedAt: Long = System.currentTimeMillis()
 )
 
+// 具名/备注 API Key 模型（用于多Key区分与命名管理）
+data class NamedApiKey(
+    val name: String = "",
+    val key: String = ""
+)
+
 // 对话
 @Entity(
     tableName = "conversations",
@@ -83,6 +89,7 @@ data class Conversation(
     val enableExternalMemory: Boolean? = null,
     val enableWorldBook: Boolean? = null,
     val activeWorldBookIds: String? = null,
+    val modelAvatarUri: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 )

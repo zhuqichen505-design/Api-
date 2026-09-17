@@ -31,6 +31,9 @@ import androidx.compose.ui.unit.dp
 import com.aiassistant.domain.model.CharacterProfile
 import com.aiassistant.ui.components.EchoGlassDialog
 import com.aiassistant.ui.components.EchoGlassDropdownMenu
+import com.aiassistant.ui.components.ImageCropEditDialog
+import com.aiassistant.ui.components.CropShapeMode
+import com.aiassistant.utils.AvatarManager
 import com.aiassistant.utils.RoleplaySmartParser
 import kotlinx.coroutines.launch
 
@@ -607,18 +610,29 @@ private fun BasicInfoSection(
     onIsDefaultChange: (Boolean) -> Unit
 ) {
     val context = LocalContext.current
+    var pendingCropUri by remember { mutableStateOf<Uri?>(null) }
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri ->
         if (uri != null) {
-            runCatching {
-                context.contentResolver.takePersistableUriPermission(
-                    uri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION
-                )
-            }
-            onAvatarUriChange(uri.toString())
+            pendingCropUri = uri
         }
+    }
+
+    if (pendingCropUri != null) {
+        ImageCropEditDialog(
+            imageUri = pendingCropUri!!,
+            shapeMode = CropShapeMode.CIRCLE,
+            title = "裁剪与编辑故事角色头像",
+            onDismiss = { pendingCropUri = null },
+            onConfirm = { croppedBitmap ->
+                pendingCropUri = null
+                val savedUri = AvatarManager.saveCharacterAvatarBitmap(context, croppedBitmap)
+                if (savedUri != null) {
+                    onAvatarUriChange(savedUri)
+                }
+            }
+        )
     }
 
     Column(

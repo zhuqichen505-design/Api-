@@ -32,8 +32,28 @@ object BackgroundImageManager {
         return saveBackgroundFromUri(context, uri, HOME_BACKGROUND_FILE)
     }
 
+    fun saveHomeBackgroundBitmap(context: Context, bitmap: Bitmap): Boolean {
+        return saveBackgroundBitmap(context, bitmap, HOME_BACKGROUND_FILE)
+    }
+
     fun saveChatBackgroundFromUri(context: Context, uri: Uri): Boolean {
         return saveBackgroundFromUri(context, uri, CHAT_BACKGROUND_FILE)
+    }
+
+    fun saveChatBackgroundBitmap(context: Context, bitmap: Bitmap): Boolean {
+        return saveBackgroundBitmap(context, bitmap, CHAT_BACKGROUND_FILE)
+    }
+
+    private fun saveBackgroundBitmap(context: Context, bitmap: Bitmap, fileName: String): Boolean {
+        return try {
+            backgroundFile(context, fileName).outputStream().use { output ->
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 90, output)
+            }
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
     }
 
     fun saveHomeBackgroundSolidColor(context: Context, colorInt: Int): Boolean {

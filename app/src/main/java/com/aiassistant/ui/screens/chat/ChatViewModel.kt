@@ -195,6 +195,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                         modelName = conv.modelName,
                         systemPrompt = conv.systemPrompt,
                         enableThinking = conversation?.enableThinking ?: true,
+                        modelAvatarUri = conv.modelAvatarUri,
                         isRoleplay = rpSession != null,
                         roleplaySession = rpSession,
                         roleplayCharacter = rpCharacter,
@@ -426,11 +427,13 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
         }
     }
 
-    fun compressContextNow() {
+    fun compressContextNow(isAuto: Boolean = false) {
         if (_contextUsage.value.isCompressing) return
         viewModelScope.launch {
             val shouldCompress = _contextUsage.value.usage?.canCompress == true
-            _contextUsage.update { it.copy(isCompressing = true, statusMessage = "正在压缩上下文...") }
+            val initialPercent = (_contextUsage.value.usage?.usagePercent ?: 0f) * 100
+            val startMsg = if (isAuto) "🔄 正在自动压缩历史上下文，精简早期对话..." else "🔄 正在压缩上下文，精简历史消息..."
+            _contextUsage.update { it.copy(isCompressing = true, statusMessage = startMsg) }
             val modelName = _currentModel.value ?: conversation?.modelName ?: _uiState.value.modelName
             val maxTokens = (_useTempSettings.value)
                 .takeIf { it }
@@ -444,9 +447,20 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
             ).fold(
                 onSuccess = { usage ->
                     conversation = repository.getConversationById(conversationId) ?: conversation
+                    val newPercent = usage.usagePercent * 100
+                    val freed = (initialPercent - newPercent).coerceAtLeast(0f)
+                    val finishMsg = if (shouldCompress) {
+                        if (freed > 1f) {
+                            "✅ 上下文已成功压缩，释放约 ${freed.toInt()}% 空间，当前占用 ${newPercent.toInt()}%"
+                        } else {
+                            "✅ 上下文已完成压缩，保留核心摘要与最新对话"
+                        }
+                    } else {
+                        "当前上下文已处于最优压缩状态"
+                    }
                     _contextUsage.value = ContextUsageUiState(
                         usage = usage,
-                        statusMessage = if (shouldCompress) "已完成本轮压缩" else "当前上下文已是最新压缩状态"
+                        statusMessage = finishMsg
                     )
                 },
                 onFailure = { error ->
@@ -461,14 +475,51 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
         }
     }
 
+    fun clearContextStatusMessage() {
+        _contextUsage.update { it.copy(statusMessage = null) }
+    }
+
     private fun evaluateAutoCompression() {
         viewModelScope.launch {
             try {
                 val usage = _contextUsage.value.usage ?: return@launch
-                if (usage.canCompress && usage.usagePercent > 0.70f && !_contextUsage.value.isCompressing) {
-                    compressContextNow()
+                val percent = usage.usagePercent
+                if (_contextUsage.value.isCompressing) return@launch
+
+                // 预留用户反应时间缓冲阶段（60% ~ 75%）：给出提前预警提示
+                if (usage.canCompress && percent in 0.60f..0.75f) {
+                    val warning = "⚠️ 上下文占用已达 ${(percent * 100).toInt()}%，接近自动压缩阈值（75%）。将在达到阈值后自动精简早期对话，您也可手动提前压缩。"
+                    if (_contextUsage.value.statusMessage == null) {
+                        _contextUsage.update { it.copy(statusMessage = warning) }
+                    }
+                } else if (usage.canCompress && percent > 0.75f) {
+                    // 超过 75% 触发自动压缩，带有开始与结束提示
+                    compressContextNow(isAuto = true)
                 }
             } catch (_: Exception) {}
+        }
+    }
+
+    fun updateConversationModelAvatar(avatarUri: String?) {
+        viewModelScope.launch {
+            conversation?.let { conv ->
+                val updated = conv.copy(modelAvatarUri = avatarUri)
+                conversation = updated
+                repository.updateConversationModelAvatar(conv.id, avatarUri)
+                _uiState.update { it.copy(modelAvatarUri = avatarUri) }
+            }
+        }
+    }
+
+    fun editAssistantMessage(messageId: Long, newContent: String) {
+        viewModelScope.launch {
+            val target = _messages.value.firstOrNull { it.id == messageId } ?: return@launch
+            val updated = target.copy(content = newContent)
+            repository.updateMessage(updated)
+            _messages.update { list ->
+                list.map { if (it.id == messageId) updated else it }
+            }
+            refreshContextUsage()
         }
     }
 
@@ -1999,6 +2050,7 @@ data class ChatUiState(
     val systemPrompt: String? = null,
     val enableThinking: Boolean = true,
     val isLoading: Boolean = false,
+    val modelAvatarUri: String? = null,
     val isRoleplay: Boolean = false,
     val roleplaySession: RoleplaySession? = null,
     val roleplayCharacter: CharacterProfile? = null,

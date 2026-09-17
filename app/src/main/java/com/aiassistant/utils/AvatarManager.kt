@@ -34,6 +34,89 @@ object AvatarManager {
         return saveAvatarFromUri(context, uri, apiModelAvatarFileName(apiConfigId))
     }
 
+    fun saveAvatarBitmap(context: Context, bitmap: Bitmap): Boolean {
+        return saveAvatarBitmap(context, bitmap, AVATAR_FILE)
+    }
+
+    fun saveModelAvatarBitmap(context: Context, bitmap: Bitmap): Boolean {
+        return saveAvatarBitmap(context, bitmap, MODEL_AVATAR_FILE)
+    }
+
+    fun saveApiModelAvatarBitmap(context: Context, apiConfigId: Long, bitmap: Bitmap): Boolean {
+        if (apiConfigId <= 0L) return false
+        return saveAvatarBitmap(context, bitmap, apiModelAvatarFileName(apiConfigId))
+    }
+
+    fun saveCharacterAvatarBitmap(context: Context, bitmap: Bitmap): String? {
+        return try {
+            val fileName = "character_avatar_${System.currentTimeMillis()}.png"
+            val file = File(context.filesDir, fileName)
+            val resized = if (bitmap.width > 512 || bitmap.height > 512) {
+                Bitmap.createScaledBitmap(bitmap, 256, 256, true)
+            } else {
+                bitmap
+            }
+            file.outputStream().use { output ->
+                resized.compress(Bitmap.CompressFormat.PNG, 90, output)
+            }
+            if (resized != bitmap) resized.recycle()
+            Uri.fromFile(file).toString()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    fun saveConversationModelAvatarBitmap(context: Context, conversationId: Long, bitmap: Bitmap): String? {
+        return try {
+            val fileName = "conversation_avatar_${conversationId}_${System.currentTimeMillis()}.png"
+            val file = File(context.filesDir, fileName)
+            val resized = if (bitmap.width > 512 || bitmap.height > 512) {
+                Bitmap.createScaledBitmap(bitmap, 256, 256, true)
+            } else {
+                bitmap
+            }
+            file.outputStream().use { output ->
+                resized.compress(Bitmap.CompressFormat.PNG, 90, output)
+            }
+            if (resized != bitmap) resized.recycle()
+            Uri.fromFile(file).toString()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    fun deleteConversationModelAvatar(context: Context, avatarUri: String?) {
+        if (avatarUri.isNullOrBlank()) return
+        runCatching {
+            val uri = Uri.parse(avatarUri)
+            val path = uri.path
+            if (path != null) {
+                val file = File(path)
+                if (file.exists() && file.name.startsWith("conversation_avatar_")) {
+                    file.delete()
+                }
+            }
+        }
+    }
+
+    private fun saveAvatarBitmap(context: Context, bitmap: Bitmap, fileName: String): Boolean {
+        return try {
+            val resized = Bitmap.createScaledBitmap(bitmap, 256, 256, true)
+            val outputStream = ByteArrayOutputStream()
+            resized.compress(Bitmap.CompressFormat.PNG, 90, outputStream)
+            val byteArray = outputStream.toByteArray()
+            val base64 = Base64.encodeToString(byteArray, Base64.NO_WRAP)
+            saveAvatar(context, fileName, base64)
+            if (resized != bitmap) resized.recycle()
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
     private fun saveAvatar(context: Context, fileName: String, base64Data: String) {
         val file = File(context.filesDir, fileName)
         file.writeText(base64Data)

@@ -1,5 +1,140 @@
 # Echo AI 助手更新日志 (Update Log)
 
+## [2026-09-17] - v2.1.8：记忆提取完整性与语义相关性重构、多 Key 自动透明故障转移、输出工具栏二级菜单收纳、API Key 独立命名与卡片化配置、滚动摘要虚假提醒根治、核心巨型文件工程级模块化拆分
+
+### 1. 本次 6 大核心诉求深度落实与功能重构
+1. **记忆提取异常修复（内容完整性与原文相关性重构）**：
+   - **去除推理流污染**：在 `TimelineMemoryHelper.kt` 中实现 `stripThinkingTags`，严格清理 `<think>...</think>` 及模型流式截断产生的未闭合 `<think>` 标签，前置净化记忆输入文本；
+   - **杜绝格式碎片**：在 `SmartMemoryExtractor.kt` 中排除 markdown 链接语法 `[text](url)`，避免将网页链接碎片误提取为用户长期记忆；
+   - **语义相关性交叉检验**：新增 `isRelevantToOriginalContent`，基于标点分词与连续 2-gram 关键词校验，严格比对候选记忆与用户原文的语义重合度，坚决拦截虚假幻觉与偏离原文的记忆候选；
+   - **放宽辅助模型输出上限**：在 `AiRepository.kt` 中将辅助记忆提取与时间线分析的 `max_tokens` 从 96 大幅放宽至 512，并过滤开场白与思考流，彻底根除因 Token 限制导致的句子被硬截断问题。
+
+2. **同一个 API 配置多 Key 自动故障转移与透明重试**：
+   - **智能纯 Key 提取与清洗**：在 `AiRepository.kt` 中重构 `parseApiKeys`，自动解析并剥离 `[名称]` 与 `名称:::` 标签，仅向底层网络传输清洁密钥；
+   - **多 Key 轮询故障转移机制**：在 OpenAI 及 Anthropic 流式请求全流程中加入备用 Key 故障转移循环。遇到连接超时、网络中断、400/401/403/404/422/429/500/502/503/504 HTTP 报错、SSE 内部 `{"error": ...}` JSON 结构或空响应时，自动无感切换至下一个有效 Key 并重试请求；
+   - **辅助模型协同故障转移**：在辅助记忆提取等后台请求中同样接入多 Key 备用切换循环，确保关键后台分析任务不受单一 Key 异常影响。
+
+3. **模型回复下方工具栏超长问题重构（二级菜单收纳）**：
+   - **轻量化一级操作栏**：在 `ChatMessageComponents.kt` (`MessageFooter`) 中，一级工具栏仅保留核心高频操作（版本切换器、复制、分支/引用、重新生成以及更多操作按钮）；
+   - **二级液态玻璃下拉菜单**：点击 `MoreVert` 触发 `EchoGlassDropdownMenu`，将“重新编辑”、“固定到上下文 / 取消固定”、“从上下文中排除 / 恢复”以及“删除此条消息”整齐收纳进二级菜单；若某条消息处于固定或排除状态，更多按钮自适应显示高亮主题色，兼具视觉轻盈与状态清晰度。
+
+4. **API Key 支持自定义命名与备注区分**：
+   - **领域模型扩展**：在 `Models.kt` 中新增 `data class NamedApiKey(val name: String = "", val key: String = "")`；
+   - **双向序列化与兼容**：在 `AiRepository.kt` 中实现 `parseNamedApiKeys` 与 `formatNamedApiKeys`，同时向前兼容纯 Key、逗号/换行分隔以及 `[名称] sk-xxx` 与 `名称:::sk-xxx` 格式；
+   - **卡片化多 Key 输入面板**：在 `SettingsApiConfigDialog.kt` 中提供独立 Key 卡片化列表，每个 Key 拥有专属的“备注名称（可选）”与“API Key”输入框，支持动态添加独立输入框、单个删除及批量智能解析；
+   - **设置卡片直观标识**：在 `SettingsScreen.kt` 的 `ApiConfigCard` 中增加 Key 数量角标与已命名备注预览标签，方便直观辨识不同账号或额度配额。
+
+5. **核心巨型文件工程级模块化拆分（降低复杂度与提升稳定性）**：
+   - **SettingsScreen.kt (原 8,182 行) 拆分为 9 个高内聚子文件**：
+     1. `SettingsScreen.kt`（主框架与导航容器，~1,000 行）
+     2. `SettingsApiConfigDialog.kt`（API 配置与多 Key 管理弹窗，~1,500 行）
+     3. `SettingsUniversalModelPicker.kt`（通用模型选择器组件，~600 行）
+     4. `SettingsAppearanceTab.kt`（外观与个性化壁纸设置，~600 行）
+     5. `SettingsModelFeaturesTab.kt`（模型特性与全局参数，~500 行）
+     6. `SettingsPromptsMemoryTab.kt`（提示词与记忆设置，~1,600 行）
+     7. `SettingsPersonalizationTab.kt`（个人偏好与快捷模板，~1,100 行）
+     8. `SettingsSecurityAndBackupTab.kt`（安全备份与更新日志，~900 行）
+     9. `SettingsWebSearchTab.kt`（网络搜索与辅助功能，~1,000 行）
+   - **ChatScreen.kt (原 10,375 行) 拆分为 7 个高内聚子文件**：
+     1. `ChatScreen.kt`（主界面与生命周期调度，~1,840 行）
+     2. `ChatScreenModels.kt`（聊天界面共享状态与数据模型，~60 行）
+     3. `ChatContextComponents.kt`（上下文使用率卡片、环形图及跳转按键，~640 行）
+     4. `ChatMessageComponents.kt`（消息气泡、MessageFooter、头像、引文及工具调用卡片，~2,100 行）
+     5. `ChatInputComponents.kt`（输入栏、推理Popup、模型选择及引用预览，~1,725 行）
+     6. `ChatSettingsDialogs.kt`（系统提示词、模板及会话设置弹窗，~2,225 行）
+     7. `ChatStoryDialogs.kt`（故事角色与时间轴工作台弹窗，~2,525 行）
+   - 拆分后对外契约、ViewModel 数据流、UI 状态完全保持 100% 稳定一致。
+
+6. **上下文处始终提醒“有较早信息尚未进入摘要”问题深度修复**：
+   - **重构 canCompress 触发策略**：在 `AiRepository.kt` 中，废除原先粗暴仅判断 `usableMessages.size >= 4` 的过敏逻辑，改为综合考量实际 Token 压力与上下文占用率（当且仅当占用率达到 50% 以上或消息条数超过 20 条且存在摘要空间时方判定为可压缩）；
+   - **消除虚假警报红点**：在 `ChatContextComponents.kt` 中，`ContextUsageButton` 仅在 `canCompress && usagePercent >= 0.60f` 时显示红色警示标记；
+   - **优化状态提示语义**：在 `ContextUsageStatus` 中，当上下文充裕且健康时明确提示“上下文健康，对话空间充裕”与“暂无长对话压缩需求”，仅在达到实际阈值时才提示执行滚动摘要。
+
+### 2. 自动化测试与质量保障
+- **新增单元测试**：`V218FeaturesTest.kt`，全面覆盖：
+  - `testV218UserUpdatesCompleteness`（6项核心特性完整性）
+  - `testNamedApiKeyDataClass`（NamedApiKey 数据模型属性与 copy）
+  - `testNamedApiKeyParsingAndFormatting`（多格式命名解析与格式化回存）
+  - `testPureApiKeyExtractionStripsNames`（纯 Key 提取与标签剥离隔离性）
+  - `testStripThinkingTags`（闭合与未闭合思考标签净化）
+  - `testSmartMemoryExtractorUrlAndRelevanceFilter`（URL 链接过滤与 2-gram 语义相关性校验）
+- **全量单元测试**：258 个单元测试 100% 全部通过 (BUILD SUCCESSFUL)；
+- **版本配置**：`versionCode = 124`，`versionName = "2.1.8"`；
+- **Release APK 产物**：
+  - 路径：`releases/Echo-v2.1.8-arm64-v8a.apk`（及增量 `Echo-v2.1.8.apk`）；
+  - 大小：16,222,205 字节；
+  - SHA256：`1F195EBA74514F40A708AC916012BE8E7302FBF2E13906A28084B387B42AF444`；
+  - 架构：`arm64-v8a` (`isUniversalApk = false`)；
+  - 签名验证：APK Signature Scheme v2 验证通过；
+  - **历史安装包永久保留准则（最高铁律）**：`releases/` 目录下所有历史版本（v1.6.6 ~ v2.1.7）完整无缺保留，仅增量输出 v2.1.8 安装包。
+
+## [2026-09-16] - v2.1.7：全量12项产品级优化与重构（时间线深度优化、按键圆角与阴影规范、专属记忆UI重构、对话设置层级重排、全能图片裁剪、长文本展开收起、模型回复编辑、会话级模型头像、能力标签紧凑对齐、ConversationSummaryBufferMemory上下文压缩）
+
+### 1. 本次 12 大核心诉求深度落实与功能重构
+1. **时间线梳理对时间的敏锐度与准确度深度优化**：
+   - **自然叙事与文学时间解析**：深化自然文学时间表达（如“两周过后”、“暑假开始”、“三年后·春”、“数日后”等）解析与跨度跳转推断；
+   - **单调推进与故事节点驻留兜底**：解决不以具体天数为单位的剧情推进与时间跳跃，准确推断当前故事驻留时间节点，杜绝时间倒流并防止粗暴退回到“未确定”；
+   - **常驻多维设定与里程碑提炼**：深度提炼剧情重大转折、人际变迁、秘密揭露、约定契约与 6 维常驻设定（核心特质、习惯偏好、生理禁忌、人际羁绊、秘密真相、世界铁律）。
+2. **全局按键阴影与圆角几何轮廓统一，消除直角割裂**：
+   - **圆角轮廓贴合**：全面审核卡片、按键、Chips、输入框附加按钮；
+   - **规范按下覆盖层与点击涟漪**：统一封装 `echoShapeClick` 与 `echoShapeCombinedClick`，点击水波纹与高亮覆盖层严格贴合 Shape/Path 物理圆角轮廓，消除矩形阴影毛刺。
+3. **“本对话专属记忆与时间线”单条记忆 UI 排版重构**：
+   - **按键分区重整**：单条记忆卡片中开关移至右上角，编辑与删除按键并列放置在右下角，左侧空间全量留给正文，大幅提升文本阅读可视面积与阅读体验。
+4. **对话设置功能层级顺序调整**：
+   - **视觉动线优化**：“本对话专属记忆与时间线”和“跨会话记忆与世界书”上移至对话设置中“模型头像”的正上方，操作路径更为聚焦自然。
+5. **全能图片导入与编辑系统（放缩/平移/旋转/翻转/裁剪）**：
+   - **ImageCropEditDialog 独立裁剪弹窗**：支持多点手势放缩、自由平移、90° 旋转、水平与垂直翻转，支持圆形与矩形裁剪模式；
+   - **全场景覆盖**：全面接入故事角色头像、API 模型头像、用户自定义头像与聊天/主页背景壁纸导入。
+6. **专属记忆列表支持折叠与展开**：
+   - 在开启“本对话专属记忆与时间线”后，下方的记忆清单区域提供专属收起/展开开关，避免长篇记忆清单过长遮挡其他对话配置项。
+7. **记忆提炼辅助模型层级归一**：
+   - 设置中的“记忆提炼辅助模型”统一移至“模型辅助与思考”菜单下，复用 `UniversalModelPickerCard` 完整选择与过滤逻辑，并保留“即时测试辅助连接”弹窗与测试结果展示。
+8. **排版防折行与长文本全局展开收起组件**：
+   - **按键文字防折行**：控制各类设置项按键文字 `maxLines = 1`，彻底杜绝折行割裂；
+   - **统一 ExpandableText 组件**：针对提示词正文、大段设定说明提供平滑展开与收起交互。
+9. **会话内自定义模型头像“会话级”隔离**：
+   - **数据与存储隔离**：`Conversation` 实体新增 `modelAvatarUri` 属性，Room 数据库平滑升级至版本 26（`MIGRATION_25_26`）；
+   - **视图渲染优先**：消息列表气泡与对话设置优先展示当前会话专属头像，与其他会话完全隔离。
+10. **对话设置模型能力标签同排紧凑展示**：
+    - 对话设置弹窗中，窗口、工具、视觉、思考等能力标签与“模型”标题保持在同一 Row 横向紧凑对齐，有效压缩纵向空间占用。
+11. **上下文压缩功能重构（开源 ConversationSummaryBufferMemory 规范）**：
+    - **彻底移出早期历史**：被压缩截断点前的早期历史彻底移出活跃 Prompt Context，由高密度滚动摘要替代，Token 大幅降低；
+    - **预警与状态横幅**：上下文达到 60%~75% 缓冲区时展示状态横幅给用户反应时间，>75% 自动平滑压缩，压缩开始与结束均有明确状态提示。
+12. **模型回复（Assistant）内容支持编辑**：
+    - 在模型回复气泡底部的操作区新增“编辑”按键，轻触弹出独立毛玻璃编辑弹窗，编辑确认后持久化更新 Room 数据库并即时刷新消息列表。
+
+### 2. 自动化测试与质量保障
+- **新增单元测试**：`V217FeaturesTest.kt`，完整验证 12 项更新条目、会话头像隔离、模型回复编辑副本、时间线文学跳转推断与既有故事时间安全兜底、6 维设定轮换以及 60%/75% 上下文缓冲预警阈值；
+- **全量单元测试**：252 个单元测试 100% 全部通过 (BUILD SUCCESSFUL)；
+- **版本配置**：`versionCode = 123`，`versionName = "2.1.7"`；
+- **Release APK 产物**：
+  - 路径：`releases/Echo-v2.1.7-arm64-v8a.apk`（及增量 `Echo-v2.1.7.apk`）；
+  - 大小：16,222,205 字节；
+  - SHA256：`58B2192ED88FE6EB3DD5060CB3F47F8A9656E9E5EB2938929630472AE2133108`；
+  - 架构：`arm64-v8a` (`isUniversalApk = false`)；
+  - 签名验证：APK Signature Scheme v2 验证通过 (1 signer)；
+  - **历史安装包永久保留准则（最高铁律）**：`releases/` 目录历史安装包完整保留，增量输出 `Echo-v2.1.7-arm64-v8a.apk` 与 `Echo-v2.1.7.apk`。
+
+### 3. 改动文件列表
+- `app/build.gradle.kts` [MODIFY]
+- `app/src/main/java/com/aiassistant/domain/model/Models.kt` [MODIFY]
+- `app/src/main/java/com/aiassistant/data/local/AppDatabase.kt` [MODIFY]
+- `app/src/main/java/com/aiassistant/data/local/Daos.kt` [MODIFY]
+- `app/src/main/java/com/aiassistant/data/repository/AiRepository.kt` [MODIFY]
+- `app/src/main/java/com/aiassistant/utils/AvatarManager.kt` [MODIFY]
+- `app/src/main/java/com/aiassistant/utils/BackgroundImageManager.kt` [MODIFY]
+- `app/src/main/java/com/aiassistant/utils/TimelineMemoryHelper.kt` [MODIFY]
+- `app/src/main/java/com/aiassistant/ui/components/PressEffects.kt` [MODIFY]
+- `app/src/main/java/com/aiassistant/ui/components/EchoGlassCard.kt` [MODIFY]
+- `app/src/main/java/com/aiassistant/ui/components/ImageCropEditDialog.kt` [NEW]
+- `app/src/main/java/com/aiassistant/ui/components/ExpandableText.kt` [NEW]
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatViewModel.kt` [MODIFY]
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatScreen.kt` [MODIFY]
+- `app/src/main/java/com/aiassistant/ui/screens/settings/SettingsScreen.kt` [MODIFY]
+- `app/src/main/java/com/aiassistant/ui/screens/roleplay/CharacterEditorScreen.kt` [MODIFY]
+- `app/src/test/java/com/aiassistant/V217FeaturesTest.kt` [NEW]
+- `app/src/test/java/com/aiassistant/V216FeaturesTest.kt` [MODIFY]
+
 ## [2026-09-15] - v2.1.6：600s大模型推理超时放宽、自然叙事时间跨度支持、全景5大里程碑与6维设定提炼
 
 ### 1. 本次 3 大核心诉求深度落实与功能重构

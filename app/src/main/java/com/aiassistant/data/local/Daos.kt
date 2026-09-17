@@ -151,6 +151,13 @@ interface ConversationDao {
         messageId: Long?,
         timestamp: Long = System.currentTimeMillis()
     )
+
+    @Query("UPDATE conversations SET modelAvatarUri = :avatarUri, updatedAt = :timestamp WHERE id = :id")
+    suspend fun updateModelAvatarUri(
+        id: Long,
+        avatarUri: String?,
+        timestamp: Long = System.currentTimeMillis()
+    )
 }
 
 // ============ 消息 DAO ============

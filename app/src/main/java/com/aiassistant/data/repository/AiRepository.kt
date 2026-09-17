@@ -88,11 +88,62 @@ class AiRepository(
         const val DEFAULT_UNKNOWN_CONTEXT_WINDOW_TOKENS = 256_000
         const val CONTEXT_OVERFLOW_RETRY_WINDOW_TOKENS = 32_000
 
+        /**
+         * 解析具名或纯文本 API Key 列表（支持 [名称] sk-xxx 与 名称:::sk-xxx 格式）
+         */
+        fun parseNamedApiKeys(rawKey: String?): List<NamedApiKey> {
+            if (rawKey.isNullOrBlank()) return emptyList()
+            val lines = rawKey.split(Regex("[\\n,;]+")).map { it.trim() }.filter { it.isNotEmpty() }
+            val result = mutableListOf<NamedApiKey>()
+            for (line in lines) {
+                // 格式 1: [名称] key
+                val bracketMatch = Regex("""^[\[【]([^\[\]【】]+)[\]】]\s*(.+)$""").find(line)
+                if (bracketMatch != null) {
+                    val name = bracketMatch.groupValues[1].trim()
+                    val key = bracketMatch.groupValues[2].trim()
+                    if (key.isNotEmpty()) {
+                        result.add(NamedApiKey(name = name, key = key))
+                        continue
+                    }
+                }
+                // 格式 2: 名称:::key
+                val colonMatch = Regex("""^([^:]+):::\s*(.+)$""").find(line)
+                if (colonMatch != null) {
+                    val name = colonMatch.groupValues[1].trim()
+                    val key = colonMatch.groupValues[2].trim()
+                    if (key.isNotEmpty()) {
+                        result.add(NamedApiKey(name = name, key = key))
+                        continue
+                    }
+                }
+                // 格式 3: 纯 key
+                result.add(NamedApiKey(name = "", key = line))
+            }
+            return result
+        }
+
+        /**
+         * 格式化具名 API Key 为多行持久化文本
+         */
+        fun formatNamedApiKeys(keys: List<NamedApiKey>): String {
+            return keys.filter { it.key.isNotBlank() }.joinToString("\n") { item ->
+                val cleanKey = item.key.trim()
+                val cleanName = item.name.trim()
+                if (cleanName.isNotBlank()) {
+                    "[$cleanName] $cleanKey"
+                } else {
+                    cleanKey
+                }
+            }
+        }
+
+        /**
+         * 提取纯净 API Key 列表（自动剥离名称前缀，杜绝网络层脏标头）
+         */
         fun parseApiKeys(rawKey: String?): List<String> {
             if (rawKey.isNullOrBlank()) return emptyList()
-            return rawKey
-                .split(Regex("[\\n,;]+"))
-                .map { it.trim() }
+            return parseNamedApiKeys(rawKey)
+                .map { it.key.trim() }
                 .filter { it.isNotEmpty() }
                 .distinct()
         }
@@ -1065,13 +1116,21 @@ class AiRepository(
                 modelName = modelName,
                 maxOutputTokens = maxOutputTokens
             )
+            val usableMessages = messages.filter { message ->
+                (message.role == "user" || message.role == "assistant") && message.content.isNotBlank() && !message.isExcluded
+            }
+            if (usableMessages.size < 4) {
+                return@runCatching snapshot
+            }
+
             val tokenBudget = (snapshot.promptBudgetTokens * SUMMARY_BUDGET_RATIO)
                 .toInt()
                 .coerceIn(600, 1_800)
-            val usableMessages = messages.filter { message ->
-                (message.role == "user" || message.role == "assistant") && message.content.isNotBlank()
-            }
-            val olderMessages = usableMessages.take(snapshot.olderMessageCount)
+
+            // 开源最佳实践（ConversationSummaryBufferMemory 范式）：
+            // 保留最近 2~4 条鲜活活跃对话，将其余早期历史消息全部压缩归约进滚动摘要
+            val keepRecentCount = (4).coerceAtMost(usableMessages.size / 2).coerceAtLeast(2)
+            val olderMessages = usableMessages.dropLast(keepRecentCount)
 
             ensureRollingSummary(
                 conversation = conversation,
@@ -1089,6 +1148,10 @@ class AiRepository(
                 maxOutputTokens = maxOutputTokens
             )
         }
+    }
+
+    suspend fun updateConversationModelAvatar(conversationId: Long, avatarUri: String?) = withContext(Dispatchers.IO) {
+        conversationDao.updateModelAvatarUri(conversationId, avatarUri)
     }
 
     suspend fun saveMessage(message: Message): Long {
@@ -1300,11 +1363,6 @@ class AiRepository(
                         hasEmittedTokens = false
                     }
 
-                    // 客户端参数错误或模型不存在 (400, 404, 422)，换 Key 无效，立即抛出
-                    if (e is ApiException && (e.statusCode == 400 || e.statusCode == 404 || e.statusCode == 422)) {
-                        throw e
-                    }
-
                     if (isNetworkFluctuationException(e)) {
                         attempt++
                         if (attempt <= maxTimeoutAttempts) {
@@ -1315,7 +1373,7 @@ class AiRepository(
                             continue
                         } else {
                             val failText = if (keyIndex + 1 < allKeys.size) {
-                                "网络重连重试已达 $maxTimeoutAttempts 次，尝试切换下一个 Key (${keyIndex + 2}/${allKeys.size})..."
+                                "网络重连重试已达 $maxTimeoutAttempts 次，自动尝试下一个 Key (${keyIndex + 2}/${allKeys.size})..."
                             } else {
                                 "网络波动，重连重试已达 $maxTimeoutAttempts 次"
                             }
@@ -1324,15 +1382,19 @@ class AiRepository(
                             break
                         }
                     } else {
-                        // 非网络波动报错（如 401, 403, 429, 500 等 API 业务错误）
-                        val failText = if (keyIndex + 1 < allKeys.size) {
-                            "当前 Key 异常，正在尝试备用 Key (${keyIndex + 2}/${allKeys.size})..."
+                        // 无论客户端参数/模型错误(400, 404, 422)还是服务端错误(401, 403, 429, 500)，只要还有备用Key就自动尝试下一个Key
+                        if (keyIndex + 1 < allKeys.size) {
+                            val nextIdx = keyIndex + 2
+                            val failText = "当前 Key 异常(${e.message?.take(40)})，正在自动尝试备用 Key ($nextIdx/${allKeys.size})..."
+                            Log.w(tag, "Key[$keyIndex] 请求报错: ${e.message}，自动尝试备用 Key")
+                            onStatusUpdate?.invoke(failText)
+                            break
                         } else {
-                            "Key[${keyIndex + 1}] 请求报错: ${e.message}"
+                            val failText = "Key[${keyIndex + 1}] 请求报错: ${e.message}"
+                            Log.w(tag, failText)
+                            onStatusUpdate?.invoke(failText)
+                            throw e
                         }
-                        Log.w(tag, "Key[$keyIndex] 请求报错: ${e.message}，尝试切换下一个 Key")
-                        onStatusUpdate?.invoke(failText)
-                        break
                     }
                 }
             }
@@ -1552,6 +1614,20 @@ class AiRepository(
                             val data = lineStr.removePrefix("data:").trimStart()
                             if (data == "[DONE]") break
 
+                            // 检测流式返回的内联错误（很多中转平台在 200 OK 建立连接后第一包返回 error）
+                            if (data.contains("\"error\"") && (data.contains("\"message\"") || data.contains("\"code\""))) {
+                                val errMsg = try {
+                                    val errObj = JsonParser.parseString(data).asJsonObject
+                                    if (errObj.has("error")) {
+                                        val err = errObj.get("error")
+                                        if (err.isJsonObject) err.asJsonObject.get("message")?.asString else err.asString
+                                    } else null
+                                } catch (_: Exception) { null }
+                                if (!errMsg.isNullOrBlank()) {
+                                    throw ApiException(400, "API流式返回错误: $errMsg", data)
+                                }
+                            }
+
                             try {
                                 val chunk = gson.fromJson(data, ChatCompletionChunk::class.java)
                                 val delta = chunk.choices?.firstOrNull()?.delta
@@ -1656,6 +1732,10 @@ class AiRepository(
                         }
                         fullContent = fullContent.replace(match.value, "").trim()
                     }
+                }
+
+                if (fullContent.isBlank() && fullThinking.isNullOrBlank() && toolCalls.isEmpty()) {
+                    throw ApiException(500, "模型回复内容为空，可能触发了平台限制或API Key异常")
                 }
 
                 val finalThinkingTokens = thinkingTokens.takeIf { it > 0 } ?: estimateTokenCount(fullThinking.orEmpty())
@@ -1879,12 +1959,14 @@ class AiRepository(
                                         }
                                     }
                                     "error" -> {
-                                        val errText = event.error?.message ?: "Anthropic 流式返回错误"
-                                        throw Exception(errText)
+                                        val errDetail = event.error?.message ?: "Anthropic流式返回未知错误"
+                                        throw ApiException(400, "Anthropic错误: $errDetail", data)
                                     }
                                 }
+                            } catch (e: ApiException) {
+                                throw e
                             } catch (e: Exception) {
-                                Log.w(tag, "解析Anthropic event失败: $data", e)
+                                Log.w(tag, "解析Anthropic chunk失败: $data", e)
                             }
                         }
                     }
@@ -1904,6 +1986,10 @@ class AiRepository(
                         }
                         fullContent = fullContent.replace(match.value, "").trim()
                     }
+                }
+
+                if (fullContent.isBlank() && fullThinking.isNullOrBlank() && toolCalls.isEmpty()) {
+                    throw ApiException(500, "Anthropic 模型回复内容为空，可能触发限制或API Key异常")
                 }
                 val finalThinkingTokens = estimateTokenCount(fullThinking.orEmpty())
                 val finalOutputTokens = outputTokens.takeIf { it > 0 } ?: estimateTokenCount(fullContent)
@@ -2149,9 +2235,21 @@ class AiRepository(
             promptBudget - summaryBudget - memoryBudget - SYSTEM_PROMPT_TOKEN_RESERVE
         ).coerceAtLeast(MIN_RECENT_CONTEXT_TOKENS)
 
+        val hasRollingSummary = !conversation.rollingSummary.isNullOrBlank()
+        val summarizedThrough = conversation.summaryUpdatedMessageId ?: 0L
+
+        // 开源规范（ConversationSummaryBufferMemory 机制）：
+        // 若存在滚动摘要且记录了截断点，活跃上下文仅包含截断点之后的新消息与显式钉住 (isPinned) 的消息；
+        // 早期历史消息已被归约为滚动摘要，不再作为原文消耗上下文输入预算。
+        val activeCandidateMessages = if (hasRollingSummary && summarizedThrough > 0L) {
+            usableMessages.filter { it.id > summarizedThrough || it.isPinned }
+        } else {
+            usableMessages
+        }
+
         var recentTokens = 0
         var recentCount = 0
-        for (message in usableMessages.asReversed()) {
+        for (message in activeCandidateMessages.asReversed()) {
             val cost = estimateTokenCount(compactMessageForHistory(message.content)) + 24
             if (recentCount > 0 && recentTokens + cost > recentBudget && !message.isPinned) break
             recentTokens += cost
@@ -2159,14 +2257,14 @@ class AiRepository(
         }
 
         val olderCount = (usableMessages.size - recentCount).coerceAtLeast(0)
-        val lastOlderMessageId = usableMessages
-            .dropLast(recentCount)
-            .lastOrNull()
-            ?.id
-        val summaryTokens = conversation.rollingSummary
-            ?.takeIf { it.isNotBlank() }
-            ?.let { estimateTokenCount(compactTextToTokenBudget(it, summaryBudget)) }
-            ?: 0
+        val lastOlderMessageId = if (usableMessages.size >= 4) {
+            usableMessages.dropLast(2).lastOrNull()?.id
+        } else null
+
+        val summaryTokens = if (hasRollingSummary) {
+            conversation.rollingSummary?.let { estimateTokenCount(compactTextToTokenBudget(it, summaryBudget)) } ?: 0
+        } else 0
+
         val latestUserMessage = usableMessages.lastOrNull { it.role == "user" }?.content.orEmpty()
         val memoryBlock = buildRelevantMemoryBlock(conversation, latestUserMessage, memoryBudget)
         val memoryTokens = memoryBlock?.let(::estimateTokenCount) ?: 0
@@ -2178,22 +2276,29 @@ class AiRepository(
                 summaryTokens.coerceAtMost(summaryBudget) +
                 memoryTokens.coerceAtMost(memoryBudget)
         ).coerceAtLeast(0)
+        val calculatedUsagePercent = (estimatedInputTokens / promptBudget.toFloat()).coerceIn(0f, 1f)
 
-        val summarizedThrough = conversation.summaryUpdatedMessageId ?: 0L
-        val canCompress = lastOlderMessageId != null && summarizedThrough < lastOlderMessageId
+        // 需求 6：修复始终提示“有较早信息尚未进入摘要”
+        // 判定准则（符合 ConversationSummaryBufferMemory 规范）：
+        // 1. 只有当存在真正溢出活跃预算的较早历史消息（olderCount > 0 且其中包含未归约的消息）；
+        // 2. 或当前活跃上下文占用率达到中高负载水位（>= 50% 且存在可压缩消息）时，才激活可压缩预警状态；
+        // 3. 当处于健康短对话或历史完全包含在活跃窗口内时，不激活可压缩（杜绝无意义红点与误报提示）。
+        val hasPendingOlderOverflow = olderCount > 0 && lastOlderMessageId != null && (summarizedThrough == 0L || summarizedThrough < lastOlderMessageId)
+        val isHighContextPressure = calculatedUsagePercent >= 0.50f && usableMessages.size >= 6 && lastOlderMessageId != null && (summarizedThrough == 0L || summarizedThrough < lastOlderMessageId)
+        val canCompress = hasPendingOlderOverflow || isHighContextPressure
 
         return ConversationContextUsage(
             contextWindowTokens = contextWindow,
             promptBudgetTokens = promptBudget,
             estimatedInputTokens = estimatedInputTokens,
-            usagePercent = (estimatedInputTokens / promptBudget.toFloat()).coerceIn(0f, 1f),
+            usagePercent = calculatedUsagePercent,
             recentMessageCount = recentCount,
             olderMessageCount = olderCount,
             recentTokens = recentTokens,
             summaryTokens = summaryTokens,
             memoryTokens = memoryTokens,
             memoryItemCount = memoryItemCount,
-            hasRollingSummary = !conversation.rollingSummary.isNullOrBlank(),
+            hasRollingSummary = hasRollingSummary,
             summaryUpdatedAt = conversation.summaryUpdatedAt,
             compressedThroughMessageId = conversation.summaryUpdatedMessageId,
             canCompress = canCompress
@@ -2230,9 +2335,18 @@ class AiRepository(
             buildRelevantMemoryBlock(it, currentUserMessage, memoryBudget, options)
         }
 
+        val hasRollingSummary = !conversation?.rollingSummary.isNullOrBlank()
+        val summarizedThrough = conversation?.summaryUpdatedMessageId ?: 0L
+
+        val activeCandidateMessages = if (hasRollingSummary && summarizedThrough > 0L) {
+            usableMessages.filter { it.id > summarizedThrough || it.isPinned }
+        } else {
+            usableMessages
+        }
+
         var usedTokens = 0
         val recentReversed = mutableListOf<Message>()
-        for (message in usableMessages.asReversed()) {
+        for (message in activeCandidateMessages.asReversed()) {
             val compact = compactMessageForHistory(message.content)
             val cost = estimateTokenCount(compact) + 24
             if (recentReversed.isNotEmpty() && usedTokens + cost > recentBudget && !message.isPinned) {
@@ -2244,13 +2358,17 @@ class AiRepository(
 
         val recentMessages = recentReversed.asReversed()
         val olderMessages = usableMessages.dropLast(recentMessages.size)
-        val summary = ensureRollingSummary(
-            conversation = conversation,
-            config = config,
-            modelName = modelName,
-            olderMessages = olderMessages,
-            tokenBudget = summaryBudget
-        )
+        val summary = if (hasRollingSummary && summarizedThrough > 0L) {
+            conversation?.rollingSummary
+        } else {
+            ensureRollingSummary(
+                conversation = conversation,
+                config = config,
+                modelName = modelName,
+                olderMessages = olderMessages,
+                tokenBudget = summaryBudget
+            )
+        }
 
         return ContextBundle(
             summary = summary,
@@ -2707,12 +2825,18 @@ class AiRepository(
         }
 
         if (responseText.isNullOrBlank()) return@withContext null
-        val cleaned = responseText.trim().removePrefix("```").removeSuffix("```").trim()
+        // 彻底剥离思考标签，防止思考过程或草稿污染记忆事实
+        val stripped = TimelineMemoryHelper.stripThinkingTags(responseText)
+        val cleaned = stripped.trim().removePrefix("```").removeSuffix("```").trim()
         if (cleaned.contains("IGNORE", ignoreCase = true) || cleaned.length < 3) {
             return@withContext null
         }
 
-        val distilled = cleaned.lines().firstOrNull { it.isNotBlank() }?.trim() ?: return@withContext null
+        // 过滤开场白、客套话与空白，获取首条有效记忆内容
+        val validLines = cleaned.lines().map { it.trim() }.filter {
+            it.isNotBlank() && !it.startsWith("<") && !it.startsWith("好的") && !it.startsWith("以下是") && !it.startsWith("提炼结果")
+        }
+        val distilled = validLines.firstOrNull()?.trim() ?: return@withContext null
         val finalContent = if (!distilled.startsWith("用户") && !distilled.startsWith("设定") && !distilled.startsWith("偏好")) {
             "记忆：$distilled"
         } else {
@@ -2730,40 +2854,68 @@ class AiRepository(
     }
 
     private suspend fun generateOpenAIMemoryExtraction(config: ApiConfig, prompt: String): String? {
-        val request = ChatCompletionRequest(
-            model = config.modelName,
-            messages = listOf(ChatMessage(role = "user", content = prompt)),
-            temperature = 0.1f,
-            max_tokens = 96,
-            stream = false
-        )
-        val response = RetrofitClient.getService(config.baseUrl)
-            .chatCompletion(RetrofitClient.formatApiKey(config.apiKey), request)
-            .execute()
-        if (!response.isSuccessful) {
-            throw Exception("HTTP ${response.code()}: ${response.errorBody()?.string()?.take(200)}")
+        val allKeys = parseApiKeys(config.apiKey).ifEmpty { listOf(config.apiKey) }
+        var lastException: Exception? = null
+        for (key in allKeys) {
+            try {
+                val request = ChatCompletionRequest(
+                    model = config.modelName,
+                    messages = listOf(ChatMessage(role = "user", content = prompt)),
+                    temperature = 0.1f,
+                    max_tokens = 512,
+                    stream = false
+                )
+                val response = RetrofitClient.getService(config.baseUrl)
+                    .chatCompletion(RetrofitClient.formatApiKey(key), request)
+                    .execute()
+                if (!response.isSuccessful) {
+                    val err = response.errorBody()?.string()?.take(200).orEmpty()
+                    throw Exception("HTTP ${response.code()}: $err")
+                }
+                val choice = response.body()?.choices?.firstOrNull()
+                val text = choice?.message?.content?.ifBlank { null }
+                    ?: choice?.message?.reasoning_content?.ifBlank { null }
+                if (!text.isNullOrBlank()) return text
+            } catch (e: Exception) {
+                lastException = e
+                Log.w(tag, "辅助模型提取(OpenAI) Key报错: ${e.message}，尝试下一Key")
+            }
         }
-        return response.body()?.choices?.firstOrNull()?.message?.content
+        if (lastException != null) throw lastException
+        return null
     }
 
     private suspend fun generateAnthropicMemoryExtraction(config: ApiConfig, prompt: String): String? {
-        val request = AnthropicRequest(
-            model = config.modelName,
-            messages = listOf(AnthropicMessage(role = "user", content = prompt)),
-            max_tokens = 96,
-            temperature = 0.1f
-        )
-        val response = RetrofitClient.getService(config.baseUrl)
-            .anthropicMessages(
-                apiKey = config.apiKey.removePrefix("Bearer ").trim(),
-                request = request
-            )
-            .execute()
-        if (!response.isSuccessful) {
-            throw Exception("HTTP ${response.code()}: ${response.errorBody()?.string()?.take(200)}")
+        val allKeys = parseApiKeys(config.apiKey).ifEmpty { listOf(config.apiKey) }
+        var lastException: Exception? = null
+        for (key in allKeys) {
+            try {
+                val request = AnthropicRequest(
+                    model = config.modelName,
+                    messages = listOf(AnthropicMessage(role = "user", content = prompt)),
+                    max_tokens = 512,
+                    temperature = 0.1f
+                )
+                val response = RetrofitClient.getService(config.baseUrl)
+                    .anthropicMessages(
+                        apiKey = key.removePrefix("Bearer ").trim(),
+                        request = request
+                    )
+                    .execute()
+                if (!response.isSuccessful) {
+                    val err = response.errorBody()?.string()?.take(200).orEmpty()
+                    throw Exception("HTTP ${response.code()}: $err")
+                }
+                val contents = response.body()?.content
+                val text = contents?.firstOrNull { it.type == "text" }?.text
+                if (!text.isNullOrBlank()) return text
+            } catch (e: Exception) {
+                lastException = e
+                Log.w(tag, "辅助模型提取(Anthropic) Key报错: ${e.message}，尝试下一Key")
+            }
         }
-        val contents = response.body()?.content
-        return contents?.firstOrNull { it.type == "text" }?.text
+        if (lastException != null) throw lastException
+        return null
     }
 
     suspend fun testAuxiliaryMemoryExtraction(
@@ -2918,15 +3070,15 @@ class AiRepository(
 
             【特别指导核心准则】：
 
-            1.【时间锚点真实性与多样化法则（不局限于具体天，拥抱自然叙事阶段）】：
-               - 故事时间既包括具体天数，更包含自然时间跳跃、季节交替与生活阶段节点！
-               - 支持并鼓励使用以下典型时间锚点格式：
-                 ① 具体天数时段：[第1天·上午]、[第2天·傍晚]、[第3天·深夜]；
-                 ② 叙事跨度与时间跳跃：[两周过后]、[半个月后]、[一个月后]、[三年后·重逢]、[数日后·清晨]；
-                 ③ 季节与生活阶段：[暑假开始]、[新学期首日]、[深秋·雨夜]、[除夕之夜]、[决战前夕]；
-                 ④ 复合叙事节点：[两周后·周末黄昏]、[暑假第一天·清晨] 等。
-               - 绝对拒绝孤立无意义的碎片时间词（如“早晨”、“次日”、“傍晚”、“晚上”）或碎片动词（如“来到车站”、“决定出发”），时间标签必须具有定位价值。
-               - 时序单向递增：故事时间单向向前，剧情正文中若前文已是第2天，后文再次描写“第二天/次日”，应合理推断为跨越过一夜后的次日（即第3天）；遇到“两周过后”等跨度时，应自然承接推进。
+            1.【时间锚点极致敏感与精准捕捉法则（文学叙事时空深度挖掘）】：
+               - 必须以极高敏感度嗅探剧情中所有的显式与隐式时间过渡，严禁遗漏任何细微的时序跃迁与暗线推移！
+               - 包含但不限于：
+                 ① 显式天数与时段：如 [第1天·清晨]、[第2天·晌午]、[第3天·黄昏]、[第4天·子时]；
+                 ② 相对与自然时间跨度：如 [两周过后]、[半个月后]、[三日后·微雨]、[数月后·初冬]、[三年后·重逢]、[次日拂晓]；
+                 ③ 季节轮替与阶段节气：如 [暑假开始]、[新学期伊始]、[深秋初雪]、[除夕之夜]、[惊蛰过后]；
+                 ④ 篇章转折与时空锚点：如 [回忆·五年前]、[转折之夜]、[决战前夕]、[破晓时刻]；
+               - 敏感捕捉文字中潜藏的暗线时间推移（如“聊到了掌灯时分”、“不知不觉窗外泛白”、“大雪封山已过七日”、“数日并进”），将其提炼为定位精准的规范时间标签！
+               - 时序单向单调递增：剧情正文中若前文已是第2天，后文描写“第二天/次日/又过了一天”，必须合理推断累进为第3天；遇到“两周过后”等跨度词时，自然承接并推进入内部递增序列。
 
             2.【全方位剧情里程碑事件提炼（覆盖 5 大核心维度，拒绝遗漏重要进展）】：
                - 每一条时间线事件必须是【结构完整的剧情里程碑事实（Milestone Plot Event）】！
@@ -3028,8 +3180,13 @@ class AiRepository(
             modelException = IllegalStateException("未找到可用的 API 配置或模型名称，请先配置模型 API")
         }
 
+        // 读取已有故事时间，防止重新提炼时丢失或退回到未确定
+        val existingStoryTime = memoryDao.getCandidateMemories(conversationId)
+            .firstOrNull { it.content.startsWith("【当前故事时间】：") || it.content.startsWith("当前故事时间：") }
+            ?.content?.substringAfter("：")?.trim()
+
         if (!responseText.isNullOrBlank()) {
-            val parsedResult = TimelineMemoryHelper.parseModelOutput(responseText)
+            val parsedResult = TimelineMemoryHelper.parseModelOutput(responseText, fallbackCurrentTime = existingStoryTime)
             if (parsedResult.events.isNotEmpty() || parsedResult.atemporalSettings.isNotEmpty()) {
                 parsedResult.extractionSource = "AI_MODEL"
                 parsedResult.modelUsed = targetModel
@@ -3039,6 +3196,9 @@ class AiRepository(
 
         // 降级兜底：从消息中进行本地精纯时序扫描
         val fallback = fallbackLocalTimelineScan(messages)
+        if (fallback.currentStoryTime.isBlank() || fallback.currentStoryTime == "未确定") {
+            fallback.currentStoryTime = existingStoryTime?.takeIf { it.isNotBlank() && it != "未确定" } ?: "第 1 天·起始"
+        }
         fallback.extractionSource = "LOCAL_FALLBACK"
         fallback.modelUsed = targetModel
         fallback.extractionErrorMessage = modelException?.message ?: "模型返回解析内容为空"
@@ -3055,32 +3215,36 @@ class AiRepository(
             max_tokens = 8192,
             stream = false
         )
+        val allKeys = parseApiKeys(config.apiKey).ifEmpty { listOf(config.apiKey) }
         var lastException: Exception? = null
-        for (attempt in 1..2) {
-            try {
-                val response = RetrofitClient.getAnalysisService(normalizedUrl)
-                    .chatCompletion(RetrofitClient.formatApiKey(config.apiKey), request)
-                    .execute()
-                if (!response.isSuccessful) {
-                    val errBody = response.errorBody()?.string()?.take(300).orEmpty()
-                    throw Exception("HTTP ${response.code()}: $errBody")
+
+        for (key in allKeys) {
+            for (attempt in 1..2) {
+                try {
+                    val response = RetrofitClient.getAnalysisService(normalizedUrl)
+                        .chatCompletion(RetrofitClient.formatApiKey(key), request)
+                        .execute()
+                    if (!response.isSuccessful) {
+                        val errBody = response.errorBody()?.string()?.take(300).orEmpty()
+                        throw Exception("HTTP ${response.code()}: $errBody")
+                    }
+                    val body = response.body()
+                    if (body?.error != null) {
+                        throw Exception(body.error.message ?: "OpenAI API 返回错误")
+                    }
+                    val choice = body?.choices?.firstOrNull()
+                    val content = choice?.message?.content?.ifBlank { null }
+                        ?: choice?.message?.reasoning_content?.ifBlank { null }
+                    if (!content.isNullOrBlank()) return content
+                } catch (e: Exception) {
+                    lastException = e
+                    Log.w(tag, "时间线分析 (OpenAI) Key报错或请求异常 (attempt $attempt): ${e.message}")
+                    if (attempt < 2 && isNetworkFluctuationException(e)) {
+                        kotlinx.coroutines.delay(2000L)
+                        continue
+                    }
+                    break // 尝试下一个 Key
                 }
-                val body = response.body()
-                if (body?.error != null) {
-                    throw Exception(body.error.message ?: "OpenAI API 返回错误")
-                }
-                val choice = body?.choices?.firstOrNull()
-                val content = choice?.message?.content?.ifBlank { null }
-                    ?: choice?.message?.reasoning_content?.ifBlank { null }
-                if (!content.isNullOrBlank()) return content
-            } catch (e: Exception) {
-                lastException = e
-                Log.w(tag, "时间线分析 (OpenAI) 第 $attempt 次请求异常: ${e.message}")
-                if (attempt < 2 && isNetworkFluctuationException(e)) {
-                    kotlinx.coroutines.delay(2000L)
-                    continue
-                }
-                throw e
             }
         }
         throw lastException ?: Exception("未能获取大模型有效输出")
@@ -3094,32 +3258,36 @@ class AiRepository(
             max_tokens = 8192,
             temperature = 0.2f
         )
+        val allKeys = parseApiKeys(config.apiKey).ifEmpty { listOf(config.apiKey) }
         var lastException: Exception? = null
-        for (attempt in 1..2) {
-            try {
-                val response = RetrofitClient.getAnalysisService(normalizedUrl)
-                    .anthropicMessages(
-                        apiKey = config.apiKey.removePrefix("Bearer ").trim(),
-                        request = request
-                    )
-                    .execute()
-                if (!response.isSuccessful) {
-                    val errBody = response.errorBody()?.string()?.take(300).orEmpty()
-                    throw Exception("HTTP ${response.code()}: $errBody")
+
+        for (key in allKeys) {
+            for (attempt in 1..2) {
+                try {
+                    val response = RetrofitClient.getAnalysisService(normalizedUrl)
+                        .anthropicMessages(
+                            apiKey = key.removePrefix("Bearer ").trim(),
+                            request = request
+                        )
+                        .execute()
+                    if (!response.isSuccessful) {
+                        val errBody = response.errorBody()?.string()?.take(300).orEmpty()
+                        throw Exception("HTTP ${response.code()}: $errBody")
+                    }
+                    val content = response.body()?.content?.firstOrNull { it.type == "text" }?.text
+                    if (!content.isNullOrBlank()) return content
+                } catch (e: Exception) {
+                    lastException = e
+                    Log.w(tag, "时间线分析 (Anthropic) Key报错或请求异常 (attempt $attempt): ${e.message}")
+                    if (attempt < 2 && isNetworkFluctuationException(e)) {
+                        kotlinx.coroutines.delay(2000L)
+                        continue
+                    }
+                    break // 尝试下一个 Key
                 }
-                val content = response.body()?.content?.firstOrNull { it.type == "text" }?.text
-                if (!content.isNullOrBlank()) return content
-            } catch (e: Exception) {
-                lastException = e
-                Log.w(tag, "时间线分析 (Anthropic) 第 $attempt 次请求异常: ${e.message}")
-                if (attempt < 2 && isNetworkFluctuationException(e)) {
-                    kotlinx.coroutines.delay(2000L)
-                    continue
-                }
-                throw e
             }
         }
-        throw lastException ?: Exception("未能获取 Anthropic 模型有效输出")
+        throw lastException ?: Exception("未能获取大模型有效输出")
     }
 
     private fun fallbackLocalTimelineScan(messages: List<Message>): TimelineReconcileResult {

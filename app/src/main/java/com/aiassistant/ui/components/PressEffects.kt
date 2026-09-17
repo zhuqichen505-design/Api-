@@ -1,6 +1,7 @@
 package com.aiassistant.ui.components
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.runtime.Composable
@@ -58,4 +59,41 @@ fun Modifier.echoPlainClick(
         enabled = enabled,
         onClick = onClick
     )
+}
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+fun Modifier.echoShapeCombinedClick(
+    shape: Shape,
+    enabled: Boolean = true,
+    onLongClick: (() -> Unit)? = null,
+    onLongClickLabel: String? = null,
+    onClick: () -> Unit
+): Modifier {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    return this
+        .clip(shape)
+        .drawWithContent {
+            drawContent()
+            if (pressed) {
+                val overlay = Color.White.copy(alpha = 0.16f)
+                when (val outline = shape.createOutline(size, layoutDirection, this)) {
+                    is Outline.Rectangle -> drawRect(overlay)
+                    is Outline.Rounded -> {
+                        val path = Path().apply { addRoundRect(outline.roundRect) }
+                        drawPath(path, overlay)
+                    }
+                    is Outline.Generic -> drawPath(outline.path, overlay)
+                }
+            }
+        }
+        .combinedClickable(
+            interactionSource = interactionSource,
+            indication = null,
+            enabled = enabled,
+            onLongClick = onLongClick,
+            onLongClickLabel = onLongClickLabel,
+            onClick = onClick
+        )
 }

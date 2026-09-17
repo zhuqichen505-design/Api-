@@ -14,6 +14,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
+import com.aiassistant.ui.components.echoShapeCombinedClick
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -633,7 +634,8 @@ private fun NewConversationGlassButton(
                 ambientColor = Color.Black.copy(alpha = 0.08f),
                 spotColor = primary.copy(alpha = 0.15f)
             )
-            .combinedClickable(
+            .echoShapeCombinedClick(
+                shape = buttonShape,
                 onClick = onClick,
                 onLongClick = onLongClick,
                 onLongClickLabel = onLongClickLabel
@@ -1474,13 +1476,10 @@ fun ConversationCard(
         MaterialTheme.colorScheme.surface.copy(alpha = if (isDark) 0.88f else 0.92f)
     }
     EchoGlassCard(
-        modifier = Modifier
-            .fillMaxWidth()
-            .combinedClickable(
-                onClick = onClick,
-                onLongClick = onLongClick,
-                onLongClickLabel = "多选对话"
-            ),
+        modifier = Modifier.fillMaxWidth(),
+        onClick = onClick,
+        onLongClick = onLongClick,
+        onLongClickLabel = "多选对话",
         shape = cardShape,
         containerColor = cardTint,
         highlight = selected

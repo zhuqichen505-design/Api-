@@ -414,12 +414,9 @@ private fun SessionCard(
     }
 
     EchoGlassCard(
-        modifier = Modifier
-            .fillMaxWidth()
-            .combinedClickable(
-                onClick = onClick,
-                onLongClick = { showActionMenu = true }
-            ),
+        modifier = Modifier.fillMaxWidth(),
+        onClick = onClick,
+        onLongClick = { showActionMenu = true },
         shape = EchoTokens.Radius.shapeLg
     ) {
         Row(
@@ -994,12 +991,9 @@ private fun CharacterCard(
     onFavoriteClick: () -> Unit
 ) {
     EchoGlassCard(
-        modifier = Modifier
-            .fillMaxWidth()
-            .combinedClickable(
-                onClick = onClick,
-                onLongClick = onLongClick
-            ),
+        modifier = Modifier.fillMaxWidth(),
+        onClick = onClick,
+        onLongClick = onLongClick,
         shape = EchoTokens.Radius.shapeLg,
         containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else Color.Unspecified
     ) {
@@ -1234,12 +1228,9 @@ private fun ScenarioCard(
     onFavoriteClick: () -> Unit
 ) {
     EchoGlassCard(
-        modifier = Modifier
-            .fillMaxWidth()
-            .combinedClickable(
-                onClick = onClick,
-                onLongClick = onLongClick
-            ),
+        modifier = Modifier.fillMaxWidth(),
+        onClick = onClick,
+        onLongClick = onLongClick,
         shape = EchoTokens.Radius.shapeLg,
         containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else Color.Unspecified
     ) {

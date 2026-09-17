@@ -44,7 +44,7 @@ data class TimelineEventItem(
  */
 data class AtemporalSettingItem(
     val id: String = UUID.randomUUID().toString(),
-    var category: String = "角色设定", // 角色特质 / 习惯偏好 / 世界规则 / 生理禁忌 / 人际羁绊
+    var category: String = "角色特质", // 6维/5维设定轮转
     var content: String = "",
     var isSelected: Boolean = true,
     var targetScope: String = "session" // "session" (会话专属记忆) 或 "global" (长期记忆)
@@ -54,6 +54,14 @@ data class AtemporalSettingItem(
         "习惯偏好" -> "生理禁忌"
         "生理禁忌" -> "世界规则"
         "世界规则" -> "人际羁绊"
+        "人际羁绊" -> "角色特质"
+        // 6维全称扩展
+        "角色核心特质" -> "习惯与偏好"
+        "习惯与偏好" -> "生理禁忌与弱点"
+        "生理禁忌与弱点" -> "人际羁绊与契约"
+        "人际羁绊与契约" -> "秘密揭露与真相"
+        "秘密揭露与真相" -> "世界铁律与规则"
+        "世界铁律与规则" -> "角色核心特质"
         else -> "角色特质"
     }
 }
@@ -114,20 +122,39 @@ object TimelineMemoryHelper {
      * 返回跃迁的天数（> 0），若非时间跨度则返回 0
      */
     fun estimateTimeSpanJumpDays(tag: String): Int {
+        val clean = tag.trim().lowercase()
         return when {
-            tag.contains("三年") || tag.contains("3年") -> 1095
-            tag.contains("两年") || tag.contains("2年") -> 730
-            tag.contains("一年") || tag.contains("1年") -> 365
-            tag.contains("半年") -> 180
-            tag.contains("三个月") || tag.contains("3个月") -> 90
-            tag.contains("两个月") || tag.contains("2个月") -> 60
-            tag.contains("一个月") || tag.contains("1个月") || tag.contains("一月后") || tag.contains("次月") -> 30
-            tag.contains("半个月") -> 15
-            tag.contains("三周") || tag.contains("3周") -> 21
-            tag.contains("两周") || tag.contains("2周") -> 14
-            tag.contains("一周") || tag.contains("1周") || tag.contains("一星期") || tag.contains("七天") -> 7
-            tag.contains("数日") || tag.contains("几天") || tag.contains("三天") || tag.contains("3天") -> 3
-            tag.contains("两天") || tag.contains("2天") -> 2
+            clean.contains("十年") || clean.contains("10年") -> 3650
+            clean.contains("五年") || clean.contains("5年") -> 1825
+            clean.contains("四年") || clean.contains("4年") -> 1460
+            clean.contains("三年") || clean.contains("3年") || clean.contains("三载") -> 1095
+            clean.contains("两年") || clean.contains("2年") || clean.contains("两载") -> 730
+            clean.contains("一年") || clean.contains("1年") || clean.contains("一载") -> 365
+            clean.contains("数年") || clean.contains("数载") -> 730
+            clean.contains("半年") -> 180
+            clean.contains("暑假后") || clean.contains("暑假过后") || clean.contains("寒假后") || clean.contains("寒假过后") -> 60
+            clean.contains("四个月") || clean.contains("4个月") -> 120
+            clean.contains("三个月") || clean.contains("3个月") || clean.contains("一季度") || clean.contains("一季") -> 90
+            clean.contains("两个月") || clean.contains("2个月") -> 60
+            clean.contains("一个半月") -> 45
+            clean.contains("一个月") || clean.contains("1个月") || clean.contains("一月后") || clean.contains("次月") -> 30
+            clean.contains("数月") -> 60
+            clean.contains("新学期后") || clean.contains("开学后") -> 30
+            clean.contains("半个月") || clean.contains("半月") -> 15
+            clean.contains("四周") || clean.contains("4周") -> 28
+            clean.contains("三周") || clean.contains("3周") -> 21
+            clean.contains("两周") || clean.contains("2周") -> 14
+            clean.contains("一周") || clean.contains("1周") || clean.contains("一星期") || clean.contains("七天") -> 7
+            clean.contains("数周") -> 14
+            clean.contains("十天") || clean.contains("10天") -> 10
+            clean.contains("九天") || clean.contains("9天") -> 9
+            clean.contains("八天") || clean.contains("8天") -> 8
+            clean.contains("七天") || clean.contains("7天") -> 7
+            clean.contains("六天") || clean.contains("6天") -> 6
+            clean.contains("五天") || clean.contains("5天") -> 5
+            clean.contains("四天") || clean.contains("4天") -> 4
+            clean.contains("三天") || clean.contains("3天") || clean.contains("数日") || clean.contains("几天") || clean.contains("数天") || clean.contains("大后天") -> 3
+            clean.contains("两天") || clean.contains("2天") || clean.contains("隔天") || clean.contains("后天") -> 2
             else -> 0
         }
     }
@@ -277,12 +304,27 @@ object TimelineMemoryHelper {
     }
 
     /**
+     * 剥离思考模型推理过程（<think>...</think> 或未闭合的截断思考流）
+     */
+    fun stripThinkingTags(text: String): String {
+        if (!text.contains("<think", ignoreCase = true)) return text.trim()
+        var cleaned = text.replace(Regex("""<think[\s\S]*?</think>""", RegexOption.IGNORE_CASE), "")
+        if (cleaned.contains("<think", ignoreCase = true)) {
+            cleaned = cleaned.replace(Regex("""<think[\s\S]*$""", RegexOption.IGNORE_CASE), "")
+        }
+        return cleaned.trim()
+    }
+
+    /**
      * 解析模型输出（支持标准 JSON、Markdown 包裹的 JSON，以及行列表格式兜底）
      */
-    fun parseModelOutput(rawOutput: String): TimelineReconcileResult {
-        val trimmed = rawOutput.trim()
+    fun parseModelOutput(rawOutput: String, fallbackCurrentTime: String? = null): TimelineReconcileResult {
+        // 先剥离思考过程，防止模型推理过程中的花括号或心理分析文本污染 JSON 与行解析
+        val stripped = stripThinkingTags(rawOutput)
+        val trimmed = stripped.ifBlank { rawOutput.trim() }
         if (trimmed.isBlank()) {
-            return TimelineReconcileResult(currentStoryTime = "未确定", events = mutableListOf())
+            val safeTime = fallbackCurrentTime?.takeIf { it.isNotBlank() && it != "未确定" && it != "未知" } ?: "第 1 天·起始"
+            return TimelineReconcileResult(currentStoryTime = safeTime, events = mutableListOf())
         }
 
         // 1. 尝试提取 JSON 代码块或 JSON 字符串
@@ -330,7 +372,7 @@ object TimelineMemoryHelper {
                         for (item in atemporalArray) {
                             if (item.isJsonObject) {
                                 val itemObj = item.asJsonObject
-                                val cat = itemObj.get("category")?.asString?.trim() ?: "角色设定"
+                                val cat = itemObj.get("category")?.asString?.trim() ?: "角色核心特质"
                                 val text = itemObj.get("content")?.asString?.trim()
                                     ?: itemObj.get("setting")?.asString?.trim().orEmpty()
                                 val scope = itemObj.get("targetScope")?.asString?.trim() ?: "session"
@@ -349,7 +391,7 @@ object TimelineMemoryHelper {
                                 if (text.isNotBlank()) {
                                     atemporalList.add(
                                         AtemporalSettingItem(
-                                            category = "世界/角色设定",
+                                            category = "角色核心特质",
                                             content = text,
                                             isSelected = true
                                         )
@@ -360,8 +402,13 @@ object TimelineMemoryHelper {
                     }
 
                     val normalizedEvents = normalizeMonotonicTimeline(eventsList)
+                    val resolvedTime = if (currentTime.isNotBlank() && currentTime != "未确定" && currentTime != "未知") {
+                        currentTime
+                    } else {
+                        inferCurrentStoryTime(normalizedEvents, fallbackCurrentTime)
+                    }
                     return TimelineReconcileResult(
-                        currentStoryTime = currentTime.ifBlank { inferCurrentStoryTime(normalizedEvents) },
+                        currentStoryTime = resolvedTime,
                         events = normalizedEvents.toMutableList(),
                         atemporalSettings = atemporalList
                     )
@@ -372,7 +419,7 @@ object TimelineMemoryHelper {
         }
 
         // 2. 纯文本行列表解析兜底
-        return parseTextFallback(trimmed)
+        return parseTextFallback(trimmed, fallbackCurrentTime)
     }
 
     private fun extractJsonString(text: String): String? {
@@ -389,7 +436,7 @@ object TimelineMemoryHelper {
         return null
     }
 
-    private fun parseTextFallback(text: String): TimelineReconcileResult {
+    private fun parseTextFallback(text: String, fallbackCurrentTime: String? = null): TimelineReconcileResult {
         val lines = text.lines().map { it.trim() }.filter { it.isNotBlank() }
         var currentStoryTime = ""
         val events = mutableListOf<TimelineEventItem>()
@@ -403,16 +450,24 @@ object TimelineMemoryHelper {
                 currentStoryTime = clean.substringAfter("：").substringAfter(":").trim()
                 continue
             }
-            if (clean.contains("时间无关") || clean.contains("全局设定") || clean.contains("固定规则") || clean.contains("角色特质")) {
+            if (clean.contains("时间无关") || clean.contains("全局设定") || clean.contains("固定规则") || clean.contains("角色特质") || clean.contains("常驻设定")) {
                 isParsingAtemporal = true
                 continue
             }
 
             if (isParsingAtemporal) {
                 if (clean.isNotBlank()) {
+                    val cat = when {
+                        clean.contains("规则") || clean.contains("禁止") -> "世界铁律与规则"
+                        clean.contains("生理") || clean.contains("禁忌") || clean.contains("弱点") -> "生理禁忌与弱点"
+                        clean.contains("羁绊") || clean.contains("契约") || clean.contains("关系") -> "人际羁绊与契约"
+                        clean.contains("秘密") || clean.contains("真相") || clean.contains("揭露") -> "秘密揭露与真相"
+                        clean.contains("习惯") || clean.contains("偏好") -> "习惯与偏好"
+                        else -> "角色核心特质"
+                    }
                     atemporalList.add(
                         AtemporalSettingItem(
-                            category = if (clean.contains("规则") || clean.contains("禁止")) "世界规则" else "角色设定",
+                            category = cat,
                             content = clean,
                             isSelected = true
                         )
@@ -428,8 +483,13 @@ object TimelineMemoryHelper {
         }
 
         val normalizedEvents = normalizeMonotonicTimeline(events)
+        val resolvedTime = if (currentStoryTime.isNotBlank() && currentStoryTime != "未确定" && currentStoryTime != "未知") {
+            currentStoryTime
+        } else {
+            inferCurrentStoryTime(normalizedEvents, fallbackCurrentTime)
+        }
         return TimelineReconcileResult(
-            currentStoryTime = currentStoryTime.ifBlank { inferCurrentStoryTime(normalizedEvents) },
+            currentStoryTime = resolvedTime,
             events = normalizedEvents.toMutableList(),
             atemporalSettings = atemporalList
         )
@@ -438,18 +498,30 @@ object TimelineMemoryHelper {
     /**
      * 根据事件列表推断当前故事时间：
      * 1. 优先取倒序最新发生的事件的时间标签（支持“两周过后”、“暑假开始”、“第 5 天·傍晚”等自然与显式时间）；
-     * 2. 若列表无任何有效时间标签，返回“未确定”。
+     * 2. 若无显式时间标签，倒序从事件正文中智能提取自然文学叙事时间线索；
+     * 3. 若仍无，则安全继承既有历史故事节点，杜绝粗暴退回到“未确定”。
      */
-    fun inferCurrentStoryTime(events: List<TimelineEventItem>): String {
-        if (events.isEmpty()) return "未确定"
-        // 倒序寻找最新发生的事件有效时间标签
+    fun inferCurrentStoryTime(events: List<TimelineEventItem>, fallbackTime: String? = null): String {
+        // 1. 倒序寻找最新发生的事件有效时间标签
         for (item in events.reversed()) {
             val tag = item.timeTag.trim().trim('[', ']', '【', '】')
-            if (tag.isNotBlank() && tag != "未确定") {
+            if (tag.isNotBlank() && tag != "未确定" && tag != "未知") {
                 return tag
             }
         }
-        return "未确定"
+        // 2. 倒序从事件正文中嗅探文学/自然叙事时间锚点
+        val timeRegex = Regex("""(第\s*\d+\s*天(?:[·\s\-][^，。；\s]+)?|[两三四五六七八九十\d]+[年月周天日]+[后过后之余]*|暑假(?:开始|首日|期间)?|寒假(?:开始|首日)?|新学期(?:伊始|首日)?|[春夏秋冬][季天]?·?[^，。；\s]*)""")
+        for (item in events.reversed()) {
+            val match = timeRegex.find(item.content)
+            if (match != null && match.value.isNotBlank()) {
+                return match.value.trim()
+            }
+        }
+        // 3. 继承外部已知的既有故事驻留时间节点
+        if (!fallbackTime.isNullOrBlank() && fallbackTime != "未确定" && fallbackTime != "未知") {
+            return fallbackTime
+        }
+        return "第 1 天·起始"
     }
 
     /**
