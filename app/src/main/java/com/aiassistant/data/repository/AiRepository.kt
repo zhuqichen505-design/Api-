@@ -282,13 +282,123 @@ class AiRepository(
                     msg.contains("connection closed") ||
                     msg.contains("unable to resolve host") ||
                     msg.contains("failed to connect") ||
-                    msg.contains("route to host")
+                    msg.contains("route to host") ||
+                    msg.contains("end of stream")
                 ) {
+                    return true
+                }
+                if (current is java.io.EOFException) {
                     return true
                 }
                 current = current.cause
             }
             return false
+        }
+
+        /**
+         * OpenAI 流式 Chunk 解析结果数据载体
+         */
+        data class OpenAiStreamChunkResult(
+            val contentDelta: String? = null,
+            val thinkingDelta: String? = null,
+            val finishReason: String? = null,
+            val isDone: Boolean = false,
+            val usage: Usage? = null,
+            val inlineErrorMessage: String? = null
+        )
+
+        /**
+         * 健壮解析单行流式数据：
+         * 1. 兼容响应 Content-Type 不是 text/event-stream 的情况
+         * 2. 兼容没有 data: [DONE] 的自然 EOF 终止
+         * 3. 兼容没有 finish_reason 的非标准 chunk
+         * 4. 兼容行首 BOM (\uFEFF)、多余空白、空行与 SSE 注释行 (: ping / : keepalive)
+         * 5. 兼容 NDJSON 格式 ({...}) 与非标准 choices[0].message
+         */
+        fun parseOpenAiStreamLine(rawLine: String, gson: com.google.gson.Gson = com.google.gson.Gson()): OpenAiStreamChunkResult? {
+            var line = rawLine
+            if (line.startsWith("\uFEFF")) {
+                line = line.removePrefix("\uFEFF")
+            }
+            line = line.trim()
+            if (line.isEmpty()) return null
+
+            // 忽略 SSE 注释行（: keepalive, : ping）以及 event / id / retry 字段行
+            if (line.startsWith(":")) return null
+            if (line.startsWith("event:", ignoreCase = true) ||
+                line.startsWith("id:", ignoreCase = true) ||
+                line.startsWith("retry:", ignoreCase = true)) {
+                return null
+            }
+
+            // 提取有效数据载荷：兼容 SSE "data: ..." 与 NDJSON "{...}"
+            val data = when {
+                line.startsWith("data:", ignoreCase = true) -> line.substring(5).trim()
+                line.startsWith("{") && line.endsWith("}") -> line
+                else -> return null
+            }
+
+            if (data.isBlank()) return null
+
+            // 识别结束标记
+            if (data == "[DONE]") {
+                return OpenAiStreamChunkResult(isDone = true)
+            }
+
+            // 检测流式返回的内联错误（如 200 OK 建立连接后第一包返回 error）
+            if (data.contains("\"error\"") && (data.contains("\"message\"") || data.contains("\"code\""))) {
+                try {
+                    val errObj = com.google.gson.JsonParser.parseString(data).asJsonObject
+                    if (errObj.has("error")) {
+                        val err = errObj.get("error")
+                        val msg = if (err.isJsonObject) err.asJsonObject.get("message")?.asString else err.asString
+                        if (!msg.isNullOrBlank()) {
+                            return OpenAiStreamChunkResult(inlineErrorMessage = msg)
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+
+            return try {
+                val chunk = gson.fromJson(data, ChatCompletionChunk::class.java)
+                val choice = chunk.choices?.firstOrNull()
+                val finishReason = choice?.finish_reason
+
+                var contentDelta = choice?.delta?.content
+                var thinkingDelta = choice?.delta?.reasoning_content
+                    ?: choice?.delta?.reasoning_content_camel
+                    ?: choice?.delta?.reasoningContent
+                    ?: choice?.delta?.reasoning
+                    ?: choice?.delta?.thinking
+                    ?: choice?.delta?.thinking_content
+                    ?: choice?.delta?.thought
+
+                // 兼容非标准将输出置于 choices[0].message 的中转网关
+                if (contentDelta == null && thinkingDelta == null && data.contains("\"message\"")) {
+                    try {
+                        val jsonObj = com.google.gson.JsonParser.parseString(data).asJsonObject
+                        val firstChoice = jsonObj.getAsJsonArray("choices")?.firstOrNull()?.asJsonObject
+                        val msgObj = firstChoice?.getAsJsonObject("message")
+                        if (msgObj != null) {
+                            if (msgObj.has("content") && !msgObj.get("content").isJsonNull) {
+                                contentDelta = msgObj.get("content").asString
+                            }
+                            if (msgObj.has("reasoning_content") && !msgObj.get("reasoning_content").isJsonNull) {
+                                thinkingDelta = msgObj.get("reasoning_content").asString
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+
+                OpenAiStreamChunkResult(
+                    contentDelta = contentDelta,
+                    thinkingDelta = thinkingDelta,
+                    finishReason = finishReason,
+                    usage = chunk.usage
+                )
+            } catch (_: Exception) {
+                null
+            }
         }
 
         fun extractRootBaseTitle(rawTitle: String): String {
@@ -1336,7 +1446,8 @@ class AiRepository(
         for ((keyIndex, currentKey) in allKeys.withIndex()) {
             val keyConfig = config.copy(apiKey = currentKey)
             var attempt = 0
-            val maxTimeoutAttempts = 3 // 遇连接超时最多重试3次
+            val maxTimeoutAttempts = 3 // 遇网络波动/超时在未收到任何内容时最多重试3次
+            val retryDelays = longArrayOf(1000L, 2000L, 5000L) // 需求 5：退避 1s / 2s / 5s
 
             while (attempt <= maxTimeoutAttempts) {
                 try {
@@ -1357,19 +1468,21 @@ class AiRepository(
                     if (isRequestCancellation(e)) throw e
                     lastException = e
 
-                    // 若已经输出了 token，在重试或切换 Key 前必须通知 UI 清空残损内容
+                    // 需求 5：如果已经收到部分内容，坚决不自动重试，避免向用户重复输出
                     if (hasEmittedTokens) {
-                        onResetBuffer?.invoke()
-                        hasEmittedTokens = false
+                        Log.w(tag, "Key[$keyIndex] 已向用户输出部分内容，根据保护策略不再自动重试以避免重复输出: ${e.message}")
+                        throw e
                     }
 
+                    // 只有在完全没有收到任何内容时才自动重试
                     if (isNetworkFluctuationException(e)) {
                         attempt++
                         if (attempt <= maxTimeoutAttempts) {
+                            val delayMs = retryDelays.getOrElse(attempt - 1) { 5000L }
                             val retryText = "网络波动，正在尝试重新连接 ($attempt/$maxTimeoutAttempts)..."
-                            Log.w(tag, "Key[$keyIndex] $retryText - 异常: ${e.javaClass.simpleName}: ${e.message}")
+                            Log.w(tag, "Key[$keyIndex] $retryText (退避等待 ${delayMs}ms) - 异常: ${e.javaClass.simpleName}: ${e.message}")
                             onStatusUpdate?.invoke(retryText)
-                            kotlinx.coroutines.delay(1000L * attempt)
+                            kotlinx.coroutines.delay(delayMs)
                             continue
                         } else {
                             val failText = if (keyIndex + 1 < allKeys.size) {
@@ -1382,7 +1495,7 @@ class AiRepository(
                             break
                         }
                     } else {
-                        // 无论客户端参数/模型错误(400, 404, 422)还是服务端错误(401, 403, 429, 500)，只要还有备用Key就自动尝试下一个Key
+                        // 无论客户端参数/模型错误(400, 404, 422)还是服务端错误(401, 403, 429, 500)，只要还有备用Key且未收到内容就自动尝试下一个Key
                         if (keyIndex + 1 < allKeys.size) {
                             val nextIdx = keyIndex + 2
                             val failText = "当前 Key 异常(${e.message?.take(40)})，正在自动尝试备用 Key ($nextIdx/${allKeys.size})..."
@@ -1605,116 +1718,139 @@ class AiRepository(
                 var thinkingTokens = 0
                 var cachedTokens = 0
 
-                // 读取SSE流
-                responseBody.byteStream().bufferedReader().use { reader ->
-                    var line: String?
-                    while (reader.readLine().also { line = it } != null) {
-                        val lineStr = line?.trim() ?: continue
-                        if (lineStr.startsWith("data:")) {
-                            val data = lineStr.removePrefix("data:").trimStart()
-                            if (data == "[DONE]") break
+                var hasReceivedDone = false
+                var lastFinishReason: String? = null
+                var streamReadException: Exception? = null
+                val jsonAccumulator = StringBuilder()
 
-                            // 检测流式返回的内联错误（很多中转平台在 200 OK 建立连接后第一包返回 error）
-                            if (data.contains("\"error\"") && (data.contains("\"message\"") || data.contains("\"code\""))) {
-                                val errMsg = try {
-                                    val errObj = JsonParser.parseString(data).asJsonObject
-                                    if (errObj.has("error")) {
-                                        val err = errObj.get("error")
-                                        if (err.isJsonObject) err.asJsonObject.get("message")?.asString else err.asString
-                                    } else null
-                                } catch (_: Exception) { null }
-                                if (!errMsg.isNullOrBlank()) {
-                                    throw ApiException(400, "API流式返回错误: $errMsg", data)
+                // 健壮读取 SSE / NDJSON 流：兼容 BOM、缺失[DONE]、缺失finish_reason、空行、注释及纯JSON
+                try {
+                    responseBody.byteStream().bufferedReader(Charsets.UTF_8).use { reader ->
+                        while (true) {
+                            val nextLine = try {
+                                reader.readLine()
+                            } catch (ioEx: Exception) {
+                                if (isRequestCancellation(ioEx)) throw ioEx
+                                streamReadException = ioEx
+                                Log.w(tag, "流式网络读取中断 (${ioEx.javaClass.simpleName}): ${ioEx.message}")
+                                null
+                            } ?: break
+
+                            var lineStr = nextLine
+                            if (lineStr.startsWith("\uFEFF")) {
+                                lineStr = lineStr.removePrefix("\uFEFF")
+                            }
+                            lineStr = lineStr.trim()
+                            if (lineStr.isEmpty() || lineStr.startsWith(":")) continue
+
+                            // 兼容多行换行缩进的完整 JSON 返回
+                            val isPartialJsonStart = (lineStr.startsWith("{") && !lineStr.endsWith("}"))
+                            if (jsonAccumulator.isNotEmpty() || isPartialJsonStart) {
+                                jsonAccumulator.append(lineStr).append("\n")
+                                if (lineStr.endsWith("}") || lineStr == "}") {
+                                    lineStr = jsonAccumulator.toString().trim()
+                                    jsonAccumulator.clear()
+                                } else {
+                                    continue
                                 }
                             }
 
-                            try {
-                                val chunk = gson.fromJson(data, ChatCompletionChunk::class.java)
-                                val delta = chunk.choices?.firstOrNull()?.delta
+                            val chunkResult = parseOpenAiStreamLine(lineStr, gson) ?: continue
 
-                                // 处理思考内容（DeepSeek/Qwen/Claude/Gemini 兼容网关等字段名全覆盖）
-                                val thinkingChunk = delta?.reasoning_content
-                                    ?: delta?.reasoning_content_camel
-                                    ?: delta?.reasoningContent
-                                    ?: delta?.reasoning
-                                    ?: delta?.thinking
-                                    ?: delta?.thinking_content
-                                    ?: delta?.thought
-                                thinkingChunk?.let { thinking ->
-                                    thinkingBuilder.append(thinking)
-                                    onThinkingToken(thinking)
+                            if (chunkResult.isDone) {
+                                hasReceivedDone = true
+                                break
+                            }
+
+                            // 检测流式返回的内联错误
+                            if (!chunkResult.inlineErrorMessage.isNullOrBlank()) {
+                                if (contentBuilder.isNotEmpty() || thinkingBuilder.isNotEmpty()) {
+                                    Log.w(tag, "流式接收过程中遇到内联错误: ${chunkResult.inlineErrorMessage}，但已接收到部分内容，保留已收到内容平稳完成")
+                                    break
+                                } else {
+                                    throw ApiException(400, "API流式返回错误: ${chunkResult.inlineErrorMessage}")
                                 }
+                            }
 
-                                // 处理普通内容（若包含 <think> 标签，支持动态分流到思考通道）
-                                delta?.content?.let { content ->
-                                    if (isInThinkTag) {
-                                        if (content.contains("</think>")) {
-                                            val parts = content.split("</think>", limit = 2)
-                                            val inside = parts[0]
-                                            val after = parts.getOrNull(1).orEmpty()
-                                            if (inside.isNotEmpty()) {
-                                                thinkingBuilder.append(inside)
-                                                onThinkingToken(inside)
-                                            }
-                                            isInThinkTag = false
-                                            if (after.isNotEmpty()) {
-                                                contentBuilder.append(after)
-                                                onToken(after)
-                                            }
-                                        } else {
-                                            thinkingBuilder.append(content)
-                                            onThinkingToken(content)
+                            if (!chunkResult.finishReason.isNullOrBlank()) {
+                                lastFinishReason = chunkResult.finishReason
+                            }
+
+                            chunkResult.thinkingDelta?.let { thinking ->
+                                thinkingBuilder.append(thinking)
+                                onThinkingToken(thinking)
+                            }
+
+                            chunkResult.contentDelta?.let { content ->
+                                if (isInThinkTag) {
+                                    if (content.contains("</think>")) {
+                                        val parts = content.split("</think>", limit = 2)
+                                        val inside = parts[0]
+                                        val after = parts.getOrNull(1).orEmpty()
+                                        if (inside.isNotEmpty()) {
+                                            thinkingBuilder.append(inside)
+                                            onThinkingToken(inside)
                                         }
-                                    } else if (content.contains("<think>")) {
-                                        val parts = content.split("<think>", limit = 2)
-                                        val before = parts[0]
-                                        val insideAndAfter = parts.getOrNull(1).orEmpty()
-                                        if (before.isNotEmpty()) {
-                                            contentBuilder.append(before)
-                                            onToken(before)
-                                        }
-                                        if (insideAndAfter.contains("</think>")) {
-                                            val subParts = insideAndAfter.split("</think>", limit = 2)
-                                            val inside = subParts[0]
-                                            val after = subParts.getOrNull(1).orEmpty()
-                                            if (inside.isNotEmpty()) {
-                                                thinkingBuilder.append(inside)
-                                                onThinkingToken(inside)
-                                            }
-                                            if (after.isNotEmpty()) {
-                                                contentBuilder.append(after)
-                                                onToken(after)
-                                            }
-                                        } else {
-                                            isInThinkTag = true
-                                            if (insideAndAfter.isNotEmpty()) {
-                                                thinkingBuilder.append(insideAndAfter)
-                                                onThinkingToken(insideAndAfter)
-                                            }
+                                        isInThinkTag = false
+                                        if (after.isNotEmpty()) {
+                                            contentBuilder.append(after)
+                                            onToken(after)
                                         }
                                     } else {
-                                        contentBuilder.append(content)
-                                        onToken(content)
+                                        thinkingBuilder.append(content)
+                                        onThinkingToken(content)
                                     }
+                                } else if (content.contains("<think>")) {
+                                    val parts = content.split("<think>", limit = 2)
+                                    val before = parts[0]
+                                    val insideAndAfter = parts.getOrNull(1).orEmpty()
+                                    if (before.isNotEmpty()) {
+                                        contentBuilder.append(before)
+                                        onToken(before)
+                                    }
+                                    if (insideAndAfter.contains("</think>")) {
+                                        val subParts = insideAndAfter.split("</think>", limit = 2)
+                                        val inside = subParts[0]
+                                        val after = subParts.getOrNull(1).orEmpty()
+                                        if (inside.isNotEmpty()) {
+                                            thinkingBuilder.append(inside)
+                                            onThinkingToken(inside)
+                                        }
+                                        isInThinkTag = false
+                                        if (after.isNotEmpty()) {
+                                            contentBuilder.append(after)
+                                            onToken(after)
+                                        }
+                                    } else {
+                                        isInThinkTag = true
+                                        if (insideAndAfter.isNotEmpty()) {
+                                            thinkingBuilder.append(insideAndAfter)
+                                            onThinkingToken(insideAndAfter)
+                                        }
+                                    }
+                                } else {
+                                    contentBuilder.append(content)
+                                    onToken(content)
                                 }
+                            }
 
-                                // 处理usage
-                                chunk.usage?.let { usage ->
-                                    inputTokens = usage.prompt_tokens ?: inputTokens
-                                    val rawCompletionTokens = usage.completion_tokens ?: outputTokens
-                                    thinkingTokens = usage.completion_tokens_details?.reasoning_tokens ?: thinkingTokens
-                                    outputTokens = (rawCompletionTokens - thinkingTokens).coerceAtLeast(0)
-                                    val parsedCached = extractCachedTokensFromUsage(usage)
-                                    if (parsedCached > 0) {
-                                        cachedTokens = parsedCached
-                                    }
-                                    totalTokens = usage.total_tokens ?: (inputTokens + outputTokens + thinkingTokens)
+                            chunkResult.usage?.let { usage ->
+                                inputTokens = usage.prompt_tokens ?: inputTokens
+                                val rawCompletionTokens = usage.completion_tokens ?: outputTokens
+                                thinkingTokens = usage.completion_tokens_details?.reasoning_tokens ?: thinkingTokens
+                                outputTokens = (rawCompletionTokens - thinkingTokens).coerceAtLeast(0)
+                                val parsedCached = extractCachedTokensFromUsage(usage)
+                                if (parsedCached > 0) {
+                                    cachedTokens = parsedCached
                                 }
-                            } catch (e: Exception) {
-                                Log.w(tag, "解析chunk失败: $data", e)
+                                totalTokens = usage.total_tokens ?: (inputTokens + outputTokens + thinkingTokens)
                             }
                         }
                     }
+                } catch (streamEx: Exception) {
+                    if (isRequestCancellation(streamEx)) throw streamEx
+                    streamReadException = streamEx
+                    Log.w(tag, "流式解析外层异常: ${streamEx.javaClass.simpleName}: ${streamEx.message}")
                 }
 
                 val responseTime = System.currentTimeMillis() - startTime
@@ -1734,8 +1870,18 @@ class AiRepository(
                     }
                 }
 
-                if (fullContent.isBlank() && fullThinking.isNullOrBlank() && toolCalls.isEmpty()) {
-                    throw ApiException(500, "模型回复内容为空，可能触发了平台限制或API Key异常")
+                val hasReceivedContent = fullContent.isNotBlank() || !fullThinking.isNullOrBlank()
+
+                // 需求 2：只在“完全没有收到任何 delta.content”（且无思考、无工具调用）时，才判定为失败
+                if (!hasReceivedContent && toolCalls.isEmpty()) {
+                    streamReadException?.let { throw it }
+                    throw ApiException(500, "模型回复内容为空 (empty response detected)，未收到任何有效的文本或思考内容")
+                }
+
+                // 需求 3：如果流结束时缺少 finish_reason 或 [DONE]，不要抛异常，只记录 warning 并给结果标记 finished: false
+                val isFinished = (hasReceivedDone || !lastFinishReason.isNullOrBlank()) && streamReadException == null
+                if (!isFinished) {
+                    Log.w(tag, "流式响应结束但缺少 finish_reason 或 [DONE] (finished: false, finishReason: $lastFinishReason, hasDone: $hasReceivedDone, streamException: ${streamReadException?.message}), 内容正常保留输出 (${fullContent.length} 字符)")
                 }
 
                 val finalThinkingTokens = thinkingTokens.takeIf { it > 0 } ?: estimateTokenCount(fullThinking.orEmpty())
@@ -1922,64 +2068,84 @@ class AiRepository(
                 var outputTokens = 0
                 var cachedTokens = 0
 
+                var anthropicStreamReadException: Exception? = null
+
                 // 读取SSE流
-                responseBody.byteStream().bufferedReader().use { reader ->
-                    var line: String?
+                try {
+                    responseBody.byteStream().bufferedReader(Charsets.UTF_8).use { reader ->
+                        while (true) {
+                            val nextLine = try {
+                                reader.readLine()
+                            } catch (ioEx: Exception) {
+                                if (isRequestCancellation(ioEx)) throw ioEx
+                                anthropicStreamReadException = ioEx
+                                Log.w(tag, "Anthropic流式读取遇到IO中断 (${ioEx.javaClass.simpleName}): ${ioEx.message}")
+                                null
+                            } ?: break
 
-                    while (reader.readLine().also { line = it } != null) {
-                        val lineStr = line?.trim() ?: continue
+                            var lineStr = nextLine
+                            if (lineStr.startsWith("\uFEFF")) {
+                                lineStr = lineStr.removePrefix("\uFEFF")
+                            }
+                            lineStr = lineStr.trim()
+                            if (lineStr.isEmpty() || lineStr.startsWith(":") || lineStr.startsWith("event: ")) continue
 
-                        // 处理event行
-                        if (lineStr.startsWith("event: ")) {
-                            continue
-                        }
+                            if (lineStr.startsWith("data:")) {
+                                val data = lineStr.removePrefix("data:").trimStart()
+                                if (data == "[DONE]") break
 
-                        // 处理data行
-                        if (lineStr.startsWith("data:")) {
-                            val data = lineStr.removePrefix("data:").trimStart()
+                                try {
+                                    val event = gson.fromJson(data, AnthropicStreamEvent::class.java)
 
-                            try {
-                                val event = gson.fromJson(data, AnthropicStreamEvent::class.java)
-
-                                when (event.type) {
-                                    "message_start" -> {
-                                        event.message?.usage?.let { usage ->
-                                            inputTokens = usage.input_tokens ?: inputTokens
-                                            cachedTokens = (usage.cache_read_input_tokens ?: 0) + (usage.cache_creation_input_tokens ?: 0)
+                                    when (event.type) {
+                                        "message_start" -> {
+                                            event.message?.usage?.let { usage ->
+                                                inputTokens = usage.input_tokens ?: inputTokens
+                                                cachedTokens = (usage.cache_read_input_tokens ?: 0) + (usage.cache_creation_input_tokens ?: 0)
+                                            }
+                                        }
+                                        "content_block_delta" -> {
+                                            // 处理文本内容
+                                            event.delta?.text?.let { text ->
+                                                contentBuilder.append(text)
+                                                onToken(text)
+                                            }
+                                            // 处理思考内容
+                                            event.delta?.thinking?.let { thinking ->
+                                                thinkingBuilder.append(thinking)
+                                                onThinkingToken(thinking)
+                                            }
+                                        }
+                                        "message_delta" -> {
+                                            event.usage?.let { usage ->
+                                                inputTokens = usage.input_tokens ?: inputTokens
+                                                outputTokens = usage.output_tokens ?: outputTokens
+                                                cachedTokens = usage.cache_read_input_tokens ?: cachedTokens
+                                                totalTokens = inputTokens + outputTokens
+                                            }
+                                        }
+                                        "error" -> {
+                                            val errDetail = event.error?.message ?: "Anthropic流式返回未知错误"
+                                            if (contentBuilder.isNotEmpty() || thinkingBuilder.isNotEmpty()) {
+                                                Log.w(tag, "Anthropic流式输出过程中遇到错误: $errDetail，保留已输出内容平稳完成")
+                                                break
+                                            } else {
+                                                throw ApiException(400, "Anthropic错误: $errDetail", data)
+                                            }
                                         }
                                     }
-                                    "content_block_delta" -> {
-                                        // 处理文本内容
-                                        event.delta?.text?.let { text ->
-                                            contentBuilder.append(text)
-                                            onToken(text)
-                                        }
-                                        // 处理思考内容
-                                        event.delta?.thinking?.let { thinking ->
-                                            thinkingBuilder.append(thinking)
-                                            onThinkingToken(thinking)
-                                        }
-                                    }
-                                    "message_delta" -> {
-                                        event.usage?.let { usage ->
-                                            inputTokens = usage.input_tokens ?: inputTokens
-                                            outputTokens = usage.output_tokens ?: outputTokens
-                                            cachedTokens = usage.cache_read_input_tokens ?: cachedTokens
-                                            totalTokens = inputTokens + outputTokens
-                                        }
-                                    }
-                                    "error" -> {
-                                        val errDetail = event.error?.message ?: "Anthropic流式返回未知错误"
-                                        throw ApiException(400, "Anthropic错误: $errDetail", data)
-                                    }
+                                } catch (e: ApiException) {
+                                    throw e
+                                } catch (e: Exception) {
+                                    Log.w(tag, "解析Anthropic chunk失败: $data", e)
                                 }
-                            } catch (e: ApiException) {
-                                throw e
-                            } catch (e: Exception) {
-                                Log.w(tag, "解析Anthropic chunk失败: $data", e)
                             }
                         }
                     }
+                } catch (streamEx: Exception) {
+                    if (isRequestCancellation(streamEx)) throw streamEx
+                    anthropicStreamReadException = streamEx
+                    Log.w(tag, "Anthropic流式读取外层异常: ${streamEx.javaClass.simpleName}: ${streamEx.message}")
                 }
 
                 val responseTime = System.currentTimeMillis() - startTime
@@ -1998,8 +2164,11 @@ class AiRepository(
                     }
                 }
 
-                if (fullContent.isBlank() && fullThinking.isNullOrBlank() && toolCalls.isEmpty()) {
-                    throw ApiException(500, "Anthropic 模型回复内容为空，可能触发限制或API Key异常")
+                val hasReceivedContent = fullContent.isNotBlank() || !fullThinking.isNullOrBlank()
+
+                if (!hasReceivedContent && toolCalls.isEmpty()) {
+                    anthropicStreamReadException?.let { throw it }
+                    throw ApiException(500, "Anthropic 模型回复内容为空 (empty response detected)，可能触发限制或API Key异常")
                 }
                 val finalThinkingTokens = estimateTokenCount(fullThinking.orEmpty())
                 val finalOutputTokens = outputTokens.takeIf { it > 0 } ?: estimateTokenCount(fullContent)

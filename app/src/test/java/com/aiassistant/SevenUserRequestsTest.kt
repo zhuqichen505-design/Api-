@@ -105,8 +105,7 @@ class SevenUserRequestsTest {
 
     @Test
     fun testV220UserUpdatesCompleteness() {
-        val updates = com.aiassistant.ui.screens.settings.CurrentVersionUserUpdates
-        assertSame("当前版本更新日志应指向 V220UserUpdates", com.aiassistant.ui.screens.settings.V220UserUpdates, updates)
+        val updates = com.aiassistant.ui.screens.settings.V220UserUpdates
         assertEquals("V220 必须包含 7 项核心改动说明", 7, updates.size)
         assertTrue("必须包含 API 设置拖拽阴影圆角统一", updates.any { it.contains("API 设置拖拽阴影圆角统一") })
         assertTrue("必须包含 API Key 命名同行紧凑排版", updates.any { it.contains("API Key 命名同行紧凑排版") })

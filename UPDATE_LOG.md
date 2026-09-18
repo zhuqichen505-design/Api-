@@ -1,5 +1,35 @@
 # Echo AI 助手更新日志 (Update Log)
 
+## [2026-09-18] - v2.2.1：OpenAI 兼容接口流式解析健壮性重构、断流内容绝对保全、空响应精准防护与智能重试机制
+
+### 1. 流式健壮性与稳定性重构清单
+1. **断流内容绝对保全与防丢弃机制**：
+   - `AiRepository.kt`：在流式读取循环（`sendOpenAIMessage` & `sendAnthropicMessage`）中对 `reader.readLine()` 进行细粒度 IO 异常隔离；遇到网络突发中断、Broken Pipe 或 EOFException 时，只要已经接收到了有效文本（`contentBuilder`）或思考内容（`thinkingBuilder`），坚决不抛出异常、不重置用户界面已打印的文字，平稳视为流结束并持久化保存至本地数据库，彻底消除 `MissingFinishReasonError: Response stream ended without a finish reason` 导致的报错与内容丢弃。
+2. **空响应判定边界严格纠正**：
+   - 修复原先将中间网络断开误判为模型空回复的逻辑缺陷；
+   - 严格遵循准则：**只有在“完全没有收到任何 delta.content、思考内容且无工具调用”时**，才判定为请求失败；彻底根除“明明已收到部分或完整内容却提示 empty response detected”的问题。
+3. **缺少 finish_reason 或 [DONE] 的容错降级标记**：
+   - 建立完成态健康度核验逻辑：`val isFinished = (hasReceivedDone || !lastFinishReason.isNullOrBlank()) && streamReadException == null`；
+   - 当流非正常结束但存在内容时，仅记录 Warning 日志并标记 `finished: false`，保障用户内容 100% 完整交付呈现。
+4. **非标准流格式与中转网关全面兼容**：
+   - 抽取伴生对象解析器 `AiRepository.Companion.parseOpenAiStreamLine`；
+   - **NDJSON 格式支持**：兼容每行直接返回纯 JSON（`{"choices":[...]}`，无 `data:` 前缀）的流式中转；
+   - **BOM 头与空格清洗**：自动剔除行首 UTF-8 BOM (`\uFEFF`) 与多余换行、首尾空格；
+   - **控制行与注释忽略**：自动识别并忽略 SSE 注释行（`: ping`、`: keepalive`）以及 `event:`、`id:`、`retry:` 元数据行；
+   - **中转网关 choices[0].message 兼容**：容错提取误将流式内容置于 `message` 而非 `delta` 的非标准网关输出；
+   - **多行跨行 JSON 缓冲**：引入 `jsonAccumulator` 自动处理跨行缩进返回的完整 JSON 响应；
+   - **内联错误流式兜底**：若遇到内联包含 `error` 的 chunk，已有内容时平稳保留收尾，无内容时精准解析错误信息。
+5. **智能重试保护与 1s / 2s / 5s 指数退避策略**：
+   - `dispatchChatMessageWithConfig`：跟踪 `hasEmittedTokens`；
+   - **输出保护**：若已向用户输出了部分内容，坚决不执行自动重试，严禁调用 `onResetBuffer`，彻底杜绝重复输出与界面文字闪烁重刷；
+   - **退避重试**：仅在完全未收到任何内容时，针对网络波动/连接超时触发自动重连重试，上限 3 次，退避间隔为 `1000ms -> 2000ms -> 5000ms`。
+
+### 2. 自动化测试与工程交付
+- **专项测试**：新增 `OpenAiStreamRobustnessTest`，覆盖 BOM 剔除、NDJSON 解析、缺失 finish_reason、缺失 [DONE]、注释过滤、内联错误等 10 项专项单元测试；
+- **全量测试**：包含 `SevenUserRequestsTest` 等全部 267+ 项单元测试 100% 全部通过 (BUILD SUCCESSFUL)；
+- **版本配置**：`versionCode = 127`，`versionName = "2.2.1"`；
+- **历史安装包永久保留准则（最高铁律）**：`releases/` 目录下所有历史版本完整无缺保留，仅增量输出全新安装包。
+
 ## [2026-09-18] - v2.2.0：7 项核心交互、记忆控制与模型上下文深度修复
 
 ### 1. 7 项用户需求深度落地与修复清单

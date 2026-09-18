@@ -127,6 +127,13 @@ internal val V205UserUpdates = listOf(
     "分支功能原子事务、生成成功确认弹窗与隐藏会话密码维持特性完美保持"
 )
 
+internal val V221UserUpdates = listOf(
+    "OpenAI 兼容流式健壮解析：全面支持 NDJSON 格式（纯 JSON 行）、BOM 头自动剔除、SSE 注释行与 choices[0].message 非标准中转，彻底杜绝解析崩溃",
+    "断流内容绝对保全与防丢弃：流式接收过程中遇到网络中断、EOF 或缺少 finish_reason/[DONE] 时，100% 完整保留并正常保存已接收内容，消除 MissingFinishReasonError 报错",
+    "精准判空失败防护：仅在完全未收到任何有效 token、思考内容且无工具调用时判定为失败，彻底杜绝 empty response detected 误报",
+    "智能重试保护与指数退避：已输出部分内容时坚决不自动重试，杜绝界面重复吐字；未收到内容时执行 1s / 2s / 5s 退避自动重试（最多 3 次）"
+)
+
 internal val V220UserUpdates = listOf(
     "API 设置拖拽阴影圆角统一：长按切换 Key 优先级时的投影阴影完全贴合 10dp 卡片圆角，彻底消除直角矩形割裂感",
     "API Key 命名同行紧凑排版：Key 命名直接在 Key 标识右侧同行展示，删除括号内冗余说明，界面垂直空间大幅精简",
@@ -220,7 +227,7 @@ internal val V211UserUpdates = listOf(
     "分支创建完整保留多版本：创建分支截断历史时，完整克隆所选轮次的所有生成变体（版本 1、2、3...），保留新会话内的版本自由切换"
 )
 
-internal val CurrentVersionUserUpdates = V220UserUpdates
+internal val CurrentVersionUserUpdates = V221UserUpdates
 
 internal val V204UserUpdates = listOf(
     "分支功能完整重构：基于数据库事务与严格切片，规范严格递增时序，全链路杜绝历史记录颠倒或截断缺失",
