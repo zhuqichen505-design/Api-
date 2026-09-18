@@ -62,10 +62,10 @@ class AiRepository(
         const val SUMMARY_BUDGET_RATIO = 0.14f
         const val MEMORY_BUDGET_RATIO = 0.08f
         const val SYSTEM_PROMPT_TOKEN_RESERVE = 900
-        const val MIN_RECENT_CONTEXT_TOKENS = 1_200
+        const val MIN_RECENT_CONTEXT_TOKENS = 16_000
 
-        const val MIN_SUMMARY_SOURCE_MESSAGES = 6
-        const val MIN_SUMMARY_SOURCE_TOKENS = 1_200
+        const val MIN_SUMMARY_SOURCE_MESSAGES = 16
+        const val MIN_SUMMARY_SOURCE_TOKENS = 8_000
         const val SUMMARY_PROMPT_MIN_TOKENS = 300
         const val SUMMARY_PROMPT_MAX_TOKENS = 1_200
         const val SUMMARY_COMPLETION_MIN_TOKENS = 256
@@ -1128,8 +1128,8 @@ class AiRepository(
                 .coerceIn(600, 1_800)
 
             // 开源最佳实践（ConversationSummaryBufferMemory 范式）：
-            // 保留最近 2~4 条鲜活活跃对话，将其余早期历史消息全部压缩归约进滚动摘要
-            val keepRecentCount = (4).coerceAtMost(usableMessages.size / 2).coerceAtLeast(2)
+            // 保留最近 16 条左右鲜活活跃对话（8 轮完整上下文），仅将其余超出活跃窗口的较早历史消息压缩归约进滚动摘要
+            val keepRecentCount = 16.coerceAtMost(usableMessages.size)
             val olderMessages = usableMessages.dropLast(keepRecentCount)
 
             ensureRollingSummary(
@@ -1864,19 +1864,29 @@ class AiRepository(
             anthropicMessages.add(AnthropicMessage(role = "user", content = userContent))
         }
 
+        val thinkingBudget = if (effectiveOptions.enableThinking == true) {
+            thinkingBudgetForEffort(effectiveOptions.thinkingEffort, config.thinkingBudget)
+        } else null
+        val configuredMaxTokens = effectiveOptions.maxTokens ?: config.maxTokens
+        val requestMaxTokens = if (thinkingBudget != null && configuredMaxTokens <= thinkingBudget) {
+            thinkingBudget + 2048
+        } else {
+            configuredMaxTokens
+        }
+
         // 创建请求 - Anthropic格式支持top_k
         val request = AnthropicRequest(
             model = requestModel,
             messages = anthropicMessages,
-            max_tokens = effectiveOptions.maxTokens ?: config.maxTokens,
+            max_tokens = requestMaxTokens,
             system = systemPrompt,
             temperature = requestTemperature(config, effectiveOptions),
             top_p = effectiveOptions.topP,
             top_k = if (config.topK != 50) config.topK else null,
             stream = true,
             stop_sequences = parseStopSequences(config.stopSequences),
-            thinking = if (effectiveOptions.enableThinking == true) {
-                AnthropicThinking(budget_tokens = thinkingBudgetForEffort(effectiveOptions.thinkingEffort, config.thinkingBudget))
+            thinking = if (thinkingBudget != null) {
+                AnthropicThinking(budget_tokens = thinkingBudget)
             } else null
         )
 
@@ -2197,17 +2207,20 @@ class AiRepository(
         val isDeepSeek = "deepseek" in identity
         val isMiMo = "mimo" in identity || "xiaomi" in identity
         val isOpenAi = "openai" in identity || "api.openai.com" in identity
-        val isOpenAiReasoningModel = Regex("""(^|[-_/])(o[134]|gpt-5)""")
-            .containsMatchIn(config.modelName.lowercase())
+        val capability = com.aiassistant.domain.model.ModelCapabilityEngine.evaluateModel(
+            config.modelName, config.provider, config.baseUrl
+        )
+        val isOpenAiReasoningModel = capability.reasoningProviderType == "openai" ||
+            Regex("""(^|[-_/])(o[134]|gpt-5)""").containsMatchIn(config.modelName.lowercase())
 
         return OpenAiProviderToggles(
             includeTopK = options != null && isMiMo,
             includeGenericSearch = wantsSearch && !isDeepSeek && !isOpenAi,
             includeOpenAiSearchOptions = wantsSearch && isOpenAi,
-            includeEnableThinking = wantsThinking && !isDeepSeek && !isOpenAi,
-            includeThinkingBudget = wantsThinking && !isDeepSeek && !isOpenAi && !isMiMo,
-            includeThinkingEffort = wantsThinking && !isDeepSeek && !isOpenAi && !isMiMo,
-            includeReasoningEffort = wantsThinking && isOpenAi && isOpenAiReasoningModel
+            includeEnableThinking = wantsThinking && !isDeepSeek && !isOpenAiReasoningModel,
+            includeThinkingBudget = wantsThinking && !isDeepSeek && !isOpenAiReasoningModel && !isMiMo,
+            includeThinkingEffort = wantsThinking && !isDeepSeek && !isOpenAiReasoningModel && !isMiMo,
+            includeReasoningEffort = wantsThinking && isOpenAiReasoningModel
         )
     }
 
@@ -2249,7 +2262,7 @@ class AiRepository(
 
         var recentTokens = 0
         var recentCount = 0
-        for (message in activeCandidateMessages.asReversed()) {
+        for (message in usableMessages.asReversed()) {
             val cost = estimateTokenCount(compactMessageForHistory(message.content)) + 24
             if (recentCount > 0 && recentTokens + cost > recentBudget && !message.isPinned) break
             recentTokens += cost
@@ -2261,7 +2274,7 @@ class AiRepository(
             usableMessages.dropLast(2).lastOrNull()?.id
         } else null
 
-        val summaryTokens = if (hasRollingSummary) {
+        val summaryTokens = if (olderCount > 0 && hasRollingSummary) {
             conversation.rollingSummary?.let { estimateTokenCount(compactTextToTokenBudget(it, summaryBudget)) } ?: 0
         } else 0
 
@@ -2338,15 +2351,11 @@ class AiRepository(
         val hasRollingSummary = !conversation?.rollingSummary.isNullOrBlank()
         val summarizedThrough = conversation?.summaryUpdatedMessageId ?: 0L
 
-        val activeCandidateMessages = if (hasRollingSummary && summarizedThrough > 0L) {
-            usableMessages.filter { it.id > summarizedThrough || it.isPinned }
-        } else {
-            usableMessages
-        }
-
+        // 真实 ConversationSummaryBufferMemory 原则：
+        // 优先保证最近活跃上下文完整（从最新消息倒序向前装填，只要在 recentBudget 预算内，保留完整原始对话）
         var usedTokens = 0
         val recentReversed = mutableListOf<Message>()
-        for (message in activeCandidateMessages.asReversed()) {
+        for (message in usableMessages.asReversed()) {
             val compact = compactMessageForHistory(message.content)
             val cost = estimateTokenCount(compact) + 24
             if (recentReversed.isNotEmpty() && usedTokens + cost > recentBudget && !message.isPinned) {
@@ -2358,7 +2367,10 @@ class AiRepository(
 
         val recentMessages = recentReversed.asReversed()
         val olderMessages = usableMessages.dropLast(recentMessages.size)
-        val summary = if (hasRollingSummary && summarizedThrough > 0L) {
+        val summary = if (olderMessages.isEmpty()) {
+            // 如果全部历史对话均已完整包含在最近活跃上下文中，无需注入摘要，保留 100% 原始对话细节
+            null
+        } else if (hasRollingSummary && summarizedThrough >= (olderMessages.lastOrNull()?.id ?: 0L)) {
             conversation?.rollingSummary
         } else {
             ensureRollingSummary(
@@ -2426,10 +2438,11 @@ class AiRepository(
             .maxOrNull()
             ?.let { return it }
 
-        return Regex("""(?<!\d)([1-9]\d{3,6})(?!\d)""")
+        // 避免误匹配年份数字（如 2024、2025、202405）
+        return Regex("""(?<!\d)(?:ctx|context|window|tokens?)?[-_]?([1-9]\d{4,6})(?!\d)""")
             .findAll(normalized)
             .mapNotNull { it.groupValues[1].toIntOrNull() }
-            .filter { it in 4_000..2_000_000 }
+            .filter { it in 16_000..2_000_000 }
             .maxOrNull()
     }
 
@@ -2449,14 +2462,14 @@ class AiRepository(
             return compactTextToTokenBudget(existingSummary, tokenBudget)
         }
 
-        // 只有旧消息足够多时才额外发起摘要请求，避免短对话产生无意义的二次调用。
+        // 只有旧消息足够多时才额外发起摘要请求，避免短对话产生无意义的二次调用或过早归约。
         val pendingMessages = olderMessages.filter { it.id > summarizedThrough }
             .ifEmpty { olderMessages }
         if (
             pendingMessages.size < MIN_SUMMARY_SOURCE_MESSAGES &&
             pendingMessages.sumOf { estimateTokenCount(it.content) } < MIN_SUMMARY_SOURCE_TOKENS
         ) {
-            return existingSummary ?: buildExtractiveConversationSummary(olderMessages, tokenBudget)
+            return existingSummary
         }
 
         val generated = runCatching {
@@ -2473,7 +2486,7 @@ class AiRepository(
             ?: existingSummary
             ?: buildExtractiveConversationSummary(olderMessages, tokenBudget)
 
-        if (!finalSummary.isNullOrBlank()) {
+        if (!finalSummary.isNullOrBlank() && olderMessages.size >= MIN_SUMMARY_SOURCE_MESSAGES) {
             conversationDao.updateRollingSummary(
                 conversationId = conversation.id,
                 summary = finalSummary,
@@ -2571,7 +2584,7 @@ class AiRepository(
             - 默认使用用户当前消息的语言回答。
             - 引用文件、图片或 OCR 内容时，尽量说明来自哪个附件。
             - 不确定的信息要直接说明不确定，不要编造。
-            - 用户明确指定格式、语气或步骤时，优先遵守用户要求。
+            - 用户明确指定格式、语气、称谓要求或步骤时，优先遵守用户要求。严禁违背任何已设定的称谓禁忌或负向约束。
         """.trimIndent()
 
         val personalizationPart = personalizationManager.buildPrompt()?.let {
@@ -2836,12 +2849,9 @@ class AiRepository(
         val validLines = cleaned.lines().map { it.trim() }.filter {
             it.isNotBlank() && !it.startsWith("<") && !it.startsWith("好的") && !it.startsWith("以下是") && !it.startsWith("提炼结果")
         }
-        val distilled = validLines.firstOrNull()?.trim() ?: return@withContext null
-        val finalContent = if (!distilled.startsWith("用户") && !distilled.startsWith("设定") && !distilled.startsWith("偏好")) {
-            "记忆：$distilled"
-        } else {
-            distilled
-        }
+        val rawDistilled = validLines.firstOrNull()?.trim() ?: return@withContext null
+        val (finalContent, category) = SmartMemoryExtractor.refineMemoryContent(rawDistilled)
+        if (finalContent.isBlank()) return@withContext null
 
         PendingMemoryCandidate(
             distilledContent = finalContent,
@@ -2849,7 +2859,7 @@ class AiRepository(
             suggestedScope = if (SmartMemoryExtractor.isConversationScoped(content)) "conversation" else "user",
             conversationId = conversationId,
             sourceMessageId = messageId,
-            category = if (listOf("喜欢", "习惯", "偏好", "要求", "风格").any { finalContent.contains(it) }) "PREFERENCE" else "FACT"
+            category = category
         )
     }
 
@@ -2862,7 +2872,7 @@ class AiRepository(
                     model = config.modelName,
                     messages = listOf(ChatMessage(role = "user", content = prompt)),
                     temperature = 0.1f,
-                    max_tokens = 512,
+                    max_tokens = 1024,
                     stream = false
                 )
                 val response = RetrofitClient.getService(config.baseUrl)
@@ -2893,7 +2903,7 @@ class AiRepository(
                 val request = AnthropicRequest(
                     model = config.modelName,
                     messages = listOf(AnthropicMessage(role = "user", content = prompt)),
-                    max_tokens = 512,
+                    max_tokens = 1024,
                     temperature = 0.1f
                 )
                 val response = RetrofitClient.getService(config.baseUrl)
@@ -3490,13 +3500,39 @@ class AiRepository(
             emptyList()
         }
 
+        fun isDirectiveOrConstraint(memory: MemoryItem): Boolean {
+            val lower = memory.content.lowercase(java.util.Locale.ROOT)
+            val constraintMarkers = listOf(
+                "行为约束", "用户偏好", "约束", "规则", "规范",
+                "不允许", "禁止", "切勿", "不要", "避免", "严禁", "不许", "不得", "不能",
+                "必须", "始终", "永远", "称呼", "叫我", "自称", "身份", "尊称", "规矩",
+                "雷区", "禁忌", "别叫", "不要叫", "格式要求", "不准", "特助", "老板"
+            )
+            return constraintMarkers.any { lower.contains(it) }
+        }
+
+        val (sessionDirectives, normalSessionMemories) = sessionMemories.partition { isDirectiveOrConstraint(it) }
+        val (longTermDirectives, normalLongTermMemories) = longTermMemories.partition { isDirectiveOrConstraint(it) }
+        val allDirectives = (sessionDirectives + longTermDirectives).distinctBy { it.content.trim() }
+
         val blocks = mutableListOf<String>()
 
-        if (sessionMemories.isNotEmpty()) {
+        // 1. 核心行为准则与绝对约束（100% 无条件注入，最高约束级别，解决需求 4c）
+        if (allDirectives.isNotEmpty()) {
+            val directiveLines = allDirectives.map { "- [绝对准则] ${it.content.trim()}" }.joinToString("\n")
+            blocks += """
+                【核心行为准则与绝对约束（最高优先级，必须严格无条件遵守）】
+                以下是用户已确认并生效的核心行为准则、称谓规范与输出禁令。在任何对话与输出中均拥有最高绝对效力，必须无条件执行：
+                $directiveLines
+                【执行铁律】：凡涉及上述禁止性称谓、措辞或行为（例如严禁使用“老板”、“特助”等任何称谓），在任何回复中绝对严禁出现，哪怕未被显式提醒也必须绝对回避！
+            """.trimIndent()
+        }
+
+        if (normalSessionMemories.isNotEmpty()) {
             // 提取当前故事时间（若有记录）
             var currentStoryTime: String? = null
             val sessionLines = mutableListOf<String>()
-            for (mem in sessionMemories) {
+            for (mem in normalSessionMemories) {
                 val trimmed = mem.content.trim()
                 if (trimmed.startsWith("【当前故事时间】：") || trimmed.startsWith("当前故事时间：")) {
                     currentStoryTime = trimmed.substringAfter("：").trim()
@@ -3519,10 +3555,10 @@ class AiRepository(
             blocks += "<session_timeline_memory>\n$timelineContext\n</session_timeline_memory>"
         }
 
-        if (longTermMemories.isNotEmpty()) {
+        if (normalLongTermMemories.isNotEmpty()) {
             val queryTerms = tokenizeForMemory(currentUserMessage)
             val queryEntities = extractEntitiesFromQuery(currentUserMessage)
-            val ranked = longTermMemories
+            val ranked = normalLongTermMemories
                 .map { it to scoreMemory(it, queryTerms, queryEntities, conversation.id) }
                 .filter { (_, score) -> score >= 0.22f }
                 .sortedWith(compareByDescending<Pair<MemoryItem, Float>> { it.second }
@@ -3544,7 +3580,7 @@ class AiRepository(
 
         if (blocks.isEmpty()) return null
         val memoryBody = blocks.joinToString("\n\n")
-        return "<system_memory_context>\n$memoryBody\n\n【记忆作用指引】：以上记忆、时间线与事实供你在构思方案和回答时自然参考与遵循。特别是时序信息，请准确核对具体是哪一天发生的事件，在未被用户明确询问时，无需机械复述这些记忆条目。\n</system_memory_context>"
+        return "<system_memory_context>\n$memoryBody\n\n【记忆与约束执行指引】：请严格优先执行上述核心行为准则与绝对约束；其余记忆、时间线与事实供你在构思方案和回答时自然参考与遵循，在未被用户明确询问时，无需机械复述这些条目。\n</system_memory_context>"
     }
 
     private fun scoreMemory(

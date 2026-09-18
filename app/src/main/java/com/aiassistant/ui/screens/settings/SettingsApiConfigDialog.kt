@@ -48,6 +48,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
@@ -188,11 +189,13 @@ fun ApiConfigDialog(
     }
     var isLoadingModels by remember { mutableStateOf(false) }
     var selectedApiAvatarUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var pendingCropAvatarUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var pendingAvatarBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
     var clearApiAvatar by remember { mutableStateOf(false) }
     var avatarRevision by remember { mutableIntStateOf(0) }
-    val currentApiAvatarBitmap = remember(context, config?.id, selectedApiAvatarUri, clearApiAvatar, avatarRevision) {
+    val currentApiAvatarBitmap = remember(context, config?.id, pendingAvatarBitmap, selectedApiAvatarUri, clearApiAvatar, avatarRevision) {
         when {
-            selectedApiAvatarUri != null -> null
+            pendingAvatarBitmap != null -> pendingAvatarBitmap
             clearApiAvatar -> null
             config?.id != null && config.id > 0L -> AvatarManager.getApiModelAvatarBitmap(context, config.id)
             else -> null
@@ -202,9 +205,7 @@ fun ApiConfigDialog(
         contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
     ) { uri ->
         uri?.let {
-            selectedApiAvatarUri = it
-            clearApiAvatar = false
-            avatarRevision++
+            pendingCropAvatarUri = it
         }
     }
 
@@ -378,7 +379,7 @@ fun ApiConfigDialog(
 
                         namedKeyList.forEachIndexed { index, currentKey ->
                             val isVisible = keyVisibilityList.getOrElse(index) { false }
-                            val keyLabel = if (index == 0) "Key 1 (主密钥 · 最高优先级)" else "Key ${index + 1} (备用密钥 $index)"
+                            val keyLabel = "Key ${index + 1}"
                             val itemId = keyIds.getOrElse(index) { "key_$index" }
                             val isActive = keyReorderState.isItemActive(index)
 
@@ -388,7 +389,7 @@ fun ApiConfigDialog(
                                 border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .reorderItem(keyReorderState, index, itemId)
+                                    .reorderItem(keyReorderState, index, itemId, shape = RoundedCornerShape(10.dp))
                                     .padding(vertical = 3.dp)
                             ) {
                                 Column(
@@ -448,28 +449,59 @@ fun ApiConfigDialog(
                                             }
                                         }
 
-                                        Text(
-                                            text = keyLabel,
-                                            style = MaterialTheme.typography.labelMedium,
-                                            color = if (index == 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                            fontWeight = if (index == 0) FontWeight.Bold else FontWeight.Medium
-                                        )
-
-                                        if (currentKey.name.isNotBlank()) {
-                                            Surface(
-                                                shape = RoundedCornerShape(4.dp),
-                                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f)
-                                            ) {
-                                                Text(
-                                                    text = currentKey.name,
-                                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
-                                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                                )
-                                            }
+                                        Surface(
+                                            shape = RoundedCornerShape(5.dp),
+                                            color = if (index == 0) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                            border = BorderStroke(0.8.dp, if (index == 0) MaterialTheme.colorScheme.primary.copy(alpha = 0.45f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+                                        ) {
+                                            Text(
+                                                text = keyLabel,
+                                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold, fontSize = 12.sp),
+                                                color = if (index == 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                                            )
                                         }
 
-                                        Spacer(modifier = Modifier.weight(1f))
+                                        BasicTextField(
+                                            value = currentKey.name,
+                                            onValueChange = { newName ->
+                                                val updated = namedKeyList.toMutableList()
+                                                updated[index] = currentKey.copy(name = newName)
+                                                namedKeyList = updated
+                                                apiKey = AiRepository.formatNamedApiKeys(updated)
+                                            },
+                                            singleLine = true,
+                                            textStyle = MaterialTheme.typography.bodySmall.copy(
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Normal
+                                            ),
+                                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                            decorationBox = { innerTextField ->
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .clip(RoundedCornerShape(6.dp))
+                                                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
+                                                        .border(
+                                                            BorderStroke(0.8.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                                                            RoundedCornerShape(6.dp)
+                                                        )
+                                                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                                                    contentAlignment = Alignment.CenterStart
+                                                ) {
+                                                    if (currentKey.name.isEmpty()) {
+                                                        Text(
+                                                            text = "备注名称 (可选)",
+                                                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+                                                        )
+                                                    }
+                                                    innerTextField()
+                                                }
+                                            },
+                                            modifier = Modifier.weight(1f)
+                                        )
 
                                         if (namedKeyList.size > 1) {
                                             IconButton(
@@ -570,27 +602,6 @@ fun ApiConfigDialog(
                                     }
 
                                     OutlinedTextField(
-                                        value = currentKey.name,
-                                        onValueChange = { newName ->
-                                            val updated = namedKeyList.toMutableList()
-                                            updated[index] = currentKey.copy(name = newName)
-                                            namedKeyList = updated
-                                            apiKey = AiRepository.formatNamedApiKeys(updated)
-                                        },
-                                        placeholder = { Text("Key 备注名称 (可选，如：个人主号/备用/团队)", style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp)) },
-                                        singleLine = true,
-                                        shape = RoundedCornerShape(8.dp),
-                                        textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 12.5.sp),
-                                        colors = OutlinedTextFieldDefaults.colors(
-                                            focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
-                                            focusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.45f),
-                                            unfocusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.2f)
-                                        ),
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-
-                                    OutlinedTextField(
                                         value = currentKey.key,
                                         onValueChange = { newVal ->
                                             val parsed = AiRepository.parseNamedApiKeys(newVal)
@@ -617,7 +628,7 @@ fun ApiConfigDialog(
                                                 apiKey = AiRepository.formatNamedApiKeys(updated)
                                             }
                                         },
-                                        placeholder = { Text(if (index == 0) "填写主密钥 (sk-...)" else "填写备用密钥 (sk-...)", style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp)) },
+                                        placeholder = { Text("填写密钥 (sk-...)", style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp)) },
                                         visualTransformation = if (isVisible) VisualTransformation.None else PasswordVisualTransformation(),
                                         singleLine = true,
                                         shape = RoundedCornerShape(8.dp),
@@ -1093,11 +1104,12 @@ fun ApiConfigDialog(
                 item {
                     ApiModelAvatarSection(
                         currentBitmap = currentApiAvatarBitmap,
-                        hasPendingAvatar = selectedApiAvatarUri != null,
+                        hasPendingAvatar = selectedApiAvatarUri != null || pendingAvatarBitmap != null,
                         clearAvatar = clearApiAvatar,
                         onPickAvatar = { apiAvatarPicker.launch("image/*") },
                         onClearAvatar = {
                             selectedApiAvatarUri = null
+                            pendingAvatarBitmap = null
                             clearApiAvatar = true
                             avatarRevision++
                         }
@@ -1149,6 +1161,23 @@ fun ApiConfigDialog(
             }
         }
     )
+
+    pendingCropAvatarUri?.let { cropUri ->
+        ImageCropEditDialog(
+            imageUri = cropUri,
+            shapeMode = CropShapeMode.CIRCLE,
+            title = "裁剪与编辑 API 模型头像",
+            onDismiss = { pendingCropAvatarUri = null },
+            onConfirm = { croppedBitmap ->
+                val tempUri = AvatarManager.saveTempAvatarBitmap(context, croppedBitmap)
+                selectedApiAvatarUri = tempUri
+                pendingAvatarBitmap = croppedBitmap
+                clearApiAvatar = false
+                avatarRevision++
+                pendingCropAvatarUri = null
+            }
+        )
+    }
 }
 
 @Composable

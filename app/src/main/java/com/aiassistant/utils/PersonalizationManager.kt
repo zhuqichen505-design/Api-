@@ -160,6 +160,6 @@ class PersonalizationManager(private val context: Context) {
         private const val KEY_AUXILIARY_MEMORY_MODEL = "auxiliary_memory_model"
         private const val KEY_AUXILIARY_MEMORY_PROMPT = "auxiliary_memory_prompt"
 
-        const val DEFAULT_AUXILIARY_MEMORY_PROMPT = "你是一个专业的记忆与设定提炼助手。请阅读以下用户发言与对话内容，判断是否包含值得跨会话长期记住的用户画像、长期偏好、重要事实或剧情设定。若包含，请直接输出一条精炼事实（25字以内），禁止输出解释或标点废话；若只是客套、单次任务、临时疑问或瞬态动作，请只输出'IGNORE'。"
+        const val DEFAULT_AUXILIARY_MEMORY_PROMPT = "你是一个专业的记忆与设定提炼助手。请阅读以下用户发言与对话内容，判断是否包含值得跨会话长期记住的用户画像、长期偏好、重要事实、剧情设定或行为约束（如称呼要求、绝对禁忌、输出规范等）。若包含，请直接输出一条主谓宾结构完整、表意清晰确凿的陈述事实（30~80字，必须保留完整的约束条件与限定词，严禁中途截断，严禁输出任何'根据分析'等说明或标点废话）；若只是客套、单次任务、临时疑问或瞬态动作，请只输出'IGNORE'。"
     }
 }

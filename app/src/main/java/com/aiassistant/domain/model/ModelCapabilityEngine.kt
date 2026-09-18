@@ -23,7 +23,11 @@ object ModelCapabilityEngine {
 
     const val DEFAULT_CONTEXT_TOKENS = 256_000 // 默认上下文设定为 256k
 
-    fun evaluateModel(modelName: String): ModelCapabilityInfo = resolveCapabilities(modelName)
+    fun evaluateModel(
+        modelName: String,
+        provider: String = "",
+        baseUrl: String = ""
+    ): ModelCapabilityInfo = resolveCapabilities(modelName, provider, baseUrl)
 
     fun resolveCapabilities(
         modelName: String,

@@ -13,8 +13,7 @@ class V218FeaturesTest {
 
     @Test
     fun testV218UserUpdatesCompleteness() {
-        val updates = CurrentVersionUserUpdates
-        assertSame("当前版本更新日志应指向 V218UserUpdates", V218UserUpdates, updates)
+        val updates = V218UserUpdates
         assertFalse("本次更新日志列表不得为空", updates.isEmpty())
         assertEquals("必须包含全部 6 项主要更新项", 6, updates.size)
 

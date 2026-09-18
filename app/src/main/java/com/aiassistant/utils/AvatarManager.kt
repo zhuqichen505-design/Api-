@@ -122,9 +122,26 @@ object AvatarManager {
         file.writeText(base64Data)
     }
 
+    fun saveTempAvatarBitmap(context: Context, bitmap: Bitmap): Uri? {
+        return try {
+            val file = File(context.cacheDir, "temp_avatar_${System.currentTimeMillis()}.png")
+            file.outputStream().use { output ->
+                bitmap.compress(Bitmap.CompressFormat.PNG, 95, output)
+            }
+            Uri.fromFile(file)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
     private fun saveAvatarFromUri(context: Context, uri: Uri, fileName: String): Boolean {
         return try {
-            val inputStream = context.contentResolver.openInputStream(uri)
+            val inputStream = if (uri.scheme == "file") {
+                uri.path?.let { File(it).inputStream() } ?: context.contentResolver.openInputStream(uri)
+            } else {
+                context.contentResolver.openInputStream(uri)
+            }
             val bitmap = BitmapFactory.decodeStream(inputStream)
             inputStream?.close()
             if (bitmap == null) return false

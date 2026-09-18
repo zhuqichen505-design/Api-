@@ -43,6 +43,7 @@ import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.aiassistant.utils.TimelineMemoryHelper
@@ -1640,11 +1641,11 @@ fun ChatSettingsDialog(
     var enableSessionMemory by remember { mutableStateOf(tempSettings.enableSessionMemory) }
     var enableExternalMemory by remember { mutableStateOf(tempSettings.enableExternalMemory) }
     var enableWorldBook by remember { mutableStateOf(tempSettings.enableWorldBook) }
-    var promptTextFieldValue by remember(currentPrompt) {
+    var promptTextFieldValue by rememberSaveable(currentPrompt, stateSaver = TextFieldValue.Saver) {
         mutableStateOf(
             TextFieldValue(
                 text = currentPrompt.orEmpty(),
-                selection = TextRange(currentPrompt?.length ?: 0)
+                selection = TextRange(0)
             )
         )
     }

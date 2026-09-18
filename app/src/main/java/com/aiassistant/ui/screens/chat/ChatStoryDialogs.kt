@@ -43,6 +43,7 @@ import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.aiassistant.utils.TimelineMemoryHelper
@@ -215,11 +216,11 @@ internal fun StoryUnifiedSettingsDialog(
     var enableWebSearch by remember { mutableStateOf(tempSettings.enableWebSearch) }
     var enableExternalMemory by remember { mutableStateOf(session.enableExternalMemory) }
     var enableWorldBook by remember { mutableStateOf(session.enableWorldBook) }
-    var promptTextFieldValue by remember(currentPrompt) {
+    var promptTextFieldValue by rememberSaveable(currentPrompt, stateSaver = TextFieldValue.Saver) {
         mutableStateOf(
             TextFieldValue(
                 text = currentPrompt.orEmpty(),
-                selection = TextRange(currentPrompt?.length ?: 0)
+                selection = TextRange(0)
             )
         )
     }

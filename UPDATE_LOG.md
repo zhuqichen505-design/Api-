@@ -1,5 +1,85 @@
 # Echo AI 助手更新日志 (Update Log)
 
+## [2026-09-18] - v2.2.0：7 项核心交互、记忆控制与模型上下文深度修复
+
+### 1. 7 项用户需求深度落地与修复清单
+1. **API 设置长按拖拽按键阴影圆角统一**：
+   - `SmoothReorderState.kt`：重构 `Modifier.reorderItem`，增加 `shape: Shape = RoundedCornerShape(10.dp)` 参数；并在 `graphicsLayer` 中同步绑定 `this.shape = shape` 与 `clip = true`，使长按拖拽浮起时投影的阴影轮廓与卡片圆角完美一致，彻底消除直角方形阴影。
+   - `SettingsApiConfigDialog.kt`：向多 Key 列表的 `.reorderItem(...)` 显式传递 `shape = RoundedCornerShape(10.dp)`。
+2. **API 设置 Key 命名紧凑横向同行重构与说明冗余精简**：
+   - `SettingsApiConfigDialog.kt`：Key 命名输入框从原来的独立占一行，重构为直接与“Key 1”、“Key 2”角标在同一直线上水平同行紧凑展示，使用轻量 `BasicTextField` 并附带“备注名称 (可选)”占位提示；
+   - 删除所有括号中的说明文字（如“（主密钥，默认使用）”等），角标仅显示干净的“Key 1”、“Key 2”；
+   - 密钥输入框占位符精简为“填写密钥 (sk-...)”，整体界面垂直占用大幅缩减。
+3. **模型思考/连接气泡文本显示完整性（横向滑动与展开双重支持）**：
+   - `ChatMessageComponents.kt`：在思考气泡未进入正式长思考时（如连接中、报错提示、重连倒计时、Token 消耗等信息），新增单行平滑左右滑动 (`Modifier.horizontalScroll(rememberScrollState())`)；
+   - 增加点击展开/收起能力（支持至 12 行完整换行展示）及展开折叠指示图标，使超长报错信息（如包含 URL、具体状态码或多行详情）可以完全无遮挡地展开阅读。
+4. **记忆提取三大问题彻底根治**：
+   - **内容完整性**：在 `PersonalizationManager.kt` 中重构辅助记忆提取提示词，废除原 25 字过短截断限制，放宽至 30~80 字完整主谓宾陈述句；在 `AiRepository.kt` 中提升辅助模型 `max_tokens` 至 1024；
+   - **前缀与语气废话剥离**：在 `SmartMemoryExtractor.kt` 的 `refineMemoryContent` 中引入复合前缀循环清洗机制，彻底剥离如“根据上述对话分析得出如下核心事实：”、“建议记住：”、“经分析如下：”以及列表序号符号；
+   - **负向约束与禁令强力生效（最高优先级）**：在 `SmartMemoryExtractor.kt` 中将包含“不允许”、“禁止”、“严禁”、“别叫我”等内容直接分类为 `行为约束`；在 `AiRepository.kt` 的 `buildRelevantMemoryBlock` 中，将所有行为约束与禁令无条件 100% 提取为【核心行为准则与绝对约束（最高优先级，必须严格无条件遵守）】独立系统指令块，并在 `buildEffectiveSystemPrompt` 注入禁令合规强约束，彻底根绝“不允许叫老板”却依然叫老板的顽疾。
+5. **模型上下文遗忘与多轮记忆丢失根治**：
+   - **扩大近期上下文保留窗口**：将 `AiRepository.MIN_RECENT_CONTEXT_TOKENS` 从 1,200 提升至 16,000 tokens；
+   - **提高摘要压缩触发门槛**：将 `MIN_SUMMARY_SOURCE_MESSAGES` 从 6 提升至 16 轮，`MIN_SUMMARY_SOURCE_TOKENS` 从 1,200 提升至 8,000 tokens；
+   - **短中轮次 100% 无损传递**：在 `buildContextBundle` 中，短中对话（在预算范围内）全部直接作为近期完整对话传递，`summary` 保持为 `null`，不再过早生成模糊摘要覆盖原始对话细节；
+   - **修正上下文窗口解析**：修复正则以避免将年份（如 2024）误解析为模型上下文窗口大小。
+6. **提示词输入框点击跳跃与滚动抖动消除**：
+   - `ChatSettingsDialogs.kt` 与 `ChatStoryDialogs.kt`：将系统提示词与剧情开场提示词编辑框的状态管理重构为 `rememberSaveable(stateSaver = TextFieldValue.Saver)`，并锁定初始光标位置，杜绝获取焦点时重新重置光标导致的输入框与 LazyColumn 视口剧烈跳动问题。
+7. **全供应商与中转代理思考模式（Thinking）参数精准透传**：
+   - `ModelCapabilityEngine.kt`：升级推理能力引擎，全面支持 OpenAI (o1/o3/o4/gpt-5)、Anthropic Claude 3.7、DeepSeek (deepseek-reasoner/r1) 及 OneAPI/NewAPI 常见中转代理；
+   - `AiRepository.kt`：为 OpenAI o 系列及中转精准透传 `reasoning_effort`，并对标准 o 系列避免透传引发 400 报错的 `thinking` 扩展字段；为 Anthropic Claude 3.7 精确配置 `thinking` 参数块、`budget_tokens`、固定 `temperature = 1.0` 并动态扩展 `max_tokens`；
+   - `ChatViewModel.kt`：在会话层与全局层做好 `enableThinking` 与 `thinkingEffort` 的层级兜底继承，确保未显式配置时安全读取上一级有效设定。
+
+### 2. 自动化测试与工程交付
+- **测试套件**：全量单元测试（包含 SevenUserRequestsTest 共 266 项自动化测试）100% 全部通过 (BUILD SUCCESSFUL)；
+- **版本配置**：`versionCode = 126`，`versionName = "2.2.0"`；
+- **Release APK 交付**：
+  - 路径：`releases/Echo-v2.2.0-arm64-v8a.apk`（及增量 `Echo-v2.2.0.apk`）；
+  - 体积：`16,238,589` 字节；
+  - SHA-256：`8468EB3D09492818E627AEC2FCBB9541DF3711247F4FA640108774A07A15C1BE`；
+  - 签名方案：APK Signature Scheme v2 验证通过；
+  - 证书 SHA-256：`939638f6d3e9af7f8a980e62af52d275fee73381f2130cc4e20a0d349f98e21f`（与历史版本保持 100% 一致，支持直接平滑覆盖安装升级）；
+  - **历史安装包永久保留准则（最高铁律）**：`releases/` 目录下所有历史版本完整无缺保留，仅增量输出 v2.2.0 安装包。
+
+## [2026-09-17] - v2.1.9：12 项专项需求全面核验落地、全局图片手势裁剪编辑闭环、记忆提炼辅助模型层级归一与自由直选
+
+### 1. 12 项核心需求核验与修复状态总览
+1. **对时间的敏锐度与准确度深度优化**：【已修复并保持】
+   - `TimelineMemoryHelper.kt` 与 `AiRepository.kt`：支持文学叙事时间跨度（如“两周过后”、“暑假开始”、“三年后·春”等）解析；`inferCurrentStoryTime` 优先倒序寻找时间标签与正文特征，兜底继承上一个有效故事节点，杜绝粗暴退回“未确定”；完整支持 6 维常驻世界设定流转。
+2. **全局按键阴影与圆角几何轮廓统一消除直角割裂**：【已修复并保持】
+   - `PressEffects.kt`：`Modifier.echoShapeClick` 统一采用 `clip(shape)` 几何裁剪与 `drawWithContent` 绘制 Path 覆盖层，配合 `indication = null` 彻底根除原生涟漪矩形边缘溢出的直角毛刺。
+3. **“本对话专属记忆与时间线”单条记忆 UI 排版重构**：【已修复并保持】
+   - `ChatSettingsDialogs.kt`：单条专属记忆卡片左侧占满记忆正文与时间标签，右侧独立展示上方 Switch 开关、下方并列展示编辑与删除小按键，布局整齐轻量。
+4. **对话设置（ChatSettingsDialog）功能层级顺序调整**：【已修复并保持】
+   - `ChatSettingsDialogs.kt`：已将“本对话专属记忆与时间线”和“跨会话记忆与世界书”调整至模型头像正上方，层级聚焦核心设定。
+5. **图片导入编辑功能（手势放缩、平移、翻转与裁剪）**：【已补全修复】
+   - 在已支持的角色头像与会话模型头像基础上，全面接入 `SettingsAppearanceTab.kt`（用户自定义头像采用圆形裁剪、首页壁纸与对话页壁纸采用矩形裁剪）与 `SettingsApiConfigDialog.kt`（API 模型头像采用圆形裁剪）；
+   - 在 `AvatarManager.kt` 中完善 `saveTempAvatarBitmap` 及 file 协议读取支持，实现即时手势微调与无缝回存。
+6. **“本对话专属记忆与时间线”记忆列表支持折叠与展开**：【已修复并保持】
+   - `ChatSettingsDialogs.kt`：已支持“专属记忆清单 (N)”标题栏点击切换展开折叠、状态文字和箭头动画，大量记忆时不再无限占屏。
+7. **设置中的“记忆提炼辅助模型”位置与选择逻辑统一**：【已补全修复】
+   - 从“提示词与记忆”选项卡（`SettingsPromptsMemoryTab.kt`）彻底移除旧版辅助模型设置卡片与旧式下拉选单；
+   - 完整迁入“模型辅助与思考”选项卡（`SettingsModelFeaturesTab.kt`），统一使用跨服务商自由直选的 `UniversalModelPickerCard`，并保留“即时测试辅助连接”验证弹窗。
+8. **文本排版防跨行优化 + 全局长文本展开/收起**：【已修复并保持】
+   - `ExpandableText.kt` 支持长文本平滑展开与折叠；全局各类操作按键文字统一增加 `maxLines = 1`，避免文字被折行挤出按键。
+9. **会话内自定义模型头像“会话级”隔离**：【已修复并保持】
+   - 会话实体增加 `modelAvatarUri`，Room 数据库迁移完成，各会话拥有完全独立的模型头像，杜绝全局串扰。
+10. **会话设置中模型配置标签同排对齐**：【已修复并保持】
+    - `ChatSettingsDialogs.kt` 中“模型”标题与窗口、搜索、视觉、思考等能力标签在同一行水平紧凑排列，消除高度浪费。
+11. **上下文压缩功能彻底重构与开源规范落地**：【已修复并保持】
+    - `AiRepository.kt` 实现标准 `ConversationSummaryBufferMemory`，截断点前的早期历史彻底移出发送给模型的 Prompt Context，以滚动摘要替代；并提供 50%~60%~75% 梯度预警。
+12. **允许用户对模型回复的内容进行编辑**：【已修复并保持】
+    - `ChatMessageComponents.kt` 在助手回复二级菜单中提供“编辑回复”功能，支持用户修改模型回复文本并写回数据库。
+
+### 2. 自动化测试与质量保障
+- **测试套件**：全量单元测试（V1921 至 V219 共 260 项自动化测试）100% 全部通过 (BUILD SUCCESSFUL)；
+- **版本配置**：`versionCode = 125`，`versionName = "2.1.9"`；
+- **Release APK 交付**：
+  - 路径：`releases/Echo-v2.1.9-arm64-v8a.apk`（及增量 `Echo-v2.1.9.apk`）；
+  - 体积：`16,222,205` 字节；
+  - SHA-256：`415B95C916D46A3A3760FCCE63AA9F6B647505C956A38701FA60A3D88037B7A2`；
+  - 签名方案：APK Signature Scheme v2 验证通过；
+  - **历史安装包永久保留准则（最高铁律）**：`releases/` 目录下所有历史版本完整无缺保留，仅增量输出 v2.1.9 安装包。
+
 ## [2026-09-17] - v2.1.8：记忆提取完整性与语义相关性重构、多 Key 自动透明故障转移、输出工具栏二级菜单收纳、API Key 独立命名与卡片化配置、滚动摘要虚假提醒根治、核心巨型文件工程级模块化拆分
 
 ### 1. 本次 6 大核心诉求深度落实与功能重构

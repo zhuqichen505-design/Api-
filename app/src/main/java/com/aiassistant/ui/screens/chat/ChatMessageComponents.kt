@@ -33,6 +33,7 @@ import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.text.selection.SelectionContainer
 import com.aiassistant.domain.model.ToolCallRecord
 import com.aiassistant.domain.model.QueuedMessage
@@ -648,19 +649,26 @@ internal fun MessageBubble(
                         }
                     }
 
-                    val capsuleShape = RoundedCornerShape(999.dp)
+                    var isStatusExpanded by remember { mutableStateOf(false) }
+                    val canExpandStatus = !hasThinkingContent
+                    val capsuleShape = if (isStatusExpanded) RoundedCornerShape(12.dp) else RoundedCornerShape(999.dp)
                     Surface(
                         modifier = Modifier
                             .defaultMinSize(minHeight = 34.dp)
-                            .widthIn(max = 300.dp)
+                            .then(
+                                if (isStatusExpanded) Modifier.fillMaxWidth(0.95f)
+                                else Modifier.widthIn(max = 320.dp)
+                            )
                             .then(
                                 if (hasThinking && hasThinkingContent) {
                                     Modifier.pointerInput(Unit) {
                                         detectTapGestures(
                                              onTap = { showThinking = !showThinking },
-                                            onDoubleTap = { showThinking = !showThinking }
+                                             onDoubleTap = { showThinking = !showThinking }
                                         )
                                     }
+                                } else if (canExpandStatus) {
+                                    Modifier.clickable { isStatusExpanded = !isStatusExpanded }
                                 } else Modifier
                             ),
                         color = thinkingBubbleColor,
@@ -672,13 +680,15 @@ internal fun MessageBubble(
                         )
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = if (isStatusExpanded) 9.dp else 7.dp),
+                            verticalAlignment = if (isStatusExpanded) Alignment.Top else Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             if (isConnecting || isThinkingActive) {
                                 CircularProgressIndicator(
-                                    modifier = Modifier.size(13.dp),
+                                    modifier = Modifier
+                                        .size(13.dp)
+                                        .then(if (isStatusExpanded) Modifier.padding(top = 2.dp) else Modifier),
                                     strokeWidth = 1.8.dp,
                                     color = MaterialTheme.colorScheme.primary
                                 )
@@ -686,34 +696,54 @@ internal fun MessageBubble(
                                 Icon(
                                     Icons.Default.Psychology,
                                     contentDescription = null,
-                                    modifier = Modifier.size(16.dp),
+                                    modifier = Modifier
+                                        .size(16.dp)
+                                        .then(if (isStatusExpanded) Modifier.padding(top = 2.dp) else Modifier),
                                     tint = thinkingHeaderColor
                                 )
                             } else {
                                 Icon(
                                     Icons.Default.SmartToy,
                                     contentDescription = null,
-                                    modifier = Modifier.size(15.dp),
+                                    modifier = Modifier
+                                        .size(15.dp)
+                                        .then(if (isStatusExpanded) Modifier.padding(top = 2.dp) else Modifier),
                                     tint = thinkingHeaderColor
                                 )
                             }
-                            Text(
-                                text = capsuleText,
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    fontSize = 12.5.sp,
-                                    fontFamily = FontFamily.SansSerif,
-                                    fontWeight = FontWeight.SemiBold
-                                ),
-                                color = thinkingHeaderColor,
-                                maxLines = 1,
-                                softWrap = false,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false)
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f, fill = false)
+                                    .then(
+                                        if (!isStatusExpanded) Modifier.horizontalScroll(rememberScrollState())
+                                        else Modifier
+                                    )
+                            ) {
+                                Text(
+                                    text = capsuleText,
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontSize = 12.5.sp,
+                                        fontFamily = FontFamily.SansSerif,
+                                        fontWeight = FontWeight.SemiBold,
+                                        lineHeight = 16.sp
+                                    ),
+                                    color = thinkingHeaderColor,
+                                    maxLines = if (isStatusExpanded) 12 else 1,
+                                    softWrap = isStatusExpanded,
+                                    overflow = TextOverflow.Clip
+                                )
+                            }
                             if (hasThinking && hasThinkingContent) {
                                 Icon(
                                     imageVector = if (showThinking) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                                     contentDescription = if (showThinking) "收起" else "展开",
+                                    modifier = Modifier.size(16.dp),
+                                    tint = thinkingHeaderColor.copy(alpha = 0.78f)
+                                )
+                            } else if (canExpandStatus && (capsuleText.length > 20 || isStatusExpanded)) {
+                                Icon(
+                                    imageVector = if (isStatusExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                    contentDescription = if (isStatusExpanded) "收起完整信息" else "展开完整信息",
                                     modifier = Modifier.size(16.dp),
                                     tint = thinkingHeaderColor.copy(alpha = 0.78f)
                                 )

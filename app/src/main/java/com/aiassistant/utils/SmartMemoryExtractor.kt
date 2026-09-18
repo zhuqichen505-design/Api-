@@ -336,26 +336,31 @@ object SmartMemoryExtractor {
 
     fun refineMemoryContent(rawText: String, defaultCategory: String = "FACT"): Pair<String, String> {
         var text = rawText.trim()
-        // 剥离首尾常见包裹符与标点
-        text = text.trim('[', ']', '【', '】', '`', '"', '\'', '“', '”', '，', ',', '。', '.', '；', ';')
-
-        // 剥离冒号类前缀标签
-        val prefixRegex = Regex("""^(?:记忆|设定|事实|注意|特别注意|务必注意|规则|要求|约束|偏好|提醒|提示|Note)[：:]\s*""", RegexOption.IGNORE_CASE)
-        text = text.replace(prefixRegex, "").trim()
-
-        // 剥离无意义语气助词
+        val prefixRegex = Regex(
+            """^(?:(?:根据|基于)(?:上述|以上|用户|对话|发言|聊天)?(?:内容|对话|记录)?(?:分析|提炼|总结|梳理)?(?:得出|得出如下|提炼出|提炼出如下|提炼如下|出如下|如下)?[：:]?\s*|(?:核心事实|重要事实|记忆事实|提取结果|提炼事实|用户事实|用户表示|用户提到|建议记住|需要记住|经分析(?:如下)?)[：:]?\s*|(?:记忆|设定|事实|注意|特别注意|务必注意|规则|要求|约束|偏好|提醒|提示|Note)[：:]\s*)""",
+            RegexOption.IGNORE_CASE
+        )
         val fillerRegex = Regex("""^(?:那个|就是|还有|请|麻烦|务必)\s*""")
-        text = text.replace(fillerRegex, "").trim()
+
+        // 循环剥离直到稳定，彻底清除复合前缀（如“根据上述对话提炼出如下核心事实：”）
+        var prevText = ""
+        while (prevText != text) {
+            prevText = text
+            text = text.replace(Regex("""^[\s*\-•\d+.\s]+"""), "").trim()
+            text = text.trim('[', ']', '【', '】', '`', '"', '\'', '“', '”', '，', ',', '。', '.', '；', ';', ':', '：')
+            text = text.replace(prefixRegex, "").trim()
+            text = text.replace(fillerRegex, "").trim()
+        }
 
         if (text.length < 2) return "" to defaultCategory
 
         val isPreference = listOf("喜欢", "偏好", "习惯", "讨厌", "风格", "爱喝", "爱吃", "倾向", "简短", "精炼", "注释").any { text.contains(it) }
-        val isConstraint = listOf("不要", "别", "禁止", "严禁", "必须", "避免", "务必", "始终", "格式", "规范", "限制", "不许").any { text.contains(it) }
+        val isConstraint = listOf("不要", "别", "禁止", "严禁", "必须", "避免", "务必", "始终", "格式", "规范", "限制", "不许", "不允许", "不得", "不准", "切勿", "称呼", "叫我", "自称").any { text.contains(it) }
         val isRoleOrWorld = listOf("身份", "角色", "设定", "世界观", "背景", "关系", "扮演", "你是一个", "你是").any { text.contains(it) }
 
         return when {
-            isPreference -> "用户偏好：$text" to "PREFERENCE"
             isConstraint -> "行为约束：$text" to "PREFERENCE"
+            isPreference -> "用户偏好：$text" to "PREFERENCE"
             isRoleOrWorld -> "会话设定：$text" to "PROJECT"
             defaultCategory == "PROJECT" -> "会话事实：$text" to "PROJECT"
             defaultCategory == "PREFERENCE" -> "行为约束：$text" to "PREFERENCE"

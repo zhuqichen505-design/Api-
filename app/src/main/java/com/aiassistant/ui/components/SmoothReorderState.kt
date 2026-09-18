@@ -17,6 +17,8 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Shape
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
@@ -209,7 +211,8 @@ fun rememberSmoothReorderState(): SmoothReorderState {
 fun Modifier.reorderItem(
     state: SmoothReorderState,
     index: Int,
-    key: Any
+    key: Any,
+    shape: Shape = RoundedCornerShape(10.dp)
 ): Modifier = this
     .onSizeChanged { size ->
         state.setItemHeight(index, size.height.toFloat())
@@ -222,6 +225,8 @@ fun Modifier.reorderItem(
             scaleX = 1.02f
             scaleY = 1.02f
             shadowElevation = 8.dp.toPx()
+            this.shape = shape
+            this.clip = false
         }
     }
 

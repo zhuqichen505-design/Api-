@@ -127,6 +127,33 @@ fun ModelFeaturesTab(
     var thinkingTranslationApiConfigId by remember(settings) { mutableLongStateOf(settings.thinkingTranslationApiConfigId) }
     var thinkingTranslationModel by remember(settings) { mutableStateOf(settings.thinkingTranslationModel) }
 
+    // 记忆提炼辅助模型状态
+    var auxiliaryMemoryEnabled by remember(settings) { mutableStateOf(settings.auxiliaryMemoryEnabled) }
+    var auxiliaryMemoryConfigId by remember(settings) { mutableLongStateOf(settings.auxiliaryMemoryApiConfigId) }
+    var auxiliaryMemoryModel by remember(settings) { mutableStateOf(settings.auxiliaryMemoryModel) }
+    var auxiliaryMemoryPrompt by remember(settings) { mutableStateOf(settings.auxiliaryMemoryPrompt) }
+    var isTestingAuxiliaryMemory by remember { mutableStateOf(false) }
+    var auxiliaryTestResult by remember { mutableStateOf<String?>(null) }
+    var showAuxiliaryTestDialog by remember { mutableStateOf(false) }
+    var testCustomInput by remember { mutableStateOf("我平时只喝无糖可乐，对花生重度过敏，正在用 Kotlin 开发 Android 应用") }
+
+    fun persistAuxiliaryMemorySettings(
+        enabled: Boolean = auxiliaryMemoryEnabled,
+        configId: Long = auxiliaryMemoryConfigId,
+        model: String = auxiliaryMemoryModel,
+        prompt: String = auxiliaryMemoryPrompt
+    ) {
+        manager.saveSettings(
+            settings.copy(
+                auxiliaryMemoryEnabled = enabled,
+                auxiliaryMemoryApiConfigId = configId,
+                auxiliaryMemoryModel = model.trim(),
+                auxiliaryMemoryPrompt = prompt.trim()
+            )
+        )
+        settings = manager.getSettings()
+    }
+
     var thinkingTemplate by remember(settings) { mutableStateOf(settings.thinkingCapsuleTemplate) }
 
     val allApiConfigs by repository.getAllApiConfigs().collectAsState(initial = emptyList())
@@ -169,6 +196,13 @@ fun ModelFeaturesTab(
         if (autoNamePrompt.trim() != settings.autoNamePrompt.trim()) {
             kotlinx.coroutines.delay(400)
             persistSettings(newAutoNamePrompt = autoNamePrompt)
+        }
+    }
+
+    LaunchedEffect(auxiliaryMemoryPrompt) {
+        if (auxiliaryMemoryPrompt.trim() != settings.auxiliaryMemoryPrompt.trim()) {
+            kotlinx.coroutines.delay(400)
+            persistAuxiliaryMemorySettings(prompt = auxiliaryMemoryPrompt)
         }
     }
 
@@ -331,7 +365,119 @@ fun ModelFeaturesTab(
             }
         }
 
-        // 3. 思考胶囊文案自定义
+        // 3. 记忆提炼与时间线分析辅助模型 (自由选择所有模型)
+        item {
+            SettingsGlassCard(hazeState = hazeState) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Psychology,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("记忆提炼与时间线辅助模型", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Surface(
+                                shape = RoundedCornerShape(999.dp),
+                                color = if (auxiliaryMemoryEnabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
+                            ) {
+                                Text(
+                                    text = if (auxiliaryMemoryEnabled) "已启用" else "未启用",
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (auxiliaryMemoryEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                        Text(
+                            "指定独立 API 与模型（如 deepseek-chat、gpt-4o-mini）专门提炼记忆与全量时间线梳理，彻底避免干扰主模型上下文与计费",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Switch(
+                        checked = auxiliaryMemoryEnabled,
+                        onCheckedChange = {
+                            auxiliaryMemoryEnabled = it
+                            persistAuxiliaryMemorySettings(enabled = it)
+                            savedMessage = if (it) "已开启记忆提炼辅助模型" else "已关闭记忆提炼辅助模型"
+                        }
+                    )
+                }
+
+                if (auxiliaryMemoryEnabled) {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                    // 统一使用 UniversalModelPickerCard
+                    UniversalModelPickerCard(
+                        hazeState = hazeState,
+                        title = "记忆提炼专用模型",
+                        subtitle = "直接跨服务商自由选择所有模型，无需先切换服务商",
+                        selectedConfigId = auxiliaryMemoryConfigId,
+                        selectedModel = auxiliaryMemoryModel,
+                        allConfigs = allApiConfigs,
+                        onSelect = { cfgId, model ->
+                            auxiliaryMemoryConfigId = cfgId
+                            auxiliaryMemoryModel = model
+                            persistAuxiliaryMemorySettings(configId = cfgId, model = model)
+                            savedMessage = "已更新记忆提炼辅助模型"
+                        }
+                    )
+
+                    // 自定义提炼提示词
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            "自定义记忆提炼提示词（可选）：",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        OutlinedTextField(
+                            value = auxiliaryMemoryPrompt,
+                            onValueChange = {
+                                auxiliaryMemoryPrompt = it
+                                savedMessage = null
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 90.dp),
+                            placeholder = { Text("留空将使用默认记忆提炼与时间线解析提示词...") },
+                            minLines = 2,
+                            maxLines = 6,
+                            shape = SettingsInnerShape
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "支持记忆提取与全量时间线分析",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        FilledTonalButton(
+                            onClick = { showAuxiliaryTestDialog = true },
+                            shape = RoundedCornerShape(999.dp)
+                        ) {
+                            Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("即时测试辅助连接", style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4. 思考胶囊文案自定义
         item {
             SettingsGlassCard(hazeState = hazeState) {
                 Row(
@@ -522,5 +668,33 @@ fun ModelFeaturesTab(
             }
         }
     }
-}
 
+    // 辅助模型测试与平滑降级弹窗
+    if (showAuxiliaryTestDialog) {
+        AuxiliaryMemoryTestDialog(
+            hazeState = hazeState,
+            testInput = testCustomInput,
+            onInputChange = { testCustomInput = it },
+            isTesting = isTestingAuxiliaryMemory,
+            testResult = auxiliaryTestResult,
+            onRunTest = {
+                coroutineScope.launch {
+                    isTestingAuxiliaryMemory = true
+                    auxiliaryTestResult = null
+                    val res = repository.testAuxiliaryMemoryExtraction(
+                        apiConfigId = auxiliaryMemoryConfigId,
+                        modelName = auxiliaryMemoryModel,
+                        testText = testCustomInput,
+                        customPrompt = auxiliaryMemoryPrompt
+                    )
+                    auxiliaryTestResult = res.getOrNull() ?: res.exceptionOrNull()?.message ?: "测试完成"
+                    isTestingAuxiliaryMemory = false
+                }
+            },
+            onDismiss = {
+                showAuxiliaryTestDialog = false
+                auxiliaryTestResult = null
+            }
+        )
+    }
+}

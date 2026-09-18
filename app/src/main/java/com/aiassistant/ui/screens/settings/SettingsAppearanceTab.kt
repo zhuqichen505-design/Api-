@@ -119,13 +119,16 @@ fun AppearanceTab(
     val manager = AiAssistantApp.instance.personalizationManager
 
     var avatarBase64 by remember { mutableStateOf(AvatarManager.getAvatar(context)) }
+
+    var pendingCropUri by remember { mutableStateOf<Uri?>(null) }
+    var pendingCropTarget by remember { mutableStateOf("avatar") } // "avatar", "home_bg", "chat_bg"
+
     val imagePickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
     ) { uri ->
         uri?.let {
-            if (AvatarManager.saveAvatarFromUri(context, it)) {
-                avatarBase64 = AvatarManager.getAvatar(context)
-            }
+            pendingCropTarget = "avatar"
+            pendingCropUri = it
         }
     }
 
@@ -156,18 +159,16 @@ fun AppearanceTab(
         contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
     ) { uri ->
         uri?.let {
-            val saved = BackgroundImageManager.saveHomeBackgroundFromUri(context, it)
-            backgroundRevision++
-            savedMessage = if (saved) "已设置首页背景" else "背景保存失败，请重试"
+            pendingCropTarget = "home_bg"
+            pendingCropUri = it
         }
     }
     val chatBackgroundPicker = androidx.activity.compose.rememberLauncherForActivityResult(
         contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
     ) { uri ->
         uri?.let {
-            val saved = BackgroundImageManager.saveChatBackgroundFromUri(context, it)
-            backgroundRevision++
-            savedMessage = if (saved) "已设置对话页背景" else "背景保存失败，请重试"
+            pendingCropTarget = "chat_bg"
+            pendingCropUri = it
         }
     }
 
@@ -586,5 +587,43 @@ fun AppearanceTab(
             }
         }
     }
-}
 
+    pendingCropUri?.let { cropUri ->
+        val currentTarget = pendingCropTarget
+        val shapeMode = if (currentTarget == "avatar") CropShapeMode.CIRCLE else CropShapeMode.RECTANGLE
+        val cropTitle = when (currentTarget) {
+            "avatar" -> "裁剪与编辑用户头像"
+            "home_bg" -> "裁剪与编辑首页壁纸"
+            else -> "裁剪与编辑对话壁纸"
+        }
+        ImageCropEditDialog(
+            imageUri = cropUri,
+            shapeMode = shapeMode,
+            title = cropTitle,
+            onDismiss = { pendingCropUri = null },
+            onConfirm = { croppedBitmap ->
+                when (currentTarget) {
+                    "avatar" -> {
+                        if (AvatarManager.saveAvatarBitmap(context, croppedBitmap)) {
+                            avatarBase64 = AvatarManager.getAvatar(context)
+                            savedMessage = "用户头像已更新"
+                        } else {
+                            savedMessage = "头像保存失败，请重试"
+                        }
+                    }
+                    "home_bg" -> {
+                        val saved = BackgroundImageManager.saveHomeBackgroundBitmap(context, croppedBitmap)
+                        backgroundRevision++
+                        savedMessage = if (saved) "已设置首页背景" else "背景保存失败，请重试"
+                    }
+                    "chat_bg" -> {
+                        val saved = BackgroundImageManager.saveChatBackgroundBitmap(context, croppedBitmap)
+                        backgroundRevision++
+                        savedMessage = if (saved) "已设置对话页背景" else "背景保存失败，请重试"
+                    }
+                }
+                pendingCropUri = null
+            }
+        )
+    }
+}
