@@ -1,5 +1,35 @@
 # Echo AI 助手更新日志 (Update Log)
 
+## [2026-09-18] - v2.2.2：7 项界面精简与体验优化（状态气泡智能展开与形状防跳变、全局直角阴影消除、思考图标样式统一、紧凑输入框、跨会话记忆与世界书默认关闭及记忆多维筛选）
+
+### 1. 核心需求落实与技术重构详情
+1. **模型连接状态气泡无内容时不提供展开按键**：
+   - 检查状态文本详情，仅当无思考内容且文本包含换行符（`\n`）或长度大于 48 字符时才标记为 `hasDetailedExpandableContent = true`；
+   - 气泡操作区仅在 `canExpandStatus = hasDetailedExpandableContent || isStatusExpanded` 时展示展开/折叠图标，普通简短状态保持紧凑无冗余按钮。
+2. **连接状态气泡展开形变与大小突变彻底修复**：
+   - 彻底废除原有在 999dp 胶囊与 12dp 圆角之间的粗暴形状切换，改为全局统一恒定的 16dp 圆角（`RoundedCornerShape(16.dp)`）；
+   - 限制展开最大宽度 `widthIn(max = if (isStatusExpanded) 360.dp else 320.dp)`，取消 `fillMaxWidth(0.95f)` 导致的横向巨大拉伸，并加入 `animateContentSize()` 动画，彻底消除展开跳动。
+3. **全局直角矩形阴影修复（气泡点击与长按切换 Key）**：
+   - 状态气泡点击使用 `Modifier.echoShapeClick(shape = capsuleShape)` 代替未受限的 `clickable`，点击水波纹与阴影完全贴合 16dp 圆角；
+   - `SmoothReorderState.kt` 中重构拖拽阴影，在 `graphicsLayer` 中常驻设置 `this.shape = shape`，未激活时 `shadowElevation = 0f` 并绑定阴影颜色，消除直角投影黑边；修正 API Key 卡片修饰符顺序，避免 3dp 内边距外露直角。
+4. **思考图标大小闪烁消除与样式统一（移除机器人头像）**：
+   - 思考状态胶囊左侧图标容器采用固定尺寸 `Box(modifier = Modifier.size(16.dp), contentAlignment = Alignment.Center)`，移除动态变化的内边距，杜绝展开收起时的图标晃动与闪烁；
+   - 全局移除 `Icons.Default.SmartToy` 机器人图标，统一采用优雅专业的心智脑力图标 `Icons.Default.Psychology`。
+5. **多场景自定义输入框紧凑重构（消除过度纵向空白）**：
+   - 重构“添加自定义模型”、“自定义上下文限制”、“自定义网页搜索数量”以及“会话记忆添加/编辑”等弹窗输入框；
+   - 替换占用 56dp 以上的笨重 `OutlinedTextField`，采用 34dp 极简紧凑的 `BasicTextField` 与自定义毛玻璃装饰框，字体精细调整，大幅减少无效空白。
+6. **跨会话记忆与世界书默认关闭**：
+   - `RoleplayModels.kt`：`RoleplaySession` 数据模型默认值设为 `enableExternalMemory = false, enableWorldBook = false`；
+   - `ChatViewModel.kt`：初始化与临时配置默认值统一设为 `false`；
+   - `AiRepository.kt`：世界书 Prompt 注入判断由 `!= false` 纠正为严格 `== true`，外部跨会话记忆默认值同步设为 `false`。
+7. **查看跨会话记忆支持多维分类筛选**：
+   - `SettingsPromptsMemoryTab.kt`：新增 `memoryFilterScope` 状态与分类筛选 Chips（「全部」「全局偏好」「会话专属」），并实时统计与展示匹配条数，便于精确定位与高效管理。
+
+### 2. 自动化测试与工程交付
+- **单元测试**：全量单元测试（包含 V222FeaturesTest 共 277+ 项测试）100% 全部通过 (BUILD SUCCESSFUL)。
+- **Release APK**：`releases/Echo-v2.2.2-arm64-v8a.apk` 与 `Echo-v2.2.2.apk`。
+- **历史安装包永久保留**：严格遵循最高铁律，`releases/` 目录下全部历史安装包完整保留，增量输出全新安装包。
+
 ## [2026-09-18] - v2.2.1：OpenAI 兼容接口流式解析健壮性重构、断流内容绝对保全、空响应精准防护与智能重试机制
 
 ### 1. 流式健壮性与稳定性重构清单

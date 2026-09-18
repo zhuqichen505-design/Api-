@@ -221,12 +221,17 @@ fun Modifier.reorderItem(
     .graphicsLayer {
         val offsetY = state.getItemOffsetY(key, index)
         translationY = offsetY
+        this.shape = shape
         if (state.isItemActive(index)) {
             scaleX = 1.02f
             scaleY = 1.02f
             shadowElevation = 8.dp.toPx()
-            this.shape = shape
-            this.clip = false
+            ambientShadowColor = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.25f)
+            spotShadowColor = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.35f)
+        } else {
+            scaleX = 1.0f
+            scaleY = 1.0f
+            shadowElevation = 0f
         }
     }
 

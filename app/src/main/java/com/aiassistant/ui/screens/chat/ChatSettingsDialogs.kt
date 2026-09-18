@@ -1359,12 +1359,13 @@ fun ChatSettingsSessionMemorySection(
                     OutlinedTextField(
                         value = addMemoryText,
                         onValueChange = { addMemoryText = it },
-                        placeholder = { Text("输入此会话的专属设定或约束...") },
+                        placeholder = { Text("输入此会话的专属设定或约束...", fontSize = 13.sp) },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(min = 100.dp),
-                        maxLines = 5,
-                        shape = RoundedCornerShape(12.dp)
+                            .heightIn(min = 68.dp, max = 140.dp),
+                        maxLines = 4,
+                        shape = RoundedCornerShape(10.dp),
+                        textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp)
                     )
                 }
             },
@@ -1411,9 +1412,10 @@ fun ChatSettingsSessionMemorySection(
                     onValueChange = { editMemoryText = it },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 100.dp),
-                    maxLines = 5,
-                    shape = RoundedCornerShape(12.dp)
+                        .heightIn(min = 68.dp, max = 140.dp),
+                    maxLines = 4,
+                    shape = RoundedCornerShape(10.dp),
+                    textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp)
                 )
             },
             buttons = {

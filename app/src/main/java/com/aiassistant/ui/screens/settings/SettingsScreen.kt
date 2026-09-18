@@ -127,6 +127,16 @@ internal val V205UserUpdates = listOf(
     "分支功能原子事务、生成成功确认弹窗与隐藏会话密码维持特性完美保持"
 )
 
+internal val V222UserUpdates = listOf(
+    "模型连接气泡智能展开：仅在存在换行或长文本等可展开详情时才显示展开键，短文本气泡保持精炼",
+    "气泡展开形变彻底修复：连接状态气泡采用统一 16dp 圆角与平滑尺寸动画，彻底杜绝展开时大小与形状异常突变跳跃",
+    "全量直角矩形阴影修复：修复点击连接气泡及长按移动切换 Key 时的按压/拖拽阴影，全局严格贴合卡片与胶囊圆角，消除矩形黑影",
+    "思考图标闪烁与样式统一：修复点击思考胶囊时左侧图标大小跳跃闪烁问题，删除机器人头像样式，全局统一使用优雅专业的心智脑力图标",
+    "多场景输入框精简紧凑：重构添加自定义模型、上下文限制、自定义搜索数量及会话记忆编辑等输入框，消除庞大空白占用，界面紧凑精致",
+    "跨会话记忆与世界书默认关闭：新会话与全局配置默认关闭跨对话记忆和世界书，避免不必要的信息污染与 Token 开销，按需自主开启",
+    "跨会话记忆分类精细筛选：记忆管理界面新增「全部」「全局偏好」与「会话专属」分栏筛选 Chips，带数量实时统计，查找管理井井有条"
+)
+
 internal val V221UserUpdates = listOf(
     "OpenAI 兼容流式健壮解析：全面支持 NDJSON 格式（纯 JSON 行）、BOM 头自动剔除、SSE 注释行与 choices[0].message 非标准中转，彻底杜绝解析崩溃",
     "断流内容绝对保全与防丢弃：流式接收过程中遇到网络中断、EOF 或缺少 finish_reason/[DONE] 时，100% 完整保留并正常保存已接收内容，消除 MissingFinishReasonError 报错",
@@ -227,7 +237,7 @@ internal val V211UserUpdates = listOf(
     "分支创建完整保留多版本：创建分支截断历史时，完整克隆所选轮次的所有生成变体（版本 1、2、3...），保留新会话内的版本自由切换"
 )
 
-internal val CurrentVersionUserUpdates = V221UserUpdates
+internal val CurrentVersionUserUpdates = V222UserUpdates
 
 internal val V204UserUpdates = listOf(
     "分支功能完整重构：基于数据库事务与严格切片，规范严格递增时序，全链路杜绝历史记录颠倒或截断缺失",

@@ -47,6 +47,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
@@ -288,13 +289,39 @@ fun UniversalModelPickerCard(
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Text("自定义手动输入模型名称：", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
-                                OutlinedTextField(
+                                BasicTextField(
                                     value = manualModelName,
                                     onValueChange = { manualModelName = it },
-                                    placeholder = { Text("例如：gpt-4o-mini 或 deepseek-chat", fontSize = 13.sp) },
-                                    modifier = Modifier.fillMaxWidth(),
                                     singleLine = true,
-                                    shape = RoundedCornerShape(8.dp)
+                                    textStyle = MaterialTheme.typography.bodySmall.copy(
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        fontSize = 12.5.sp
+                                    ),
+                                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                    decorationBox = { innerTextField ->
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
+                                                .border(
+                                                    BorderStroke(0.8.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
+                                                    RoundedCornerShape(8.dp)
+                                                )
+                                                .padding(horizontal = 10.dp, vertical = 7.dp),
+                                            contentAlignment = Alignment.CenterStart
+                                        ) {
+                                            if (manualModelName.isEmpty()) {
+                                                Text(
+                                                    text = "例如：gpt-4o-mini 或 deepseek-chat",
+                                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+                                                )
+                                            }
+                                            innerTextField()
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
                                 )
 
                                 Text("绑定服务商：", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)

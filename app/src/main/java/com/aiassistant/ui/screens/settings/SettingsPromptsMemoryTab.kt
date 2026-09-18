@@ -184,6 +184,15 @@ fun PromptsMemoryTab(
         if (memorySearchQuery.isBlank()) repository.getAllMemories() else repository.searchMemories(memorySearchQuery.trim())
     }.collectAsState(initial = emptyList())
 
+    var memoryFilterScope by remember { mutableIntStateOf(0) } // 0: 全部, 1: 全局偏好, 2: 会话专属
+    val filteredMemories = remember(allMemories, memoryFilterScope) {
+        when (memoryFilterScope) {
+            1 -> allMemories.filter { it.scope in listOf("user", "global") }
+            2 -> allMemories.filter { it.scope == "conversation" }
+            else -> allMemories
+        }
+    }
+
     var memoryToEdit by remember { mutableStateOf<MemoryItem?>(null) }
     var isAddingMemory by remember { mutableStateOf(false) }
     var showClearAllConfirm by remember { mutableStateOf(false) }
@@ -519,7 +528,7 @@ fun PromptsMemoryTab(
                                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
                             ) {
                                 Text(
-                                    text = "${allMemories.size} 条",
+                                    text = if (memoryFilterScope == 0) "${allMemories.size} 条" else "${filteredMemories.size}/${allMemories.size} 条",
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.primary,
@@ -564,7 +573,43 @@ fun PromptsMemoryTab(
                                 shape = RoundedCornerShape(999.dp)
                             )
 
-                            if (allMemories.isEmpty()) {
+                            // 记忆范围分类筛选栏：全部 / 全局偏好 / 会话专属
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                val totalCount = allMemories.size
+                                val globalCount = remember(allMemories) { allMemories.count { it.scope in listOf("user", "global") } }
+                                val sessionCount = remember(allMemories) { allMemories.count { it.scope == "conversation" } }
+
+                                FilterChip(
+                                    selected = memoryFilterScope == 0,
+                                    onClick = { memoryFilterScope = 0 },
+                                    label = { Text("全部 ($totalCount)", style = MaterialTheme.typography.labelSmall) },
+                                    colors = echoFilterChipColors(),
+                                    border = echoFilterChipBorder(memoryFilterScope == 0),
+                                    elevation = echoFilterChipElevation()
+                                )
+                                FilterChip(
+                                    selected = memoryFilterScope == 1,
+                                    onClick = { memoryFilterScope = 1 },
+                                    label = { Text("全局偏好 ($globalCount)", style = MaterialTheme.typography.labelSmall) },
+                                    colors = echoFilterChipColors(),
+                                    border = echoFilterChipBorder(memoryFilterScope == 1),
+                                    elevation = echoFilterChipElevation()
+                                )
+                                FilterChip(
+                                    selected = memoryFilterScope == 2,
+                                    onClick = { memoryFilterScope = 2 },
+                                    label = { Text("会话专属 ($sessionCount)", style = MaterialTheme.typography.labelSmall) },
+                                    colors = echoFilterChipColors(),
+                                    border = echoFilterChipBorder(memoryFilterScope == 2),
+                                    elevation = echoFilterChipElevation()
+                                )
+                            }
+
+                            if (filteredMemories.isEmpty()) {
                                 Surface(
                                     modifier = Modifier.fillMaxWidth(),
                                     shape = SettingsInnerShape,
@@ -582,7 +627,8 @@ fun PromptsMemoryTab(
                                         )
                                         Spacer(modifier = Modifier.height(6.dp))
                                         Text(
-                                            "暂无记忆条目\n当与 AI 对话提及个人习惯或点击右上角「+」时将在此处列出。",
+                                            if (allMemories.isEmpty()) "暂无记忆条目\n当与 AI 对话提及个人习惯或点击右上角「+」时将在此处列出。"
+                                            else "没有符合当前筛选条件的记忆条目",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -594,7 +640,7 @@ fun PromptsMemoryTab(
                                     modifier = Modifier.fillMaxWidth(),
                                     verticalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    allMemories.forEach { memory ->
+                                    filteredMemories.forEach { memory ->
                                         MemoryItemCard(
                                             memory = memory,
                                             onToggleEnabled = { enabled ->

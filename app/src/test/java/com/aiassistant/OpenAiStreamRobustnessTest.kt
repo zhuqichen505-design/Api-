@@ -96,13 +96,11 @@ class OpenAiStreamRobustnessTest {
 
     @Test
     fun testV221UserUpdatesCompleteness() {
-        val current = com.aiassistant.ui.screens.settings.CurrentVersionUserUpdates
         val v221 = com.aiassistant.ui.screens.settings.V221UserUpdates
-        assertSame("当前版本更新日志应指向 V221UserUpdates", v221, current)
-        assertEquals("V221 必须包含 4 项核心改动说明", 4, current.size)
-        assertTrue(current.any { it.contains("OpenAI 兼容流式健壮解析") })
-        assertTrue(current.any { it.contains("断流内容绝对保全与防丢弃") })
-        assertTrue(current.any { it.contains("精准判空失败防护") })
-        assertTrue(current.any { it.contains("智能重试保护与指数退避") })
+        assertEquals("V221 必须包含 4 项核心改动说明", 4, v221.size)
+        assertTrue(v221.any { it.contains("OpenAI 兼容流式健壮解析") })
+        assertTrue(v221.any { it.contains("断流内容绝对保全与防丢弃") })
+        assertTrue(v221.any { it.contains("精准判空失败防护") })
+        assertTrue(v221.any { it.contains("智能重试保护与指数退避") })
     }
 }

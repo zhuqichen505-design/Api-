@@ -118,8 +118,8 @@ data class RoleplaySession(
     val characterIds: String? = null,        // 多角色关联，JSON数组格式 "[1,2,3]" 或逗号分隔 "1,2,3"
     val customCharacterData: String? = null, // 当前故事专属的角色设定覆盖 (JSON List<CharacterProfile>)
     val customScenarioData: String? = null,  // 当前故事专属的世界观设定覆盖 (JSON RoleplayScenario)
-    val enableExternalMemory: Boolean = true,
-    val enableWorldBook: Boolean = true,
+    val enableExternalMemory: Boolean = false,
+    val enableWorldBook: Boolean = false,
     val activeWorldBookIds: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()

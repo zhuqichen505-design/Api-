@@ -1604,7 +1604,7 @@ class AiRepository(
         val isRoleplayConv = conversation != null && (hasConversationTag(conversation, "roleplay") || hasConversationTag(conversation, "story"))
         val promptResolution = resolveSystemPromptWithPriority(conversation, effectiveOptions, isRoleplayConv)
 
-        val worldBookBlock = if (!isRoleplayConv && effectiveOptions.enableWorldBook != false && userMessage.isNotBlank()) {
+        val worldBookBlock = if (!isRoleplayConv && effectiveOptions.enableWorldBook == true && userMessage.isNotBlank()) {
             val bookIds = effectiveOptions.activeWorldBookIds?.split(",")?.mapNotNull { it.trim().toLongOrNull() }
             val matchedEntries = matchWorldBookEntries(userMessage, bookIds)
             if (matchedEntries.isNotEmpty()) {
@@ -1971,7 +1971,7 @@ class AiRepository(
         val isRoleplayConv = conversation != null && (hasConversationTag(conversation, "roleplay") || hasConversationTag(conversation, "story"))
         val promptResolution = resolveSystemPromptWithPriority(conversation, effectiveOptions, isRoleplayConv)
 
-        val worldBookBlock = if (!isRoleplayConv && effectiveOptions.enableWorldBook != false && userMessage.isNotBlank()) {
+        val worldBookBlock = if (!isRoleplayConv && effectiveOptions.enableWorldBook == true && userMessage.isNotBlank()) {
             val bookIds = effectiveOptions.activeWorldBookIds?.split(",")?.mapNotNull { it.trim().toLongOrNull() }
             val matchedEntries = matchWorldBookEntries(userMessage, bookIds)
             if (matchedEntries.isNotEmpty()) {
@@ -3652,7 +3652,7 @@ class AiRepository(
 
         val isRoleplay = hasConversationTag(conversation, "roleplay") || hasConversationTag(conversation, "story")
         // 角色扮演会话中严格隔离跨会话全局长期记忆，防止外部工作/代码等日常偏好污染小说剧情
-        val extMemoryEnabled = if (isRoleplay) false else (options?.enableExternalMemory ?: conversation.enableExternalMemory ?: true)
+        val extMemoryEnabled = if (isRoleplay) false else (options?.enableExternalMemory ?: conversation.enableExternalMemory ?: false)
 
         val candidates = memoryDao.getCandidateMemories(conversation.id).filter { it.isEnabled }
         if (candidates.isEmpty()) return null

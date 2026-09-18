@@ -170,8 +170,8 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                     thinkingEffort = conv.thinkingEffort ?: apiConfig?.thinkingEffort ?: "high",
                     enableWebSearch = conv.enableWebSearch ?: false,
                     enableSessionMemory = conv.enableSessionMemory ?: false,
-                    enableExternalMemory = conv.enableExternalMemory ?: rpSessionForInit?.enableExternalMemory ?: true,
-                    enableWorldBook = conv.enableWorldBook ?: rpSessionForInit?.enableWorldBook ?: true,
+                    enableExternalMemory = conv.enableExternalMemory ?: rpSessionForInit?.enableExternalMemory ?: false,
+                    enableWorldBook = conv.enableWorldBook ?: rpSessionForInit?.enableWorldBook ?: false,
                     activeWorldBookIds = conv.activeWorldBookIds ?: rpSessionForInit?.activeWorldBookIds
                 )
                 // 如果对话有自定义配置，自动启用临时设置
@@ -537,8 +537,8 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                 thinkingEffort = settings?.thinkingEffort,
                 enableWebSearch = settings?.enableWebSearch,
                 enableSessionMemory = settings?.enableSessionMemory ?: conv.enableSessionMemory ?: false,
-                enableExternalMemory = settings?.enableExternalMemory ?: conv.enableExternalMemory ?: true,
-                enableWorldBook = settings?.enableWorldBook ?: conv.enableWorldBook ?: true,
+                enableExternalMemory = settings?.enableExternalMemory ?: conv.enableExternalMemory ?: false,
+                enableWorldBook = settings?.enableWorldBook ?: conv.enableWorldBook ?: false,
                 activeWorldBookIds = settings?.activeWorldBookIds ?: conv.activeWorldBookIds,
                 systemPrompt = normalizeSystemPrompt(systemPrompt)
             )
@@ -786,8 +786,8 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                     thinkingEffort = settings?.thinkingEffort ?: conversation?.thinkingEffort ?: effectiveConfig.thinkingEffort,
                     enableWebSearch = settings?.enableWebSearch,
                     enableSessionMemory = settings?.enableSessionMemory ?: conversation?.enableSessionMemory ?: true,
-                    enableExternalMemory = settings?.enableExternalMemory ?: conversation?.enableExternalMemory ?: true,
-                    enableWorldBook = settings?.enableWorldBook ?: conversation?.enableWorldBook ?: true,
+                    enableExternalMemory = settings?.enableExternalMemory ?: conversation?.enableExternalMemory ?: false,
+                    enableWorldBook = settings?.enableWorldBook ?: conversation?.enableWorldBook ?: false,
                     activeWorldBookIds = settings?.activeWorldBookIds ?: conversation?.activeWorldBookIds,
                     overrideSystemPrompt = true,
                     systemPromptOverride = effectiveSystemPrompt
@@ -2075,7 +2075,7 @@ data class TempChatSettings(
     val thinkingEffort: String = "high",
     val enableWebSearch: Boolean = false,
     val enableSessionMemory: Boolean = false,
-    val enableExternalMemory: Boolean = true,
-    val enableWorldBook: Boolean = true,
+    val enableExternalMemory: Boolean = false,
+    val enableWorldBook: Boolean = false,
     val activeWorldBookIds: String? = null
 )

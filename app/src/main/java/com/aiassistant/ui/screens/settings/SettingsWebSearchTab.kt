@@ -47,6 +47,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
@@ -359,12 +360,40 @@ fun WebSearchTab(
                             onDismissRequest = { showCustomCountDialog = false },
                             title = { Text("自定义搜索结果数 (1-20)") },
                             text = {
-                                OutlinedTextField(
+                                BasicTextField(
                                     value = customInput,
                                     onValueChange = { customInput = it.filter { char -> char.isDigit() }.take(2) },
-                                    label = { Text("条数 (1~20)") },
+                                    singleLine = true,
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                    singleLine = true
+                                    textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        fontSize = 14.sp
+                                    ),
+                                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                    decorationBox = { innerTextField ->
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
+                                                .border(
+                                                    BorderStroke(0.8.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
+                                                    RoundedCornerShape(8.dp)
+                                                )
+                                                .padding(horizontal = 12.dp, vertical = 9.dp),
+                                            contentAlignment = Alignment.CenterStart
+                                        ) {
+                                            if (customInput.isEmpty()) {
+                                                Text(
+                                                    text = "请输入条数 (1~20)...",
+                                                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp),
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+                                                )
+                                            }
+                                            innerTextField()
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
                                 )
                             },
                             confirmButton = {

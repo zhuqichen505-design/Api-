@@ -42,6 +42,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
+import com.aiassistant.ui.components.echoShapeClick
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.window.Dialog
@@ -650,25 +651,25 @@ internal fun MessageBubble(
                     }
 
                     var isStatusExpanded by remember { mutableStateOf(false) }
-                    val canExpandStatus = !hasThinkingContent
-                    val capsuleShape = if (isStatusExpanded) RoundedCornerShape(12.dp) else RoundedCornerShape(999.dp)
+                    // 仅当状态文本包含多行内容或超长详细报错/URL信息时才提供展开功能，无多余内容不给展开键
+                    val hasDetailedExpandableContent = !hasThinkingContent && (capsuleText.contains("\n") || capsuleText.length > 48)
+                    val canExpandStatus = hasDetailedExpandableContent || isStatusExpanded
+                    val capsuleShape = RoundedCornerShape(16.dp)
                     Surface(
                         modifier = Modifier
                             .defaultMinSize(minHeight = 34.dp)
-                            .then(
-                                if (isStatusExpanded) Modifier.fillMaxWidth(0.95f)
-                                else Modifier.widthIn(max = 320.dp)
-                            )
+                            .widthIn(max = if (isStatusExpanded) 360.dp else 320.dp)
+                            .animateContentSize()
+                            .clip(capsuleShape)
                             .then(
                                 if (hasThinking && hasThinkingContent) {
-                                    Modifier.pointerInput(Unit) {
-                                        detectTapGestures(
-                                             onTap = { showThinking = !showThinking },
-                                             onDoubleTap = { showThinking = !showThinking }
-                                        )
+                                    Modifier.echoShapeClick(shape = capsuleShape) {
+                                        showThinking = !showThinking
                                     }
                                 } else if (canExpandStatus) {
-                                    Modifier.clickable { isStatusExpanded = !isStatusExpanded }
+                                    Modifier.echoShapeClick(shape = capsuleShape) {
+                                        isStatusExpanded = !isStatusExpanded
+                                    }
                                 } else Modifier
                             ),
                         color = thinkingBubbleColor,
@@ -680,36 +681,31 @@ internal fun MessageBubble(
                         )
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = if (isStatusExpanded) 9.dp else 7.dp),
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
                             verticalAlignment = if (isStatusExpanded) Alignment.Top else Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            if (isConnecting || isThinkingActive) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier
-                                        .size(13.dp)
-                                        .then(if (isStatusExpanded) Modifier.padding(top = 2.dp) else Modifier),
-                                    strokeWidth = 1.8.dp,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                            } else if (hasThinking) {
-                                Icon(
-                                    Icons.Default.Psychology,
-                                    contentDescription = null,
-                                    modifier = Modifier
-                                        .size(16.dp)
-                                        .then(if (isStatusExpanded) Modifier.padding(top = 2.dp) else Modifier),
-                                    tint = thinkingHeaderColor
-                                )
-                            } else {
-                                Icon(
-                                    Icons.Default.SmartToy,
-                                    contentDescription = null,
-                                    modifier = Modifier
-                                        .size(15.dp)
-                                        .then(if (isStatusExpanded) Modifier.padding(top = 2.dp) else Modifier),
-                                    tint = thinkingHeaderColor
-                                )
+                            Box(
+                                modifier = Modifier
+                                    .size(16.dp)
+                                    .then(if (isStatusExpanded) Modifier.padding(top = 1.dp) else Modifier),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (isConnecting || isThinkingActive) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(13.dp),
+                                        strokeWidth = 1.8.dp,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                } else {
+                                    // 统一图标样式，删除机器人头像样式 (SmartToy)，全状态保持一致的 Psychology 图标
+                                    Icon(
+                                        Icons.Default.Psychology,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp),
+                                        tint = thinkingHeaderColor
+                                    )
+                                }
                             }
                             Box(
                                 modifier = Modifier
@@ -740,7 +736,7 @@ internal fun MessageBubble(
                                     modifier = Modifier.size(16.dp),
                                     tint = thinkingHeaderColor.copy(alpha = 0.78f)
                                 )
-                            } else if (canExpandStatus && (capsuleText.length > 20 || isStatusExpanded)) {
+                            } else if (canExpandStatus && hasDetailedExpandableContent) {
                                 Icon(
                                     imageVector = if (isStatusExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                                     contentDescription = if (isStatusExpanded) "收起完整信息" else "展开完整信息",

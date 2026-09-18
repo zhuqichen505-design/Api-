@@ -389,8 +389,8 @@ fun ApiConfigDialog(
                                 border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .reorderItem(keyReorderState, index, itemId, shape = RoundedCornerShape(10.dp))
                                     .padding(vertical = 3.dp)
+                                    .reorderItem(keyReorderState, index, itemId, shape = RoundedCornerShape(10.dp))
                             ) {
                                 Column(
                                     modifier = Modifier
@@ -765,19 +765,44 @@ fun ApiConfigDialog(
                             }
                         }
 
-                        // 手动输入并添加自定义模型
+                        // 手动输入并添加自定义模型 (紧凑型设计，大幅降低空间占用)
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            OutlinedTextField(
+                            BasicTextField(
                                 value = customModelInput,
                                 onValueChange = { customModelInput = it },
-                                placeholder = { Text("手动添加模型 (如: qwen-max, claude-3-7-sonnet)...", style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp)) },
                                 singleLine = true,
-                                shape = RoundedCornerShape(10.dp),
-                                textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 12.5.sp),
+                                textStyle = MaterialTheme.typography.bodySmall.copy(
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontSize = 12.sp
+                                ),
+                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                decorationBox = { innerTextField ->
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
+                                            .border(
+                                                BorderStroke(0.8.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
+                                                RoundedCornerShape(8.dp)
+                                            )
+                                            .padding(horizontal = 10.dp, vertical = 7.dp),
+                                        contentAlignment = Alignment.CenterStart
+                                    ) {
+                                        if (customModelInput.isEmpty()) {
+                                            Text(
+                                                text = "手动添加模型 (如: qwen-max, claude-3-7-sonnet)...",
+                                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+                                            )
+                                        }
+                                        innerTextField()
+                                    }
+                                },
                                 modifier = Modifier.weight(1f)
                             )
                             Button(
@@ -799,8 +824,9 @@ fun ApiConfigDialog(
                                     }
                                 },
                                 enabled = customModelInput.isNotBlank(),
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                                shape = RoundedCornerShape(10.dp)
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.height(34.dp)
                             ) {
                                 Text("添加", style = MaterialTheme.typography.labelMedium)
                             }
@@ -1430,7 +1456,7 @@ private fun ModelCustomSettingCard(
                             }
                         }
 
-                        // 自定义上下文大小精确输入
+                        // 自定义上下文大小精确输入 (紧凑型设计，大幅降低空间占用)
                         var customTokensInput by remember(currentSettings.contextWindowTokens) {
                             val cur = currentSettings.contextWindowTokens
                             mutableStateOf(if (cur != null && cur > 0) cur.toString() else "")
@@ -1440,7 +1466,7 @@ private fun ModelCustomSettingCard(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            OutlinedTextField(
+                            BasicTextField(
                                 value = customTokensInput,
                                 onValueChange = { newVal ->
                                     val digits = newVal.filter { it.isDigit() }
@@ -1450,11 +1476,36 @@ private fun ModelCustomSettingCard(
                                         onCustomSettingsChange(currentSettings.copy(contextWindowTokens = parsed))
                                     }
                                 },
-                                label = { Text("自定义 Tokens (如 8192, 131072, 262144)", style = MaterialTheme.typography.labelSmall) },
-                                placeholder = { Text("输入Token数量") },
                                 singleLine = true,
                                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
-                                textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                                textStyle = MaterialTheme.typography.bodySmall.copy(
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontSize = 12.sp
+                                ),
+                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                decorationBox = { innerTextField ->
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
+                                            .border(
+                                                BorderStroke(0.8.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
+                                                RoundedCornerShape(8.dp)
+                                            )
+                                            .padding(horizontal = 10.dp, vertical = 7.dp),
+                                        contentAlignment = Alignment.CenterStart
+                                    ) {
+                                        if (customTokensInput.isEmpty()) {
+                                            Text(
+                                                text = "自定义 Tokens (如 8192, 131072, 262144)...",
+                                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+                                            )
+                                        }
+                                        innerTextField()
+                                    }
+                                },
                                 modifier = Modifier.weight(1f)
                             )
                             if (customTokensInput.isNotBlank()) {
