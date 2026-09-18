@@ -18,7 +18,7 @@
 - [x] 2. 检查代码语法与 Compose 闭包作用域无异常；
 - [x] 3. 检查 `app/build.gradle.kts` 中 `splits.abi` 与 `versionCode` 设置正确；
 - [x] 4. 执行单元测试，确保测试全部通过；
-- [x] 5. 确保在 `releases` 目录下输出唯一定名的单一安装包（格式：`Echo-v<version>-arm64-v8a.apk`）。
+- [x] 5. 确保在 `releases` 目录下输出唯一定名的单一安装包（统一格式：`Echo-v<version>.apk`，如 `Echo-v2.2.3.apk`；**明确以后不再构建或输出带有 `-arm64-v8a` 命名后缀的安装包**）。
 
 ## 三、交付验收标准
 - 经过完整编译（`compileDebugKotlin` / `compileReleaseKotlin`）；
