@@ -1342,6 +1342,39 @@ fun ChatScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
+                        autoFollowOutput = false
+                        // 锁定当前可见视口锚点，防止删除回复导致列表滑动或跳跃
+                        val targetIdx = displayMessages.indexOfFirst { it.message.id == targetMsg.id }
+                        val firstVisible = listState.firstVisibleItemIndex
+                        val currentOffset = listState.firstVisibleItemScrollOffset
+                        if (targetIdx >= 0) {
+                            if (firstVisible == targetIdx) {
+                                // 如果被删除的消息恰好是视口顶部首项，其 key 即将销毁。
+                                // 将锚点平移到上一项 (通常为对应的提问消息)；若无上一项则锚定下一项
+                                if (targetIdx > 0) {
+                                    val prevItemInfo = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == targetIdx - 1 }
+                                    val offset = if (prevItemInfo != null) (-prevItemInfo.offset).coerceAtLeast(0) else 0
+                                    scope.launch {
+                                        try {
+                                            listState.scrollToItem(targetIdx - 1, scrollOffset = offset)
+                                        } catch (_: Exception) {}
+                                    }
+                                } else if (displayMessages.size > 1) {
+                                    scope.launch {
+                                        try {
+                                            listState.scrollToItem(0, scrollOffset = 0)
+                                        } catch (_: Exception) {}
+                                    }
+                                }
+                            } else if (firstVisible > targetIdx) {
+                                // 被删除的消息在视口上方，删除后其后所有项索引减 1，保持当前首项视觉位置不动
+                                scope.launch {
+                                    try {
+                                        listState.scrollToItem((firstVisible - 1).coerceAtLeast(0), scrollOffset = currentOffset)
+                                    } catch (_: Exception) {}
+                                }
+                            }
+                        }
                         viewModel.deleteMessage(targetMsg)
                         messagePendingDelete = null
                     },

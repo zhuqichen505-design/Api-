@@ -945,8 +945,16 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
             _translatingMessageIds.update { it + message.id }
             try {
                 val settings = AiAssistantApp.instance.personalizationManager.getSettings()
-                val targetConfigId = settings.thinkingTranslationApiConfigId
-                val targetModel = settings.thinkingTranslationModel
+                val targetConfigId = if (settings.thinkingTranslationApiConfigId > 0L) {
+                    settings.thinkingTranslationApiConfigId
+                } else {
+                    _currentModelOption.value?.apiConfigId ?: conversation?.apiConfigId ?: 0L
+                }
+                val targetModel = if (settings.thinkingTranslationModel.isNotBlank()) {
+                    settings.thinkingTranslationModel
+                } else {
+                    _currentModel.value ?: conversation?.modelName.orEmpty()
+                }
 
                 val result = repository.translateThinkingContent(
                     thinkingText = thinking,

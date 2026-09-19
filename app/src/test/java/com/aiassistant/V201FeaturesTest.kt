@@ -41,9 +41,15 @@ class V201FeaturesTest {
         val innerFontRaw = "<font color=\"#1E88E5\">*核心重点在于：</font>"
         assertEquals("<font color=\"#1E88E5\">核心重点在于：</font>", cleanLeadingStarArtifacts(innerFontRaw))
 
-        // 5. 句首伴随非标渲染留下的孤立单星号（后跟文本）
+        // 5. 句首星号（如斜体、动作描写或正文内容）必须完整保留，杜绝被误吞导致格式异常
         val textRaw = "*针对您提出的问题，分析如下："
-        assertEquals("针对您提出的问题，分析如下：", cleanLeadingStarArtifacts(textRaw))
+        assertEquals("*针对您提出的问题，分析如下：", cleanLeadingStarArtifacts(textRaw))
+
+        val roleplayActionRaw = "*轻轻地叹了一口气* 你怎么来了？"
+        assertEquals("*轻轻地叹了一口气* 你怎么来了？", cleanLeadingStarArtifacts(roleplayActionRaw))
+
+        val italicRaw = "*这是斜体内容*"
+        assertEquals("*这是斜体内容*", cleanLeadingStarArtifacts(italicRaw))
 
         // 6. 正常 Markdown 无序列表项 "* " 必须保留，不能被误删
         val listRaw = "* 这是一个标准的 Markdown 无序列表项"

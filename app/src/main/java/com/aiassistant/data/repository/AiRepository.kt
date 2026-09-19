@@ -1477,18 +1477,31 @@ class AiRepository(
                     // 只有在完全没有收到任何内容时才自动重试
                     if (isNetworkFluctuationException(e)) {
                         attempt++
+                        val exMsg = e.message?.trim()?.take(180)?.ifBlank { null }
                         if (attempt <= maxTimeoutAttempts) {
                             val delayMs = retryDelays.getOrElse(attempt - 1) { 5000L }
-                            val retryText = "网络波动，正在尝试重新连接 ($attempt/$maxTimeoutAttempts)..."
+                            val retryText = if (!exMsg.isNullOrBlank()) {
+                                "网络波动 ($exMsg)，正在尝试重新连接 ($attempt/$maxTimeoutAttempts)..."
+                            } else {
+                                "网络波动，正在尝试重新连接 ($attempt/$maxTimeoutAttempts)..."
+                            }
                             Log.w(tag, "Key[$keyIndex] $retryText (退避等待 ${delayMs}ms) - 异常: ${e.javaClass.simpleName}: ${e.message}")
                             onStatusUpdate?.invoke(retryText)
                             kotlinx.coroutines.delay(delayMs)
                             continue
                         } else {
                             val failText = if (keyIndex + 1 < allKeys.size) {
-                                "网络重连重试已达 $maxTimeoutAttempts 次，自动尝试下一个 Key (${keyIndex + 2}/${allKeys.size})..."
+                                if (!exMsg.isNullOrBlank()) {
+                                    "网络重试已达 $maxTimeoutAttempts 次 ($exMsg)，自动尝试下一个 Key (${keyIndex + 2}/${allKeys.size})..."
+                                } else {
+                                    "网络重连重试已达 $maxTimeoutAttempts 次，自动尝试下一个 Key (${keyIndex + 2}/${allKeys.size})..."
+                                }
                             } else {
-                                "网络波动，重连重试已达 $maxTimeoutAttempts 次"
+                                if (!exMsg.isNullOrBlank()) {
+                                    "网络波动 ($exMsg)，重试已达 $maxTimeoutAttempts 次"
+                                } else {
+                                    "网络波动，重连重试已达 $maxTimeoutAttempts 次"
+                                }
                             }
                             Log.w(tag, failText)
                             onStatusUpdate?.invoke(failText)
@@ -1496,14 +1509,15 @@ class AiRepository(
                         }
                     } else {
                         // 无论客户端参数/模型错误(400, 404, 422)还是服务端错误(401, 403, 429, 500)，只要还有备用Key且未收到内容就自动尝试下一个Key
+                        val cleanErrMsg = e.message?.trim()?.ifBlank { "未知异常" } ?: "未知异常"
                         if (keyIndex + 1 < allKeys.size) {
                             val nextIdx = keyIndex + 2
-                            val failText = "当前 Key 异常(${e.message?.take(40)})，正在自动尝试备用 Key ($nextIdx/${allKeys.size})..."
-                            Log.w(tag, "Key[$keyIndex] 请求报错: ${e.message}，自动尝试备用 Key")
+                            val failText = "当前 Key 异常 ($cleanErrMsg)，正在自动尝试备用 Key ($nextIdx/${allKeys.size})..."
+                            Log.w(tag, "Key[$keyIndex] 请求报错: $cleanErrMsg，自动尝试备用 Key")
                             onStatusUpdate?.invoke(failText)
                             break
                         } else {
-                            val failText = "Key[${keyIndex + 1}] 请求报错: ${e.message}"
+                            val failText = "Key[${keyIndex + 1}] 请求报错: $cleanErrMsg"
                             Log.w(tag, failText)
                             onStatusUpdate?.invoke(failText)
                             throw e
@@ -4063,37 +4077,144 @@ class AiRepository(
         return response.body()?.content?.firstOrNull()?.text
     }
 
-    suspend fun executeQuickCompletion(config: ApiConfig, prompt: String, maxTokens: Int = 1000): String? = withContext(Dispatchers.IO) {
-        try {
-            if (config.apiType == "anthropic") {
-                val request = AnthropicRequest(
-                    model = config.modelName,
-                    messages = listOf(AnthropicMessage(role = "user", content = prompt)),
-                    max_tokens = maxTokens,
-                    temperature = 0.3f
-                )
-                val response = RetrofitClient.getService(config.baseUrl)
-                    .anthropicMessages(apiKey = config.apiKey, request = request)
-                    .execute()
-                if (!response.isSuccessful) null else response.body()?.content?.firstOrNull()?.text
-            } else {
-                val request = ChatCompletionRequest(
-                    model = config.modelName,
-                    messages = listOf(ChatMessage(role = "user", content = prompt)),
-                    temperature = 0.3f,
-                    max_tokens = maxTokens,
-                    stream = false
-                )
-                val response = RetrofitClient.getService(config.baseUrl)
-                    .chatCompletion(RetrofitClient.formatApiKey(config.apiKey), request)
-                    .execute()
-                if (!response.isSuccessful) null else response.body()?.choices?.firstOrNull()?.message?.content
+    suspend fun executeStreamingCompletion(
+        config: ApiConfig,
+        key: String,
+        prompt: String,
+        maxTokens: Int
+    ): String? {
+        return try {
+            val isReasoning = Regex("""(^|[-_/])(o[134]|gpt-5|r1)""", RegexOption.IGNORE_CASE).containsMatchIn(config.modelName)
+            val request = ChatCompletionRequest(
+                model = config.modelName,
+                messages = listOf(ChatMessage(role = "user", content = prompt)),
+                temperature = if (isReasoning) null else 0.3f,
+                max_tokens = maxTokens,
+                stream = true
+            )
+            val auth = RetrofitClient.formatApiKey(key)
+            val response = RetrofitClient.postJson(
+                baseUrl = config.baseUrl,
+                path = "chat/completions",
+                headers = mapOf(
+                    "Authorization" to auth,
+                    "Accept" to "text/event-stream",
+                    "Cache-Control" to "no-cache"
+                ),
+                json = gson.toJson(request)
+            )
+            response.use { okResponse ->
+                if (!okResponse.isSuccessful) return@use null
+                val body = okResponse.body ?: return@use null
+                val reader = body.charStream().buffered()
+                val contentBuilder = StringBuilder()
+                val thinkingBuilder = StringBuilder()
+                var line: String?
+                while (reader.readLine().also { line = it } != null) {
+                    val lineStr = line?.trim().orEmpty()
+                    if (lineStr.isBlank()) continue
+                    val chunk = parseOpenAiStreamLine(lineStr, gson) ?: continue
+                    chunk.contentDelta?.let { contentBuilder.append(it) }
+                    chunk.thinkingDelta?.let { thinkingBuilder.append(it) }
+                }
+                val res = contentBuilder.toString().trim()
+                if (res.isNotBlank()) res else thinkingBuilder.toString().trim().ifBlank { null }
             }
         } catch (e: Exception) {
-            Log.e(tag, "executeQuickCompletion 失败", e)
+            Log.w(tag, "executeStreamingCompletion 流式备用异常: ${e.message}")
             null
         }
     }
+
+    suspend fun executeQuickCompletionWithResult(
+        config: ApiConfig,
+        prompt: String,
+        maxTokens: Int = 1000
+    ): Result<String> = withContext(Dispatchers.IO) {
+        val normalizedUrl = normalizeApiBaseUrl(config.baseUrl, config.apiType)
+        val allKeys = parseApiKeys(config.apiKey).ifEmpty { listOf(config.apiKey) }
+        var lastException: Exception? = null
+
+        val isReasoning = Regex("""(^|[-_/])(o[134]|gpt-5|r1)""", RegexOption.IGNORE_CASE).containsMatchIn(config.modelName)
+
+        for (key in allKeys) {
+            val cleanKey = key.removePrefix("Bearer ").trim()
+            for (attempt in 1..2) {
+                try {
+                    if (config.apiType == "anthropic") {
+                        val request = AnthropicRequest(
+                            model = config.modelName,
+                            messages = listOf(AnthropicMessage(role = "user", content = prompt)),
+                            max_tokens = maxTokens,
+                            temperature = if (isReasoning) null else 0.3f
+                        )
+                        val response = RetrofitClient.getAnalysisService(normalizedUrl)
+                            .anthropicMessages(apiKey = cleanKey, request = request)
+                            .execute()
+                        if (!response.isSuccessful) {
+                            val errBody = response.errorBody()?.string()?.take(300).orEmpty()
+                            throw Exception("HTTP ${response.code()}: $errBody")
+                        }
+                        val text = response.body()?.content?.firstOrNull { it.type == "text" }?.text
+                            ?: response.body()?.content?.firstOrNull()?.text
+                        if (!text.isNullOrBlank()) {
+                            return@withContext Result.success(text.trim())
+                        }
+                    } else {
+                        // 优先尝试标准非流式请求
+                        val request = ChatCompletionRequest(
+                            model = config.modelName,
+                            messages = listOf(ChatMessage(role = "user", content = prompt)),
+                            temperature = if (isReasoning) null else 0.3f,
+                            max_tokens = maxTokens,
+                            stream = false
+                        )
+                        val response = RetrofitClient.getAnalysisService(normalizedUrl)
+                            .chatCompletion(RetrofitClient.formatApiKey(cleanKey), request)
+                            .execute()
+                        if (response.isSuccessful) {
+                            val body = response.body()
+                            if (body?.error != null) {
+                                throw Exception(body.error.message ?: "OpenAI API 返回错误")
+                            }
+                            val choice = body?.choices?.firstOrNull()
+                            val text = choice?.message?.content?.ifBlank { null }
+                                ?: choice?.message?.reasoning_content?.ifBlank { null }
+                            if (!text.isNullOrBlank()) {
+                                return@withContext Result.success(text.trim())
+                            }
+                        } else {
+                            val errBody = response.errorBody()?.string()?.take(300).orEmpty()
+                            Log.w(tag, "executeQuickCompletion 非流式 HTTP ${response.code()}: $errBody，尝试流式通道备用")
+                        }
+
+                        // 非流式未返回或网关仅支持流式时，自动启用流式保底通道
+                        val streamResult = executeStreamingCompletion(
+                            config = config.copy(baseUrl = normalizedUrl),
+                            key = cleanKey,
+                            prompt = prompt,
+                            maxTokens = maxTokens
+                        )
+                        if (!streamResult.isNullOrBlank()) {
+                            return@withContext Result.success(streamResult.trim())
+                        }
+                    }
+                } catch (e: Exception) {
+                    lastException = e
+                    Log.w(tag, "executeQuickCompletion Key报错 (attempt $attempt): ${e.message}")
+                    if (attempt < 2 && isNetworkFluctuationException(e)) {
+                        kotlinx.coroutines.delay(1500L)
+                        continue
+                    }
+                    break // 尝试下一个 Key
+                }
+            }
+        }
+        Result.failure(lastException ?: Exception("模型未返回有效输出内容"))
+    }
+
+    suspend fun executeQuickCompletion(config: ApiConfig, prompt: String, maxTokens: Int = 1000): String? =
+        executeQuickCompletionWithResult(config, prompt, maxTokens).getOrNull()
 
     suspend fun translateThinkingContent(
         thinkingText: String,
@@ -4105,17 +4226,10 @@ class AiRepository(
                 return@withContext Result.failure(Exception("待翻译内容为空"))
             }
 
-            val rawConfig = if (targetApiConfigId > 0L) {
-                getDecryptedConfig(targetApiConfigId)
-            } else {
-                val def = getDefaultApiConfig()
-                if (def != null) {
-                    getDecryptedConfig(def.id)
-                } else {
-                    val allConfigs = getAllApiConfigs().first()
-                    allConfigs.firstOrNull()?.let { getDecryptedConfig(it.id) }
-                }
-            } ?: return@withContext Result.failure(Exception("未找到可用的 API 配置用于翻译"))
+            val rawConfig = (if (targetApiConfigId > 0L) getDecryptedConfig(targetApiConfigId) else null)
+                ?: getDefaultApiConfig()?.let { getDecryptedConfig(it.id) }
+                ?: getAllApiConfigs().first().firstOrNull()?.let { getDecryptedConfig(it.id) }
+                ?: return@withContext Result.failure(Exception("未找到可用的 API 配置用于翻译"))
 
             val targetModel = targetModelName.trim().ifBlank { rawConfig.modelName }
             val effectiveConfig = rawConfig.copy(modelName = targetModel)
@@ -4131,13 +4245,8 @@ class AiRepository(
                 $thinkingText
             """.trimIndent()
 
-            val maxOut = (thinkingText.length * 2).coerceIn(1000, 8192)
-            val translated = executeQuickCompletion(effectiveConfig, prompt, maxTokens = maxOut)
-            if (translated.isNullOrBlank()) {
-                Result.failure(Exception("模型未返回有效翻译结果"))
-            } else {
-                Result.success(translated.trim())
-            }
+            val maxOut = (thinkingText.length * 2).coerceIn(1024, 4096)
+            executeQuickCompletionWithResult(effectiveConfig, prompt, maxTokens = maxOut)
         } catch (e: Exception) {
             Log.e(tag, "思考链翻译异常", e)
             Result.failure(e)

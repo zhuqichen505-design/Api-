@@ -651,14 +651,29 @@ internal fun MessageBubble(
                     }
 
                     var isStatusExpanded by remember { mutableStateOf(false) }
-                    // 仅当状态文本包含多行内容或超长详细报错/URL信息时才提供展开功能，无多余内容不给展开键
-                    val hasDetailedExpandableContent = !hasThinkingContent && (capsuleText.contains("\n") || capsuleText.length > 48)
+                    val isStatusError = !reconnectStatus.isNullOrBlank() && (
+                        capsuleText.contains("异常") ||
+                        capsuleText.contains("报错") ||
+                        capsuleText.contains("失败") ||
+                        capsuleText.contains("错误") ||
+                        capsuleText.contains("Error", ignoreCase = true) ||
+                        capsuleText.contains("HTTP", ignoreCase = true)
+                    )
+                    // 状态文本包含多行、超长详细报错/URL信息或报错状态时提供展开功能，无多余内容不给展开键
+                    val hasDetailedExpandableContent = !hasThinkingContent && (capsuleText.contains("\n") || capsuleText.length > 36 || isStatusError)
                     val canExpandStatus = hasDetailedExpandableContent || isStatusExpanded
                     val capsuleShape = RoundedCornerShape(16.dp)
+                    val maxBubbleWidth = if (isStatusExpanded || isStatusError) 380.dp else 320.dp
+                    val maxLinesCount = when {
+                        isStatusExpanded -> 16
+                        isStatusError -> 4
+                        else -> 1
+                    }
+                    val enableSoftWrap = isStatusExpanded || isStatusError
                     Surface(
                         modifier = Modifier
                             .defaultMinSize(minHeight = 34.dp)
-                            .widthIn(max = if (isStatusExpanded) 360.dp else 320.dp)
+                            .widthIn(max = maxBubbleWidth)
                             .animateContentSize()
                             .clip(capsuleShape)
                             .then(
@@ -672,26 +687,33 @@ internal fun MessageBubble(
                                     }
                                 } else Modifier
                             ),
-                        color = thinkingBubbleColor,
-                        contentColor = thinkingHeaderColor,
+                        color = if (isStatusError) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.28f) else thinkingBubbleColor,
+                        contentColor = if (isStatusError) MaterialTheme.colorScheme.error else thinkingHeaderColor,
                         shape = capsuleShape,
                         border = BorderStroke(
                             1.dp,
-                            glass.outlineSelected.copy(alpha = 0.72f)
+                            if (isStatusError) MaterialTheme.colorScheme.error.copy(alpha = 0.5f) else glass.outlineSelected.copy(alpha = 0.72f)
                         )
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-                            verticalAlignment = if (isStatusExpanded) Alignment.Top else Alignment.CenterVertically,
+                            verticalAlignment = if (isStatusExpanded || isStatusError) Alignment.Top else Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Box(
                                 modifier = Modifier
                                     .size(16.dp)
-                                    .then(if (isStatusExpanded) Modifier.padding(top = 1.dp) else Modifier),
+                                    .then(if (isStatusExpanded || isStatusError) Modifier.padding(top = 1.dp) else Modifier),
                                 contentAlignment = Alignment.Center
                             ) {
-                                if (isConnecting || isThinkingActive) {
+                                if (isStatusError) {
+                                    Icon(
+                                        Icons.Default.WarningAmber,
+                                        contentDescription = "连接报错",
+                                        modifier = Modifier.size(16.dp),
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
+                                } else if (isConnecting || isThinkingActive) {
                                     CircularProgressIndicator(
                                         modifier = Modifier.size(13.dp),
                                         strokeWidth = 1.8.dp,
@@ -711,7 +733,7 @@ internal fun MessageBubble(
                                 modifier = Modifier
                                     .weight(1f, fill = false)
                                     .then(
-                                        if (!isStatusExpanded) Modifier.horizontalScroll(rememberScrollState())
+                                        if (!enableSoftWrap) Modifier.horizontalScroll(rememberScrollState())
                                         else Modifier
                                     )
                             ) {
@@ -723,9 +745,9 @@ internal fun MessageBubble(
                                         fontWeight = FontWeight.SemiBold,
                                         lineHeight = 16.sp
                                     ),
-                                    color = thinkingHeaderColor,
-                                    maxLines = if (isStatusExpanded) 12 else 1,
-                                    softWrap = isStatusExpanded,
+                                    color = if (isStatusError) MaterialTheme.colorScheme.error else thinkingHeaderColor,
+                                    maxLines = maxLinesCount,
+                                    softWrap = enableSoftWrap,
                                     overflow = TextOverflow.Clip
                                 )
                             }
@@ -741,7 +763,7 @@ internal fun MessageBubble(
                                     imageVector = if (isStatusExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                                     contentDescription = if (isStatusExpanded) "收起完整信息" else "展开完整信息",
                                     modifier = Modifier.size(16.dp),
-                                    tint = thinkingHeaderColor.copy(alpha = 0.78f)
+                                    tint = (if (isStatusError) MaterialTheme.colorScheme.error else thinkingHeaderColor).copy(alpha = 0.78f)
                                 )
                             }
                         }
@@ -894,8 +916,13 @@ internal fun MessageBubble(
                     if (isErrorOutput) {
                         var showErrorDetails by remember(message.id) { mutableStateOf(false) }
                         val errorSummary = remember(message.content) {
-                            val firstLine = message.content.lineSequence().firstOrNull { it.isNotBlank() }?.trim() ?: "请求发生异常"
-                            if (firstLine.length > 45) firstLine.take(45) + "..." else firstLine
+                            val lines = message.content.lines().map { it.trim() }.filter { it.isNotBlank() }
+                            val detailLine = lines.firstOrNull { it != "请求失败" && !it.startsWith("[输出已被中断") && !it.startsWith("可以检查") }
+                            when {
+                                !detailLine.isNullOrBlank() -> detailLine
+                                lines.isNotEmpty() -> lines.first()
+                                else -> "请求发生异常"
+                            }
                         }
                         Surface(
                             modifier = Modifier
@@ -932,7 +959,7 @@ internal fun MessageBubble(
                                         text = if (showErrorDetails) "错误信息详情" else errorSummary,
                                         style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
                                         color = MaterialTheme.colorScheme.onErrorContainer,
-                                        maxLines = if (showErrorDetails) 1 else 2,
+                                        maxLines = if (showErrorDetails) 1 else 4,
                                         modifier = Modifier.weight(1f)
                                     )
                                     IconButton(

@@ -1271,8 +1271,6 @@ fun cleanLeadingStarArtifacts(raw: String): String {
     // 2. 清理 <font ...>* 或 <span ...>* 紧随开标签后的孤立星号
     s = s.replace(Regex("""(<font[^>]*>)\s*\*""", RegexOption.IGNORE_CASE), "$1")
     s = s.replace(Regex("""(<span[^>]*>)\s*\*""", RegexOption.IGNORE_CASE), "$1")
-    // 3. 清理句首伴随字体解析不兼容留下的孤立单星号（后跟汉字、英文单词或常见标点，但排除无序列表项 "* "）
-    s = s.replace(Regex("""^\s*\*(?!\*|\s)"""), "")
     return s
 }
 
@@ -1662,13 +1660,9 @@ fun parseInlineMarkdown(
                         }
                         i = end + 1
                     } else {
-                        // 孤立未配对星号：若出现在开头或句首附近，忽略渲染，防止残留显示
-                        if (decoded.startsWith("*", i) && (i == 0 || i < 3)) {
-                            i++
-                        } else {
-                            append(decoded[i])
-                            i++
-                        }
+                        // 孤立未配对星号：正常作为字面量字符追加，避免首字符星号在流式或单字时被误吞
+                        append(decoded[i])
+                        i++
                     }
                 }
 

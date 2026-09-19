@@ -1,5 +1,45 @@
 # Echo AI 助手更新日志 (Update Log)
 
+## [2026-09-19] - v2.2.3：思考链翻译全链路健壮重构、模型回复首字符星号误吞修复、删除回复平稳防滑与连接气泡报错全量展示
+
+### 1. 核心需求落实与技术重构详情
+1. **思考链翻译无法生效、均显示翻译失败彻底修复**：
+   - **根因分析**：
+     - **Base URL 缺失 `/v1` 报 404**：`executeQuickCompletion` 直接将原始 `config.baseUrl`（如 `https://api.deepseek.com`）传入 Retrofit，未调用 `normalizeApiBaseUrl` 补全 `/v1`，导致拼接后请求 `https://api.deepseek.com/chat/completions`，所有未显式手写 `/v1` 的供应商全部报 HTTP 404 错误；
+     - **超时过短**：`executeQuickCompletion` 原先使用 `restHttpClient`（超时仅 30 秒），长篇思考链翻译或深度推理耗时往往超过 30 秒，触发 SocketTimeoutException 导致静默失败；
+     - **API Key 命名脱敏与多 Key 故障转移缺失**：原实现直接对原始 `config.apiKey` 调用 `formatApiKey`，导致命名标签（如 `[主] sk-...`）或换行多 Key 直接作为 Authorization 头发送，触发 HTTP 401 权限失败；
+     - **思考模型参数不兼容**：部分思考模型（如 o1/o3-mini 或 DeepSeek-R1）拒绝非 1.0 的 temperature，且思考模型可能将翻译文本输出在 `reasoning_content`，原逻辑仅读取 `content` 导致空内容失败；
+     - **缺少流式保底**：部分中转网关仅支持 SSE 流式请求（`stream = true`）或在非流式模式下极易切断，原逻辑无流式备用通道；
+     - **未配置翻译模型时的回退缺陷**：当用户在设置中未单独指定翻译专用模型时，`ChatViewModel` 原先传入 `0L` 与 `""`，底层粗暴回退到全局默认配置，而非优先复用当前会话正在正常对话的可用活跃模型。
+   - **技术方案**：
+     - `AiRepository.kt`：全面重构 `executeQuickCompletionWithResult`，统一使用 `normalizeApiBaseUrl(config.baseUrl, config.apiType)` 补全规范化路径；接入 `longAnalysisHttpClient`（600 秒超长超时与重试）；引入 `parseApiKeys` 循环剥离名称标签并支持多 Key 轮询容灾；检测 reasoning 模型并自动置空 temperature，兼容 `content` 与 `reasoning_content` 提取；实现 `executeStreamingCompletion` 流式备用保底通道；
+     - `ChatViewModel.kt`：在调用思考链翻译时，当未显式配置翻译专用模型时，智能继承当前会话活跃的 `apiConfigId` 与 `modelName`，确保 100% 能够成功连接与翻译。
+   - **文件改动**：`app/src/main/java/com/aiassistant/data/repository/AiRepository.kt`、`app/src/main/java/com/aiassistant/ui/screens/chat/ChatViewModel.kt`。
+
+2. **模型回复中开头的 `*` 误吞与格式异常彻底修复**：
+   - **根因分析**：`MarkdownText.kt` 中的 `cleanLeadingStarArtifacts` 在先前的版本中包含激进规则 `s.replace(Regex("""^\s*\*(?!\*|\s)"""), "")`，将所有行首紧邻非空字符的单星号误判为字体解析残留伪影，导致 Markdown 的斜体语法（`*斜体*`）以及角色扮演中的动作描写（`*轻轻叹气*`）在输出时首个星号被直接清除，引发样式解析错乱；此外，在 `parseInlineMarkdown` 中对 `i < 3` 处的未配对星号也存在直接丢弃分支，造成流式首字符或孤立星号被吞噬。
+   - **技术方案**：移除该激进正则，保留用户正常语法输入的首字符单星号；在 `parseInlineMarkdown` 中将孤立单星号作为常规字面量字符正常追加渲染，确保流式输出与格式渲染 100% 准确。
+   - **文件改动**：`app/src/main/java/com/aiassistant/ui/components/MarkdownText.kt`。
+
+3. **对话页删除回复导致屏幕滑动彻底修复**：
+   - **根因分析**：在对话列表中删除某条消息时，Compose 的 `LazyColumn` 依赖各 Item 的 Key 进行位置定位；当被删除的消息恰好位于当前可见视口顶部时（`firstVisibleItemIndex == targetIdx`），消息一旦从列表移除，该 Key 瞬间销毁，Compose 丢失锚点并重置 `scrollOffset = 0`，同时如果 `autoFollowOutput` 为激活态，列表可能联动滑动至最新底部，导致视口瞬间跳跃与剧烈滑动。
+   - **技术方案**：在二次确认删除回调中，先置 `autoFollowOutput = false` 避免触底联动；精确计算当前视口首项与被删除项的相对位置：若被删除项恰为视口首项，预先平滑重锚定到其上一项（通常为对应的提问消息）并保留相对视口位移偏移量；若被删除项位于视口上方，则首项索引自动自减 1，保持视口当前内容绝对静止稳定，彻底杜绝删除消息时的屏幕滑动。
+   - **文件改动**：`app/src/main/java/com/aiassistant/ui/screens/chat/ChatScreen.kt`。
+
+4. **模型连接时连接气泡报错内容完整性修复**：
+   - **根因分析**：在底层数据层 `AiRepository.kt` 中，针对非网络波动的报错文本硬编码使用了 `e.message?.take(40)` 进行强行截断，当 API 返回超过 40 字符的详细错误（如状态码、URL、限流提示、配额耗尽等）时，后半部分关键报错信息直接被裁剪丢失；同时在 UI 层 `ChatMessageComponents.kt` 中，连接气泡原设计仅适配单行简短状态（`maxLines = 1`，超过部分单行横向滚动），在报错时文字被截断或难以阅读。
+   - **技术方案**：
+     - `AiRepository.kt`：彻底移除 `take(40)` 截断限制，提取完整的 `cleanErrMsg`，并在网络波动重试提示中补充具体异常信息，确保完整原始报错传递到 UI 层。
+     - `ChatMessageComponents.kt`：连接状态气泡识别到报错状态时，将最大宽度放宽至 380dp，自动开启 `softWrap = true`，默认行数放宽至 4 行（展开状态支持 16 行），并在左侧展示警告图标（`Icons.Default.Warning`），支持用户直接点击气泡一键展开查看完整多行堆栈与错误详情；优化聊天气泡中的 `errorSummary` 提取，优先过滤无意义的纯标题行，展示真实具体的异常内容。
+   - **文件改动**：`app/src/main/java/com/aiassistant/data/repository/AiRepository.kt`、`app/src/main/java/com/aiassistant/ui/screens/chat/ChatMessageComponents.kt`。
+
+### 2. 自动化测试与工程交付
+- **单元测试**：全量单元测试（包含 V223FeaturesTest 6 项新测在内共 280+ 项测试）100% 全部通过 (BUILD SUCCESSFUL)。
+- **Release APK**：`releases/Echo-v2.2.3.apk`。
+  - SHA256: `FA7799F49167072D9A906208E181DD5363831ED705CB976F11F73BC7198D8550`
+  - 大小: `16,254,973 字节 (~15.5 MB)`
+- **历史安装包永久保留**：严格遵循最高铁律，`releases/` 目录下全部历史安装包完整保留，增量输出唯一定名的 `Echo-v2.2.3.apk`，未生成带有 `-arm64-v8a` 后缀命名的多余包。
+
 ## [2026-09-18] - v2.2.2：7 项界面精简与体验优化（状态气泡智能展开与形状防跳变、全局直角阴影消除、思考图标样式统一、紧凑输入框、跨会话记忆与世界书默认关闭及记忆多维筛选）
 
 ### 1. 核心需求落实与技术重构详情

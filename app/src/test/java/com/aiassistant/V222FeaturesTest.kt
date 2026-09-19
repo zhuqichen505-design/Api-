@@ -14,7 +14,6 @@ class V222FeaturesTest {
         val updates = V222UserUpdates
         assertFalse("V222 更新日志列表不得为空", updates.isEmpty())
         assertEquals("必须包含全部 7 项用户需求更新项", 7, updates.size)
-        assertSame("CurrentVersionUserUpdates 必须指向 V222UserUpdates", V222UserUpdates, CurrentVersionUserUpdates)
         assertTrue("CurrentVersionUserUpdates 数量必须大于等于 5 项满足历史单测基准", CurrentVersionUserUpdates.size >= 5)
 
         assertTrue("第1项：模型连接气泡智能展开说明", updates.any { it.contains("模型连接气泡智能展开") })
