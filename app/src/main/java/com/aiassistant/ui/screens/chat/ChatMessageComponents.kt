@@ -101,6 +101,7 @@ import com.aiassistant.domain.model.Message
 import com.aiassistant.domain.model.MemoryItem
 import com.aiassistant.domain.model.PromptTemplate
 import com.aiassistant.ui.components.MarkdownText
+import com.aiassistant.ui.components.parseInlineMarkdown
 import com.aiassistant.ui.components.SideAnchorItem
 import com.aiassistant.ui.components.SideAnchorNavigator
 import com.aiassistant.ui.components.TransientLazyListScrollbar
@@ -450,7 +451,7 @@ internal fun MessageBubble(
                                             }
                                             Spacer(modifier = Modifier.height(2.dp))
                                             Text(
-                                                text = parsedQuote.quoteText,
+                                                text = parseInlineMarkdown(parsedQuote.quoteText),
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = contentColor.copy(alpha = 0.82f),
                                                 maxLines = if (isQuoteExpanded) Int.MAX_VALUE else 3,
@@ -462,7 +463,7 @@ internal fun MessageBubble(
 
                                 if (parsedQuote.replyText.isNotBlank()) {
                                     Text(
-                                        text = parsedQuote.replyText,
+                                        text = parseInlineMarkdown(parsedQuote.replyText),
                                         color = contentColor,
                                         style = MaterialTheme.typography.bodyLarge
                                     )
@@ -470,7 +471,7 @@ internal fun MessageBubble(
                             }
                         } else {
                             Text(
-                                text = message.content,
+                                text = parseInlineMarkdown(message.content),
                                 color = contentColor,
                                 style = MaterialTheme.typography.bodyLarge
                             )

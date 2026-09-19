@@ -1,5 +1,40 @@
 # Echo AI 助手更新日志 (Update Log)
 
+## [2026-09-19] - v2.2.4：Markdown 全格式容错渲染、全角星号排版归一化、首尾非对称星号容错、跨行格式保护、字体合成保底与用户气泡 Markdown 支持
+
+### 1. 核心需求落实与技术重构详情
+1. **全角星号排版归一化（`＊＊＊` / `＊＊`）**：
+   - **根因分析**：中文输入法与特定大模型（尤其是国内模型）在生成或排版时，常输出全角 Unicode 星号 `＊`（`\uFF0A`）。原有解析器仅支持 ASCII 半角星号 `'*'`，导致全角星号被当作普通文本原样输出，完全无法进入粗体或粗斜体渲染分支；
+   - **技术方案**：在 `cleanLeadingStarArtifacts` 预处理流程中，统一将全角星号 `\uFF0A` 归一化映射为标准半角星号 `*`，实现全角 `＊＊＊文字＊＊＊` 与 `＊＊文字＊＊` 无缝转换为标准 Markdown 语法并精准渲染。
+   - **文件改动**：`app/src/main/java/com/aiassistant/ui/components/MarkdownText.kt`。
+
+2. **首尾非对称星号容错与防跨词贪婪吞噬（`***text**` / `**text***`）**：
+   - **根因分析**：模型生成标记时经常出现开闭数量不一致情况（如开头 3 星、结尾 2 星）。原有解析器以 `***` 开头寻找结尾 `***`，找不到同等数量闭合符时，会跨词贪婪跳跃至后续段落的其他 `***`，导致整段文字格式串色错乱，结尾星号沦为孤立符号显示在屏幕上；
+   - **技术方案**：引入非贪婪最近邻闭合策略。以 `***` 开头时，优先寻找最近的闭合符；若最近闭合符为 `**` 且不属于更长星号序列，则智能降级闭合为粗体，不发生跨词贪婪吞并；对于以 `**` 开头但结尾带 3 个星号的情况（`**text***`），一同消费掉多余星号，杜绝残留孤立星号。支持 `****text****` 四星号强化输出。
+   - **文件改动**：`app/src/main/java/com/aiassistant/ui/components/MarkdownText.kt`。
+
+3. **跨换行符格式保护与连续性识别**：
+   - **根因分析**：原有 `MarkdownText` 采用 `content.split("\n")` 切分行后逐行调用 `parseInlineMarkdown`。若加粗或粗斜体内容跨越了单换行符，首行找不到闭合标记直接放弃渲染、回退为原样文本，第二行也因缺少起始标记而原样显示，导致格式彻底失效；
+   - **技术方案**：在普通段落行处理分支中增加 `hasUnclosedInlineFormatting` 检查。当检测到当前行包含未闭合的行内加粗、斜体或删除线标记时，在遇到空行或块级边界（标题、代码块、列表、分割线等）前自动预读并合并后续连续行（保留 `\n`），使跨行内容作为一个连贯富文本块交由 Compose 渲染，完美保全换行与格式。
+   - **文件改动**：`app/src/main/java/com/aiassistant/ui/components/MarkdownText.kt`。
+
+4. **Android 系统字体合成保底（FontSynthesis）**：
+   - **根因分析**：Android 原生中文字体库（如 `Noto Sans CJK SC`）仅具备字重（Weight），不存在原生斜体（Italic）字体文件。Compose 在同时指定 `FontWeight.Bold` 与 `FontStyle.Italic` 时，若在部分定制系统上未能正确匹配到合成字形，会触发 Fallback 机制回退至常规 Normal 字体，导致文字虽然去除了星号却依然看起来“没有加粗”；
+   - **技术方案**：在 `SpanStyle` 中显式指定 `fontSynthesis = FontSynthesis.All`（对于粗斜体）与 `fontSynthesis = FontSynthesis.Weight`（对于粗体），强制底层图形引擎合成加粗字重，确保在所有厂商定制 Android 系统中中文加粗均能鲜明可见。
+   - **文件改动**：`app/src/main/java/com/aiassistant/ui/components/MarkdownText.kt`。
+
+5. **用户消息与引用回复气泡行内 Markdown 支持**：
+   - **根因分析**：用户消息气泡 (`isUser == true`) 和引用消息预览原先直接调用原生 `Text(text = message.content)`，当用户在提问或输入提示词中输入 `***文字***` 或 `**加粗**` 时，直接 100% 显示原始符号；
+   - **技术方案**：在 `ChatMessageComponents.kt` 中全面接入 `parseInlineMarkdown`，用户消息、引用消息预览与引用回复均可优雅呈现加粗、斜体、删除线与行内代码样式，与 AI 助手回复的视觉质感统一。
+   - **文件改动**：`app/src/main/java/com/aiassistant/ui/screens/chat/ChatMessageComponents.kt`。
+
+### 2. 自动化测试与工程交付
+- **单元测试**：全量单元测试（包含 V224FeaturesTest 6 项新测在内共 286+ 项测试）100% 全部通过 (BUILD SUCCESSFUL)。
+- **Release APK**：`releases/Echo-v2.2.4.apk`。
+  - SHA256: `41968F5845C9E5B7D89537CD4D16194AE2F4DAC7FB5577EFBCD1E8170FD52B8F`
+  - 大小: `16,254,969 字节 (~15.5 MB)`
+- **历史安装包永久保留**：严格遵循最高铁律，`releases/` 目录下全部历史安装包完整保留，增量输出唯一定名的 `Echo-v2.2.4.apk`，未生成带有 `-arm64-v8a` 后缀命名的多余包。
+
 ## [2026-09-19] - v2.2.3：思考链翻译全链路健壮重构、模型回复首字符星号误吞修复、删除回复平稳防滑与连接气泡报错全量展示
 
 ### 1. 核心需求落实与技术重构详情

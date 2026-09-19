@@ -26,6 +26,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontSynthesis
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.BaselineShift
 import androidx.compose.ui.text.style.TextDecoration
@@ -271,21 +272,75 @@ fun MarkdownText(
                                 topPad = 6.dp,
                                 bottomPad = 3.dp
                             )
+                            index++
                         } else {
+                            // 跨行格式保护：若当前行包含未闭合的加粗/斜体/删除线等标记，合并后续连续文本行
+                            val mergedLines = StringBuilder(line)
+                            index++
+                            while (index < lines.size && hasUnclosedInlineFormatting(mergedLines.toString()) && !isBlockBoundaryLine(lines[index])) {
+                                mergedLines.append("\n").append(lines[index])
+                                index++
+                            }
                             InlineMarkdownText(
-                                text = parseInlineMarkdown(line),
+                                text = parseInlineMarkdown(mergedLines.toString()),
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = color,
                                 modifier = Modifier.padding(vertical = 2.dp),
                                 onCitationClick = onCitationClick
                             )
                         }
-                        index++
                     }
                 }
             }
         }
     }
+
+/**
+ * 校验文本行中是否存在未闭合的 Markdown 标记（如星号、下划线、删除线或 HTML 标签）
+ */
+private fun hasUnclosedInlineFormatting(text: String): Boolean {
+    val norm = text.replace('＊', '*')
+    fun countOccurrences(sub: String): Int {
+        var count = 0
+        var idx = 0
+        while (idx < norm.length) {
+            val found = norm.indexOf(sub, idx)
+            if (found != -1) {
+                count++
+                idx = found + sub.length
+            } else break
+        }
+        return count
+    }
+    val count3 = countOccurrences("***")
+    val count2 = countOccurrences("**")
+    val count1 = norm.count { it == '*' }
+    val countTilde = countOccurrences("~~")
+    val countFontOpen = norm.split(Regex("<font", RegexOption.IGNORE_CASE)).size - 1
+    val countFontClose = norm.split(Regex("</font>", RegexOption.IGNORE_CASE)).size - 1
+    val countSpanOpen = norm.split(Regex("<span", RegexOption.IGNORE_CASE)).size - 1
+    val countSpanClose = norm.split(Regex("</span>", RegexOption.IGNORE_CASE)).size - 1
+
+    return (count3 % 2 != 0) || (count2 % 2 != 0) || (count1 % 2 != 0) || (countTilde % 2 != 0) ||
+        (countFontOpen > countFontClose) || (countSpanOpen > countSpanClose)
+}
+
+/**
+ * 校验当前行是否为独立 Markdown 块级元素边界（标题、列表、代码块、引用等），跨行合并不得越界
+ */
+private fun isBlockBoundaryLine(line: String): Boolean {
+    val trimmed = line.trim()
+    return trimmed.isBlank() ||
+        line.trimStart().startsWith("```") ||
+        trimmed.startsWith("$$") || trimmed.startsWith("\\[") || trimmed.startsWith("\\begin{") ||
+        line.startsWith("# ") || line.startsWith("## ") || line.startsWith("### ") ||
+        line.startsWith("#### ") || line.startsWith("##### ") || line.startsWith("###### ") ||
+        isReferenceListItem(line) ||
+        line.trimStart().startsWith("- ") || line.trimStart().startsWith("* ") ||
+        line.trimStart().matches(Regex("^\\d+\\.\\s+.*")) ||
+        line.startsWith("> ") ||
+        trimmed == "---" || trimmed == "***"
+}
 
 /**
  * 判断是否为特定关键词标题（加粗、加大字号、斜体）
@@ -1262,13 +1317,15 @@ fun highlightSyntax(code: String, language: String, isDark: Boolean): AnnotatedS
 }
 
 /**
- * 清理因模型非标颜色标签不兼容或格式错乱而在句首留下的孤立星号 '*'
+ * 清理因模型非标颜色标签不兼容或格式错乱而在句首留下的孤立星号 '*'，同时正规化全角星号与常见转义符
  */
 fun cleanLeadingStarArtifacts(raw: String): String {
-    var s = raw
-    // 1. 清理开头紧随 <font>、<span>、{# 颜色标签出现的孤立星号，例如 "*<font", "* <font", "*<span", "* {#", etc.
+    var s = raw.replace('＊', '*') // 1. 全角星号归一化为半角星号，彻底支持中文全角星号排版
+    // 2. 处理大模型常见的 Markdown 转义反斜杠星号，例如 \***文字\*** 或 \*\*文字\*\*
+    s = s.replace(Regex("""\\(\*{2,3})"""), "$1")
+    // 3. 清理开头紧随 <font>、<span>、{# 颜色标签出现的孤立星号，例如 "*<font", "* <font", "*<span", "* {#", etc.
     s = s.replace(Regex("""^\s*\*\s*(?=<font|<span|\{#)""", RegexOption.IGNORE_CASE), "")
-    // 2. 清理 <font ...>* 或 <span ...>* 紧随开标签后的孤立星号
+    // 4. 清理 <font ...>* 或 <span ...>* 紧随开标签后的孤立星号
     s = s.replace(Regex("""(<font[^>]*>)\s*\*""", RegexOption.IGNORE_CASE), "$1")
     s = s.replace(Regex("""(<span[^>]*>)\s*\*""", RegexOption.IGNORE_CASE), "$1")
     return s
@@ -1588,16 +1645,59 @@ fun parseInlineMarkdown(
                     }
                 }
 
-                // 粗斜体 ***text*** 或 ___text___ 或 **_text_** 或 *__text__*
+                // 4 星以上粗体 ****text**** (常见大模型强化输出)
+                decoded.startsWith("****", i) -> {
+                    val end = decoded.indexOf("****", i + 4)
+                    if (end != -1 && end > i + 4) {
+                        val boldText = decoded.substring(i + 4, end)
+                        withStyle(SpanStyle(fontWeight = FontWeight.Bold, fontSynthesis = FontSynthesis.Weight)) {
+                            append(parseInlineMarkdown(boldText))
+                        }
+                        i = end + 4
+                    } else {
+                        append(decoded[i])
+                        i++
+                    }
+                }
+
+                // 粗斜体 ***text*** 或 ___text___ 或 **_text_** 或 *__text__*，及非对称容错 ***text**
                 (decoded.startsWith("***", i) || decoded.startsWith("___", i)) -> {
                     val marker = if (decoded.startsWith("***", i)) "***" else "___"
                     val end = decoded.indexOf(marker, i + 3)
-                    if (end != -1) {
-                        val boldItalicText = decoded.substring(i + 3, end)
-                        withStyle(SpanStyle(fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic)) {
-                            append(parseInlineMarkdown(boldItalicText))
+                    val end2 = if (marker == "***") decoded.indexOf("**", i + 3) else -1
+
+                    // 优先采用最近邻闭合策略，防止行内非对称星号跨词吞噬后续文本
+                    val effectiveEnd: Int
+                    val closeLen: Int
+                    val isBoldItalic: Boolean
+
+                    if (marker == "***" && end2 != -1 && !decoded.startsWith("***", end2) && (end == -1 || end2 < end)) {
+                        // 容错匹配：开头 3 星，最近结尾为 2 星 (如 ***text**)
+                        effectiveEnd = end2
+                        closeLen = 2
+                        isBoldItalic = false
+                    } else if (end != -1) {
+                        // 标准匹配：***text*** 或 ___text___
+                        effectiveEnd = end
+                        closeLen = 3
+                        isBoldItalic = true
+                    } else {
+                        effectiveEnd = -1
+                        closeLen = 0
+                        isBoldItalic = false
+                    }
+
+                    if (effectiveEnd != -1 && effectiveEnd > i + 3) {
+                        val innerText = decoded.substring(i + 3, effectiveEnd)
+                        val spanStyle = if (isBoldItalic) {
+                            SpanStyle(fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic, fontSynthesis = FontSynthesis.All)
+                        } else {
+                            SpanStyle(fontWeight = FontWeight.Bold, fontSynthesis = FontSynthesis.Weight)
                         }
-                        i = end + 3
+                        withStyle(spanStyle) {
+                            append(parseInlineMarkdown(innerText))
+                        }
+                        i = effectiveEnd + closeLen
                     } else {
                         append(decoded[i])
                         i++
@@ -1608,7 +1708,7 @@ fun parseInlineMarkdown(
                     val end = decoded.indexOf("_**", i + 3)
                     if (end != -1) {
                         val boldItalicText = decoded.substring(i + 3, end)
-                        withStyle(SpanStyle(fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic)) {
+                        withStyle(SpanStyle(fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic, fontSynthesis = FontSynthesis.All)) {
                             append(parseInlineMarkdown(boldItalicText))
                         }
                         i = end + 3
@@ -1622,7 +1722,7 @@ fun parseInlineMarkdown(
                     val end = decoded.indexOf("__*", i + 3)
                     if (end != -1) {
                         val boldItalicText = decoded.substring(i + 3, end)
-                        withStyle(SpanStyle(fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic)) {
+                        withStyle(SpanStyle(fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic, fontSynthesis = FontSynthesis.All)) {
                             append(parseInlineMarkdown(boldItalicText))
                         }
                         i = end + 3
@@ -1632,16 +1732,21 @@ fun parseInlineMarkdown(
                     }
                 }
 
-                // 粗体 **text** 或 __text__
+                // 粗体 **text** 或 __text__，及非对称容错 **text***
                 (decoded.startsWith("**", i) || decoded.startsWith("__", i)) -> {
                     val marker = if (decoded.startsWith("**", i)) "**" else "__"
                     val end = decoded.indexOf(marker, i + 2)
-                    if (end != -1) {
+                    if (end != -1 && end > i + 2) {
                         val boldText = decoded.substring(i + 2, end)
-                        withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
+                        withStyle(SpanStyle(fontWeight = FontWeight.Bold, fontSynthesis = FontSynthesis.Weight)) {
                             append(parseInlineMarkdown(boldText))
                         }
-                        i = end + 2
+                        // 容错：若结尾多出一个星号（如 **text***），一同消费，避免留下孤立的星号
+                        if (marker == "**" && end + 2 < decoded.length && decoded[end + 2] == '*') {
+                            i = end + 3
+                        } else {
+                            i = end + 2
+                        }
                     } else {
                         append(decoded[i])
                         i++
@@ -1655,7 +1760,7 @@ fun parseInlineMarkdown(
                     val end = decoded.indexOf(marker, i + 1)
                     if (end != -1 && end > i + 1) {
                         val italicText = decoded.substring(i + 1, end)
-                        withStyle(SpanStyle(fontStyle = FontStyle.Italic)) {
+                        withStyle(SpanStyle(fontStyle = FontStyle.Italic, fontSynthesis = FontSynthesis.Style)) {
                             append(parseInlineMarkdown(italicText))
                         }
                         i = end + 1
