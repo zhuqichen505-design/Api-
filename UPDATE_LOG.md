@@ -59,12 +59,12 @@
 
 ### 2. 自动化测试与工程交付
 - **单元测试**：全量单元测试（包含 V225FeaturesTest 5 项新测及 ContextCompressionAndBudgetTest 6 项新测在内共 303 项测试）100% 全部通过 (BUILD SUCCESSFUL)。
-- **Release APK**：`releases/Echo-v2.2.5.apk`。
+- **Release APK**：`D:\Agent\APP-烧\app\releases\Echo-v2.2.5.apk`。
   - SHA256: `D5E04968B49C90CE7B14BF7A4F7E5676B0FAF9B6DFFA6661039633CB3F1C6E21`
   - 大小: `16,254,973 字节 (~15.5 MB)`
   - 版本号: `versionCode = 131`, `versionName = "2.2.5"`
   - 架构: 单一安装包（统一格式 `Echo-v2.2.5.apk`，无 `-arm64-v8a` 后缀）
-- **历史版本安装包永久保留**：严格遵循最高铁律，`releases/` 目录下全部历史安装包完整保留，增量输出唯一定名的 `Echo-v2.2.5.apk`。
+- **发布路径与历史版本永久保留**：严格遵循准则，以后统一只发布在 `D:\Agent\APP-烧\app\releases` 路径下，该目录下全部历史版本安装包永久完整保留，增量输出唯一定名的 `Echo-v2.2.5.apk`。
 
 ## [2026-09-19] - v2.2.4：Markdown 全格式容错渲染、全角星号排版归一化、首尾非对称星号容错、跨行格式保护、字体合成保底与用户气泡 Markdown 支持
 

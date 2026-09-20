@@ -24,9 +24,10 @@ Echo 是一个 Android 原生 AI API 客户端应用，用于调用 mimo、deeps
    - Git 提交号
    - 版本标签
    - 是否已完成网络备份
-5. **历史版本安装包永久保留准则（最高铁律）**：
-   - 绝对严禁删除、覆盖或清理 `releases/` 目录下的任何历史版本安装包；
-   - 每次发布新版本时只在 `releases/` 目录下增量输出新版本安装包，所有历史安装包必须永久保留。
+5. **APK 发布输出路径与历史版本安装包永久保留准则（最高铁律）**：
+   - 以后构建和发布 APK 时，**统一只发布在 `D:\Agent\APP-烧\app\releases` 这个路径**（严禁发布至其他路径）；
+   - 绝对严禁删除、覆盖或清理 `D:\Agent\APP-烧\app\releases` 目录下的任何历史版本安装包；
+   - 每次发布新版本时只在 `D:\Agent\APP-烧\app\releases` 目录下增量输出对应版本的唯一定名安装包（`Echo-v<version>.apk`），所有历史安装包必须永久保留。
 6. 不允许提交本机敏感文件或构建产物，包括 `local.properties`、keystore、`.env`、`app/build/`、`.gradle/` 等。
 
 ---
