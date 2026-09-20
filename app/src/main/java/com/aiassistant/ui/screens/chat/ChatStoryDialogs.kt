@@ -207,7 +207,7 @@ internal fun StoryUnifiedSettingsDialog(
     // 模型与参数 Tab 状态
     var temperature by remember { mutableFloatStateOf(tempSettings.temperature) }
     var maxTokens by remember {
-        val currentMax = tempSettings.maxTokens.takeIf { it >= 50000 } ?: 50000
+        val currentMax = tempSettings.maxTokens.takeIf { it > 0 } ?: 8192
         mutableStateOf(currentMax.toString())
     }
     var topP by remember { mutableFloatStateOf(tempSettings.topP) }
@@ -1034,7 +1034,7 @@ internal fun StoryUnifiedSettingsDialog(
                     onClick = {
                         val newSettings = TempChatSettings(
                             temperature = temperature.coerceIn(0f, tuningProfile.temperatureMax),
-                            maxTokens = maxTokens.toIntOrNull() ?: 50000,
+                            maxTokens = maxTokens.toIntOrNull() ?: 8192,
                             topP = topP,
                             enableThinking = enableThinking,
                             thinkingEffort = thinkingEffort,

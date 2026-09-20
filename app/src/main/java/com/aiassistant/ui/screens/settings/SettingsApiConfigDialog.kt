@@ -42,6 +42,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.scale
@@ -147,6 +148,7 @@ fun ApiConfigDialog(
     val context = androidx.compose.ui.platform.LocalContext.current
     val gson = remember { Gson() }
 
+    var isConfigEnabled by remember { mutableStateOf(config?.isEnabled ?: true) }
     var name by remember { mutableStateOf(config?.name ?: "") }
     var provider by remember { mutableStateOf(config?.provider ?: "") }
     var baseUrl by remember { mutableStateOf(config?.baseUrl ?: "") }
@@ -309,6 +311,29 @@ fun ApiConfigDialog(
                     }
                 }
 
+                // API 启用开关
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("启用此 API 配置", style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                if (isConfigEnabled) "已开启：允许使用此 API 并显示在模型选择列表中" else "已关闭：停用此 API 且模型不出现在选择列表中",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = isConfigEnabled,
+                            onCheckedChange = { isConfigEnabled = it },
+                            modifier = Modifier.scale(0.85f)
+                        )
+                    }
+                }
+
                 // 配置名称
                 item {
                     SettingsInputField(
@@ -379,17 +404,23 @@ fun ApiConfigDialog(
 
                         namedKeyList.forEachIndexed { index, currentKey ->
                             val isVisible = keyVisibilityList.getOrElse(index) { false }
-                            val keyLabel = "Key ${index + 1}"
+                            val isKeyEnabled = currentKey.isEnabled
+                            val keyLabel = if (isKeyEnabled) "Key ${index + 1}" else "Key ${index + 1} (停用)"
                             val itemId = keyIds.getOrElse(index) { "key_$index" }
                             val isActive = keyReorderState.isItemActive(index)
 
                             Surface(
                                 shape = RoundedCornerShape(10.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (isKeyEnabled) 0.25f else 0.12f),
+                                border = androidx.compose.foundation.BorderStroke(
+                                    1.dp,
+                                    if (isKeyEnabled) MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                                    else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
+                                ),
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(vertical = 3.dp)
+                                    .alpha(if (isKeyEnabled) 1f else 0.65f)
                                     .reorderItem(keyReorderState, index, itemId, shape = RoundedCornerShape(10.dp))
                             ) {
                                 Column(
@@ -451,13 +482,22 @@ fun ApiConfigDialog(
 
                                         Surface(
                                             shape = RoundedCornerShape(5.dp),
-                                            color = if (index == 0) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                            border = BorderStroke(0.8.dp, if (index == 0) MaterialTheme.colorScheme.primary.copy(alpha = 0.45f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+                                            color = if (!isKeyEnabled) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                                else if (index == 0) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                                                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                            border = BorderStroke(
+                                                0.8.dp,
+                                                if (!isKeyEnabled) MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                                                else if (index == 0) MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+                                                else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                                            )
                                         ) {
                                             Text(
                                                 text = keyLabel,
                                                 style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold, fontSize = 12.sp),
-                                                color = if (index == 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                color = if (!isKeyEnabled) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                                    else if (index == 0) MaterialTheme.colorScheme.primary
+                                                    else MaterialTheme.colorScheme.onSurfaceVariant,
                                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
                                             )
                                         }
@@ -501,6 +541,17 @@ fun ApiConfigDialog(
                                                 }
                                             },
                                             modifier = Modifier.weight(1f)
+                                        )
+
+                                        Switch(
+                                            checked = isKeyEnabled,
+                                            onCheckedChange = { checked ->
+                                                val updated = namedKeyList.toMutableList()
+                                                updated[index] = currentKey.copy(isEnabled = checked)
+                                                namedKeyList = updated
+                                                apiKey = AiRepository.formatNamedApiKeys(updated)
+                                            },
+                                            modifier = Modifier.scale(0.7f)
                                         )
 
                                         if (namedKeyList.size > 1) {
@@ -1161,11 +1212,12 @@ fun ApiConfigDialog(
                         modelName = cleanedCurrentModel,
                         availableModels = modelNames.takeIf { it.isNotEmpty() }?.let { gson.toJson(it) },
                         temperature = 0.95f,
-                        maxTokens = 50000,
+                        maxTokens = config?.maxTokens ?: 8192,
                         topP = 1.0f,
                         enableThinking = true,
                         thinkingEffort = "medium",
                         enableWebSearch = false,
+                        isEnabled = isConfigEnabled,
                         isDefault = config?.isDefault ?: false,
                         createdAt = config?.createdAt ?: System.currentTimeMillis(),
                         updatedAt = System.currentTimeMillis()

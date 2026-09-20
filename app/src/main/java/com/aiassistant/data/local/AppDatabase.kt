@@ -29,7 +29,7 @@ import com.aiassistant.domain.model.*
         WorldBook::class,
         WorldBookEntry::class
     ],
-    version = 26,
+    version = 27,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -467,9 +467,15 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        private val MIGRATION_25_26 = object : Migration(25, 26) {
+        val MIGRATION_25_26 = object : Migration(25, 26) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 addColumnIfMissing(database, "conversations", "modelAvatarUri", "TEXT")
+            }
+        }
+
+        val MIGRATION_26_27 = object : Migration(26, 27) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                addColumnIfMissing(database, "api_configs", "isEnabled", "INTEGER NOT NULL DEFAULT 1")
             }
         }
 
@@ -480,7 +486,7 @@ abstract class AppDatabase : RoomDatabase() {
                         repairSchema(database)
                     }
                 }
-            } + MIGRATION_17_18 + MIGRATION_18_19 + MIGRATION_19_20 + MIGRATION_20_21 + MIGRATION_21_22 + MIGRATION_22_23 + MIGRATION_23_24 + MIGRATION_24_25 + MIGRATION_25_26)
+            } + MIGRATION_17_18 + MIGRATION_18_19 + MIGRATION_19_20 + MIGRATION_20_21 + MIGRATION_21_22 + MIGRATION_22_23 + MIGRATION_23_24 + MIGRATION_24_25 + MIGRATION_25_26 + MIGRATION_26_27)
             .toTypedArray()
 
         private fun repairSchema(database: SupportSQLiteDatabase) {
@@ -528,6 +534,7 @@ abstract class AppDatabase : RoomDatabase() {
                     ColumnSpec("seed", "INTEGER", "NULL", nullable = true),
                     ColumnSpec("responseFormat", "TEXT", "NULL", nullable = true),
                     ColumnSpec("isDefault", "INTEGER NOT NULL", "0"),
+                    ColumnSpec("isEnabled", "INTEGER NOT NULL", "1"),
                     ColumnSpec("createdAt", "INTEGER NOT NULL", "0"),
                     ColumnSpec("updatedAt", "INTEGER NOT NULL", "0")
                 )

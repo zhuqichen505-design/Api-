@@ -164,7 +164,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                 val rpSessionForInit = rpRepoForInit.getSessionByConversationId(conversationId)
                 _tempSettings.value = TempChatSettings(
                     temperature = conv.temperature ?: apiConfig?.temperature ?: 0.95f,
-                    maxTokens = conv.maxTokens ?: 50000,
+                    maxTokens = conv.maxTokens ?: apiConfig?.maxTokens ?: 8192,
                     topP = conv.topP ?: apiConfig?.topP ?: 1.0f,
                     enableThinking = conv.enableThinking ?: true,
                     thinkingEffort = conv.thinkingEffort ?: apiConfig?.thinkingEffort ?: "high",
@@ -219,13 +219,13 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
             val conv = conversation ?: return@launch
             var currentConfig = apiConfig
             if (currentConfig == null) {
-                currentConfig = repository.getDefaultApiConfig()
-                    ?: repository.getAllApiConfigs().first().firstOrNull()
+                currentConfig = repository.getDefaultApiConfig()?.takeIf { it.isEnabled }
+                    ?: repository.getAllApiConfigs().first().firstOrNull { it.isEnabled }
                 if (currentConfig != null) {
                     apiConfig = currentConfig
                 }
             }
-            val fallbackOption = currentConfig?.let { cfg ->
+            val fallbackOption = currentConfig?.takeIf { it.isEnabled }?.let { cfg ->
                 ChatModelOption(
                     apiConfigId = cfg.id,
                     configName = cfg.name,

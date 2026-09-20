@@ -1,5 +1,71 @@
 # Echo AI 助手更新日志 (Update Log)
 
+## [2026-09-20] - v2.2.5：API 与 Key 独立启用开关、停用模型自动从选择列表隐藏、端点上下文超限拦截与输出 Token 自适应收敛
+
+### 1. 核心需求落实与技术重构详情
+1. **API 配置独立启用开关与对话页模型选择列表过滤**：
+   - **需求背景**：用户配置了多个供应商或测试 API，某些 API 在余额不足、线路不稳定或临时停用时不希望参与对话与角色扮演，更不希望其对应模型混杂在对话页或工作台的模型选择列表中。
+   - **技术方案**：
+     - 在 `ApiConfig` 实体新增 `isEnabled: Boolean = true` 字段，并在 Room 数据库升级至版本 27 (`MIGRATION_26_27` 自动无感添加 `isEnabled INTEGER NOT NULL DEFAULT 1`)，支持旧版本平滑升级与降级迁移回退；
+     - `ApiConfigDao` 新增 `getEnabledConfigs(): Flow<List<ApiConfig>>` 与 `setConfigEnabled(id, isEnabled)` 操作接口；
+     - `AiRepository.getAllVisibleChatModelOptions()` 是主对话页、角色扮演工作台、角色与场景编辑器、全局模型选择器 `SettingsUniversalModelPicker` 的唯一可信数据源，统一执行 `configs.filter { it.isEnabled }` 过滤，彻底确保只要 API 开关关闭，其下所有模型绝不出现在任何选择列表中；
+     - `ChatViewModel` 与 `HomeViewModel` 的默认模型回退链路增加 `takeIf { it.isEnabled }` 校验，杜绝任何停用模型偷渡进入会话；
+     - `SettingsScreen` 的 API 卡片头部新增醒目的 `Switch` 开关与「已停用」状态徽章，支持一键切换并实时持久化，停用卡片自动半透明暗化展示；
+     - `SettingsApiConfigDialog` 新增「启用此 API 配置」独立开关行，用户在编辑或新建配置时可自由控制是否启用。
+   - **文件改动**：`app/src/main/java/com/aiassistant/domain/model/Models.kt`、`app/src/main/java/com/aiassistant/data/local/Daos.kt`、`app/src/main/java/com/aiassistant/data/local/AppDatabase.kt`、`app/src/main/java/com/aiassistant/data/repository/AiRepository.kt`、`app/src/main/java/com/aiassistant/ui/screens/chat/ChatViewModel.kt`、`app/src/main/java/com/aiassistant/ui/screens/home/HomeViewModel.kt`、`app/src/main/java/com/aiassistant/ui/screens/roleplay/RoleplayViewModel.kt`、`app/src/main/java/com/aiassistant/ui/screens/settings/SettingsScreen.kt`、`app/src/main/java/com/aiassistant/ui/screens/settings/SettingsApiConfigDialog.kt`。
+
+2. **独立 API Key 精细化启用开关与请求时故障转移过滤**：
+   - **需求背景**：同一 API 配置下常常添加多个 Key（如多账号、不同配额额度），当某个 Key 临时耗尽或限流时，用户希望单独停用该 Key，而不必彻底删除。
+   - **技术方案**：
+     - `NamedApiKey` 数据模型新增 `val isEnabled: Boolean = true` 属性；
+     - 在 `AiRepository.formatNamedApiKeys` 中，当 Key 处于停用状态时自动附带 `[已禁用] ` 标头；在 `parseNamedApiKeys` 中智能识别 `[已禁用]`、`[禁用]`、`[off]`、`[disabled]`、`[关闭]` 标头并精准恢复 `isEnabled = false` 状态，完美向前兼容原有配置与纯文本导入导出；
+     - 在 `AiRepository.parseApiKeys` 提取请求 Key 列表中，增加 `.filter { it.isEnabled }` 严格过滤，确保实际请求、轮询与自动重试故障转移仅使用启用的有效 Key，彻底跳过停用的 Key；若配置内所有 Key 均被停用，请求前主动拦截并抛出精准提示；
+     - 在 `SettingsApiConfigDialog` 的每一个 Key 卡片上增加独立的 `Switch` 开关与「Key N (停用)」状态显示，停用 Key 卡片应用 `alpha = 0.65f` 暗化与边框警示，操作直观敏捷。
+   - **文件改动**：`app/src/main/java/com/aiassistant/domain/model/Models.kt`、`app/src/main/java/com/aiassistant/data/repository/AiRepository.kt`、`app/src/main/java/com/aiassistant/ui/screens/settings/SettingsApiConfigDialog.kt`。
+
+3. **默认 API 停用后智能安全回退**：
+   - **需求背景**：当用户停用了当前被标记为“默认 API”的配置后，若直接新建对话或发起无特定绑定的角色扮演剧情，原代码可能尝试调用已停用的配置导致失败。
+   - **技术方案**：
+     - `AiRepository.getDefaultApiConfig()` 升级为双重校验：当默认配置为停用状态时，自动回退并返回系统中首个处于启用状态的有效配置；
+     - `RoleplayViewModel`、`ChatViewModel` 的新建会话链路统一接入该回退策略，彻底杜绝调用停用 API 导致的请求报错。
+   - **文件改动**：`app/src/main/java/com/aiassistant/data/repository/AiRepository.kt`、`app/src/main/java/com/aiassistant/ui/screens/roleplay/RoleplayViewModel.kt`。
+
+4. **API 400 上下文超限拦截与输出 Token 自适应收敛（如 32768 上下文端点被请求 416131 tokens、其中输出预留 50000 导致直接被拒）彻底修复**：
+   - **根因分析**：
+     - 在 `AiRepository.kt` 发送 OpenAI / Anthropic 请求时，原代码直接将用户配置的 `effectiveOptions.maxTokens ?: config.maxTokens`（默认为 50000）作为 `max_tokens` 随请求发出，未考虑模型实际上下文窗口上限（如 32k/16k）；当模型上下文窗口只有 32768 时，传入 `max_tokens: 50000` 必然导致服务端 100% 报 400 Bad Request 拒绝请求；
+     - 故事创作设置弹窗 `ChatStoryDialogs.kt` 中曾存在硬编码 `takeIf { it >= 50000 } ?: 50000`，导致任何尝试设置合理更小 output tokens 的行为被强制覆盖为 50000；
+     - `estimatePromptBudgetTokens` 中原先直接将 `maxOutputTokens` 最多放宽到 32768，当模型上下文窗口只有 32k 时，输出预留直接吞噬了绝大部分甚至全部上下文空间；
+     - 自动重试机制 `retryWithCompressedContext` 中提取端点上下文窗口后，重新发起请求时未重新校验并裁剪 `maxTokens`，导致重试继续触发 400 失败。
+   - **技术方案**：
+     - 在 `AiRepository.kt` 中统一计算安全输出 Token 上限：`val headroom = (contextWindow - estimatedPromptTokens - 512).coerceAtLeast(256)`，并将最终 `safeMaxTokens` 动态收敛到 `minOf(configuredMax, headroom)`，彻底杜绝输出 Token 超过端点余量；
+     - 升级 `extractContextWindowFromError` 正则表达式引擎，精准捕获诸如 `maximum context length is 32768 tokens`、`context-window is 65536` 等真实服务端错误声明的上下文上限，并自动缓存在 `runtimeContextWindowLimitCache`；
+     - 在 `retryWithCompressedContext` 中自动根据服务端真实上限收敛 `effectiveOptions` 的上下文限制与最大输出，确保二次重试 100% 成功；
+     - 优化 `estimatePromptBudgetTokens`，将输出预留比例严格限制在上下文窗口的 25% 且不超过 8192，确保任何模型（即便配置了 50000）都能预留充足的输入 Prompt 预算；
+     - 修正 `ChatStoryDialogs.kt` 与其他对话设置弹窗中的硬编码，允许用户根据需要自由设置更合理的输出 Token。
+   - **文件改动**：`app/src/main/java/com/aiassistant/data/repository/AiRepository.kt`、`app/src/main/java/com/aiassistant/ui/screens/chat/ChatStoryDialogs.kt`、`app/src/main/java/com/aiassistant/ui/screens/chat/ChatSettingsDialogs.kt`、`app/src/main/java/com/aiassistant/ui/screens/chat/ChatViewModel.kt`、`app/src/main/java/com/aiassistant/ui/screens/roleplay/RoleplayViewModel.kt`、`app/src/main/java/com/aiassistant/ui/screens/settings/SettingsApiConfigDialog.kt`。
+
+5. **上下文压缩后右上方环形指示器依然超出限制（100%+）彻底修复**：
+   - **根因分析**：
+     - 在 `AiRepository.kt` 的 `buildContextUsageSnapshot` 中，先前逻辑在 line 2440 筛选了 `activeCandidateMessages`（排除已归入滚动摘要的旧消息），但在 line 2448 统计最近活跃 Token 时，却错误地遍历了全量未压缩的 `usableMessages.asReversed()`；
+     - 导致即使用户点击了“上下文压缩”或系统自动执行了滚动摘要压缩，右上方的上下文用量统计依然将“几十万 token 的全部旧消息”与“压缩生成的摘要 token”同时重复累加计算，造成上下文环形指示器始终显示严重溢出（>100%）；
+     - 在 `buildContextBundle` 构建实际发往模型的上下文消息包时，同样直接从 `usableMessages` 反向填充，未按 `summarizedThrough` 截断点做候选切片，导致未配置单模型上下文窗口时，所有历史消息被一股脑装载发送；
+     - `compressConversationContext` 中硬编码了 `keepRecentCount = 16.coerceAtMost(usableMessages.size)`，在少于 16 条但每条文字极长（如几十万字角色扮演长文）的场景下，历史切片永远为空，导致压缩失效。
+   - **技术方案**：
+     - `buildContextUsageSnapshot` 修正为严格基于 `activeCandidateMessages` 统计最近活跃 Token，并在已有滚动摘要时正确累加摘要 Token，右上角环形指示器在压缩后立刻下降至安全健康的正常区间（如 10%~30%）；
+     - `buildContextBundle` 引入清晰的截断过滤原则：已有滚动摘要时，活跃消息严格限定在 `id > summarizedThrough || isPinned` 范围内，配合 `recentBudget` 动态预算装填，从根源杜绝超大历史文本重复入包；
+     - `compressConversationContext` 升级为基于 Token 预算的动态保留策略，当整体超出预算时即便少于 16 条也正常触发摘要切片并更新 `summarizedThrough`；
+     - 角色扮演模式下系统提示词组装联动：在 `buildEffectiveSystemPrompt` 中如果存在滚动摘要且尚未包含在剧情提示中，自动作为【前序剧情滚动摘要】无缝融入角色扮演上下文，确保记忆与前情不丢失。
+   - **文件改动**：`app/src/main/java/com/aiassistant/data/repository/AiRepository.kt`。
+
+### 2. 自动化测试与工程交付
+- **单元测试**：全量单元测试（包含 V225FeaturesTest 5 项新测及 ContextCompressionAndBudgetTest 6 项新测在内共 303 项测试）100% 全部通过 (BUILD SUCCESSFUL)。
+- **Release APK**：`releases/Echo-v2.2.5.apk`。
+  - SHA256: `D5E04968B49C90CE7B14BF7A4F7E5676B0FAF9B6DFFA6661039633CB3F1C6E21`
+  - 大小: `16,254,973 字节 (~15.5 MB)`
+  - 版本号: `versionCode = 131`, `versionName = "2.2.5"`
+  - 架构: 单一安装包（统一格式 `Echo-v2.2.5.apk`，无 `-arm64-v8a` 后缀）
+- **历史版本安装包永久保留**：严格遵循最高铁律，`releases/` 目录下全部历史安装包完整保留，增量输出唯一定名的 `Echo-v2.2.5.apk`。
+
 ## [2026-09-19] - v2.2.4：Markdown 全格式容错渲染、全角星号排版归一化、首尾非对称星号容错、跨行格式保护、字体合成保底与用户气泡 Markdown 支持
 
 ### 1. 核心需求落实与技术重构详情

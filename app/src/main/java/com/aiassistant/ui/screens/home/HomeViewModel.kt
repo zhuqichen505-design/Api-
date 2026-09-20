@@ -62,13 +62,14 @@ class HomeViewModel : ViewModel() {
         viewModelScope.launch {
             repository.getAllApiConfigs().collect { configs ->
                 _apiConfigs.value = configs
-                val defaultConfig = configs.firstOrNull { it.isDefault } ?: configs.firstOrNull()
+                val enabledConfigs = configs.filter { it.isEnabled }
+                val defaultConfig = enabledConfigs.firstOrNull { it.isDefault } ?: enabledConfigs.firstOrNull()
                 val currentConfig = _selectedConfig.value
                 _selectedConfig.value = when {
                     currentConfig == null -> defaultConfig
-                    configs.none { it.id == currentConfig.id } -> defaultConfig
+                    enabledConfigs.none { it.id == currentConfig.id } -> defaultConfig
                     defaultConfig?.isDefault == true && currentConfig.id != defaultConfig.id -> defaultConfig
-                    else -> configs.firstOrNull { it.id == currentConfig.id } ?: defaultConfig
+                    else -> enabledConfigs.firstOrNull { it.id == currentConfig.id } ?: defaultConfig
                 }
                 _visibleModelOptions.value = repository.getAllVisibleChatModelOptions()
             }

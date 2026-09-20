@@ -48,6 +48,7 @@ data class ApiConfig(
     val seed: Int? = null,
     val responseFormat: String? = null,
     val isDefault: Boolean = false,
+    val isEnabled: Boolean = true,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 )
@@ -55,7 +56,8 @@ data class ApiConfig(
 // 具名/备注 API Key 模型（用于多Key区分与命名管理）
 data class NamedApiKey(
     val name: String = "",
-    val key: String = ""
+    val key: String = "",
+    val isEnabled: Boolean = true
 )
 
 // 对话

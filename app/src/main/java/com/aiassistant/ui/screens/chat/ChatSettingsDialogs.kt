@@ -1688,7 +1688,7 @@ fun ChatSettingsDialog(
     fun notifyTempSettingsChange() {
         val updated = TempChatSettings(
             temperature = temperature.coerceIn(0f, tuningProfile.temperatureMax),
-            maxTokens = maxTokens.toIntOrNull() ?: 50000,
+            maxTokens = maxTokens.toIntOrNull() ?: 8192,
             topP = topP,
             enableThinking = enableThinking,
             thinkingEffort = thinkingEffort,
@@ -1878,7 +1878,7 @@ fun ChatSettingsDialog(
                                 value = maxTokens,
                                 onValueChange = { value -> maxTokens = value.filter { it.isDigit() }.take(6) },
                                 modifier = Modifier.weight(1f),
-                                placeholder = { Text("例如 50000") },
+                                placeholder = { Text("例如 4096 或 8192") },
                                 singleLine = true,
                                 shape = RoundedCornerShape(14.dp),
                                 colors = glassTextFieldColors(dialogContentColor, dialogSecondaryColor, dialogContainerColor)
@@ -2180,7 +2180,7 @@ fun ChatSettingsDialog(
                     onClick = {
                         val settings = TempChatSettings(
                             temperature = temperature.coerceIn(0f, tuningProfile.temperatureMax),
-                            maxTokens = maxTokens.toIntOrNull() ?: 50000,
+                            maxTokens = maxTokens.toIntOrNull() ?: 8192,
                             topP = topP,
                             enableThinking = enableThinking,
                             thinkingEffort = thinkingEffort,

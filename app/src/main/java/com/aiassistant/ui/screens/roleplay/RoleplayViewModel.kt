@@ -302,9 +302,10 @@ class RoleplayViewModel(application: Application) : AndroidViewModel(application
                 _uiState.value = RoleplayUiState.Saving
                 val character = characterId?.let { repository.getCharacterById(it) }
                 val scenario = scenarioId?.let { repository.getScenarioById(it) }
-                val apiConfig = database.apiConfigDao().getConfigById(apiConfigId)
+                val apiConfig = (database.apiConfigDao().getConfigById(apiConfigId)?.takeIf { it.isEnabled }
                     ?: database.apiConfigDao().getDefaultConfig()
-                    ?: throw IllegalStateException("未找到有效的 API 配置")
+                    ?: database.apiConfigDao().getEnabledConfigs().first().firstOrNull())
+                    ?: throw IllegalStateException("未找到有效的 API 配置（或已被停用）")
 
                 val title = when {
                     character != null && scenario != null -> "${character.name} · ${scenario.name}"
@@ -318,7 +319,7 @@ class RoleplayViewModel(application: Application) : AndroidViewModel(application
                     apiConfigId = apiConfig.id,
                     modelName = apiConfig.modelName,
                     temperature = apiConfig.temperature ?: 0.95f,
-                    maxTokens = apiConfig.maxTokens ?: 50000,
+                    maxTokens = apiConfig.maxTokens ?: 8192,
                     topP = apiConfig.topP ?: 1.0f,
                     enableThinking = apiConfig.enableThinking ?: true,
                     thinkingEffort = apiConfig.thinkingEffort ?: "high",
@@ -381,9 +382,10 @@ class RoleplayViewModel(application: Application) : AndroidViewModel(application
                 _uiState.value = RoleplayUiState.Saving
                 val characters = repository.getCharactersByIds(characterIds)
                 val scenario = scenarioId?.let { repository.getScenarioById(it) }
-                val apiConfig = database.apiConfigDao().getConfigById(apiConfigId)
+                val apiConfig = (database.apiConfigDao().getConfigById(apiConfigId)?.takeIf { it.isEnabled }
                     ?: database.apiConfigDao().getDefaultConfig()
-                    ?: throw IllegalStateException("未找到有效的 API 配置")
+                    ?: database.apiConfigDao().getEnabledConfigs().first().firstOrNull())
+                    ?: throw IllegalStateException("未找到有效的 API 配置（或已被停用）")
 
                 val title = when {
                     characters.isNotEmpty() && scenario != null -> {
@@ -404,7 +406,7 @@ class RoleplayViewModel(application: Application) : AndroidViewModel(application
                     apiConfigId = apiConfig.id,
                     modelName = targetModelName,
                     temperature = apiConfig.temperature ?: 0.95f,
-                    maxTokens = apiConfig.maxTokens ?: 50000,
+                    maxTokens = apiConfig.maxTokens ?: 8192,
                     topP = apiConfig.topP ?: 1.0f,
                     enableThinking = apiConfig.enableThinking ?: true,
                     thinkingEffort = apiConfig.thinkingEffort ?: "high",
@@ -592,7 +594,7 @@ class RoleplayViewModel(application: Application) : AndroidViewModel(application
 
                 if (startSession && (finalCharacterIds.isNotEmpty() || scenarioId != null)) {
                     val targetApiId = apiConfigId ?: (database.apiConfigDao().getDefaultConfig()
-                        ?: database.apiConfigDao().getAllConfigs().first().firstOrNull())?.id
+                        ?: database.apiConfigDao().getEnabledConfigs().first().firstOrNull())?.id
 
                     if (targetApiId != null) {
                         createStorySessionAndStart(

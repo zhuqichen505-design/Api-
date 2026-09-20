@@ -89,60 +89,72 @@ class AiRepository(
         const val CONTEXT_OVERFLOW_RETRY_WINDOW_TOKENS = 32_000
 
         /**
-         * 解析具名或纯文本 API Key 列表（支持 [名称] sk-xxx 与 名称:::sk-xxx 格式）
+         * 解析具名或纯文本 API Key 列表（支持 [名称] sk-xxx 与 名称:::sk-xxx 格式，以及 [已禁用] 状态标签）
          */
         fun parseNamedApiKeys(rawKey: String?): List<NamedApiKey> {
             if (rawKey.isNullOrBlank()) return emptyList()
             val lines = rawKey.split(Regex("[\\n,;]+")).map { it.trim() }.filter { it.isNotEmpty() }
             val result = mutableListOf<NamedApiKey>()
             for (line in lines) {
+                var isEnabled = true
+                var workingLine = line
+                val disableTagMatch = Regex("""^[\[【](?:已禁用|禁用|off|disabled|关闭)[\]】]\s*""", RegexOption.IGNORE_CASE).find(workingLine)
+                if (disableTagMatch != null) {
+                    isEnabled = false
+                    workingLine = workingLine.substring(disableTagMatch.range.last + 1).trim()
+                }
+
                 // 格式 1: [名称] key
-                val bracketMatch = Regex("""^[\[【]([^\[\]【】]+)[\]】]\s*(.+)$""").find(line)
+                val bracketMatch = Regex("""^[\[【]([^\[\]【】]+)[\]】]\s*(.+)$""").find(workingLine)
                 if (bracketMatch != null) {
                     val name = bracketMatch.groupValues[1].trim()
                     val key = bracketMatch.groupValues[2].trim()
                     if (key.isNotEmpty()) {
-                        result.add(NamedApiKey(name = name, key = key))
+                        result.add(NamedApiKey(name = name, key = key, isEnabled = isEnabled))
                         continue
                     }
                 }
                 // 格式 2: 名称:::key
-                val colonMatch = Regex("""^([^:]+):::\s*(.+)$""").find(line)
+                val colonMatch = Regex("""^([^:]+):::\s*(.+)$""").find(workingLine)
                 if (colonMatch != null) {
                     val name = colonMatch.groupValues[1].trim()
                     val key = colonMatch.groupValues[2].trim()
                     if (key.isNotEmpty()) {
-                        result.add(NamedApiKey(name = name, key = key))
+                        result.add(NamedApiKey(name = name, key = key, isEnabled = isEnabled))
                         continue
                     }
                 }
                 // 格式 3: 纯 key
-                result.add(NamedApiKey(name = "", key = line))
+                if (workingLine.isNotEmpty()) {
+                    result.add(NamedApiKey(name = "", key = workingLine, isEnabled = isEnabled))
+                }
             }
             return result
         }
 
         /**
-         * 格式化具名 API Key 为多行持久化文本
+         * 格式化具名 API Key 为多行持久化文本（支持保存停用状态）
          */
         fun formatNamedApiKeys(keys: List<NamedApiKey>): String {
             return keys.filter { it.key.isNotBlank() }.joinToString("\n") { item ->
                 val cleanKey = item.key.trim()
                 val cleanName = item.name.trim()
+                val disablePrefix = if (!item.isEnabled) "[已禁用] " else ""
                 if (cleanName.isNotBlank()) {
-                    "[$cleanName] $cleanKey"
+                    "$disablePrefix[$cleanName] $cleanKey"
                 } else {
-                    cleanKey
+                    "$disablePrefix$cleanKey"
                 }
             }
         }
 
         /**
-         * 提取纯净 API Key 列表（自动剥离名称前缀，杜绝网络层脏标头）
+         * 提取纯净 API Key 列表（自动剥离名称前缀，仅返回处于启用状态的有效 Key，杜绝网络层脏标头）
          */
         fun parseApiKeys(rawKey: String?): List<String> {
             if (rawKey.isNullOrBlank()) return emptyList()
             return parseNamedApiKeys(rawKey)
+                .filter { it.isEnabled }
                 .map { it.key.trim() }
                 .filter { it.isNotEmpty() }
                 .distinct()
@@ -214,6 +226,44 @@ class AiRepository(
             ) }
             val asciiCount = trimmed.length - cjkCount
             return (cjkCount / 1.7f + asciiCount / 4.0f).toInt().coerceAtLeast(1)
+        }
+
+        fun estimateContentTokenCount(content: Any?): Int {
+            return when (content) {
+                null -> 0
+                is String -> estimateTokenCount(content)
+                is List<*> -> {
+                    content.sumOf { part ->
+                        when (part) {
+                            is ContentPart -> estimateTokenCount(part.text.orEmpty())
+                            is AnthropicContent -> estimateTokenCount(part.text.orEmpty())
+                            else -> estimateTokenCount(part?.toString().orEmpty())
+                        }
+                    }
+                }
+                else -> estimateTokenCount(content.toString())
+            }
+        }
+
+        fun extractContextWindowFromError(message: String): Int? {
+            val lower = message.lowercase()
+            val explicitPatterns = listOf(
+                Regex("""(?:maximum|max)\s+context(?:\s+length)?\s*(?:is|=|:|of)?\s*([1-9]\d{3,6})"""),
+                Regex("""context[-_ ]?window\s*(?:is|=|:|of)?\s*([1-9]\d{3,6})"""),
+                Regex("""limit\s*(?:of|is)?\s*([1-9]\d{3,6})\s*(?:tokens?|token)"""),
+                Regex("""([1-9]\d{3,6})\s*(?:tokens?|token)?\s*(?:max(?:imum)?\s+context|context\s+limit)"""),
+                Regex("""(?:context_length_exceeded|model_context_window_exceeded)[^\d]*([1-9]\d{3,6})""")
+            )
+            for (pattern in explicitPatterns) {
+                pattern.find(lower)?.groupValues?.get(1)?.toIntOrNull()?.let {
+                    if (it in 4_000..2_000_000) return it
+                }
+            }
+            return Regex("""(?<!\d)([1-9]\d{3,6})(?!\d)\s*(?:tokens?|token|上下文|长度)?""")
+                .findAll(lower)
+                .mapNotNull { it.groupValues[1].toIntOrNull() }
+                .filter { it in 4_000..2_000_000 }
+                .minOrNull()
         }
 
         fun sanitizeGeneratedTitle(rawTitle: String?): String? {
@@ -489,14 +539,6 @@ class AiRepository(
         return hasTokenOrContext && hasOverflow
     }
 
-    private fun extractContextWindowFromError(message: String): Int? {
-        return Regex("""(?<!\d)([1-9]\d{3,6})(?!\d)\s*(?:tokens?|token|上下文|长度)?""")
-            .findAll(message.lowercase())
-            .mapNotNull { it.groupValues[1].toIntOrNull() }
-            .filter { it in 4_000..2_000_000 }
-            .minOrNull()
-    }
-
     // ============ 文件夹相关 ============
 
     fun getAllFolders(): Flow<List<Folder>> = folderDao.getAllFolders()
@@ -538,7 +580,17 @@ class AiRepository(
 
     suspend fun getApiConfigById(id: Long): ApiConfig? = apiConfigDao.getConfigById(id)
 
-    suspend fun getDefaultApiConfig(): ApiConfig? = apiConfigDao.getDefaultConfig()
+    suspend fun getDefaultApiConfig(): ApiConfig? {
+        val defaultCfg = apiConfigDao.getDefaultConfig()
+        if (defaultCfg != null && defaultCfg.isEnabled) return defaultCfg
+        return apiConfigDao.getEnabledConfigs().first().firstOrNull()
+    }
+
+    fun getEnabledApiConfigs(): Flow<List<ApiConfig>> = apiConfigDao.getEnabledConfigs()
+
+    suspend fun setApiConfigEnabled(id: Long, isEnabled: Boolean) {
+        apiConfigDao.setConfigEnabled(id, isEnabled)
+    }
 
     suspend fun saveApiConfig(config: ApiConfig): Long {
         // 检查apiKey是否已经加密（以 enc:v1: 标头为准）
@@ -918,7 +970,7 @@ class AiRepository(
             apiConfigId = apiConfigId,
             modelName = modelName,
             temperature = config?.temperature ?: 0.95f,
-            maxTokens = 50000,
+            maxTokens = config?.maxTokens ?: 50000,
             topP = config?.topP ?: 1.0f,
             enableThinking = true,
             thinkingEffort = config?.thinkingEffort ?: "high",
@@ -1237,18 +1289,33 @@ class AiRepository(
                 .toInt()
                 .coerceIn(600, 1_800)
 
-            // 开源最佳实践（ConversationSummaryBufferMemory 范式）：
-            // 保留最近 16 条左右鲜活活跃对话（8 轮完整上下文），仅将其余超出活跃窗口的较早历史消息压缩归约进滚动摘要
-            val keepRecentCount = 16.coerceAtMost(usableMessages.size)
+            // ConversationSummaryBufferMemory 规范：
+            // 根据 promptBudget 动态决定活跃保留数量（优先保证活跃消息总 Token 不挤爆输入预算，至少保留最近 2 条活跃对话）
+            val recentBudget = (
+                snapshot.promptBudgetTokens - tokenBudget - (snapshot.promptBudgetTokens * MEMORY_BUDGET_RATIO).toInt() - SYSTEM_PROMPT_TOKEN_RESERVE
+            ).coerceAtLeast(MIN_RECENT_CONTEXT_TOKENS)
+
+            var usedRecentTokens = 0
+            var keepRecentCount = 0
+            for (message in usableMessages.asReversed()) {
+                val cost = estimateTokenCount(compactMessageForHistory(message.content)) + 24
+                if (keepRecentCount >= 2 && (usedRecentTokens + cost > recentBudget || keepRecentCount >= 16)) {
+                    break
+                }
+                usedRecentTokens += cost
+                keepRecentCount++
+            }
             val olderMessages = usableMessages.dropLast(keepRecentCount)
 
-            ensureRollingSummary(
-                conversation = conversation,
-                config = config.copy(modelName = modelName),
-                modelName = modelName,
-                olderMessages = olderMessages,
-                tokenBudget = tokenBudget
-            )
+            if (olderMessages.isNotEmpty()) {
+                ensureRollingSummary(
+                    conversation = conversation,
+                    config = config.copy(modelName = modelName),
+                    modelName = modelName,
+                    olderMessages = olderMessages,
+                    tokenBudget = tokenBudget
+                )
+            }
 
             val refreshedConversation = getConversationById(conversationId) ?: conversation
             buildContextUsageSnapshot(
@@ -1312,6 +1379,9 @@ class AiRepository(
             try {
                 val config = getDecryptedConfig(configId)
                     ?: throw Exception("API配置不存在")
+                if (!config.isEnabled) {
+                    throw Exception("当前 API 配置已关闭，请在设置中开启后再使用")
+                }
 
                 // 获取历史消息构建上下文
                 val historyMessages = getMessagesList(conversationId)
@@ -1429,8 +1499,14 @@ class AiRepository(
         onResetBuffer: (() -> Unit)? = null,
         onComplete: (String, String?, Any?) -> Unit
     ) {
+        if (!config.isEnabled) {
+            throw Exception("当前 API 配置已关闭，请在设置中开启后重试")
+        }
         val historyMessages = getMessagesList(conversationId)
-        val allKeys = parseApiKeys(config.apiKey).ifEmpty { listOf(config.apiKey) }
+        val allKeys = parseApiKeys(config.apiKey)
+        if (allKeys.isEmpty()) {
+            throw Exception("当前 API 未配置已启用的 Key，请在 API 配置中开启至少一个 Key")
+        }
         var lastException: Exception? = null
         var hasEmittedTokens = false
 
@@ -1547,20 +1623,35 @@ class AiRepository(
     ): Boolean {
         val retryWindow = extractContextWindowFromError(originalError.message.orEmpty())
             ?: CONTEXT_OVERFLOW_RETRY_WINDOW_TOKENS
-        val requestModel = config.modelName
+        val effectiveOptions = resolveChatRequestOptions(config, options)
+        val requestModel = resolveRequestModel(config, effectiveOptions)
         runtimeContextWindowLimitCache[requestModel.lowercase()] = retryWindow
+        runtimeContextWindowLimitCache[config.modelName.lowercase()] = retryWindow
+
+        runCatching {
+            val models = selectedModelDao.getModelsByConfig(config.id).first()
+            models.firstOrNull { it.modelName.equals(requestModel, ignoreCase = true) }?.let { matched ->
+                if (matched.contextWindowTokens != retryWindow) {
+                    selectedModelDao.updateModel(matched.copy(contextWindowTokens = retryWindow))
+                }
+            }
+        }
+
+        val safeRetryOutput = minOf(options?.maxTokens ?: 4096, 4096, (retryWindow * 0.25f).toInt().coerceAtLeast(512))
+
         runCatching {
             compressConversationContext(
                 conversationId = conversationId,
                 modelNameOverride = requestModel,
-                maxOutputTokens = options?.maxTokens
+                maxOutputTokens = safeRetryOutput
             )
         }.onFailure {
             Log.w(tag, "上下文超限后自动压缩失败，仍尝试缩小窗口重试", it)
         }
 
         val retryOptions = (options ?: ChatRequestOptions()).copy(
-            contextWindowOverrideTokens = retryWindow
+            contextWindowOverrideTokens = retryWindow,
+            maxTokens = safeRetryOutput
         )
         return runCatching {
             dispatchChatMessageWithConfig(
@@ -1671,11 +1762,18 @@ class AiRepository(
             options = effectiveOptions,
             allowNativeWebSearch = !searchIsReady
         )
+        val estimatedPromptTokens = chatMessages.sumOf { estimateContentTokenCount(it.content) + 16 }
+        val contextWindow = effectiveOptions.contextWindowOverrideTokens
+            ?: estimateModelContextWindowTokens(requestModel)
+        val headroom = (contextWindow - estimatedPromptTokens - 512).coerceAtLeast(256)
+        val configuredMax = effectiveOptions.maxTokens ?: config.maxTokens
+        val safeMaxTokens = minOf(configuredMax, headroom).coerceIn(256, 16384)
+
         val request = ChatCompletionRequest(
             model = requestModel,
             messages = chatMessages,
             temperature = requestTemperature(config, effectiveOptions),
-            max_tokens = effectiveOptions.maxTokens,
+            max_tokens = safeMaxTokens,
             top_p = effectiveOptions.topP,
             top_k = if (providerToggles.includeTopK) config.topK else null,
             stream = true,
@@ -2034,11 +2132,18 @@ class AiRepository(
             configuredMaxTokens
         }
 
+        val estimatedPromptTokens = anthropicMessages.sumOf { estimateContentTokenCount(it.content) + 16 } +
+            estimateTokenCount(systemPrompt.orEmpty())
+        val contextWindow = effectiveOptions.contextWindowOverrideTokens
+            ?: estimateModelContextWindowTokens(requestModel)
+        val headroom = (contextWindow - estimatedPromptTokens - 512).coerceAtLeast(256)
+        val safeRequestMaxTokens = minOf(requestMaxTokens, headroom).coerceIn(256, 64000)
+
         // 创建请求 - Anthropic格式支持top_k
         val request = AnthropicRequest(
             model = requestModel,
             messages = anthropicMessages,
-            max_tokens = requestMaxTokens,
+            max_tokens = safeRequestMaxTokens,
             system = systemPrompt,
             temperature = requestTemperature(config, effectiveOptions),
             top_p = effectiveOptions.topP,
@@ -2417,14 +2522,23 @@ class AiRepository(
         conversation: Conversation,
         messages: List<Message>,
         modelName: String,
-        maxOutputTokens: Int?
+        maxOutputTokens: Int?,
+        contextWindowOverrideTokens: Int? = null
     ): ConversationContextUsage {
         val usableMessages = messages.filter { message ->
             (message.role == "user" || message.role == "assistant") && message.content.isNotBlank() && !message.isExcluded
         }
 
-        val contextWindow = estimateModelContextWindowTokens(modelName)
-        val promptBudget = estimatePromptBudgetTokens(modelName, maxOutputTokens)
+        val effectiveContextOverride = contextWindowOverrideTokens ?: runCatching {
+            selectedModelDao.getModelsByConfig(conversation.apiConfigId).first()
+                .firstOrNull { it.modelName.equals(modelName, ignoreCase = true) }
+                ?.contextWindowTokens
+        }.getOrNull()
+
+        val contextWindow = effectiveContextOverride
+            ?.coerceIn(4_000, 2_000_000)
+            ?: estimateModelContextWindowTokens(modelName)
+        val promptBudget = estimatePromptBudgetTokens(modelName, maxOutputTokens, effectiveContextOverride)
         val summaryBudget = (promptBudget * SUMMARY_BUDGET_RATIO).toInt().coerceIn(600, 1_800)
         val memoryBudget = (promptBudget * MEMORY_BUDGET_RATIO).toInt().coerceIn(300, 1_200)
         val recentBudget = (
@@ -2445,7 +2559,7 @@ class AiRepository(
 
         var recentTokens = 0
         var recentCount = 0
-        for (message in usableMessages.asReversed()) {
+        for (message in activeCandidateMessages.asReversed()) {
             val cost = estimateTokenCount(compactMessageForHistory(message.content)) + 24
             if (recentCount > 0 && recentTokens + cost > recentBudget && !message.isPinned) break
             recentTokens += cost
@@ -2457,7 +2571,7 @@ class AiRepository(
             usableMessages.dropLast(2).lastOrNull()?.id
         } else null
 
-        val summaryTokens = if (olderCount > 0 && hasRollingSummary) {
+        val summaryTokens = if (hasRollingSummary && (olderCount > 0 || summarizedThrough > 0L)) {
             conversation.rollingSummary?.let { estimateTokenCount(compactTextToTokenBudget(it, summaryBudget)) } ?: 0
         } else 0
 
@@ -2515,10 +2629,18 @@ class AiRepository(
             (message.role == "user" || message.role == "assistant") && message.content.isNotBlank() && !message.isExcluded
         }
 
+        val effectiveContextOverride = contextWindowOverrideTokens ?: runCatching {
+            conversation?.let { conv ->
+                selectedModelDao.getModelsByConfig(conv.apiConfigId).first()
+                    .firstOrNull { it.modelName.equals(modelName, ignoreCase = true) }
+                    ?.contextWindowTokens
+            }
+        }.getOrNull()
+
         val promptBudget = estimatePromptBudgetTokens(
             modelName = modelName,
             maxOutputTokens = maxOutputTokens,
-            contextWindowOverrideTokens = contextWindowOverrideTokens
+            contextWindowOverrideTokens = effectiveContextOverride
         )
         val summaryBudget = (promptBudget * SUMMARY_BUDGET_RATIO).toInt().coerceIn(600, 1_800)
         val memoryBudget = (promptBudget * MEMORY_BUDGET_RATIO).toInt().coerceIn(300, 1_200)
@@ -2534,11 +2656,18 @@ class AiRepository(
         val hasRollingSummary = !conversation?.rollingSummary.isNullOrBlank()
         val summarizedThrough = conversation?.summaryUpdatedMessageId ?: 0L
 
-        // 真实 ConversationSummaryBufferMemory 原则：
-        // 优先保证最近活跃上下文完整（从最新消息倒序向前装填，只要在 recentBudget 预算内，保留完整原始对话）
+        // ConversationSummaryBufferMemory 原则：
+        // 1. 若已有滚动摘要，候选活跃消息仅从截断点之后提取（外加用户明确置顶 isPinned 的消息）
+        // 2. 从候选活跃消息倒序向前装填，严格控制在 recentBudget 预算内
+        val candidateMessages = if (hasRollingSummary && summarizedThrough > 0L) {
+            usableMessages.filter { it.id > summarizedThrough || it.isPinned }
+        } else {
+            usableMessages
+        }
+
         var usedTokens = 0
         val recentReversed = mutableListOf<Message>()
-        for (message in usableMessages.asReversed()) {
+        for (message in candidateMessages.asReversed()) {
             val compact = compactMessageForHistory(message.content)
             val cost = estimateTokenCount(compact) + 24
             if (recentReversed.isNotEmpty() && usedTokens + cost > recentBudget && !message.isPinned) {
@@ -2549,18 +2678,18 @@ class AiRepository(
         }
 
         val recentMessages = recentReversed.asReversed()
-        val olderMessages = usableMessages.dropLast(recentMessages.size)
-        val summary = if (olderMessages.isEmpty()) {
-            // 如果全部历史对话均已完整包含在最近活跃上下文中，无需注入摘要，保留 100% 原始对话细节
+        val unincludedMessages = usableMessages.filterNot { recentMessages.contains(it) }
+        val summary = if (unincludedMessages.isEmpty() && (!hasRollingSummary || summarizedThrough == 0L)) {
+            // 如果历史对话极短且全部完整包含在活跃上下文中，且从未生成过摘要，无需注入摘要
             null
-        } else if (hasRollingSummary && summarizedThrough >= (olderMessages.lastOrNull()?.id ?: 0L)) {
+        } else if (hasRollingSummary && (summarizedThrough >= (unincludedMessages.lastOrNull()?.id ?: 0L) || unincludedMessages.isEmpty())) {
             conversation?.rollingSummary
         } else {
             ensureRollingSummary(
                 conversation = conversation,
                 config = config,
                 modelName = modelName,
-                olderMessages = olderMessages,
+                olderMessages = unincludedMessages,
                 tokenBudget = summaryBudget
             )
         }
@@ -2580,7 +2709,8 @@ class AiRepository(
         val contextWindow = contextWindowOverrideTokens
             ?.coerceIn(4_000, 2_000_000)
             ?: estimateModelContextWindowTokens(modelName)
-        val outputReserve = (maxOutputTokens ?: 4_096).coerceIn(512, 32_768)
+        val maxAllowedOutputReserve = (contextWindow * 0.25f).toInt().coerceAtLeast(1024).coerceAtMost(8192)
+        val outputReserve = (maxOutputTokens ?: 4_096).coerceIn(512, maxAllowedOutputReserve)
         return (contextWindow - outputReserve - 1_024)
             .coerceAtLeast(3_000)
             .coerceAtMost((contextWindow - 512).coerceAtLeast(3_000))
@@ -2757,8 +2887,12 @@ class AiRepository(
         worldBookBlock: String? = null
     ): String? {
         if (isRoleplay) {
-            // 角色与故事创作严格隔离：只使用角色卡与场景组装的上下文，不注入通用助手规则与常规偏好
-            return customPrompt
+            // 角色与故事创作严格隔离：只使用角色卡与场景组装的上下文，若存在滚动摘要且尚未包含在剧情提示中，追加前情提要
+            return if (!olderSummary.isNullOrBlank() && (customPrompt == null || !customPrompt.contains(olderSummary))) {
+                listOfNotNull(customPrompt, "【前序剧情滚动摘要 (历史对话总结)】\n$olderSummary").joinToString("\n\n")
+            } else {
+                customPrompt
+            }
         }
 
         val basePrompt = """
@@ -4131,8 +4265,14 @@ class AiRepository(
         prompt: String,
         maxTokens: Int = 1000
     ): Result<String> = withContext(Dispatchers.IO) {
+        if (!config.isEnabled) {
+            return@withContext Result.failure(Exception("当前 API 配置已关闭，请在设置中开启后重试"))
+        }
         val normalizedUrl = normalizeApiBaseUrl(config.baseUrl, config.apiType)
-        val allKeys = parseApiKeys(config.apiKey).ifEmpty { listOf(config.apiKey) }
+        val allKeys = parseApiKeys(config.apiKey)
+        if (allKeys.isEmpty()) {
+            return@withContext Result.failure(Exception("当前 API 未配置已启用的 Key，请在 API 配置中开启至少一个 Key"))
+        }
         var lastException: Exception? = null
 
         val isReasoning = Regex("""(^|[-_/])(o[134]|gpt-5|r1)""", RegexOption.IGNORE_CASE).containsMatchIn(config.modelName)
@@ -4686,7 +4826,7 @@ class AiRepository(
         selectedModelDao.getEnabledModelsByConfig(apiConfigId)
 
     suspend fun getAllVisibleChatModelOptions(): List<ChatModelOption> = withContext(Dispatchers.IO) {
-        val configs = apiConfigDao.getAllConfigs().first()
+        val configs = apiConfigDao.getAllConfigs().first().filter { it.isEnabled }
         configs.flatMap { config ->
             val savedModels = selectedModelDao.getModelsByConfig(config.id).first()
             val selectedModels = savedModels.filter { it.isEnabled }
@@ -4698,7 +4838,8 @@ class AiRepository(
                         provider = config.provider,
                         apiType = config.apiType,
                         modelName = it.modelName,
-                        capability = it.capability
+                        capability = it.capability,
+                        contextWindowTokens = it.contextWindowTokens
                     )
                 }
                 savedModels.isNotEmpty() -> savedModels.map {
@@ -4708,7 +4849,8 @@ class AiRepository(
                         provider = config.provider,
                         apiType = config.apiType,
                         modelName = it.modelName,
-                        capability = it.capability
+                        capability = it.capability,
+                        contextWindowTokens = it.contextWindowTokens
                     )
                 }
                 else -> {

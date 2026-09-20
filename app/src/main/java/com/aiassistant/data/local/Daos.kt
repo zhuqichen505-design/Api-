@@ -64,7 +64,7 @@ interface ApiConfigDao {
         modelName: String
     ): ApiConfig?
 
-    @Query("SELECT * FROM api_configs WHERE isDefault = 1 LIMIT 1")
+    @Query("SELECT * FROM api_configs WHERE isDefault = 1 AND isEnabled = 1 LIMIT 1")
     suspend fun getDefaultConfig(): ApiConfig?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -81,6 +81,12 @@ interface ApiConfigDao {
 
     @Query("UPDATE api_configs SET isDefault = 1 WHERE id = :id")
     suspend fun setDefaultConfig(id: Long)
+
+    @Query("SELECT * FROM api_configs WHERE isEnabled = 1 ORDER BY isDefault DESC, name ASC")
+    fun getEnabledConfigs(): Flow<List<ApiConfig>>
+
+    @Query("UPDATE api_configs SET isEnabled = :isEnabled WHERE id = :id")
+    suspend fun setConfigEnabled(id: Long, isEnabled: Boolean)
 }
 
 // ============ 对话 DAO ============

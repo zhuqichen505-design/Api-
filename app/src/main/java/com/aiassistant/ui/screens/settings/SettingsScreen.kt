@@ -37,6 +37,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.scale
@@ -127,6 +128,15 @@ internal val V205UserUpdates = listOf(
     "分支功能原子事务、生成成功确认弹窗与隐藏会话密码维持特性完美保持"
 )
 
+internal val V225UserUpdates = listOf(
+    "API 配置独立启用总开关：在设置及 API 编辑弹窗中支持为每个 API 配置设置启用开关，可一键停用不使用的供应商",
+    "停用 API 自动从选择列表中移除：当某个 API 配置关闭启用时，其下所有模型绝不出现在主对话页、角色扮演等任何模型选择列表中",
+    "独立 API Key 精细化启用开关：在 API 配置的多 Key 列表中，支持对每个 Key 单独开启/关闭，停用 Key 自动跳过并呈现醒目状态徽章",
+    "活跃 Key 智能过滤与故障转移：发送对话与角色扮演请求时，全量过滤已停用 Key，仅在启用的活跃 Key 中轮询与故障转移，安全可靠",
+    "默认 API 停用后智能回退：若当前默认 API 被关闭，系统自动平滑回退至首个处于启用状态的有效 API 配置，杜绝请求失败",
+    "上下文压缩与预算超限安全保护：完善上下文预算评估与超限截断机制，避免历史对话无限拼接导致突破端点最大 Token 限制"
+)
+
 internal val V224UserUpdates = listOf(
     "全角星号排版归一化：将全角星号（＊）智能映射为半角星号，彻底解决中文输入法与特定大模型输出全角星号导致粗体渲染失效的问题",
     "首尾非对称星号容错：智能兼容 ***text** 与 **text*** 等前后星号数量不一致的非标输出，优先将核心文本高亮加粗且不留孤立星号",
@@ -135,6 +145,8 @@ internal val V224UserUpdates = listOf(
     "Android 中文字体合成保底：粗斜体显式声明 FontSynthesis.All 字体合成，在中文字体缺乏原生斜体字形时强制保全粗体权重，杜绝加粗回退",
     "用户消息气泡行内 Markdown 支持：用户发送的内容与引用回复全面支持粗体、斜体、删除线与行内代码富文本渲染，视觉统一精致"
 )
+
+internal val CurrentVersionUserUpdates = V225UserUpdates
 
 internal val V223UserUpdates = listOf(
     "模型回复首字符星号误吞彻底修复：全面移除句首单星号激进清洗规则，未配对星号作为常规字符平稳追加，彻底修复斜体语法与角色动作首字符星号被吞引发的格式异常",
@@ -254,8 +266,6 @@ internal val V211UserUpdates = listOf(
     "生成中消息排队与专属浮窗：模型回复过程中输入框保持可用，发送内容进入专属排队浮窗，支持拖动手柄调序、撤回回填输入框、编辑、删除与暂停控制",
     "分支创建完整保留多版本：创建分支截断历史时，完整克隆所选轮次的所有生成变体（版本 1、2、3...），保留新会话内的版本自由切换"
 )
-
-internal val CurrentVersionUserUpdates = V224UserUpdates
 
 internal val V204UserUpdates = listOf(
     "分支功能完整重构：基于数据库事务与严格切片，规范严格递增时序，全链路杜绝历史记录颠倒或截断缺失",
@@ -959,6 +969,11 @@ fun ApiConfigTab(
                     scope.launch {
                         repository.setDefaultConfig(config.id)
                     }
+                },
+                onToggleEnabled = { enabled ->
+                    scope.launch {
+                        repository.setApiConfigEnabled(config.id, enabled)
+                    }
                 }
             )
         }
@@ -1023,9 +1038,11 @@ fun ApiConfigCard(
     config: ApiConfig,
     onEdit: (ApiConfig) -> Unit,
     onDelete: () -> Unit,
-    onSetDefault: () -> Unit
+    onSetDefault: () -> Unit,
+    onToggleEnabled: (Boolean) -> Unit
 ) {
     var showDeleteDialog by remember { mutableStateOf(false) }
+    val contentAlpha = if (config.isEnabled) 1f else 0.62f
 
     SettingsGlassCard(hazeState = hazeState) {
             Row(
@@ -1033,7 +1050,7 @@ fun ApiConfigCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.weight(1f)) {
+                Column(modifier = Modifier.weight(1f).alpha(contentAlpha)) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.horizontalScroll(rememberScrollState())
@@ -1043,24 +1060,42 @@ fun ApiConfigCard(
                             style = MaterialTheme.typography.titleMedium,
                             maxLines = 1
                         )
-                    if (config.isDefault) {
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Surface(
-                            modifier = Modifier.height(24.dp),
-                            shape = RoundedCornerShape(999.dp),
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                            contentColor = MaterialTheme.colorScheme.primary,
-                            tonalElevation = 0.dp,
-                            shadowElevation = 0.dp
-                        ) {
-                            Box(
-                                modifier = Modifier.padding(horizontal = 9.dp),
-                                contentAlignment = Alignment.Center
+                        if (config.isDefault) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Surface(
+                                modifier = Modifier.height(24.dp),
+                                shape = RoundedCornerShape(999.dp),
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                                contentColor = MaterialTheme.colorScheme.primary,
+                                tonalElevation = 0.dp,
+                                shadowElevation = 0.dp
                             ) {
-                                Text("新对话默认API", style = MaterialTheme.typography.labelSmall)
+                                Box(
+                                    modifier = Modifier.padding(horizontal = 9.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("新对话默认API", style = MaterialTheme.typography.labelSmall)
+                                }
                             }
                         }
-                    }
+                        if (!config.isEnabled) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Surface(
+                                modifier = Modifier.height(24.dp),
+                                shape = RoundedCornerShape(999.dp),
+                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.18f),
+                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                tonalElevation = 0.dp,
+                                shadowElevation = 0.dp
+                            ) {
+                                Box(
+                                    modifier = Modifier.padding(horizontal = 9.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("已停用", style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                        }
                     }
                     Text(
                         text = "${config.provider} · ${config.modelName}",
@@ -1076,16 +1111,19 @@ fun ApiConfigCard(
                     )
                     val parsedKeys = remember(config.apiKey) { AiRepository.parseNamedApiKeys(config.apiKey) }
                     if (parsedKeys.isNotEmpty()) {
+                        val enabledCount = parsedKeys.count { it.isEnabled }
                         val keySummary = if (parsedKeys.size > 1) {
                             val names = parsedKeys.mapNotNull { it.name.ifBlank { null } }
+                            val statusSuffix = if (enabledCount < parsedKeys.size) " ($enabledCount/${parsedKeys.size} 启用)" else ""
                             if (names.isNotEmpty()) {
-                                "密钥 (${parsedKeys.size}): ${names.joinToString(", ")}"
+                                "密钥$statusSuffix: ${names.joinToString(", ")}"
                             } else {
-                                "${parsedKeys.size} 个密钥 (已配置自动故障转移)"
+                                "${parsedKeys.size} 个密钥$statusSuffix (已配置自动故障转移)"
                             }
                         } else {
-                            val firstName = parsedKeys[0].name
-                            if (firstName.isNotBlank()) "密钥备注: $firstName" else null
+                            val item = parsedKeys[0]
+                            val statusText = if (!item.isEnabled) " [已停用]" else ""
+                            if (item.name.isNotBlank()) "密钥备注: ${item.name}$statusText" else if (!item.isEnabled) "密钥已停用" else null
                         }
                         if (keySummary != null) {
                             Text(
@@ -1099,7 +1137,12 @@ fun ApiConfigCard(
                     }
                 }
 
-                Row {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = config.isEnabled,
+                        onCheckedChange = onToggleEnabled,
+                        modifier = Modifier.scale(0.8f).padding(end = 2.dp)
+                    )
                     IconButton(onClick = { onEdit(config) }) {
                         Icon(Icons.Default.Edit, contentDescription = "编辑")
                     }
