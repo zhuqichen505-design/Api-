@@ -277,4 +277,99 @@ class TimelineRefinementAndCompressionTest {
         assertTrue("必须指明当前时空仅为基准点而非永恒固化", prompt.contains("仅代表本轮交互开始时的基准时空，绝非永恒固化的时间"))
         assertTrue("必须要求主动推进时间流逝", prompt.contains("主动描写并推进时间的流逝"))
     }
+
+    // 11. 拦截用户输入与指令误当事件测试（问题 1）
+    @Test
+    fun testPreventUserInstructionExtractedAsEvent() {
+        // 无括号口令指令应当被准确识别
+        val freeTextInstruction = "接下来让他们在雨夜的车站再次相遇，并产生争执"
+        assertTrue("无括号的自由文本指令应当判定为导演指令", TimelineMemoryHelper.isPureDirectorInstruction(freeTextInstruction))
+
+        val promptInstruction = "请继续写他们第一次合作完成任务后的对话"
+        assertTrue("请继续写...开头的口令应当判定为导演指令", TimelineMemoryHelper.isPureDirectorInstruction(promptInstruction))
+
+        // 拦截与用户输入雷同的事件
+        val userInputs = listOf(
+            "接下来让他们在雨夜的车站再次相遇",
+            "我拔出短剑，冷冷地看着他：‘你到底是谁？’"
+        )
+
+        val invalidEvent1 = "接下来让他们在雨夜的车站再次相遇"
+        assertTrue("与用户指令一致的事件必须被拦截判定为非法", TimelineMemoryHelper.isInvalidOrUserInstructionEvent(invalidEvent1, userInputs))
+
+        val invalidEvent2 = "我拔出短剑冷冷地看着他你到底是谁"
+        assertTrue("直接抄录用户发言的事件必须被拦截判定为非法", TimelineMemoryHelper.isInvalidOrUserInstructionEvent(invalidEvent2, userInputs))
+
+        val validNarrativeEvent = "两人于雨夜车站点燃香烟并达成初步同盟"
+        assertFalse("客观第三人称的剧情事实不应被误判为非法", TimelineMemoryHelper.isInvalidOrUserInstructionEvent(validNarrativeEvent, userInputs))
+
+        // 测试 consolidateFinalTimelineEvents 过滤非法事件
+        val rawEvents = listOf(
+            TimelineEventItem(timeTag = "第 1 天·夜晚", content = invalidEvent1),
+            TimelineEventItem(timeTag = "第 1 天·夜晚", content = validNarrativeEvent)
+        )
+        val filtered = TimelineMemoryHelper.consolidateFinalTimelineEvents(rawEvents, userInputs)
+        assertEquals("抄录用户指令的事件应当被直接剔除，只保留 1 条客观剧情事件", 1, filtered.size)
+        assertEquals(validNarrativeEvent, filtered[0].content)
+    }
+
+    // 12. 语义自然完整收尾与防腰斩截断测试（问题 2）
+    @Test
+    fun testCompactSentenceKeepCompletePreventsMidSentenceTruncation() {
+        // 模拟长句子：如果暴力 take(25)，会切在“应对守卫”后面变成半截残句
+        val longSentence = "两人前往藏书阁寻找失落的古卷，并在路上商量了应对守卫的策略暗号"
+        val compacted = TimelineMemoryHelper.compactSentenceKeepComplete(longSentence, 28)
+
+        // 验证：应当在前半句逗号处完整断开，保持主谓宾完整，绝不能变成半截残句
+        assertTrue("精炼句子应当保留完整的语法分句", compacted == "两人前往藏书阁寻找失落的古卷" || compacted.endsWith("策略暗号"))
+        assertFalse("绝不能出现半截残词腰斩", compacted.endsWith("的") || compacted.endsWith("应对") || compacted.endsWith("在路"))
+        assertTrue("字数应当合理控制在 28 字内", compacted.length <= 28)
+
+        // 验证冗长无增量前缀自动清理
+        val redundantPrefixSentence = "两人在对话中达成共识，决定次日清晨启程出发"
+        val cleaned = TimelineMemoryHelper.compactSentenceKeepComplete(redundantPrefixSentence, 28)
+        assertFalse("应当剥离无增量前缀", cleaned.startsWith("两人在对话中"))
+        assertTrue("核心事件应当保留完整", cleaned.contains("达成共识") || cleaned.contains("次日清晨启程出发"))
+    }
+
+    // 13. 跨界事件与设定消歧去重测试（问题 3）
+    @Test
+    fun testCrossDeduplicateEventsAndSettingsEliminatesDuplicateConcepts() {
+        val events = listOf(
+            TimelineEventItem(
+                timeTag = "第 1 天·傍晚",
+                content = "二人在石桥上结为生死同盟，立誓共进退",
+                category = TimelineCategory.PLOT_EVENT
+            ),
+            TimelineEventItem(
+                timeTag = "第 2 天·中午",
+                content = "林晨在测试中觉醒了罕见双生武魂",
+                category = TimelineCategory.TURNING_POINT
+            )
+        )
+
+        val settings = listOf(
+            // 重复项 1：与事件 1 本质完全一致（属于同一件事的动态复述）
+            AtemporalSettingItem(
+                category = "人际羁绊",
+                content = "在石桥上结为生死同盟立下誓言"
+            ),
+            // 重复项 2：与事件 2 本质完全一致
+            AtemporalSettingItem(
+                category = "角色特质",
+                content = "在测试中觉醒了双生武魂"
+            ),
+            // 独立静态规则：纯粹属性与禁忌，非事件复述，应当保留！
+            AtemporalSettingItem(
+                category = "生理禁忌",
+                content = "对某种特殊寒性药草严重过敏"
+            )
+        )
+
+        val (finalEvents, finalSettings) = TimelineMemoryHelper.crossDeduplicateEventsAndSettings(events, settings)
+
+        assertEquals("时间线事件应完整保留 2 条", 2, finalEvents.size)
+        assertEquals("与时间线事件本质一致的 2 条重复设定应被剔除，仅保留 1 条纯粹静态规则", 1, finalSettings.size)
+        assertEquals("保留的设定应当为独立生理禁忌", "对某种特殊寒性药草严重过敏", finalSettings[0].content)
+    }
 }

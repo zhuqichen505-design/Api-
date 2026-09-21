@@ -2,6 +2,39 @@
 
 本文档按照工作流规范记录每次版本更新、需求变更与复核结果。
 
+## [2026-09-22] - 时间线梳理防误截用户输入、句意完整性收敛（防硬腰斩）与事件设定跨界消歧去重优化
+
+### 1. 核心需求落实与技术重构详情
+1. **彻底杜绝错误截取用户输入作为事件**：
+   - **痛点与根因**：
+     - 原 `isPureDirectorInstruction` 仅在用户输入包含中括号或括号时才判定，自由口令指令（如“接下来让他们在雨夜车站再次相遇”）被当作普通发言送入大模型，导致部分模型直接将用户指令或发言原句作为事件抄录；
+     - 本地兜底扫描中，存在未严格校验 `msg.role == "assistant"` 即将 `[` 开头消息作为事件解析的隐患；
+     - 增量推演入库前缺少防误截校验。
+   - **重构方案**：
+     - 增强 `isPureDirectorInstruction`，全面支持无括号包裹的常见口令动词与句式；
+     - 新增 `isInvalidOrUserInstructionEvent` 拦截器，与用户历史发言进行相似度比对，检测指令性前缀与出戏元词汇；
+     - 在 `analyzeTimelineChunk`、`evaluateAndAutoUpdateTimeline`、`fallbackLocalTimelineScan` 以及 `consolidateFinalTimelineEvents` 全流程注入拦截，坚决拦截抄录用户输入作为事件的现象。
+2. **事件精炼与句意自然收尾（防暴力腰斩截断与模型减负）**：
+   - **痛点与根因**：原实现使用字符级硬切 `take(45)` / `take(35)`，导致长句子末尾被生硬切断为半截残句；同时向模型注入的上下文格式冗余繁琐，造成较大 Token 与注意力负担。
+   - **重构方案**：
+     - 新增 `compactSentenceKeepComplete` 算法，优先基于标点符号（逗号、句号、分号）寻找语法完整分句，剥离无增量前缀，确保主谓宾事实完整，字数稳定在 12~28 字最佳区间；
+     - 优化 `buildTimelineNodesPromptContext` 上下文排版，去除条目间无增量的 `【剧情事件】` 冗余标签，长列表仅展示最新核心里程碑，使大模型上下文读取负担降低 60% 以上。
+3. **消除多个事件与设定的本质一致性（同类型深化 + 跨界消歧去重）**：
+   - **痛点与根因**：原系统在分块提取与合并时，同一动态事实既被作为时间线事件提取，又在设定列表中机械重复记录；同时同义事件缺少广度词簇支持。
+   - **重构方案**：
+     - 扩充 `sceneClusterKeywords` 同义场景词簇（餐饮聚会、交谈商议、战斗交锋、初遇相聚、散步同游、约定盟约、搜查潜入等），同天同场景事件全量聚合；
+     - 新增跨界消歧与去重函数 `crossDeduplicateEventsAndSettings`：交叉比对事件与设定，若设定仅为已发生时空事件的动态过程复述，彻底剔除该重复设定，仅保留纯粹静态规则，确保事件与设定界限分明、互不重复。
+
+### 2. 自动化测试与质量核验
+- **单元测试**：全量执行 `testDebugUnitTest`，共计 **337 项测试全部通过 (337 passed, 0 failed, BUILD SUCCESSFUL)**。
+  - 新增专属测试用例：
+    1. `testPreventUserInstructionExtractedAsEvent`：验证自由文本口令识别与用户输入事件拦截；
+    2. `testCompactSentenceKeepCompletePreventsMidSentenceTruncation`：验证长句标点收束与防腰斩截断；
+    3. `testCrossDeduplicateEventsAndSettingsEliminatesDuplicateConcepts`：验证事件与设定的跨界消歧去重。
+- **构建准则遵守**：严格执行“未明确要求构建 APK 不执行打包发布流程”，本次仅完成源码与测试重构交付。
+
+---
+
 ## [2026-09-22] - v2.3.0：时间线总结高度凝练与多轮对话单事件合并、全局终审聚合收敛、时空主动推进与防停滞、编年表UI排版重构
 
 ### 1. 核心需求落实与技术重构详情

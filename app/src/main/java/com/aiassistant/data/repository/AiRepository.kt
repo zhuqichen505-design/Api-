@@ -3616,11 +3616,10 @@ class AiRepository(
                - 敏感捕捉文字中潜藏的暗线时间推移（如“聊到了掌灯时分”、“不知不觉窗外泛白”、“大雪封山已过七日”），将其提炼为定位精准的规范时间标签！
                - 时序单向单调递增：剧情正文中若前文已是第2天，后文描写“第二天/次日/又过了一天”，必须合理推断累进为第3天；遇到“两周过后”等跨度词时，自然承接并推进入内部递增序列。
 
-            2.【全方位剧情里程碑事件精炼提炼（极简概括，拒绝微观琐碎流水账）】：
-               - 每一条时间线事件必须是【高度精炼、结构完整的剧情里程碑事实（Milestone Plot Event）】！
-                 格式：主体在何处完成了什么关键转折或共识（15~30字）。
-               - 深度捕获 5 大关键维度：
-                 ① 剧情重大转折与抉择；② 感情线与人际质变；③ 秘密揭露与重要发现；④ 状态转变与阶段成果；⑤ 关键约定与未决悬念。
+            2.【全方位剧情里程碑事件精炼提炼（极简短句，拒绝流水账与截断）】：
+               - 每一条时间线事件必须是【极简凝练、句意完整的剧情事实单句（12~25字）】！
+                 格式：主体在何处完成了什么关键事实（例：于临江楼商定行动路线；在山谷击退黑衣人伏击）。
+               - 句意必须独立完整，禁止冗余废话，坚决拒绝半截腰斩的残句！
                - 【同一场景/事件高度凝练合并铁律】：
                  当某一件事被描写的很详细、用很多轮对话展开细节时（例如一次聚餐、一场战斗、一次商讨筹划、一次出行），必须整体提炼为 1 条简洁的高层次总结事件！
                  绝对禁止按对话拆分成零碎子动作（严禁分别记录“点餐”、“讨论细节”、“吃完离开”等），同一场景只记录 1 条最终里程碑总结！
@@ -3630,14 +3629,20 @@ class AiRepository(
                  ① 角色特质与心结；② 习惯偏好与小动作；③ 生理特征与禁忌；④ 世界规则与法则限制；⑤ 人际羁绊与誓言契约；⑥ 专属信物与特殊器物。
                - 严禁原句抄录大段抒情，必须凝练为规则属性的原子设定事实，且严禁输出表述相似、含义重复的多条设定！
 
-            4.【用户写作指令 `[...]` 与正文剧情严格解耦】：
-               - 用户发送的中括号内容（如 `[让两人在雨夜再次相遇]`、`[推进剧情]`）是【编剧/导演的写作指令】，严禁将指令原话当作剧情事件记录！依据正文实际演出的事实进行提炼。
+            4.【严禁截取或抄录用户输入，指令与正文严格解耦（最高铁律）】：
+               - 无论是用户的写作指导指令（如“接下来让他们在车站相遇”），还是角色扮演中用户的台词或动作，【严禁直接照抄用户的发言、指令或原句作为事件】！
+               - 时间线事件必须是【第三人称客观发生的故事剧情事实】（依据助手演出的情节概括，如“两人在车站碰面达成协议”，绝不可记为“接下来让他们相遇”或“我说走吧”）；
+               - 若用户发言是导演指导，必须完全忽略该指令文本，仅依据助手正文中实际演出的情节事实提炼！
 
             5.【同一事件/连续场景归并与防虚假跨天铁律（绝不允许把一件事拆成多天）】：
                - 现实中一件事情（例如一顿聚餐、一次长谈、一场战斗、一次旅途同车）通常由多轮对话连续进行演进；
                - 严禁将同一个连续场景或同一件事中的各轮次发言错误切分成多天或多顿饭！
                - 除非剧情正文中明确描写了“次日/到了第二天/过了一周”或发生明确的时空跳跃，否则整个进餐、讨论、同游过程属于同一个连续时间节点（如：[第1天·傍晚]），必须合并为一个完整的剧情事件条目，严禁生成“第1天吃饭”、“第2天吃饭”、“第3天吃饭”！
                - 严禁非正向推移的时间跨度暴跳：若剧情出现“两年前”、“这两天”、“数日前”，这属于回忆或口头提及，绝不是故事主线向前推进了两年，严禁将时间标签跃迁为两年前或暴跳 730 天！
+
+            6.【事件与设定界限分明，严禁两头重复（消除跨界一致）】：
+               - 时间线事件记录特定时间发生的【动态行动与转折】；固有设定只记录【长期静态规则与属性】；
+               - 严禁同一个事实既出现在事件列表、又出现在设定列表！已作为事件发生的，设定中绝不重复收录！
 
             请严格按照以下 JSON 格式输出，杜绝任何额外客套或解释：
             ```json
@@ -3681,12 +3686,14 @@ class AiRepository(
             Log.e(tag, "调用大模型分析时间线切片异常: ${e.message}", e)
         }
 
+        val userMessages = messagesChunk.filter { it.role == "user" }.map { it.content }
+
         if (!responseText.isNullOrBlank()) {
             val parsedResult = TimelineMemoryHelper.parseModelOutput(responseText, fallbackCurrentTime = fallbackCurrentTime)
             if (parsedResult.events.isNotEmpty() || parsedResult.atemporalSettings.isNotEmpty()) {
                 parsedResult.extractionSource = "AI_MODEL"
                 parsedResult.modelUsed = targetModel
-                return parsedResult
+                return TimelineMemoryHelper.consolidateFinalReconcileResult(parsedResult, userMessages)
             }
         }
 
@@ -3697,7 +3704,7 @@ class AiRepository(
         fallback.extractionSource = "LOCAL_FALLBACK"
         fallback.modelUsed = targetModel
         fallback.extractionErrorMessage = modelException?.message ?: "模型返回解析内容为空"
-        return fallback
+        return TimelineMemoryHelper.consolidateFinalReconcileResult(fallback, userMessages)
     }
 
     /**
@@ -3740,6 +3747,7 @@ class AiRepository(
         }
 
         val (config, targetModel) = configPair
+        val userMessages = messages.filter { it.role == "user" }.map { it.content }
 
         // 分段切片：如果消息数 <= 25，直接执行单段分析；如果 > 25，按每 20~25 条切片分段梳理后汇总 (Map-Reduce)
         val chunks = TimelineMemoryHelper.chunkMessagesForAnalysis(messages, chunkSize = 25, overlap = 3)
@@ -3747,7 +3755,7 @@ class AiRepository(
             currentCoroutineContext().ensureActive()
             onProgress?.invoke(1, 1, "正在梳理全量时间线与核心设定...")
             val singleResult = analyzeTimelineChunk(messages, config, targetModel, existingStoryTime)
-            return@withContext TimelineMemoryHelper.consolidateFinalReconcileResult(singleResult)
+            return@withContext TimelineMemoryHelper.consolidateFinalReconcileResult(singleResult, userMessages)
         }
 
         // 多段 Map 阶段
@@ -3801,20 +3809,21 @@ class AiRepository(
         )
 
         // 执行最后的整体汇总 Pass (Global Consolidation Pass)
-        consolidateTimelineWithModel(intermediateResult, config, targetModel)
+        consolidateTimelineWithModel(intermediateResult, config, targetModel, userMessages)
     }
 
     /**
-     * 全局整体汇总 Pass（解决问题 1 与问题 2）
-     * 针对分段提炼产生的类似事件（同一件事被多次记录）与极其相似的设定进行模型智能汇总与去重压缩
+     * 全局整体汇总 Pass（解决问题 1、问题 2 与问题 3）
+     * 针对分段提炼产生的类似事件（同一件事被多次记录）、极其相似的设定以及事件与设定的跨界重复进行模型智能汇总与去重压缩
      */
     private suspend fun consolidateTimelineWithModel(
         rawResult: TimelineReconcileResult,
         config: ApiConfig,
-        targetModel: String
+        targetModel: String,
+        userMessages: Collection<String> = emptyList()
     ): TimelineReconcileResult {
         if (rawResult.events.size <= 2 && rawResult.atemporalSettings.size <= 2) {
-            return TimelineMemoryHelper.consolidateFinalReconcileResult(rawResult)
+            return TimelineMemoryHelper.consolidateFinalReconcileResult(rawResult, userMessages)
         }
 
         val prompt = """
@@ -3829,12 +3838,15 @@ class AiRepository(
             ${rawResult.atemporalSettings.joinToString("\n") { "- 【${it.category}】${it.content}" }}
 
             请对上述列表进行【最后的整体汇总、去重与浓缩优化】：
-            1.【同一事件合并与精炼（拒绝流水账）】：
-               - 若某一件事被拆分为了多个细分子事件（如同一顿饭记录了点餐、交谈、吃完等多条，或同一场战斗记录了多次交手，或同一场景反复对话），必须彻底合并为 1 条精炼的最终里程碑总结（15~30字）！
-               - 严禁保留多个微观动作或高度相似的同一事件！
+            1.【同一事件合并与精炼（拒绝流水账与截断）】：
+               - 若某一件事被拆分为了多个细分子事件（如同一顿饭记录了点餐、交谈、吃完等多条，或同一场战斗记录了多次交手，或同一场景反复对话），必须彻底合并为 1 条精炼的最终里程碑总结（12~25字）！
+               - 必须是句意完整的主谓宾单句，严禁出现半句腰斩！严禁保留微观动作或高度相似的同一事件！
             2.【设定去重与本质提炼】：
                - 若有多个表述相近、含义重叠的设定，必须合并为 1 条最核心精炼的规则（8~25字），消除所有冗余！
-            3.【按时序排列】：确保事件按时间发展严格单调递增排列。
+            3.【跨界去重消歧（核心铁律）】：
+               - 若某个事实已经在【初步事件列表】中作为特定时空的动态事件记录（例如在某天结识、前往某处、答应某事），【严禁在设定列表中重复记录该事件】！
+               - 设定列表只保留长期的静态法则、生理禁忌与常态属性，坚决消除事件与设定两头并存、本质一致的冗余！
+            4.【按时序排列】：确保事件按时间发展严格单调递增排列。
 
             请严格输出以下 JSON：
             ```json
@@ -3844,7 +3856,7 @@ class AiRepository(
                 {
                   "timeTag": "时间标签",
                   "category": "PLOT_EVENT",
-                  "content": "精简凝练的事实（15~30字）"
+                  "content": "精简凝练的完整事实（12~25字，拒绝截断）"
                 }
               ],
               "atemporalSettings": [
@@ -3870,14 +3882,14 @@ class AiRepository(
                 if (parsed.events.isNotEmpty() || parsed.atemporalSettings.isNotEmpty()) {
                     parsed.extractionSource = "AI_MODEL"
                     parsed.modelUsed = targetModel
-                    return TimelineMemoryHelper.consolidateFinalReconcileResult(parsed)
+                    return TimelineMemoryHelper.consolidateFinalReconcileResult(parsed, userMessages)
                 }
             }
         } catch (e: Exception) {
             Log.w(tag, "大模型全局终审汇总异常，使用本地算法去重汇总: ${e.message}")
         }
 
-        return TimelineMemoryHelper.consolidateFinalReconcileResult(rawResult)
+        return TimelineMemoryHelper.consolidateFinalReconcileResult(rawResult, userMessages)
     }
 
     /**
@@ -3933,13 +3945,12 @@ class AiRepository(
                    - 包含：活动转换（如用餐完毕准备出发、交谈结束离开、战斗结束、休息就寝）、日内时段流转（从早晨到上午、从下午聊至傍晚/夜幕降临/深夜掌灯）、跨越至次日/翌日、相对时间跨度（如几天后、两周后、次月）或阶段节点（如暑假开始、新学期）；
                    - 若剧情活动已告一段落或出现时移描写，必须积极推断并输出推进后的精确故事时间（例如从“第 1 天·早晨”推移至“第 1 天·上午”或“第 1 天·中午”，从“第 1 天·夜间”推移至“第 2 天·清晨”），严禁让故事错误地一直僵化停留在原时空【$existingStoryTime】！
                    - 仅当此轮对话依然在同一时段同一场景紧密对话、活动尚未有任何进展时，才保持原时间。
-                2.【剧情里程碑关键事件智能提炼（拒绝琐碎微观动作拆分）】：
+                2.【剧情里程碑关键事件智能提炼（极简短句，严禁截取用户输入）】：
                    - 本轮剧情中是否发生了具有长远影响的关键事实？
                    - 包含：确立关系、重要誓约、危机爆发、重大抉择、探明秘密真相、抵达新地点、取得关键信物或道具、处境或状态质变等；
-                   - 必须用客观、精炼的文学叙事语言归纳该事实（格式：主体在何处完成了什么关键事实，15~35字）；
-                   - 若同一件事在多轮对话中展开，只提炼高层次总结，严禁拆分成微观动作！
+                   - 必须用客观、精炼的文学叙事语言归纳该事实（格式：主体在何处完成了什么关键事实，12~25字完整句子）；
                    - 严禁包含“用户”、“AI”、“助手”、“模型”等出戏元词汇！
-                   - 严禁把用户的写作指导指令（如“继续写”、“让他们在雨夜相遇”）原样作为事件记录，必须依据助手正文中实际演出的情节事实提炼！
+                   - 【严禁直接截取或搬运用户输入】：若用户发言是指导指令（如“继续写”、“让他们在雨夜相遇”）或台词，严禁照抄指令或台词作为事件，必须依据助手正文中实际演出的情节事实提炼！
                 3.【同一场景归并与防虚假跨天铁律】：
                    - 严禁将同一个连续场景或同一件事（如一顿饭、一次促膝长谈、一场战斗）错误拆分成多天多顿饭！
                    - 若对话中出现“两年前”、“这两天”、“数日前”，这属于回忆或提及，绝不可当成故事推进并跃迁两年！
@@ -3953,7 +3964,7 @@ class AiRepository(
                   "newEvent": {
                     "timeTag": "事件发生的具体时间标签，如：第 1 天·黄昏、第 2 天·清晨",
                     "category": "PLOT_EVENT",
-                    "content": "精简凝练的事实（主体在何处完成了什么，15~35字），严禁包含用户/AI等元词汇"
+                    "content": "精简完整的客观事实（12~25字，拒绝截断与元词汇）"
                   }
                 }
                 ```
@@ -3983,8 +3994,11 @@ class AiRepository(
                             val tag = newEventObj.get("timeTag")?.asString?.trim().orEmpty()
                             val content = newEventObj.get("content")?.asString?.trim().orEmpty()
                             val cat = TimelineCategory.fromKey(newEventObj.get("category")?.asString)
-                            if (content.isNotBlank()) {
-                                newEvent = TimelineEventItem(timeTag = tag, content = content, category = cat)
+                            if (content.isNotBlank() && !TimelineMemoryHelper.isInvalidOrUserInstructionEvent(content, listOf(userMessage))) {
+                                val cleanContent = TimelineMemoryHelper.compactSentenceKeepComplete(content, 28)
+                                if (cleanContent.isNotBlank() && !TimelineMemoryHelper.isInvalidOrUserInstructionEvent(cleanContent, listOf(userMessage))) {
+                                    newEvent = TimelineEventItem(timeTag = tag, content = cleanContent, category = cat)
+                                }
                             }
                         }
                     } catch (_: Exception) {}
@@ -4010,11 +4024,13 @@ class AiRepository(
             isStoryTimeChanged = true
         }
 
-        if (newEvent != null && newEvent.content.isNotBlank()) {
+        if (newEvent != null && newEvent.content.isNotBlank() && !TimelineMemoryHelper.isInvalidOrUserInstructionEvent(newEvent.content, listOf(userMessage))) {
             val existingNodes = timelineNodeDao?.getTimelineNodes(conversationId) ?: emptyList()
             val targetExisting = existingNodes.firstOrNull { node ->
-                node.event.contains(newEvent.content.take(15)) ||
-                (newEvent.content.length >= 15 && node.event.take(15).let { sub -> newEvent.content.contains(sub) })
+                val cleanNode = node.event.replace(Regex("""[，。！？、\s\[\]【】"”'’]"""), "")
+                val cleanIncoming = newEvent.content.replace(Regex("""[，。！？、\s\[\]【】"”'’]"""), "")
+                cleanNode.contains(cleanIncoming) || cleanIncoming.contains(cleanNode) ||
+                (cleanNode.length >= 8 && cleanIncoming.length >= 8 && cleanNode.take(8) == cleanIncoming.take(8))
             }
             if (targetExisting != null) {
                 timelineNodeDao?.updateTimelineNode(
@@ -4276,11 +4292,13 @@ class AiRepository(
                 }
             }
 
-            // 4. 提取显式时间线事件或剧情转折正文（支持自然时间标签如 [两周过后]、[暑假开始]、[第3天]）
-            if (content.startsWith("[") || content.startsWith("【")) {
+            // 4. 提取显式时间线事件或剧情转折正文（仅限 assistant 正文，杜绝提取用户输入）
+            if (msg.role == "assistant" && (content.startsWith("[") || content.startsWith("【"))) {
                 val item = TimelineMemoryHelper.parseContentToEvent(content)
-                if (item.content.isNotBlank() && item.timeTag.isNotBlank() && events.none { it.content == item.content }) {
-                    events.add(item)
+                val cleanContent = TimelineMemoryHelper.compactSentenceKeepComplete(item.content, 28)
+                val cleanItem = item.copy(content = cleanContent)
+                if (cleanItem.content.isNotBlank() && cleanItem.timeTag.isNotBlank() && events.none { it.content == cleanItem.content }) {
+                    events.add(cleanItem)
                     hasSeenEventsOnCurrentDay = true
                 }
             } else if (msg.role == "assistant" && content.length in 12..250 &&
@@ -4288,8 +4306,8 @@ class AiRepository(
                 val timeTag = "第 $currentTrackedDay 天·剧情节点"
                 val rawSummary = content.lines().firstOrNull { l ->
                     listOf("前往", "来到", "决定", "相遇", "发现", "答应", "拒绝", "战斗", "救下", "商量", "告别", "突破", "坦白", "重逢").any { l.contains(it) }
-                }?.trim()?.take(80) ?: content.take(60)
-                val cleanSummary = rawSummary.replace("“", "").replace("”", "").replace("\"", "").trim()
+                }?.trim() ?: content
+                val cleanSummary = TimelineMemoryHelper.compactSentenceKeepComplete(rawSummary, 28)
 
                 if (cleanSummary.isNotBlank() && events.none { it.content == cleanSummary }) {
                     events.add(

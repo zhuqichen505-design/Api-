@@ -132,21 +132,138 @@ object TimelineMemoryHelper {
 
     /**
      * 判断某文本是否为纯用户导演/作者剧情指导（而非故事发生的客观事实）
+     * 增强版：同时支持带括号包裹（如 [接下来...]）与不带括号的自由口令（如 接下来让他们...）
      */
     fun isPureDirectorInstruction(text: String): Boolean {
         val trimmed = text.trim()
+        if (trimmed.isBlank()) return false
         val isEnclosed = (trimmed.startsWith("[") && trimmed.endsWith("]")) ||
                          (trimmed.startsWith("【") && trimmed.endsWith("】")) ||
                          (trimmed.startsWith("(") && trimmed.endsWith(")")) ||
                          (trimmed.startsWith("（") && trimmed.endsWith("）"))
-        if (!isEnclosed) return false
-        val inside = trimmed.substring(1, trimmed.length - 1).trim()
-        val directorVerbs = listOf(
-            "让", "请继续", "继续写", "重写", "改写", "描写", "从配角视角", "视角切换",
-            "增加", "冲突升级", "不要解决", "接下来让", "推进", "剧情推进", "展开", "写一段",
-            "安排", "设定为", "要求", "注意", "提示", "下文", "接上文", "继续", "剧情发展"
+        val inside = if (isEnclosed && trimmed.length >= 2) {
+            trimmed.substring(1, trimmed.length - 1).trim()
+        } else {
+            trimmed
+        }
+
+        val directorPrefixes = listOf(
+            "让", "请继续", "继续写", "继续剧情", "继续", "重写", "改写", "描写", "从配角视角", "视角切换",
+            "增加", "冲突升级", "不要解决", "不要立即", "接下来让", "接下来", "推进", "剧情推进", "展开", "写一段",
+            "安排", "设定为", "要求", "注意", "提示", "下文", "接上文", "剧情发展", "生成剧情", "只生成",
+            "请让", "请描写", "请写", "切换视角", "换个语气", "延长内容", "缩短内容", "剧情提示", "导演指令", "导演："
         )
-        return directorVerbs.any { inside.startsWith(it) || inside.contains(it) }
+        if (directorPrefixes.any { inside.startsWith(it) }) return true
+
+        val directorKeywords = listOf(
+            "推进剧情", "不要解决", "冲突升级", "重写上一段", "延长内容", "缩短内容",
+            "只生成角色对白", "只生成旁白", "增加环境描写", "做出符合性格的选择",
+            "切换为第一人称", "切换为第三人称", "不要立即解决", "剧情走向", "写一段对话"
+        )
+        return directorKeywords.any { inside.contains(it) }
+    }
+
+    /**
+     * 校验某事件文本是否非法或误截取了用户输入/导演指令（解决问题 1）
+     * 坚决拦截将用户输入发言、口令原样截取为事件的错误现象
+     */
+    fun isInvalidOrUserInstructionEvent(content: String, userMessages: Collection<String> = emptyList()): Boolean {
+        val trimmed = content.trim()
+        if (trimmed.length < 3) return true
+
+        // 1. 本身即为编剧/导演指令
+        if (isPureDirectorInstruction(trimmed)) return true
+
+        // 2. 含有出戏元词汇
+        val metaKeywords = listOf("用户", "玩家", "指令", "提示词", "AI", "助手", "模型", "剧情提示", "导演要求")
+        if (metaKeywords.any { trimmed.contains(it) }) return true
+
+        // 3. 指令性祈使短语开头（非客观叙事）
+        val instructionStarts = listOf("接下来", "继续写", "让两人", "让角色", "请让", "请继续", "要求", "重写", "改写", "让对方", "让大家")
+        if (instructionStarts.any { trimmed.startsWith(it) }) return true
+
+        // 4. 与用户历史发言进行比对，防止直接截取用户输入作为事件
+        val cleanContent = trimmed.replace(Regex("""[，。！？、\s\[\]【】"”'’]"""), "")
+        for (userMsg in userMessages) {
+            val cleanUser = userMsg.trim().replace(Regex("""[，。！？、\s\[\]【】"”'’]"""), "")
+            if (cleanUser.length >= 4) {
+                // 完全相等或包含关系（长度接近）
+                if (cleanContent == cleanUser) return true
+                if (cleanContent.contains(cleanUser) && cleanContent.length <= cleanUser.length + 6) return true
+                if (cleanUser.contains(cleanContent) && cleanUser.length <= cleanContent.length + 6) return true
+
+                // Jaccard 字符交集比对
+                val setA = cleanContent.toSet()
+                val setB = cleanUser.toSet()
+                val inter = setA.intersect(setB).size
+                val union = setA.union(setB).size
+                if (union > 0 && inter.toFloat() / union >= 0.52f && cleanContent.length in (cleanUser.length - 8)..(cleanUser.length + 8)) {
+                    return true
+                }
+            }
+        }
+
+        return false
+    }
+
+    /**
+     * 将长事件文本精炼收敛，坚决避免暴力劈砍导致句子被中间腰斩（解决问题 2）
+     * 优先基于标点符号寻找完整语法分句，保持主谓宾完整，字数控制在 12~28 字最佳区间
+     */
+    fun compactSentenceKeepComplete(text: String, maxIdealLen: Int = 28): String {
+        var clean = text.trim()
+            .replace(Regex("""^\[.*?\]\s*"""), "")
+            .replace(Regex("""^【.*?】\s*"""), "")
+            .replace(Regex("""^[，。！？、\s]+"""), "")
+            .replace(Regex("""[，。！？、\s]+$"""), "")
+            .replace(Regex("""["“”'’]"""), "")
+
+        // 去除冗长无增量前缀
+        val redundantPrefixes = listOf(
+            "两人在对话中", "剧情展开为", "接下来的情节中", "在这段剧情里", "在此期间",
+            "随后两人", "双方在交谈中", "经过一番商议", "在本次剧情中", "随后"
+        )
+        for (prefix in redundantPrefixes) {
+            if (clean.startsWith(prefix) && clean.length > prefix.length + 6) {
+                clean = clean.removePrefix(prefix).trim()
+            }
+        }
+
+        if (clean.length <= maxIdealLen) return clean
+
+        // 若超长，绝不可直接暴力劈断！基于标点符号寻找完整分句
+        val punctuationIndices = mutableListOf<Int>()
+        val punctuations = charArrayOf('，', '。', '；', '！', '？', '、')
+        for (i in clean.indices) {
+            if (punctuations.contains(clean[i])) {
+                punctuationIndices.add(i)
+            }
+        }
+
+        // 优先在 10..maxIdealLen 范围内寻找最近标点截断，保留完整句子
+        val goodCut = punctuationIndices.lastOrNull { it in 10..maxIdealLen }
+        if (goodCut != null) {
+            return clean.substring(0, goodCut).trim()
+        }
+
+        // 寻找在 maxIdealLen..34 范围内的第一个标点断句（允许略微放宽以确保句意绝对完整不腰斩）
+        val slightlyLongerCut = punctuationIndices.firstOrNull { it in maxIdealLen..34 }
+        if (slightlyLongerCut != null) {
+            return clean.substring(0, slightlyLongerCut).trim()
+        }
+
+        // 若没有标点，寻找核心连词断开
+        val conjunctions = listOf("并", "且", "而", "但", "随后", "决定")
+        for (conj in conjunctions) {
+            val idx = clean.indexOf(conj)
+            if (idx in 12..maxIdealLen) {
+                return clean.substring(0, idx).trim()
+            }
+        }
+
+        // 兜底截断：截取并在末尾修剪悬挂的连词或虚词
+        val sub = clean.take(maxIdealLen)
+        return sub.replace(Regex("""[的了着与和把在被向从到，、；]$"""), "").trim()
     }
 
     private fun getPhaseOrder(subPhase: String): Int {
@@ -967,10 +1084,13 @@ object TimelineMemoryHelper {
             sb.append("【当前故事时间节点】：$currentStoryTime\n")
         }
         val sortedNodes = nodes.sortedWith(compareBy<TimelineNode> { it.orderIndex }.thenBy { it.createdAt })
-        sortedNodes.forEachIndexed { index, node ->
+        // 降低模型注意力与 Token 负担：若条目较多，保留最新 15 条核心里程碑
+        val displayNodes = if (sortedNodes.size > 15) sortedNodes.takeLast(15) else sortedNodes
+        displayNodes.forEachIndexed { index, node ->
             val cat = TimelineCategory.fromKey(node.category)
             val tagStr = if (node.timeTag.isNotBlank()) "[${node.timeTag}] " else ""
-            sb.append("[${index + 1}] $tagStr【${cat.displayName}】${node.event}\n")
+            val cleanEvent = if (node.event.length > 32) compactSentenceKeepComplete(node.event, 28) else node.event
+            sb.append("[${index + 1}] $tagStr【${cat.displayName}】$cleanEvent\n")
         }
         sb.append("【时序约束】：请严格基于该时序脉络推进，后续对话若发生时间推移请主动输出新时间节点。\n")
         sb.append("【时空主动推进与防停滞铁律（大模型必须严格遵循）】：\n")
@@ -1063,29 +1183,31 @@ object TimelineMemoryHelper {
      * 全局时间线事件深度汇总与去重压缩（解决问题 1 与问题 2）
      * 1. 将同一事件（例如同一顿饭、同一场战斗、同一个场景由多轮对话展开）高度凝练并合并为单个事件；
      * 2. 对跨分段提炼产生的表述极其相似的重复事件进行语义去重；
-     * 3. 严格按时序单调排列，保持时间线简洁有力（单条控制在 15~35 字）。
+     * 3. 严格按时序单调排列，基于语法分句保持完整性，彻底杜绝腰斩截断与多余废话（控制在 12~28 字最佳区间）。
      */
-    fun consolidateFinalTimelineEvents(events: List<TimelineEventItem>): List<TimelineEventItem> {
+    fun consolidateFinalTimelineEvents(
+        events: List<TimelineEventItem>,
+        userMessages: Collection<String> = emptyList()
+    ): List<TimelineEventItem> {
         if (events.isEmpty()) return emptyList()
-        val normalized = normalizeMonotonicTimeline(events)
+        // 过滤掉误截取用户指令或出戏元词汇的事件
+        val validEvents = events.filter { !isInvalidOrUserInstructionEvent(it.content, userMessages) }
+        val normalized = normalizeMonotonicTimeline(validEvents)
         val consolidated = mutableListOf<TimelineEventItem>()
 
         val sceneClusterKeywords = listOf(
-            listOf("早餐", "早点", "晨餐", "早饭"),
-            listOf("午餐", "午饭", "中饭"),
-            listOf("晚餐", "晚饭", "夜宵", "晚宴"),
-            listOf("用餐", "吃饭", "点菜", "餐厅", "餐馆", "食堂", "茶馆", "酒楼", "同席", "聚餐"),
-            listOf("战斗", "交手", "对决", "交锋", "围攻", "遇袭", "伏击", "激战", "击败"),
-            listOf("商议", "讨论", "对策", "计划", "筹划", "商谈", "谋划", "密谈"),
-            listOf("相遇", "初遇", "重逢", "碰面", "车站", "初识", "重聚"),
-            listOf("同行", "结伴", "启程", "动身", "出发", "上路", "赶路"),
-            listOf("告白", "表白", "誓言", "立誓", "确立关系", "心意"),
-            listOf("调查", "探查", "搜寻", "发现", "探秘", "查探")
+            listOf("早餐", "早点", "晨餐", "早饭", "午餐", "午饭", "中饭", "晚餐", "晚饭", "夜宵", "晚宴", "用餐", "吃饭", "点菜", "餐厅", "餐馆", "食堂", "茶馆", "酒楼", "同席", "聚餐", "品茗", "小酌"),
+            listOf("战斗", "交手", "对决", "交锋", "围攻", "遇袭", "伏击", "激战", "击败", "交战", "切磋", "冲突", "拔剑"),
+            listOf("商议", "讨论", "对策", "计划", "筹划", "商谈", "谋划", "密谈", "交谈", "谈话", "长谈", "对质", "质询"),
+            listOf("相遇", "初遇", "重逢", "碰面", "车站", "初识", "重聚", "相见", "偶遇", "初见"),
+            listOf("同行", "结伴", "启程", "动身", "出发", "上路", "赶路", "散步", "漫步", "长街", "同游", "游览"),
+            listOf("告白", "表白", "誓言", "立誓", "确立关系", "心意", "约定", "契约", "结盟", "立约", "同盟"),
+            listOf("调查", "探查", "搜寻", "发现", "探秘", "查探", "潜入", "搜查", "打探", "暗访")
         )
 
         for (item in normalized) {
             val itemTag = item.timeTag.trim()
-            val itemContent = item.content.trim()
+            val itemContent = compactSentenceKeepComplete(item.content)
             if (itemContent.isBlank()) continue
 
             // 寻找同日或同时间标签且具有相同场景/动作集群的已有事件
@@ -1096,8 +1218,8 @@ object TimelineMemoryHelper {
                          DAY_NUMBER_PATTERN.matcher(itemTag).find() &&
                          existingTag.substringBefore("·") == itemTag.substringBefore("·"))
 
-                val cleanA = existing.content.replace(Regex("""[，。！？、\s\[\]【】]"""), "")
-                val cleanB = itemContent.replace(Regex("""[，。！？、\s\[\]【】]"""), "")
+                val cleanA = existing.content.replace(Regex("""[，。！？、\s\[\]【】"”'’]"""), "")
+                val cleanB = itemContent.replace(Regex("""[，。！？、\s\[\]【】"”'’]"""), "")
 
                 // 1. 直接子集包含
                 if (cleanA.contains(cleanB) || cleanB.contains(cleanA)) return@indexOfFirst true
@@ -1109,15 +1231,15 @@ object TimelineMemoryHelper {
                 val union = setA.union(setB).size
                 val similarity = if (union > 0) intersection.toFloat() / union else 0f
 
-                if (isSameTimeScope && similarity >= 0.38f) return@indexOfFirst true
-                if (!isSameTimeScope && similarity >= 0.65f) return@indexOfFirst true
+                if (isSameTimeScope && similarity >= 0.35f) return@indexOfFirst true
+                if (!isSameTimeScope && similarity >= 0.60f) return@indexOfFirst true
 
                 // 3. 场景关键词同义集群重合
                 val sharesCluster = sceneClusterKeywords.any { cluster ->
                     cluster.any { cleanA.contains(it) } && cluster.any { cleanB.contains(it) }
                 }
                 if (isSameTimeScope && sharesCluster) return@indexOfFirst true
-                if (!isSameTimeScope && sharesCluster && (similarity >= 0.25f || intersection >= 3)) return@indexOfFirst true
+                if (!isSameTimeScope && sharesCluster && (similarity >= 0.22f || intersection >= 3)) return@indexOfFirst true
 
                 false
             }
@@ -1127,28 +1249,30 @@ object TimelineMemoryHelper {
                 val cleanerTime = if (itemTag.contains("·") && !existing.timeTag.contains("·")) itemTag else existing.timeTag
                 val higherCategory = if (item.category != TimelineCategory.PLOT_EVENT) item.category else existing.category
 
-                val mergedText = when {
+                val mergedCandidate = when {
                     existing.content == itemContent -> existing.content
                     existing.content.contains(itemContent) -> existing.content
                     itemContent.contains(existing.content) -> itemContent
-                    existing.content.length in 12..35 && itemContent.length in 12..35 -> {
-                        val commonEntities = existing.content.take(4)
+                    existing.content.length in 8..24 && itemContent.length in 8..24 -> {
+                        val commonEntities = existing.content.take(3)
                         if (itemContent.startsWith(commonEntities)) {
                             "${existing.content}，并${itemContent.removePrefix(commonEntities)}"
                         } else {
                             if (existing.content.length >= itemContent.length) existing.content else itemContent
                         }
                     }
-                    existing.content.length > itemContent.length -> existing.content
+                    existing.content.length >= itemContent.length -> existing.content
                     else -> itemContent
                 }
+                // 使用语法分句收束，保证主谓宾完整不腰斩
+                val finalContent = compactSentenceKeepComplete(mergedCandidate, 28)
                 consolidated[existingIdx] = existing.copy(
                     timeTag = cleanerTime,
-                    content = mergedText.take(45),
+                    content = finalContent,
                     category = higherCategory
                 )
             } else {
-                consolidated.add(item.copy(content = itemContent.take(45)))
+                consolidated.add(item.copy(content = itemContent))
             }
         }
 
@@ -1156,43 +1280,43 @@ object TimelineMemoryHelper {
     }
 
     /**
-     * 全局与时间无关设定深度汇总与语义去重（解决问题 2）
-     * 消除分段提取导致的“几个极其相似的设定总结”问题
+     * 全局与时间无关设定深度汇总与语义去重（解决问题 2 与问题 3）
+     * 消除分段提取导致的“几个极其相似的设定总结”现象
      */
     fun consolidateFinalAtemporalSettings(settings: List<AtemporalSettingItem>): List<AtemporalSettingItem> {
         if (settings.isEmpty()) return emptyList()
         val consolidated = mutableListOf<AtemporalSettingItem>()
 
         for (item in settings) {
-            val content = item.content.trim()
-            if (content.isBlank()) continue
+            val content = compactSentenceKeepComplete(item.content, 26)
+            if (content.isBlank() || isPureDirectorInstruction(content)) continue
 
-            val cleanItem = content.replace(Regex("""[，。！？、\s\[\]【】]"""), "")
+            val cleanItem = content.replace(Regex("""[，。！？、\s\[\]【】"”'’]"""), "")
             val existingIdx = consolidated.indexOfFirst { existing ->
-                val cleanExisting = existing.content.replace(Regex("""[，。！？、\s\[\]【】]"""), "")
+                val cleanExisting = existing.content.replace(Regex("""[，。！？、\s\[\]【】"”'’]"""), "")
                 if (cleanExisting == cleanItem) return@indexOfFirst true
                 if (cleanExisting.contains(cleanItem) || cleanItem.contains(cleanExisting)) return@indexOfFirst true
 
-                // Jaccard 相似度判断
+                // Jaccard 相似度比对
                 val setA = cleanExisting.toSet()
                 val setB = cleanItem.toSet()
                 val inter = setA.intersect(setB).size
                 val union = setA.union(setB).size
                 val sim = if (union > 0) inter.toFloat() / union else 0f
 
-                if (sim >= 0.45f) return@indexOfFirst true
-                if (inter >= 5 && sim >= 0.30f) return@indexOfFirst true
-                if (inter >= 4 && (cleanItem.length <= 10 || cleanExisting.length <= 10)) return@indexOfFirst true
+                if (sim >= 0.40f) return@indexOfFirst true
+                if (inter >= 4 && sim >= 0.28f) return@indexOfFirst true
+                if (inter >= 3 && (cleanItem.length <= 8 || cleanExisting.length <= 8)) return@indexOfFirst true
 
                 false
             }
 
             if (existingIdx != -1) {
                 val existing = consolidated[existingIdx]
-                val best = if (item.content.length in 8..30 && item.content.length > existing.content.length) item.content else existing.content
+                val best = if (content.length in 6..26 && content.length > existing.content.length) content else existing.content
                 consolidated[existingIdx] = existing.copy(content = best)
             } else {
-                consolidated.add(item.copy(content = content.take(35)))
+                consolidated.add(item.copy(content = content))
             }
         }
 
@@ -1200,20 +1324,87 @@ object TimelineMemoryHelper {
     }
 
     /**
-     * 全局时间线梳理结果综合汇总收敛 Pass
+     * 跨界事件与设定综合消歧与深度去重（彻底解决问题 3）
+     * 消除“某个事实在时间线事件中作为动态剧情发生，同时又在常驻设定中机械重复记录”的现象
      */
-    fun consolidateFinalReconcileResult(result: TimelineReconcileResult): TimelineReconcileResult {
-        val mergedEvents = consolidateFinalTimelineEvents(result.events)
+    fun crossDeduplicateEventsAndSettings(
+        events: List<TimelineEventItem>,
+        settings: List<AtemporalSettingItem>
+    ): Pair<List<TimelineEventItem>, List<AtemporalSettingItem>> {
+        if (events.isEmpty() || settings.isEmpty()) return Pair(events, settings)
+
+        val cleanEvents = events.toMutableList()
+        val filteredSettings = mutableListOf<AtemporalSettingItem>()
+
+        for (setting in settings) {
+            val cleanSetting = setting.content.replace(Regex("""[，。！？、\s\[\]【】"”'’]"""), "")
+            if (cleanSetting.length < 3) continue
+
+            // 检查是否有时间线事件与该设定本质一致
+            val matchingEvent = cleanEvents.firstOrNull { event ->
+                val cleanEvent = event.content.replace(Regex("""[，。！？、\s\[\]【】"”'’]"""), "")
+                // 1. 直接包含
+                if (cleanEvent.contains(cleanSetting) || cleanSetting.contains(cleanEvent)) return@firstOrNull true
+
+                // 2. 核心字符交集 Jaccard
+                val setA = cleanSetting.toSet()
+                val setB = cleanEvent.toSet()
+                val inter = setA.intersect(setB).size
+                val union = setA.union(setB).size
+                val sim = if (union > 0) inter.toFloat() / union else 0f
+                if (sim >= 0.45f) return@firstOrNull true
+                if (inter >= 5 && sim >= 0.32f) return@firstOrNull true
+
+                false
+            }
+
+            if (matchingEvent != null) {
+                // 如果设定是静态规则（如生理禁忌、世界规则、纯属性），保留精炼表达；
+                // 若设定是动态叙事/经历动作（如“在车站结识”、“前往酒楼”、“答应结盟”），则判定为与时间线事件本质完全一致的重复，剔除设定保留时间线！
+                val isStrictStaticRule = setting.category in listOf("生理禁忌", "世界规则", "习惯偏好") &&
+                        !setting.content.contains("遇到") && !setting.content.contains("前往") &&
+                        !setting.content.contains("答应") && !setting.content.contains("决定") &&
+                        !setting.content.contains("来到")
+                if (isStrictStaticRule) {
+                    filteredSettings.add(setting)
+                } else {
+                    // 动态动作事件已经在时间线编年表中准确记录时空，剔除设定的重复项！
+                }
+            } else {
+                filteredSettings.add(setting)
+            }
+        }
+
+        return Pair(cleanEvents, filteredSettings)
+    }
+
+    /**
+     * 全局时间线梳理结果综合汇总收敛 Pass（端到端整合）
+     * 1. 拦截用户输入与指令事件；
+     * 2. 宏观合并同场景多轮碎事件并基于分句精简（防截断）；
+     * 3. 设定深度去重；
+     * 4. 事件与设定跨界去重消歧；
+     */
+    fun consolidateFinalReconcileResult(
+        result: TimelineReconcileResult,
+        userMessages: Collection<String> = emptyList()
+    ): TimelineReconcileResult {
+        // 1. 事件内部合并与精炼（带用户发言防截取）
+        val mergedEvents = consolidateFinalTimelineEvents(result.events, userMessages)
+        // 2. 设定内部语义去重
         val mergedSettings = consolidateFinalAtemporalSettings(result.atemporalSettings)
+        // 3. 跨界事件与设定消歧去重
+        val (finalEvents, finalSettings) = crossDeduplicateEventsAndSettings(mergedEvents, mergedSettings)
+
         val resolvedStoryTime = if (result.currentStoryTime.isNotBlank() && result.currentStoryTime != "未确定" && result.currentStoryTime != "未知") {
             result.currentStoryTime
         } else {
-            inferCurrentStoryTime(mergedEvents, null)
+            inferCurrentStoryTime(finalEvents, null)
         }
         return result.copy(
             currentStoryTime = resolvedStoryTime,
-            events = mergedEvents.toMutableList(),
-            atemporalSettings = mergedSettings.toMutableList()
+            events = finalEvents.toMutableList(),
+            atemporalSettings = finalSettings.toMutableList()
         )
     }
 
