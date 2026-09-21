@@ -171,6 +171,8 @@ object BackupManager {
                     database.roleplayMemoryDao().getMemoriesListBySession(session.id)
                 } ?: emptyList()
 
+                val timelineNodes = database.timelineNodeDao().getTimelineNodes(conversationId)
+
                 val bundle = SingleConversationExport(
                     formatVersion = 1,
                     type = "single_conversation",
@@ -181,7 +183,8 @@ object BackupManager {
                     roleplaySession = roleplaySession,
                     characterProfile = characterProfile,
                     roleplayScenario = roleplayScenario,
-                    roleplayMemories = roleplayMemories
+                    roleplayMemories = roleplayMemories,
+                    timelineNodes = timelineNodes
                 )
 
                 val json = GsonBuilder().setPrettyPrinting().create().toJson(bundle)
@@ -303,6 +306,7 @@ object BackupManager {
             var targetCharProfile: CharacterProfile? = null
             var targetRpScenario: RoleplayScenario? = null
             var targetRpMemories: List<RoleplayMemory> = emptyList()
+            var targetTimelineNodes: List<TimelineNode> = emptyList()
 
             try {
                 val bundle = gson.fromJson(cleanJson, SingleConversationExport::class.java)
@@ -313,6 +317,7 @@ object BackupManager {
                     targetCharProfile = bundle.characterProfile
                     targetRpScenario = bundle.roleplayScenario
                     targetRpMemories = bundle.roleplayMemories.orEmpty()
+                    targetTimelineNodes = bundle.timelineNodes.orEmpty()
                 }
             } catch (e: Exception) {
                 Log.w("BackupManager", "Direct SingleConversationExport parsing fallback to JsonObject", e)
@@ -348,6 +353,12 @@ object BackupManager {
                         val memArray = rootObj.getAsJsonArray("roleplayMemories")
                         targetRpMemories = memArray.mapNotNull {
                             try { gson.fromJson(it, RoleplayMemory::class.java) } catch (ex: Exception) { null }
+                        }
+                    }
+                    if (rootObj.has("timelineNodes") && rootObj.get("timelineNodes").isJsonArray) {
+                        val nodeArray = rootObj.getAsJsonArray("timelineNodes")
+                        targetTimelineNodes = nodeArray.mapNotNull {
+                            try { gson.fromJson(it, TimelineNode::class.java) } catch (ex: Exception) { null }
                         }
                     }
                 } catch (jsonEx: Exception) {
@@ -459,6 +470,18 @@ object BackupManager {
                         count = targetMessages.size,
                         tokens = targetMessages.sumOf { it.tokenCount }
                     )
+
+                    if (targetTimelineNodes.isNotEmpty()) {
+                        val nodesToInsert = targetTimelineNodes.map { node ->
+                            node.copy(
+                                id = 0L,
+                                conversationId = targetConvId,
+                                createdAt = if (node.createdAt > 0) node.createdAt else now,
+                                updatedAt = now
+                            )
+                        }
+                        database.timelineNodeDao().insertTimelineNodes(nodesToInsert)
+                    }
                 }
             }
             database.invalidationTracker.refreshVersionsSync()
@@ -699,6 +722,21 @@ object BackupManager {
                     }
                 }
 
+                // 7.5 Timeline Nodes
+                if (tableExists(tempDb, "timeline_nodes") && tableExists(activeDb, "timeline_nodes")) {
+                    tempDb.rawQuery("SELECT * FROM timeline_nodes", null).use { cursor ->
+                        val colNames = cursor.columnNames.toList()
+                        while (cursor.moveToNext()) {
+                            val backupConvId = cursor.getLong(cursor.getColumnIndexOrThrow("conversationId"))
+                            val activeConvId = conversationIdMap[backupConvId] ?: backupConvId
+                            val cv = ContentValues()
+                            colNames.filter { it != "id" }.forEach { col -> putColumnValue(cv, cursor, col) }
+                            cv.put("conversationId", activeConvId)
+                            activeDb.insert("timeline_nodes", android.database.sqlite.SQLiteDatabase.CONFLICT_IGNORE, cv)
+                        }
+                    }
+                }
+
                 // 8. Other supplementary tables
                 val simpleTables = listOf("prompt_templates", "memory_items", "conversation_branches", "selected_models")
                 for (tableName in simpleTables) {
@@ -902,7 +940,8 @@ object BackupManager {
         @SerializedName("roleplaySession") val roleplaySession: RoleplaySession? = null,
         @SerializedName("characterProfile") val characterProfile: CharacterProfile? = null,
         @SerializedName("roleplayScenario") val roleplayScenario: RoleplayScenario? = null,
-        @SerializedName("roleplayMemories") val roleplayMemories: List<RoleplayMemory>? = emptyList()
+        @SerializedName("roleplayMemories") val roleplayMemories: List<RoleplayMemory>? = emptyList(),
+        @SerializedName("timelineNodes") val timelineNodes: List<TimelineNode>? = emptyList()
     )
 
     @Keep

@@ -78,7 +78,8 @@ class AiAssistantApp : Application() {
                 personalizationManager = personalizationManager,
                 tavilySearchManager = tavilySearchManager,
                 echoToolHub = echoToolHub,
-                worldBookDao = database.worldBookDao()
+                worldBookDao = database.worldBookDao(),
+                timelineNodeDao = database.timelineNodeDao()
             )
             roleplayRepository = com.aiassistant.data.repository.RoleplayRepository(
                 characterProfileDao = database.characterProfileDao(),
@@ -120,7 +121,8 @@ class AiAssistantApp : Application() {
                         personalizationManager = personalizationManager,
                         tavilySearchManager = tavilySearchManager,
                         echoToolHub = echoToolHub,
-                        worldBookDao = database.worldBookDao()
+                        worldBookDao = database.worldBookDao(),
+                        timelineNodeDao = database.timelineNodeDao()
                     )
                     roleplayRepository = com.aiassistant.data.repository.RoleplayRepository(
                         characterProfileDao = database.characterProfileDao(),
@@ -159,7 +161,8 @@ class AiAssistantApp : Application() {
                     personalizationManager = personalizationManager,
                     tavilySearchManager = tavilySearchManager,
                     echoToolHub = echoToolHub,
-                    worldBookDao = database.worldBookDao()
+                    worldBookDao = database.worldBookDao(),
+                    timelineNodeDao = database.timelineNodeDao()
                 )
                 roleplayRepository = com.aiassistant.data.repository.RoleplayRepository(
                     characterProfileDao = database.characterProfileDao(),

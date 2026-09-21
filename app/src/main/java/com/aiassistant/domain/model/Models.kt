@@ -1,6 +1,9 @@
 package com.aiassistant.domain.model
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.ForeignKey
+import androidx.room.Ignore
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
@@ -92,6 +95,7 @@ data class Conversation(
     val enableWorldBook: Boolean? = null,
     val activeWorldBookIds: String? = null,
     val modelAvatarUri: String? = null,
+    val currentStoryTime: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 )
@@ -249,6 +253,39 @@ data class PendingMemoryCandidate(
     val sourceMessageId: Long? = null,
     val category: String = "PREFERENCE"   // "PREFERENCE", "FACT", "PROJECT"
 )
+
+// 时间线独立节点实体
+@Entity(
+    tableName = "timeline_nodes",
+    indices = [
+        Index(value = ["conversationId"]),
+        Index(value = ["orderIndex"]),
+        Index(value = ["updatedAt"])
+    ],
+    foreignKeys = [
+        ForeignKey(
+            entity = Conversation::class,
+            parentColumns = ["id"],
+            childColumns = ["conversationId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ]
+)
+data class TimelineNode(
+    @PrimaryKey(autoGenerate = true)
+    val id: Long = 0,
+    val conversationId: Long,
+    val timeTag: String,                  // 明确的时间节点，如 "第 1 天·清晨"、"两周过后"
+    @ColumnInfo(name = "eventContent")
+    val event: String,                    // 关键事件内容
+    val category: String = "PLOT_EVENT",  // 分类：PLOT_EVENT/RULE_CONSTRAINT/CHARACTER_SETTING/WORLD_SETTING
+    val orderIndex: Int = 0,              // 明确的时间顺序索引
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis()
+) {
+    @get:Ignore
+    val eventContent: String get() = event
+}
 
 // 会话分支
 @Entity(

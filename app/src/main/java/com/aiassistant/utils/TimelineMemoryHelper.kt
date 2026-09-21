@@ -1,6 +1,7 @@
 package com.aiassistant.utils
 
 import com.aiassistant.domain.model.Message
+import com.aiassistant.domain.model.TimelineNode
 import com.google.gson.JsonParser
 import java.util.UUID
 import java.util.regex.Pattern
@@ -9,20 +10,30 @@ import java.util.regex.Pattern
  * 时间线与设定条目分类
  */
 enum class TimelineCategory(val displayName: String, val emoji: String, val tagColorHex: String) {
-    PLOT_EVENT("剧情推进", "📖", "#2196F3"),
+    PLOT_EVENT("剧情事件", "📖", "#2196F3"),
+    TURNING_POINT("转折关键", "⚡", "#E91E63"),
+    CHARACTER_BOND("羁绊进展", "🤝", "#9C27B0"),
+    RELATIONSHIP("关系状态", "❤️", "#F06292"),
+    KEY_FACT("重要事实", "📌", "#009688"),
     RULE_CONSTRAINT("规则约束", "⚖️", "#FF9800"),
-    CHARACTER_SETTING("角色设定", "🎭", "#9C27B0"),
-    WORLD_SETTING("剧情设定", "🌍", "#4CAF50"),
-    ATEMPORAL_SETTING("固有设定", "💡", "#E91E63");
+    CHARACTER_SETTING("角色设定", "🎭", "#673AB7"),
+    WORLD_SETTING("世界设定", "🌍", "#4CAF50"),
+    ATEMPORAL_SETTING("固有设定", "💡", "#607D8B");
+
+    val key: String get() = name
 
     companion object {
         fun fromKey(key: String?): TimelineCategory {
             if (key.isNullOrBlank()) return PLOT_EVENT
             val lower = key.lowercase()
             return when {
+                lower.contains("turning") || lower.contains("转折") -> TURNING_POINT
+                lower.contains("bond") || lower.contains("羁绊") -> CHARACTER_BOND
+                lower.contains("relationship") || lower.contains("关系") -> RELATIONSHIP
+                lower.contains("fact") || lower.contains("事实") -> KEY_FACT
                 lower.contains("atemporal") || lower.contains("固有") || lower.contains("常驻") || lower.contains("固有设定") -> ATEMPORAL_SETTING
                 lower.contains("rule") || lower.contains("constraint") || lower.contains("规则") || lower.contains("约束") || lower.contains("禁止") -> RULE_CONSTRAINT
-                lower.contains("char") || lower.contains("role") || lower.contains("角色") || lower.contains("人物") || lower.contains("关系") -> CHARACTER_SETTING
+                lower.contains("char") || lower.contains("role") || lower.contains("角色") || lower.contains("人物") -> CHARACTER_SETTING
                 lower.contains("world") || lower.contains("scene") || lower.contains("世界") || lower.contains("设定") || lower.contains("状态") -> WORLD_SETTING
                 else -> PLOT_EVENT
             }
@@ -139,11 +150,13 @@ object TimelineMemoryHelper {
     }
 
     private fun getPhaseOrder(subPhase: String): Int {
+        val clean = subPhase.trim()
         return when {
-            subPhase.contains("早") || subPhase.contains("晨") || subPhase.contains("上午") -> 1
-            subPhase.contains("中") || subPhase.contains("午") -> 2
-            subPhase.contains("傍晚") || subPhase.contains("黄昏") -> 3
-            subPhase.contains("晚") || subPhase.contains("夜") || subPhase.contains("宿") -> 4
+            clean.contains("早") || clean.contains("晨") || clean.contains("上午") || clean.contains("破晓") || clean.contains("拂晓") -> 1
+            clean.contains("中") || clean.contains("正午") || clean.contains("午间") || clean.contains("晌午") -> 2
+            clean.contains("下午") || clean.contains("午后") -> 3
+            clean.contains("傍晚") || clean.contains("黄昏") || clean.contains("日落") || clean.contains("夕阳") -> 4
+            clean.contains("晚") || clean.contains("夜") || clean.contains("宿") || clean.contains("子时") || clean.contains("掌灯") -> 5
             else -> 0
         }
     }
@@ -151,16 +164,25 @@ object TimelineMemoryHelper {
     /**
      * 判断并估算叙事时间跨度跃迁天数（例如：两周后、一个月后、暑假开始、新学期、数日后等）
      * 返回跃迁的天数（> 0），若非时间跨度则返回 0
+     * 核心改进：严谨排除“两年前”、“这两天”、“数日前”、“持续数日”等非前向推进语境，杜绝异常时间暴跳！
      */
     fun estimateTimeSpanJumpDays(tag: String): Int {
         val clean = tag.trim().lowercase()
+
+        // 1. 严格排除过去时态、范围修饰与非前向推进语境
+        if (clean.contains("前") || clean.contains("回忆") || clean.contains("往事") ||
+            clean.contains("这") || clean.contains("持续") || clean.contains("历经") || clean.contains("耗费")) {
+            return 0
+        }
+
+        // 2. 仅匹配明确向前推进的时间跨度词
         return when {
-            clean.contains("十年") || clean.contains("10年") -> 3650
-            clean.contains("五年") || clean.contains("5年") -> 1825
-            clean.contains("四年") || clean.contains("4年") -> 1460
-            clean.contains("三年") || clean.contains("3年") || clean.contains("三载") -> 1095
-            clean.contains("两年") || clean.contains("2年") || clean.contains("两载") -> 730
-            clean.contains("一年后") || clean.contains("1年后") || clean.contains("一年过后") -> 365
+            clean.contains("十年后") || clean.contains("10年后") || clean.contains("十年过后") || clean.contains("十年之") -> 3650
+            clean.contains("五年后") || clean.contains("5年后") || clean.contains("五年过后") -> 1825
+            clean.contains("四年后") || clean.contains("4年后") || clean.contains("四年过后") -> 1460
+            clean.contains("三年后") || clean.contains("3年后") || clean.contains("三年过后") || clean.contains("三载后") -> 1095
+            clean.contains("两年后") || clean.contains("2年后") || clean.contains("两年过后") || clean.contains("两载后") -> 730
+            clean.contains("一年后") || clean.contains("1年后") || clean.contains("一年过后") || clean.contains("次年") -> 365
             clean.contains("数年后") || clean.contains("数载后") -> 730
             clean.contains("半年后") || clean.contains("半年过后") -> 180
             clean.contains("四个月后") || clean.contains("4个月后") -> 120
@@ -172,34 +194,32 @@ object TimelineMemoryHelper {
             clean.contains("四周后") || clean.contains("4周后") -> 28
             clean.contains("三周后") || clean.contains("3周后") -> 21
             clean.contains("半个月后") || clean.contains("半月后") -> 15
-            clean.contains("两周后") || clean.contains("两周过后") || clean.contains("两周") || clean.contains("2周") -> 14
-            clean.contains("数周后") || clean.contains("数周") -> 14
+            clean.contains("两周后") || clean.contains("两周过后") || clean.contains("2周后") -> 14
+            clean.contains("数周后") || clean.contains("几周后") -> 14
             clean.contains("十天后") || clean.contains("10天后") -> 10
             clean.contains("九天后") || clean.contains("9天后") -> 9
             clean.contains("八天后") || clean.contains("8天后") -> 8
-            clean.contains("一周后") || clean.contains("一周过后") || clean.contains("一周") || clean.contains("1周") || clean.contains("一星期") || clean.contains("七天") -> 7
+            clean.contains("一周后") || clean.contains("一周过后") || clean.contains("1周后") || clean.contains("一星期后") || clean.contains("七天后") -> 7
             clean.contains("六天后") || clean.contains("6天后") -> 6
             clean.contains("五天后") || clean.contains("5天后") -> 5
             clean.contains("四天后") || clean.contains("4天后") -> 4
             clean.contains("大后天") -> 3
-            clean.contains("三天后") || clean.contains("3天后") || clean.contains("数日后") || clean.contains("几天后") || clean.contains("数天后") -> 3
+            clean.contains("三天后") || clean.contains("3天后") || clean.contains("数日后") || clean.contains("几天后") || clean.contains("数天后") || (clean.contains("三天") && clean.contains("过")) -> 3
             clean.contains("两天后") || clean.contains("2天后") || clean.contains("隔天") || clean.contains("后天") -> 2
-            clean.contains("一年") -> 365
-            clean.contains("半年") -> 180
-            clean.contains("一个月") -> 30
-            clean.contains("数日") || clean.contains("几天") -> 3
-            clean.contains("两天") || clean.contains("2天") -> 2
-            clean.contains("三天") || clean.contains("3天") -> 3
+            // 完整独立的自然时间跨度标签兜底
+            clean == "两周" || clean == "两周过后" || clean == "2周" -> 14
+            clean == "一周" || clean == "一周过后" || clean == "1周" -> 7
+            clean == "一个月" || clean == "1个月" -> 30
+            clean == "半年" -> 180
+            clean == "一年" -> 365
             else -> 0
         }
     }
 
     /**
      * 单调递增时序状态机：
-     * 1. 解决“第二天”剧情发生后，后续再次出现的“第二天/次日/第二天早上”被机械识别为第2天的严重时序倒流错误，
-     *    将重复或相对次日单调递增累进为绝对故事天数（第3天、第4天...）。
-     * 2. 拥抱自然文学叙事与阶段锚点：并非所有事件都以具体“第X天”为单位，全面兼容“两周过后”、“暑假开始”、“一年后·春”等
-     *    自然时间跨度与阶段性事件，合理维护内部递增推进的同时，完整保留真实文学叙事时间标签。
+     * 1. 解决同日内多轮对话事件（如同一顿午餐、同一下午讨论）被机械识别为递增天数的严重割裂问题；
+     * 2. 拥抱自然文学叙事与阶段锚点：全面兼容“两周过后”、“暑假开始”、“一年后·春”等自然时间标签。
      */
     fun normalizeMonotonicTimeline(events: List<TimelineEventItem>): List<TimelineEventItem> {
         var currentDay = 1
@@ -225,30 +245,38 @@ object TimelineMemoryHelper {
                     lastPhaseOrder = phaseOrder
                     hasSeenDayInCurrentEpoch = true
                 } else if (parsedDay == currentDay) {
-                    // 若在同一天内，但后文出现的时段比前文更早（如傍晚之后出现早上），说明已经跨过了夜晚进入了次日！
-                    // 或者如果包含“第二天/次日”标记且前序已有事件，也是次日！
+                    // 仅当包含明确的次日指示（如“第二天/次日”）且此前已记录过当前天数事件时，才推进到次日；
+                    // 或前一事件已是入夜/深夜(order >= 4)，后一事件回到早晨/上午(order == 1)且包含过夜或次日指示时，才推进；
+                    // 核心铁律：同一天内的同一时段（如吃饭点菜、就餐、餐桌交谈，或下午同一场会谈）绝对不累加天数！
                     if (isRelativeNextDay && hasSeenDayInCurrentEpoch) {
                         currentDay++
                         lastPhaseOrder = phaseOrder
-                    } else if (lastPhaseOrder > 0 && phaseOrder > 0 && phaseOrder <= lastPhaseOrder) {
+                    } else if (lastPhaseOrder >= 4 && phaseOrder == 1 && (item.content.contains("睡") || item.content.contains("醒") || isRelativeNextDay)) {
                         currentDay++
                         lastPhaseOrder = phaseOrder
                     } else {
-                        if (phaseOrder > lastPhaseOrder) lastPhaseOrder = phaseOrder
+                        if (phaseOrder > lastPhaseOrder) {
+                            lastPhaseOrder = phaseOrder
+                        }
                         hasSeenDayInCurrentEpoch = true
                     }
                 } else {
                     // parsedDay < currentDay
-                    currentDay++
+                    // 若此前发生过自然时间跨度跳跃（如“两周过后”），重置 epoch 后合理顺延
+                    if (!hasSeenDayInCurrentEpoch) {
+                        currentDay++
+                    }
                     lastPhaseOrder = phaseOrder
+                    hasSeenDayInCurrentEpoch = true
                 }
-                
+
                 if (subPhase.isNotBlank()) "第 $currentDay 天·$subPhase" else "第 $currentDay 天"
             } else if (isRelativeNextDay) {
                 currentDay++
                 val subPhase = when {
                     tag.contains("早") || tag.contains("晨") || tag.contains("上午") -> "早晨"
                     tag.contains("午") -> "中午"
+                    tag.contains("下午") -> "下午"
                     tag.contains("傍晚") || tag.contains("黄昏") -> "傍晚"
                     tag.contains("夜") || tag.contains("晚") -> "夜间"
                     else -> "白天"
@@ -257,13 +285,11 @@ object TimelineMemoryHelper {
                 hasSeenDayInCurrentEpoch = true
                 "第 $currentDay 天·$subPhase"
             } else if (spanJumpDays > 0) {
-                // 遇到“两周过后”、“一个月后”等跨度跳跃词，在内部天数上向前推进，同时完整保留自然描述标签
                 currentDay += spanJumpDays
                 lastPhaseOrder = 0
                 hasSeenDayInCurrentEpoch = false
                 tag
             } else {
-                // 阶段性叙事节点（如“暑假开始”、“开学第一天”、“深秋·初雪”），完整保留叙事标签
                 val subPhase = tag.substringAfter("·", "")
                 if (subPhase.isNotBlank()) {
                     lastPhaseOrder = getPhaseOrder(subPhase)
@@ -866,14 +892,23 @@ object TimelineMemoryHelper {
     }
 
     /**
-     * 智能增量合并或追加事件（解决多轮对话同一事件重复添加冗余问题）
+     * 智能增量合并或追加事件（解决多轮对话同一事件如吃饭、讨论被拆分重复冗余问题）
      * 如果传入事件与已有事件在同一时间节点且核心语义/实体重合度高，执行增量润色合并，否则追加。
      */
-    fun mergeOrAppendEvent(existingEvents: List<TimelineEventItem>, incoming: TimelineEventItem): List<TimelineEventItem> {
+    fun mergeOrAppendEvent(
+        existingEvents: List<TimelineEventItem>,
+        incoming: TimelineEventItem,
+        normalizeAtEnd: Boolean = true
+    ): List<TimelineEventItem> {
         val result = existingEvents.map { it.copy() }.toMutableList()
         val incomingTag = incoming.timeTag.trim()
         val incomingContent = incoming.content.trim()
         if (incomingContent.isBlank()) return result
+
+        val overlapKeywords = listOf(
+            "早餐", "午餐", "晚餐", "吃饭", "就餐", "用餐", "点菜", "餐厅", "食堂", "茶馆", "酒楼", "同席", "聚餐", "喝茶", "饮茶",
+            "在一起", "同行", "战斗", "交手", "逃跑", "商议", "讨论", "对策", "告白", "重逢", "初遇", "相遇", "车站", "学校", "离开", "到达"
+        )
 
         // 寻找同时间或同天且语义高度重叠的已有条目
         val targetIndex = result.indexOfFirst { existing ->
@@ -888,7 +923,6 @@ object TimelineMemoryHelper {
             val cleanIncoming = incomingContent.replace(Regex("""[，。！？、\s]"""), "")
 
             val isSubset = cleanExisting.contains(cleanIncoming) || cleanIncoming.contains(cleanExisting)
-            val overlapKeywords = listOf("早餐", "午餐", "晚餐", "在一起", "同行", "战斗", "逃跑", "商议", "告白", "重逢", "车站", "学校", "离开", "到达")
             val keywordMatch = overlapKeywords.any { cleanExisting.contains(it) && cleanIncoming.contains(it) }
 
             isSubset || keywordMatch
@@ -898,7 +932,6 @@ object TimelineMemoryHelper {
             val existing = result[targetIndex]
             val cleanExisting = existing.content.replace(Regex("""[，。！？、\s]"""), "")
             val cleanIncoming = incomingContent.replace(Regex("""[，。！？、\s]"""), "")
-            val overlapKeywords = listOf("早餐", "午餐", "晚餐", "在一起", "同行", "战斗", "逃跑", "商议", "告白", "重逢", "车站", "学校", "离开", "到达")
             val hasKeywordOverlap = overlapKeywords.any { cleanExisting.contains(it) && cleanIncoming.contains(it) }
 
             val mergedContent = when {
@@ -919,7 +952,38 @@ object TimelineMemoryHelper {
             result.add(incoming)
         }
 
-        return normalizeMonotonicTimeline(result)
+        return if (normalizeAtEnd) normalizeMonotonicTimeline(result) else result
+    }
+
+    fun buildTimelineNodesPromptContext(
+        nodes: List<TimelineNode>,
+        currentStoryTime: String? = null
+    ): String {
+        if (nodes.isEmpty() && currentStoryTime.isNullOrBlank()) return ""
+        val sb = StringBuilder()
+        sb.append("<session_timeline>\n")
+        sb.append("以下是当前会话经过梳理确认的故事时间线脉络（按发生时序排列）：\n")
+        if (!currentStoryTime.isNullOrBlank()) {
+            sb.append("【当前故事时间节点】：$currentStoryTime\n")
+        }
+        val sortedNodes = nodes.sortedWith(compareBy<TimelineNode> { it.orderIndex }.thenBy { it.createdAt })
+        sortedNodes.forEachIndexed { index, node ->
+            val cat = TimelineCategory.fromKey(node.category)
+            val tagStr = if (node.timeTag.isNotBlank()) "[${node.timeTag}] " else ""
+            sb.append("[${index + 1}] $tagStr【${cat.displayName}】${node.event}\n")
+        }
+        sb.append("【时序约束】：请严格基于该时序脉络推进，后续对话若发生时间推移请主动输出新时间节点。\n")
+        sb.append("</session_timeline>")
+        return sb.toString()
+    }
+
+    fun cleanTimelineResiduesFromMemories(memories: List<String>): List<String> {
+        return memories.filter { content ->
+            val trimmed = content.trim()
+            !trimmed.startsWith("【当前故事时间】：") &&
+            !trimmed.startsWith("当前故事时间：") &&
+            !isExplicitTimelineEvent(trimmed)
+        }
     }
 
     /**
@@ -939,3 +1003,19 @@ object TimelineMemoryHelper {
         return chunks
     }
 }
+
+fun TimelineNode.toTimelineEventItem(): TimelineEventItem = TimelineEventItem(
+    id = this.id.toString(),
+    timeTag = this.timeTag,
+    content = this.event,
+    category = TimelineCategory.fromKey(this.category)
+)
+
+fun TimelineEventItem.toTimelineNode(conversationId: Long, orderIndex: Int): TimelineNode = TimelineNode(
+    id = this.id.toLongOrNull() ?: 0L,
+    conversationId = conversationId,
+    timeTag = this.timeTag,
+    event = this.content,
+    category = this.category.name,
+    orderIndex = orderIndex
+)

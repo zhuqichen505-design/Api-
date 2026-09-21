@@ -87,8 +87,16 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
     private val _translatingMessageIds = MutableStateFlow<Set<Long>>(emptySet())
     val translatingMessageIds: StateFlow<Set<Long>> = _translatingMessageIds.asStateFlow()
 
-    // 本会话专属记忆列表
+    // 本会话专属记忆列表（仅存放纯净设定与规则）
     val sessionMemories: StateFlow<List<MemoryItem>> = repository.getConversationMemories(conversationId)
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    // 本会话独立时间线节点流（单一独立存放时间与关键事件）
+    val timelineNodes: StateFlow<List<TimelineNode>> = repository.getTimelineNodesFlow(conversationId)
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
@@ -222,7 +230,8 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                         roleplayCharacter = rpCharacter,
                         roleplayCharacters = rpCharacters,
                         roleplayScenario = rpScenario,
-                        narrativeMode = narrativeMode
+                        narrativeMode = narrativeMode,
+                        currentStoryTime = conv.currentStoryTime
                     )
                 }
             }
@@ -1361,24 +1370,38 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
         confirmedSettings: List<AtemporalSettingItem> = emptyList()
     ) {
         viewModelScope.launch {
-            // 1. 清空当前会话旧的专属记忆
-            repository.clearConversationMemories(conversationId)
+            // 1. 故事时间独立存入 Conversation 表
+            val cleanStoryTime = currentStoryTime.trim().takeIf { it.isNotBlank() && it != "未确定" }
+            repository.updateStoryTime(conversationId, cleanStoryTime)
 
-            // 2. 如果指定了当前故事时间，存入当前故事时间锚点记忆
-            val cleanStoryTime = currentStoryTime.trim()
-            if (cleanStoryTime.isNotBlank() && cleanStoryTime != "未确定") {
-                repository.addConversationMemory(conversationId, "【当前故事时间】：$cleanStoryTime")
+            // 2. 时间与事件独立存入 timeline_nodes 表，保留明确时序与分类
+            val nodesToSave = events.mapIndexed { idx, ev ->
+                TimelineNode(
+                    conversationId = conversationId,
+                    timeTag = ev.timeTag.trim(),
+                    event = ev.content.trim(),
+                    category = ev.category.key,
+                    orderIndex = idx,
+                    createdAt = System.currentTimeMillis(),
+                    updatedAt = System.currentTimeMillis()
+                )
             }
+            repository.replaceTimelineNodes(conversationId, nodesToSave)
 
-            // 3. 逐条保存用户审核与编辑后的事件/时间锚定设定
-            for (event in events) {
-                val formatted = TimelineMemoryHelper.formatEventContent(event.timeTag, event.content, event.category)
-                if (formatted.isNotBlank()) {
-                    repository.addConversationMemory(conversationId, formatted)
+            // 3. 清理之前误存放在 memory_items 中的时间线碎片，但完整保留用户自定义的纯净设定与规则
+            try {
+                val oldMemories = repository.getConversationMemoriesList(conversationId)
+                for (oldMem in oldMemories) {
+                    val trimmed = oldMem.content.trim()
+                    if (trimmed.startsWith("【当前故事时间】：") || trimmed.startsWith("当前故事时间：") || TimelineMemoryHelper.isExplicitTimelineEvent(trimmed)) {
+                        repository.deleteMemory(oldMem.id)
+                    }
                 }
+            } catch (e: Exception) {
+                Log.w("ChatViewModel", "清理旧时间线记忆缓存失败: ${e.message}")
             }
 
-            // 4. 保存用户确认加入的时间无关全局角色与世界设定
+            // 4. 仅将时间无关的全局或会话角色与世界设定存入专属记忆表
             for (setting in confirmedSettings) {
                 if (setting.isSelected && setting.content.isNotBlank()) {
                     val formatted = "【${setting.category}】${setting.content.trim()}"
@@ -1395,14 +1418,51 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
         }
     }
 
-    fun updateSessionMemoryWithTimeline(memoryId: Long, timeTag: String, content: String, category: TimelineCategory = TimelineCategory.PLOT_EVENT) {
+    // -------------------------------------------------------------
+    // 用户对独立时间线的编辑与管理操作接口（满足需求 1）
+    // -------------------------------------------------------------
+    fun updateCurrentStoryTime(newTime: String?) {
         viewModelScope.launch {
-            val formatted = TimelineMemoryHelper.formatEventContent(timeTag, content, category)
-            val current = sessionMemories.value.find { it.id == memoryId }
-            if (current != null) {
-                repository.updateMemory(current.copy(content = formatted, updatedAt = System.currentTimeMillis()))
-                loadConversation()
-            }
+            repository.updateStoryTime(conversationId, newTime?.trim()?.takeIf { it.isNotBlank() && it != "未确定" })
+            loadConversation()
+        }
+    }
+
+    fun addTimelineNode(timeTag: String, event: String, category: String = TimelineCategory.PLOT_EVENT.key) {
+        viewModelScope.launch {
+            val currentNodes = timelineNodes.value
+            val nextOrder = (currentNodes.maxOfOrNull { it.orderIndex } ?: 0) + 1
+            repository.addTimelineNode(
+                TimelineNode(
+                    conversationId = conversationId,
+                    timeTag = timeTag.trim(),
+                    event = event.trim(),
+                    category = category,
+                    orderIndex = nextOrder,
+                    createdAt = System.currentTimeMillis(),
+                    updatedAt = System.currentTimeMillis()
+                )
+            )
+        }
+    }
+
+    fun updateTimelineNode(node: TimelineNode) {
+        viewModelScope.launch {
+            repository.updateTimelineNode(node.copy(updatedAt = System.currentTimeMillis()))
+        }
+    }
+
+    fun deleteTimelineNode(nodeId: Long) {
+        viewModelScope.launch {
+            repository.deleteTimelineNodeById(nodeId)
+        }
+    }
+
+    fun clearTimeline() {
+        viewModelScope.launch {
+            repository.clearTimeline(conversationId)
+            repository.updateStoryTime(conversationId, null)
+            loadConversation()
         }
     }
 
@@ -2187,7 +2247,8 @@ data class ChatUiState(
     val roleplayCharacters: List<CharacterProfile> = emptyList(),
     val roleplayScenario: RoleplayScenario? = null,
     val narrativeMode: NarrativeMode = NarrativeMode.CHARACTER,
-    val suggestedProposal: ProposedSettingBundle? = null
+    val suggestedProposal: ProposedSettingBundle? = null,
+    val currentStoryTime: String? = null
 )
 
 data class ContextUsageUiState(

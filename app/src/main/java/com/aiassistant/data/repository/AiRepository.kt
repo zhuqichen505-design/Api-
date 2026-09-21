@@ -14,6 +14,7 @@ import com.aiassistant.utils.TavilySearchManager
 import com.aiassistant.utils.TimelineMemoryHelper
 import com.aiassistant.utils.TimelineReconcileResult
 import com.aiassistant.utils.TimelineEventItem
+import com.aiassistant.utils.toTimelineEventItem
 import com.aiassistant.utils.TimelineCategory
 import com.aiassistant.utils.AtemporalSettingItem
 import com.aiassistant.utils.AdvancedMemoryEngine
@@ -28,6 +29,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.Call
@@ -65,7 +67,8 @@ class AiRepository(
     private val personalizationManager: PersonalizationManager,
     private val tavilySearchManager: TavilySearchManager,
     private val echoToolHub: com.aiassistant.tools.EchoToolHub? = null,
-    private val worldBookDao: WorldBookDao? = null
+    private val worldBookDao: WorldBookDao? = null,
+    private val timelineNodeDao: TimelineNodeDao? = null
 ) {
     private val gson = Gson()
     private val tag = "AiRepository"
@@ -1100,6 +1103,9 @@ class AiRepository(
 
     fun getConversationMemories(conversationId: Long): Flow<List<MemoryItem>> =
         memoryDao.getConversationMemoriesFlow(conversationId)
+
+    suspend fun getConversationMemoriesList(conversationId: Long): List<MemoryItem> =
+        memoryDao.getConversationMemories(conversationId)
 
     suspend fun addConversationMemory(conversationId: Long, content: String): Long {
         val now = System.currentTimeMillis()
@@ -3628,6 +3634,12 @@ class AiRepository(
             4.【用户写作指令 `[...]` 与正文剧情严格解耦】：
                - 用户发送的中括号内容（如 `[让两人在雨夜再次相遇]`、`[推进剧情]`）是【编剧/导演的写作指令】，严禁将指令原话当作剧情事件记录！依据正文实际演出的事实进行提炼。
 
+            5.【同一事件/连续场景归并与防虚假跨天铁律（绝不允许把一件事拆成多天）】：
+               - 现实中一件事情（例如一顿聚餐、一次长谈、一场战斗、一次旅途同车）通常由多轮对话连续进行演进；
+               - 严禁将同一个连续场景或同一件事中的各轮次发言错误切分成多天或多顿饭！
+               - 除非剧情正文中明确描写了“次日/到了第二天/过了一周”或发生明确的时空跳跃，否则整个进餐、讨论、同游过程属于同一个连续时间节点（如：[第1天·傍晚]），必须合并为一个完整的剧情事件条目，严禁生成“第1天吃饭”、“第2天吃饭”、“第3天吃饭”！
+               - 严禁非正向推移的时间跨度暴跳：若剧情出现“两年前”、“这两天”、“数日前”，这属于回忆或口头提及，绝不是故事主线向前推进了两年，严禁将时间标签跃迁为两年前或暴跳 730 天！
+
             请严格按照以下 JSON 格式输出，杜绝任何额外客套或解释：
             ```json
             {
@@ -3713,9 +3725,10 @@ class AiRepository(
 
         val conversation = conversationDao.getConversationById(conversationId)
         val configPair = resolveTimelineAnalysisConfig(activeConfigId, activeModelName, conversation)
-        val existingStoryTime = memoryDao.getCandidateMemories(conversationId)
-            .firstOrNull { it.content.startsWith("【当前故事时间】：") || it.content.startsWith("当前故事时间：") }
-            ?.content?.substringAfter("：")?.trim()
+        val existingStoryTime = conversation?.currentStoryTime?.takeIf { it.isNotBlank() && it != "未确定" }
+            ?: memoryDao.getCandidateMemories(conversationId)
+                .firstOrNull { it.content.startsWith("【当前故事时间】：") || it.content.startsWith("当前故事时间：") }
+                ?.content?.substringAfter("：")?.trim()
 
         if (configPair == null) {
             val fallback = fallbackLocalTimelineScan(messages)
@@ -3814,16 +3827,20 @@ class AiRepository(
         val totalLength = userMessage.length + assistantReply.length
         if (totalLength < 10) return@withContext null
 
-        val existingMemories = memoryDao.getCandidateMemories(conversationId)
+        val existingStoryTime = conversation.currentStoryTime?.takeIf { it.isNotBlank() && it != "未确定" }
+            ?: memoryDao.getCandidateMemories(conversationId)
+                .firstOrNull { it.content.startsWith("【当前故事时间】：") || it.content.startsWith("当前故事时间：") }
+                ?.content?.substringAfter("：")?.trim() ?: "第 1 天·起始"
 
-        val existingStoryTime = existingMemories
-            .firstOrNull { it.content.startsWith("【当前故事时间】：") || it.content.startsWith("当前故事时间：") }
-            ?.content?.substringAfter("：")?.trim() ?: "第 1 天·起始"
-
-        val existingEvents = existingMemories
-            .map { it.content }
-            .filter { it.startsWith("[") || it.startsWith("【") }
-            .map { TimelineMemoryHelper.parseContentToEvent(it) }
+        val currentTimelineNodes = timelineNodeDao?.getTimelineNodes(conversationId) ?: emptyList()
+        val existingEvents = if (currentTimelineNodes.isNotEmpty()) {
+            currentTimelineNodes.map { it.toTimelineEventItem() }
+        } else {
+            memoryDao.getCandidateMemories(conversationId)
+                .map { it.content }
+                .filter { it.startsWith("[") || it.startsWith("【") }
+                .map { TimelineMemoryHelper.parseContentToEvent(it) }
+        }
 
         val configPair = resolveTimelineAnalysisConfig(activeConfigId, activeModelName, conversation) ?: return@withContext null
         val (config, targetModel) = configPair
@@ -3846,6 +3863,9 @@ class AiRepository(
                - 请用客观、精炼的文学叙事语言归纳该事实（格式：主体在何处完成了什么关键事实，15~40字）；
                - 严禁包含“用户”、“AI”、“助手”、“模型”等出戏元词汇！
                - 严禁把用户的写作指导指令（如“继续写”、“让他们在雨夜相遇”）原样作为事件记录，必须依据助手正文中实际演出的情节事实提炼！
+            3.【同一场景归并与防虚假跨天铁律】：
+               - 严禁将同一个连续场景或同一件事（如一顿饭、一次促膝长谈、一场战斗）错误拆分成多天多顿饭！
+               - 若对话中出现“两年前”、“这两天”、“数日前”，这属于回忆或提及，绝不可当成故事推进并跃迁两年！
 
             注意：
             1. 若本轮交互只是普通客套、简单寒暄或常规交谈，未发生任何时间推移且无关键剧情里程碑事件，请直接输出：NO_UPDATE
@@ -3900,29 +3920,45 @@ class AiRepository(
         var isEventAddedOrMerged = false
 
         if (!newStoryTime.isNullOrBlank() && newStoryTime != existingStoryTime) {
-            val existingTimeMemory = existingMemories.firstOrNull { it.content.startsWith("【当前故事时间】：") || it.content.startsWith("当前故事时间：") }
-            if (existingTimeMemory != null) {
-                memoryDao.updateMemory(existingTimeMemory.copy(content = "【当前故事时间】：$newStoryTime", updatedAt = System.currentTimeMillis()))
-            } else {
-                addConversationMemory(conversationId, "【当前故事时间】：$newStoryTime")
-            }
+            // 直接更新 Conversation 的 currentStoryTime，彻底与普通记忆表解耦
+            conversationDao.updateConversation(
+                conversation.copy(
+                    currentStoryTime = newStoryTime,
+                    updatedAt = System.currentTimeMillis()
+                )
+            )
             isStoryTimeChanged = true
         }
 
         if (newEvent != null && newEvent.content.isNotBlank()) {
-            val mergedList = TimelineMemoryHelper.mergeOrAppendEvent(existingEvents, newEvent)
-            // 检查是否有现有条目被合并丰富，或者插入新条目
-            val targetExisting = existingMemories.firstOrNull {
-                it.content.contains(newEvent.content.take(15)) ||
-                (newEvent.content.length >= 15 && it.content.take(15).let { sub -> newEvent.content.contains(sub) })
+            val existingNodes = timelineNodeDao?.getTimelineNodes(conversationId) ?: emptyList()
+            val targetExisting = existingNodes.firstOrNull { node ->
+                node.event.contains(newEvent.content.take(15)) ||
+                (newEvent.content.length >= 15 && node.event.take(15).let { sub -> newEvent.content.contains(sub) })
             }
             if (targetExisting != null) {
-                val formatted = TimelineMemoryHelper.formatEventContent(newEvent.timeTag.ifBlank { targetExisting.content.substringBefore("]").removePrefix("[") }, newEvent.content, newEvent.category)
-                memoryDao.updateMemory(targetExisting.copy(content = formatted, updatedAt = System.currentTimeMillis()))
+                timelineNodeDao?.updateTimelineNode(
+                    targetExisting.copy(
+                        timeTag = newEvent.timeTag.ifBlank { targetExisting.timeTag },
+                        event = newEvent.content,
+                        category = newEvent.category.key,
+                        updatedAt = System.currentTimeMillis()
+                    )
+                )
                 isEventAddedOrMerged = true
             } else {
-                val formatted = TimelineMemoryHelper.formatEventContent(newEvent.timeTag, newEvent.content, newEvent.category)
-                addConversationMemory(conversationId, formatted)
+                val nextOrder = (existingNodes.maxOfOrNull { it.orderIndex } ?: 0) + 1
+                timelineNodeDao?.insertTimelineNode(
+                    TimelineNode(
+                        conversationId = conversationId,
+                        timeTag = newEvent.timeTag.ifBlank { newStoryTime ?: existingStoryTime },
+                        event = newEvent.content,
+                        category = newEvent.category.key,
+                        orderIndex = nextOrder,
+                        createdAt = System.currentTimeMillis(),
+                        updatedAt = System.currentTimeMillis()
+                    )
+                )
                 isEventAddedOrMerged = true
             }
         }
@@ -4253,32 +4289,35 @@ class AiRepository(
             """.trimIndent()
         }
 
-        if (normalSessionMemories.isNotEmpty()) {
-            // 提取当前故事时间（若有记录）
-            var currentStoryTime: String? = null
-            val sessionLines = mutableListOf<String>()
-            for (mem in normalSessionMemories) {
+        // 2. 独立时间线注入 (<session_timeline>)
+        val timelineNodes = try {
+            timelineNodeDao?.getTimelineNodes(conversation.id) ?: emptyList()
+        } catch (_: Exception) {
+            emptyList()
+        }
+        val currentStoryTime = conversation.currentStoryTime?.takeIf { it.isNotBlank() && it != "未确定" }
+            ?: normalSessionMemories.firstOrNull { it.content.trim().startsWith("【当前故事时间】：") || it.content.trim().startsWith("当前故事时间：") }
+                ?.content?.substringAfter("：")?.trim()
+
+        val shouldInjectTimelineContext = isRoleplay || (currentStoryTime != null) || timelineNodes.isNotEmpty()
+        if (shouldInjectTimelineContext && (currentStoryTime != null || timelineNodes.isNotEmpty())) {
+            val timelineContext = TimelineMemoryHelper.buildTimelineNodesPromptContext(nodes = timelineNodes, currentStoryTime = currentStoryTime)
+            blocks += timelineContext
+        }
+
+        // 3. 独立会话专属设定与规则注入 (<session_memory>)，彻底过滤掉旧的时间线数据
+        val cleanSessionSettings = normalSessionMemories
+            .filter { mem ->
                 val trimmed = mem.content.trim()
-                if (trimmed.startsWith("【当前故事时间】：") || trimmed.startsWith("当前故事时间：")) {
-                    currentStoryTime = trimmed.substringAfter("：").trim()
-                } else {
-                    sessionLines.add(SmartMemoryExtractor.sanitizeMetaLanguage(trimmed))
-                }
+                !trimmed.startsWith("【当前故事时间】：") &&
+                !trimmed.startsWith("当前故事时间：") &&
+                !TimelineMemoryHelper.isExplicitTimelineEvent(trimmed)
             }
+            .map { SmartMemoryExtractor.sanitizeMetaLanguage(it.content.trim()) }
 
-            // 严格隔离与按需调度：仅在角色扮演/故事会话、已记录当前故事时间、或存在显式故事时间线标签时注入小说时空看板；普通技术问答与闲聊绝对不注入故事时空看板
-            val hasExplicitTimelineData = sessionLines.any { TimelineMemoryHelper.isExplicitTimelineEvent(it) }
-            val shouldInjectTimelineContext = isRoleplay || (currentStoryTime != null) || hasExplicitTimelineData
-
-            val timelineContext = if (shouldInjectTimelineContext) {
-                TimelineMemoryHelper.buildTimelinePromptContext(currentStoryTime, sessionLines)
-            } else {
-                val lines = sessionLines.map { "- $it" }.joinToString("\n")
-                "【当前会话专属记忆与项目约束】：\n$lines"
-            }
-
-            val blockTag = if (shouldInjectTimelineContext) "session_timeline_memory" else "session_memory"
-            blocks += "<$blockTag>\n$timelineContext\n</$blockTag>"
+        if (cleanSessionSettings.isNotEmpty()) {
+            val lines = cleanSessionSettings.joinToString("\n") { "- $it" }
+            blocks += "<session_memory>\n【当前会话专属设定与规则】：\n$lines\n</session_memory>"
         }
 
         if (normalLongTermMemories.isNotEmpty()) {
@@ -4985,6 +5024,7 @@ class AiRepository(
                 thinkingEffort = originalConv.thinkingEffort,
                 enableWebSearch = originalConv.enableWebSearch,
                 enableSessionMemory = originalConv.enableSessionMemory,
+                currentStoryTime = originalConv.currentStoryTime,
                 createdAt = System.currentTimeMillis(),
                 updatedAt = System.currentTimeMillis()
             )
@@ -5093,6 +5133,17 @@ class AiRepository(
                 }
             } catch (memEx: Exception) {
                 Log.e(tag, "克隆会话专属记忆异常", memEx)
+            }
+
+            // 5.5 克隆时间线节点
+            try {
+                val nodes = timelineNodeDao?.getTimelineNodes(parentId) ?: emptyList()
+                if (nodes.isNotEmpty()) {
+                    val clonedNodes = nodes.map { it.copy(id = 0, conversationId = newId, createdAt = System.currentTimeMillis(), updatedAt = System.currentTimeMillis()) }
+                    timelineNodeDao?.insertTimelineNodes(clonedNodes)
+                }
+            } catch (tlEx: Exception) {
+                Log.e(tag, "克隆时间线节点异常", tlEx)
             }
 
             // 6. 记录分支关联表
@@ -5214,6 +5265,17 @@ class AiRepository(
                 }
             } catch (memEx: Exception) {
                 Log.e(tag, "克隆会话专属记忆异常", memEx)
+            }
+
+            // 复制时间线节点
+            try {
+                val nodes = timelineNodeDao?.getTimelineNodes(conversationId) ?: emptyList()
+                if (nodes.isNotEmpty()) {
+                    val clonedNodes = nodes.map { it.copy(id = 0L, conversationId = newId, createdAt = now, updatedAt = now) }
+                    timelineNodeDao?.insertTimelineNodes(clonedNodes)
+                }
+            } catch (tlEx: Exception) {
+                Log.e(tag, "克隆时间线节点异常", tlEx)
             }
 
             newId
@@ -5379,5 +5441,37 @@ class AiRepository(
             ?: usage.cache_read_input_tokens
             ?: usage.cached_content_token_count
             ?: 0
+    }
+
+    // -------------------------------------------------------------
+    // 时间线专属数据访问与操作（彻底解耦于普通记忆，提供单一独立存储）
+    // -------------------------------------------------------------
+    fun getTimelineNodesFlow(conversationId: Long): Flow<List<TimelineNode>> =
+        timelineNodeDao?.getTimelineNodesFlow(conversationId) ?: flowOf(emptyList())
+
+    suspend fun getTimelineNodes(conversationId: Long): List<TimelineNode> =
+        timelineNodeDao?.getTimelineNodes(conversationId) ?: emptyList()
+
+    suspend fun addTimelineNode(node: TimelineNode): Long =
+        timelineNodeDao?.insertTimelineNode(node) ?: -1L
+
+    suspend fun updateTimelineNode(node: TimelineNode) =
+        timelineNodeDao?.updateTimelineNode(node)
+
+    suspend fun deleteTimelineNode(node: TimelineNode) =
+        timelineNodeDao?.deleteTimelineNode(node)
+
+    suspend fun deleteTimelineNodeById(id: Long) =
+        timelineNodeDao?.deleteTimelineNodeById(id)
+
+    suspend fun clearTimeline(conversationId: Long) =
+        timelineNodeDao?.clearTimelineByConversation(conversationId)
+
+    suspend fun replaceTimelineNodes(conversationId: Long, nodes: List<TimelineNode>) =
+        timelineNodeDao?.replaceTimelineNodes(conversationId, nodes)
+
+    suspend fun updateStoryTime(conversationId: Long, storyTime: String?) = withContext(Dispatchers.IO) {
+        val conv = conversationDao.getConversationById(conversationId) ?: return@withContext
+        conversationDao.updateConversation(conv.copy(currentStoryTime = storyTime, updatedAt = System.currentTimeMillis()))
     }
 }

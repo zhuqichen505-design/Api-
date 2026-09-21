@@ -186,6 +186,7 @@ fun ChatScreen(
     val promptTemplates by viewModel.promptTemplates.collectAsState()
     val translatingMessageIds by viewModel.translatingMessageIds.collectAsState()
     val sessionMemories by viewModel.sessionMemories.collectAsState()
+    val timelineNodes by viewModel.timelineNodes.collectAsState()
     val isReconcilingTimeline by viewModel.isReconcilingTimeline.collectAsState()
     val timelineReconcileProgress by viewModel.timelineReconcileProgress.collectAsState()
     val timelineReconcileResult by viewModel.timelineReconcileResult.collectAsState()
@@ -1473,6 +1474,13 @@ fun ChatScreen(
             availableOptions = availableModelOptions,
             templates = promptTemplates,
             sessionMemories = sessionMemories,
+            timelineNodes = timelineNodes,
+            currentStoryTime = uiState.currentStoryTime,
+            onUpdateCurrentStoryTime = { viewModel.updateCurrentStoryTime(it) },
+            onAddTimelineNode = { timeTag, event, category -> viewModel.addTimelineNode(timeTag, event, category) },
+            onUpdateTimelineNode = { viewModel.updateTimelineNode(it) },
+            onDeleteTimelineNode = { viewModel.deleteTimelineNode(it) },
+            onClearTimeline = { viewModel.clearTimeline() },
             isReconcilingTimeline = isReconcilingTimeline,
             reconcileTimelineProgress = timelineReconcileProgress,
             onStartTimelineReconciliation = { viewModel.startTimelineReconciliation() },

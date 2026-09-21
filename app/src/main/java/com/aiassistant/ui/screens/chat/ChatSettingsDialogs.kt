@@ -38,6 +38,7 @@ import com.aiassistant.domain.model.ToolCallRecord
 import com.aiassistant.domain.model.QueuedMessage
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import com.aiassistant.domain.model.TimelineNode
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
@@ -984,37 +985,43 @@ internal fun ChatSettingsSystemPromptSection(
 }
 
 @Composable
-fun ChatSettingsSessionMemorySection(
-    sessionMemories: List<MemoryItem>,
+fun ChatSettingsTimelineSection(
+    timelineNodes: List<TimelineNode>,
+    currentStoryTime: String?,
     contentColor: Color,
     secondaryColor: Color,
-    enableSessionMemory: Boolean = true,
-    onEnableSessionMemoryChange: (Boolean) -> Unit = {},
+    enableTimeline: Boolean = true,
     hazeState: dev.chrisbanes.haze.HazeState? = null,
     isReconcilingTimeline: Boolean = false,
     reconcileTimelineProgress: String? = null,
     onStartTimelineReconciliation: () -> Unit = {},
     onCancelTimelineReconciliation: () -> Unit = {},
-    onAddMemory: (String) -> Unit,
-    onUpdateMemory: (MemoryItem) -> Unit,
-    onToggleMemory: (Long, Boolean) -> Unit,
-    onDeleteMemory: (Long) -> Unit,
-    onClearMemories: () -> Unit
+    onUpdateCurrentStoryTime: (String?) -> Unit,
+    onAddTimelineNode: (timeTag: String, event: String, category: String) -> Unit,
+    onUpdateTimelineNode: (TimelineNode) -> Unit,
+    onDeleteTimelineNode: (Long) -> Unit,
+    onClearTimeline: () -> Unit
 ) {
     var showAddDialog by remember { mutableStateOf(false) }
-    var memoryToEdit by remember { mutableStateOf<MemoryItem?>(null) }
+    var nodeToEdit by remember { mutableStateOf<TimelineNode?>(null) }
+    var showStoryTimeEditDialog by remember { mutableStateOf(false) }
     var showClearConfirmDialog by remember { mutableStateOf(false) }
-    var addMemoryText by remember { mutableStateOf("") }
-    var editMemoryText by remember { mutableStateOf("") }
-    var isMemoriesExpanded by remember { mutableStateOf(true) }
+
+    var addTimeTag by remember { mutableStateOf("") }
+    var addEventText by remember { mutableStateOf("") }
+    var addCategory by remember { mutableStateOf(TimelineCategory.PLOT_EVENT) }
+
+    var editTimeTag by remember { mutableStateOf("") }
+    var editEventText by remember { mutableStateOf("") }
+    var editCategory by remember { mutableStateOf(TimelineCategory.PLOT_EVENT) }
+
+    var storyTimeInput by remember { mutableStateOf("") }
+    var isTimelineExpanded by remember { mutableStateOf(true) }
 
     val glass = echoGlassPalette()
     val primaryColor = MaterialTheme.colorScheme.primary
-
-    val currentStoryTime = remember(sessionMemories) {
-        sessionMemories.firstOrNull {
-            it.content.startsWith("【当前故事时间】：") || it.content.startsWith("当前故事时间：")
-        }?.content?.substringAfter("：")?.trim()
+    val sortedNodes = remember(timelineNodes) {
+        timelineNodes.sortedWith(compareBy<TimelineNode> { it.orderIndex }.thenBy { it.createdAt })
     }
 
     Surface(
@@ -1029,6 +1036,7 @@ fun ChatSettingsSessionMemorySection(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            // 标题行
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1039,39 +1047,45 @@ fun ChatSettingsSessionMemorySection(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Icon(
-                        Icons.Default.Memory,
+                        Icons.Default.HistoryEdu,
                         contentDescription = null,
                         tint = primaryColor,
                         modifier = Modifier.size(20.dp)
                     )
-                    Text(
-                        "会话专属记忆",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Column {
+                        Text(
+                            "🕒 故事时间线 (Timeline)",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = contentColor
+                        )
+                        Text(
+                            "独立时序存放 · 关键事件与时间节点 · 支持编辑",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = secondaryColor
+                        )
+                    }
                 }
-                Switch(
-                    checked = enableSessionMemory,
-                    onCheckedChange = onEnableSessionMemoryChange,
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = primaryColor,
-                        checkedTrackColor = primaryColor.copy(alpha = 0.5f)
-                    )
-                )
             }
 
-            if (!currentStoryTime.isNullOrBlank()) {
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = primaryColor.copy(alpha = 0.1f),
-                    border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.25f))
+            // 当前故事推进节点展示与就地编辑（满足需求 1）
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = primaryColor.copy(alpha = 0.12f),
+                border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.35f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        modifier = Modifier.weight(1f),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Icon(
                             Icons.Default.Schedule,
@@ -1080,15 +1094,27 @@ fun ChatSettingsSessionMemorySection(
                             modifier = Modifier.size(16.dp)
                         )
                         Text(
-                            "当前故事驻留时间：$currentStoryTime",
+                            text = if (!currentStoryTime.isNullOrBlank()) "当前时空节点：$currentStoryTime" else "当前时空节点：未设定",
                             style = MaterialTheme.typography.bodySmall,
-                            color = primaryColor,
-                            fontWeight = FontWeight.Medium
+                            fontWeight = FontWeight.Bold,
+                            color = primaryColor
                         )
+                    }
+                    TextButton(
+                        onClick = {
+                            storyTimeInput = currentStoryTime.orEmpty()
+                            showStoryTimeEditDialog = true
+                        },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("修改节点", style = MaterialTheme.typography.labelSmall)
                     }
                 }
             }
 
+            // 操作栏：梳理全量时间线、添加节点、清空时间线
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1117,16 +1143,598 @@ fun ChatSettingsSessionMemorySection(
                 } else {
                     OutlinedButton(
                         onClick = onStartTimelineReconciliation,
-                        enabled = enableSessionMemory,
+                        enabled = enableTimeline,
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                         shape = RoundedCornerShape(8.dp),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f))
+                        border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.6f))
                     ) {
-                        Icon(Icons.Default.HistoryEdu, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(14.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("🕒 梳理全量时间线", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                        Text("全量梳理与校对", style = MaterialTheme.typography.labelSmall, maxLines = 1)
                     }
                 }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    TextButton(
+                        onClick = {
+                            addTimeTag = currentStoryTime?.takeIf { it.isNotBlank() } ?: "第 1 天"
+                            addEventText = ""
+                            addCategory = TimelineCategory.PLOT_EVENT
+                            showAddDialog = true
+                        },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                        enabled = enableTimeline
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(2.dp))
+                        Text("＋ 节点", style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                    }
+                    if (sortedNodes.isNotEmpty() || !currentStoryTime.isNullOrBlank()) {
+                        TextButton(
+                            onClick = { showClearConfirmDialog = true },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                            enabled = enableTimeline,
+                            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                        ) {
+                            Text("清空", style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                        }
+                    }
+                }
+            }
+
+            // 节点列表展示与折叠
+            if (sortedNodes.isEmpty()) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.32f),
+                    border = BorderStroke(1.dp, glass.outline.copy(alpha = 0.4f))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = "时间线暂无节点数据",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = secondaryColor
+                        )
+                        OutlinedButton(
+                            onClick = {
+                                addTimeTag = currentStoryTime?.takeIf { it.isNotBlank() } ?: "第 1 天"
+                                addEventText = ""
+                                addCategory = TimelineCategory.PLOT_EVENT
+                                showAddDialog = true
+                            },
+                            shape = RoundedCornerShape(999.dp),
+                            border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.6f)),
+                            enabled = enableTimeline
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("+ 手动添加首个时间节点", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
+            } else {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { isTimelineExpanded = !isTimelineExpanded }
+                        .padding(vertical = 4.dp, horizontal = 2.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "时间节点编年表 (${sortedNodes.size})",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = contentColor
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Text(
+                            text = if (isTimelineExpanded) "收起" else "展开",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = primaryColor,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Icon(
+                            imageVector = if (isTimelineExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = if (isTimelineExpanded) "收起" else "展开",
+                            tint = primaryColor,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+
+                AnimatedVisibility(
+                    visible = isTimelineExpanded,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically()
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        sortedNodes.forEachIndexed { index, node ->
+                            val cat = TimelineCategory.fromKey(node.category)
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (enableTimeline) 0.45f else 0.22f),
+                                border = BorderStroke(1.dp, glass.outline.copy(alpha = if (enableTimeline) 0.5f else 0.25f))
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    // 左侧时序序号
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = primaryColor.copy(alpha = 0.2f),
+                                        modifier = Modifier.size(22.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Text(
+                                                text = "${index + 1}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = primaryColor,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+
+                                    // 中间：时间标签、分类与关键事件描述
+                                    Column(
+                                        modifier = Modifier.weight(1f),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Surface(
+                                                shape = RoundedCornerShape(6.dp),
+                                                color = primaryColor.copy(alpha = 0.15f),
+                                                border = BorderStroke(0.8.dp, primaryColor.copy(alpha = 0.35f))
+                                            ) {
+                                                Text(
+                                                    text = node.timeTag.ifBlank { "未知时段" },
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = primaryColor,
+                                                    fontWeight = FontWeight.Bold,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                            Surface(
+                                                shape = RoundedCornerShape(6.dp),
+                                                color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.12f),
+                                                border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.3f))
+                                            ) {
+                                                Text(
+                                                    text = "${cat.emoji} ${cat.displayName}",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.tertiary,
+                                                    fontWeight = FontWeight.Medium,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        }
+
+                                        Text(
+                                            text = node.event,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = if (enableTimeline) contentColor else secondaryColor
+                                        )
+                                    }
+
+                                    // 右侧操作：编辑与删除
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        IconButton(
+                                            onClick = {
+                                                editTimeTag = node.timeTag
+                                                editEventText = node.event
+                                                editCategory = cat
+                                                nodeToEdit = node
+                                            },
+                                            enabled = enableTimeline,
+                                            modifier = Modifier.size(28.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Edit,
+                                                contentDescription = "编辑",
+                                                modifier = Modifier.size(14.dp),
+                                                tint = secondaryColor
+                                            )
+                                        }
+                                        IconButton(
+                                            onClick = { onDeleteTimelineNode(node.id) },
+                                            enabled = enableTimeline,
+                                            modifier = Modifier.size(28.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.DeleteOutline,
+                                                contentDescription = "删除",
+                                                modifier = Modifier.size(14.dp),
+                                                tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 修改当前故事时间弹窗
+    if (showStoryTimeEditDialog) {
+        EchoGlassDialog(
+            hazeState = hazeState,
+            onDismissRequest = { showStoryTimeEditDialog = false },
+            modifier = Modifier.fillMaxWidth(0.92f).widthIn(max = 400.dp),
+            title = {
+                Text("修改故事时间推进节点", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            },
+            content = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "设定当前故事推进到的时间点（如：第 1 天·清晨、三天后·黄昏、暑假开始等）：",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedTextField(
+                        value = storyTimeInput,
+                        onValueChange = { storyTimeInput = it },
+                        placeholder = { Text("输入故事时间节点...", fontSize = 13.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        shape = RoundedCornerShape(10.dp),
+                        textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp)
+                    )
+                }
+            },
+            buttons = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(
+                        onClick = {
+                            onUpdateCurrentStoryTime(null)
+                            showStoryTimeEditDialog = false
+                        },
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text("清除设定")
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(onClick = { showStoryTimeEditDialog = false }) {
+                            Text("取消")
+                        }
+                        Button(
+                            onClick = {
+                                onUpdateCurrentStoryTime(storyTimeInput.trim().takeIf { it.isNotBlank() })
+                                showStoryTimeEditDialog = false
+                            }
+                        ) {
+                            Text("保存")
+                        }
+                    }
+                }
+            }
+        )
+    }
+
+    // 添加时间节点弹窗
+    if (showAddDialog) {
+        EchoGlassDialog(
+            hazeState = hazeState,
+            onDismissRequest = { showAddDialog = false },
+            modifier = Modifier.fillMaxWidth(0.92f).widthIn(max = 420.dp),
+            title = {
+                Text("添加时间线节点", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            },
+            content = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = addTimeTag,
+                        onValueChange = { addTimeTag = it },
+                        label = { Text("时间标签", fontSize = 12.sp) },
+                        placeholder = { Text("如：第 1 天·傍晚、次日拂晓", fontSize = 12.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        shape = RoundedCornerShape(10.dp)
+                    )
+
+                    // 分类选择器
+                    Text("事件分类：", style = MaterialTheme.typography.labelSmall, color = secondaryColor)
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        val categories = listOf(
+                            TimelineCategory.PLOT_EVENT,
+                            TimelineCategory.CHARACTER_BOND,
+                            TimelineCategory.RELATIONSHIP,
+                            TimelineCategory.KEY_FACT,
+                            TimelineCategory.TURNING_POINT
+                        )
+                        items(categories) { cat ->
+                            FilterChip(
+                                selected = addCategory == cat,
+                                onClick = { addCategory = cat },
+                                label = { Text("${cat.emoji} ${cat.displayName}", fontSize = 11.sp) }
+                            )
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = addEventText,
+                        onValueChange = { addEventText = it },
+                        label = { Text("关键事件事实（15~40字）", fontSize = 12.sp) },
+                        placeholder = { Text("主体在何处完成了什么事实...", fontSize = 12.sp) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 68.dp, max = 130.dp),
+                        maxLines = 4,
+                        shape = RoundedCornerShape(10.dp)
+                    )
+                }
+            },
+            buttons = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(onClick = { showAddDialog = false }) { Text("取消") }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            if (addEventText.isNotBlank()) {
+                                onAddTimelineNode(addTimeTag.trim(), addEventText.trim(), addCategory.key)
+                                showAddDialog = false
+                            }
+                        },
+                        enabled = addEventText.isNotBlank()
+                    ) {
+                        Text("添加")
+                    }
+                }
+            }
+        )
+    }
+
+    // 编辑时间节点弹窗
+    nodeToEdit?.let { node ->
+        EchoGlassDialog(
+            hazeState = hazeState,
+            onDismissRequest = { nodeToEdit = null },
+            modifier = Modifier.fillMaxWidth(0.92f).widthIn(max = 420.dp),
+            title = {
+                Text("编辑时间节点", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            },
+            content = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = editTimeTag,
+                        onValueChange = { editTimeTag = it },
+                        label = { Text("时间标签", fontSize = 12.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        shape = RoundedCornerShape(10.dp)
+                    )
+
+                    Text("事件分类：", style = MaterialTheme.typography.labelSmall, color = secondaryColor)
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        val categories = listOf(
+                            TimelineCategory.PLOT_EVENT,
+                            TimelineCategory.CHARACTER_BOND,
+                            TimelineCategory.RELATIONSHIP,
+                            TimelineCategory.KEY_FACT,
+                            TimelineCategory.TURNING_POINT
+                        )
+                        items(categories) { cat ->
+                            FilterChip(
+                                selected = editCategory == cat,
+                                onClick = { editCategory = cat },
+                                label = { Text("${cat.emoji} ${cat.displayName}", fontSize = 11.sp) }
+                            )
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = editEventText,
+                        onValueChange = { editEventText = it },
+                        label = { Text("关键事件事实", fontSize = 12.sp) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 68.dp, max = 130.dp),
+                        maxLines = 4,
+                        shape = RoundedCornerShape(10.dp)
+                    )
+                }
+            },
+            buttons = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(onClick = { nodeToEdit = null }) { Text("取消") }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            if (editEventText.isNotBlank()) {
+                                onUpdateTimelineNode(
+                                    node.copy(
+                                        timeTag = editTimeTag.trim(),
+                                        event = editEventText.trim(),
+                                        category = editCategory.key,
+                                        updatedAt = System.currentTimeMillis()
+                                    )
+                                )
+                                nodeToEdit = null
+                            }
+                        },
+                        enabled = editEventText.isNotBlank()
+                    ) {
+                        Text("保存更新")
+                    }
+                }
+            }
+        )
+    }
+
+    // 清空时间线确认弹窗
+    if (showClearConfirmDialog) {
+        EchoGlassDialog(
+            hazeState = hazeState,
+            onDismissRequest = { showClearConfirmDialog = false },
+            modifier = Modifier.fillMaxWidth(0.88f).widthIn(max = 380.dp),
+            title = {
+                Text("清空故事时间线", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            },
+            content = {
+                Text("确定要清空当前会话的时间线吗？包括故事推进时间节点和所有历史时间事件记录。此操作无法撤销。", style = MaterialTheme.typography.bodyMedium)
+            },
+            buttons = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(onClick = { showClearConfirmDialog = false }) { Text("取消") }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            onClearTimeline()
+                            showClearConfirmDialog = false
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text("确认清空")
+                    }
+                }
+            }
+        )
+    }
+}
+
+@Composable
+fun ChatSettingsSessionMemorySection(
+    sessionMemories: List<MemoryItem>,
+    contentColor: Color,
+    secondaryColor: Color,
+    enableSessionMemory: Boolean = true,
+    onEnableSessionMemoryChange: (Boolean) -> Unit = {},
+    hazeState: dev.chrisbanes.haze.HazeState? = null,
+    onAddMemory: (String) -> Unit,
+    onUpdateMemory: (MemoryItem) -> Unit,
+    onToggleMemory: (Long, Boolean) -> Unit,
+    onDeleteMemory: (Long) -> Unit,
+    onClearMemories: () -> Unit
+) {
+    var showAddDialog by remember { mutableStateOf(false) }
+    var memoryToEdit by remember { mutableStateOf<MemoryItem?>(null) }
+    var showClearConfirmDialog by remember { mutableStateOf(false) }
+    var addMemoryText by remember { mutableStateOf("") }
+    var editMemoryText by remember { mutableStateOf("") }
+    var isMemoriesExpanded by remember { mutableStateOf(true) }
+
+    val glass = echoGlassPalette()
+    val primaryColor = MaterialTheme.colorScheme.primary
+
+    // 彻底过滤掉时间线相关数据，专属记忆卡片仅保留世界观规则与角色常驻设定
+    val displayMemories = remember(sessionMemories) {
+        sessionMemories.filter {
+            !it.content.startsWith("【当前故事时间】：") &&
+            !it.content.startsWith("当前故事时间：") &&
+            !TimelineMemoryHelper.isExplicitTimelineEvent(it.content)
+        }
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = glass.control,
+        border = BorderStroke(1.dp, glass.outline)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Psychology,
+                        contentDescription = null,
+                        tint = primaryColor,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Column {
+                        Text(
+                            "💡 会话专属设定与规则",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = contentColor
+                        )
+                        Text(
+                            "角色特征 · 世界观规则 · 行为约束（与时间线物理隔离）",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = secondaryColor
+                        )
+                    }
+                }
+                Switch(
+                    checked = enableSessionMemory,
+                    onCheckedChange = onEnableSessionMemoryChange,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = primaryColor,
+                        checkedTrackColor = primaryColor.copy(alpha = 0.5f)
+                    )
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = if (enableSessionMemory) "已生效：发送消息时将附带上述规则约束" else "已停用：发送消息时不附带设定",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = secondaryColor
+                )
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -1142,9 +1750,9 @@ fun ChatSettingsSessionMemorySection(
                     ) {
                         Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(2.dp))
-                        Text("添加", style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                        Text("添加设定", style = MaterialTheme.typography.labelMedium, maxLines = 1)
                     }
-                    if (sessionMemories.isNotEmpty()) {
+                    if (displayMemories.isNotEmpty()) {
                         TextButton(
                             onClick = { showClearConfirmDialog = true },
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
@@ -1155,44 +1763,6 @@ fun ChatSettingsSessionMemorySection(
                         }
                     }
                 }
-            }
-
-            Text(
-                text = if (enableSessionMemory) {
-                    "已开启：自动识别事件天数并组装时间差参照系，彻底防止相对时间混淆；亦可点击「梳理全量时间线」通读校对。"
-                } else {
-                    "已关闭：本会话发送消息时将暂时不附带记忆与时间线设定。"
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = secondaryColor
-            )
-
-            // 故事时间推进锚点展示
-            if (!currentStoryTime.isNullOrBlank()) {
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Default.Schedule, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "当前故事推进节点：$currentStoryTime",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
-            }
-
-            val displayMemories = sessionMemories.filter {
-                !it.content.startsWith("【当前故事时间】：") && !it.content.startsWith("当前故事时间：")
             }
 
             if (displayMemories.isEmpty()) {
@@ -1210,7 +1780,7 @@ fun ChatSettingsSessionMemorySection(
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Text(
-                            text = "当前会话暂无专属记忆与时间线设定",
+                            text = "当前会话暂无自定义设定与规则",
                             style = MaterialTheme.typography.bodySmall,
                             color = secondaryColor
                         )
@@ -1220,17 +1790,16 @@ fun ChatSettingsSessionMemorySection(
                                 showAddDialog = true
                             },
                             shape = RoundedCornerShape(999.dp),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
+                            border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.6f)),
                             enabled = enableSessionMemory
                         ) {
                             Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("+ 添加第一条事件记忆", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                            Text("+ 添加第一条专属设定", style = MaterialTheme.typography.labelSmall, maxLines = 1)
                         }
                     }
                 }
             } else {
-                // 记忆列表展开与收起切换条
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1240,17 +1809,12 @@ fun ChatSettingsSessionMemorySection(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Text(
-                            text = "专属记忆清单 (${displayMemories.size})",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = contentColor
-                        )
-                    }
+                    Text(
+                        text = "专属设定清单 (${displayMemories.size})",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = contentColor
+                    )
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(2.dp)
@@ -1258,13 +1822,13 @@ fun ChatSettingsSessionMemorySection(
                         Text(
                             text = if (isMemoriesExpanded) "收起" else "展开",
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
+                            color = primaryColor,
                             fontWeight = FontWeight.Medium
                         )
                         Icon(
                             imageVector = if (isMemoriesExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                             contentDescription = if (isMemoriesExpanded) "收起" else "展开",
-                            tint = MaterialTheme.colorScheme.primary,
+                            tint = primaryColor,
                             modifier = Modifier.size(18.dp)
                         )
                     }
@@ -1277,9 +1841,6 @@ fun ChatSettingsSessionMemorySection(
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         displayMemories.forEach { memory ->
-                            val event = remember(memory.content) {
-                                TimelineMemoryHelper.parseContentToEvent(memory.content)
-                            }
                             Surface(
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(12.dp),
@@ -1293,34 +1854,13 @@ fun ChatSettingsSessionMemorySection(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
-                                    // 左侧：时间标签与记忆文本（占据全量横向空间）
-                                    Column(
-                                        modifier = Modifier.weight(1f),
-                                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                                    ) {
-                                        if (event.timeTag.isNotBlank()) {
-                                            Surface(
-                                                shape = RoundedCornerShape(6.dp),
-                                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
-                                            ) {
-                                                Text(
-                                                    text = event.timeTag,
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = MaterialTheme.colorScheme.primary,
-                                                    fontWeight = FontWeight.Bold,
-                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                                )
-                                            }
-                                        }
-                                        Text(
-                                            text = event.content,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = if (memory.isEnabled && enableSessionMemory) contentColor else secondaryColor
-                                        )
-                                    }
+                                    Text(
+                                        text = memory.content,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (memory.isEnabled && enableSessionMemory) contentColor else secondaryColor,
+                                        modifier = Modifier.weight(1f)
+                                    )
 
-                                    // 右侧操作区：开关在上，编辑与删除按键在下
                                     Column(
                                         horizontalAlignment = Alignment.End,
                                         verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -1373,21 +1913,19 @@ fun ChatSettingsSessionMemorySection(
         }
     }
 
-    // 添加记忆弹窗 (EchoGlassDialog 保证全屏阴影遮罩覆盖状态栏)
+    // 添加设定弹窗
     if (showAddDialog) {
         EchoGlassDialog(
             hazeState = hazeState,
             onDismissRequest = { showAddDialog = false },
-            modifier = Modifier
-                .fillMaxWidth(0.92f)
-                .widthIn(max = 400.dp),
+            modifier = Modifier.fillMaxWidth(0.92f).widthIn(max = 400.dp),
             title = {
-                Text("添加会话专属记忆", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text("添加会话专属设定与规则", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             },
             content = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        "例如：本项目为 Kotlin+Compose 移动端项目，所有返回请提供带详细中文注释的代码。",
+                        "例如：主角对冰系法术有天然抗性；所有回答保持克制冷峻风格。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1410,9 +1948,7 @@ fun ChatSettingsSessionMemorySection(
                     horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    TextButton(onClick = { showAddDialog = false }) {
-                        Text("取消")
-                    }
+                    TextButton(onClick = { showAddDialog = false }) { Text("取消") }
                     Spacer(modifier = Modifier.width(8.dp))
                     Button(
                         onClick = {
@@ -1430,16 +1966,14 @@ fun ChatSettingsSessionMemorySection(
         )
     }
 
-    // 编辑记忆弹窗
+    // 编辑设定弹窗
     memoryToEdit?.let { memory ->
         EchoGlassDialog(
             hazeState = hazeState,
             onDismissRequest = { memoryToEdit = null },
-            modifier = Modifier
-                .fillMaxWidth(0.92f)
-                .widthIn(max = 400.dp),
+            modifier = Modifier.fillMaxWidth(0.92f).widthIn(max = 400.dp),
             title = {
-                Text("编辑会话专属记忆", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text("编辑会话专属设定与规则", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             },
             content = {
                 OutlinedTextField(
@@ -1459,9 +1993,7 @@ fun ChatSettingsSessionMemorySection(
                     horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    TextButton(onClick = { memoryToEdit = null }) {
-                        Text("取消")
-                    }
+                    TextButton(onClick = { memoryToEdit = null }) { Text("取消") }
                     Spacer(modifier = Modifier.width(8.dp))
                     Button(
                         onClick = {
@@ -1479,19 +2011,17 @@ fun ChatSettingsSessionMemorySection(
         )
     }
 
-    // 清空确认弹窗
+    // 清空设定确认弹窗
     if (showClearConfirmDialog) {
         EchoGlassDialog(
             hazeState = hazeState,
             onDismissRequest = { showClearConfirmDialog = false },
-            modifier = Modifier
-                .fillMaxWidth(0.88f)
-                .widthIn(max = 380.dp),
+            modifier = Modifier.fillMaxWidth(0.88f).widthIn(max = 380.dp),
             title = {
-                Text("清空本会话记忆", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text("清空本会话设定", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             },
             content = {
-                Text("确定要清空当前会话的所有专属记忆吗？此操作无法撤销。", style = MaterialTheme.typography.bodyMedium)
+                Text("确定要清空当前会话的所有专属设定与规则吗？（时间线数据不受影响）", style = MaterialTheme.typography.bodyMedium)
             },
             buttons = {
                 Row(
@@ -1499,9 +2029,7 @@ fun ChatSettingsSessionMemorySection(
                     horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    TextButton(onClick = { showClearConfirmDialog = false }) {
-                        Text("取消")
-                    }
+                    TextButton(onClick = { showClearConfirmDialog = false }) { Text("取消") }
                     Spacer(modifier = Modifier.width(8.dp))
                     Button(
                         onClick = {
@@ -1645,6 +2173,13 @@ fun ChatSettingsDialog(
     availableOptions: List<ChatModelOption>,
     templates: List<PromptTemplate>,
     sessionMemories: List<MemoryItem> = emptyList(),
+    timelineNodes: List<TimelineNode> = emptyList(),
+    currentStoryTime: String? = null,
+    onUpdateCurrentStoryTime: (String?) -> Unit = {},
+    onAddTimelineNode: (timeTag: String, event: String, category: String) -> Unit = { _, _, _ -> },
+    onUpdateTimelineNode: (TimelineNode) -> Unit = {},
+    onDeleteTimelineNode: (Long) -> Unit = {},
+    onClearTimeline: () -> Unit = {},
     isReconcilingTimeline: Boolean = false,
     reconcileTimelineProgress: String? = null,
     onStartTimelineReconciliation: () -> Unit = {},
@@ -2064,6 +2599,26 @@ fun ChatSettingsDialog(
                 }
 
                 item {
+                    ChatSettingsTimelineSection(
+                        timelineNodes = timelineNodes,
+                        currentStoryTime = currentStoryTime,
+                        contentColor = dialogContentColor,
+                        secondaryColor = dialogSecondaryColor,
+                        enableTimeline = true,
+                        hazeState = hazeState,
+                        isReconcilingTimeline = isReconcilingTimeline,
+                        reconcileTimelineProgress = reconcileTimelineProgress,
+                        onStartTimelineReconciliation = onStartTimelineReconciliation,
+                        onCancelTimelineReconciliation = onCancelTimelineReconciliation,
+                        onUpdateCurrentStoryTime = onUpdateCurrentStoryTime,
+                        onAddTimelineNode = onAddTimelineNode,
+                        onUpdateTimelineNode = onUpdateTimelineNode,
+                        onDeleteTimelineNode = onDeleteTimelineNode,
+                        onClearTimeline = onClearTimeline
+                    )
+                }
+
+                item {
                     ChatSettingsSessionMemorySection(
                         sessionMemories = sessionMemories,
                         contentColor = dialogContentColor,
@@ -2074,10 +2629,6 @@ fun ChatSettingsDialog(
                             notifyTempSettingsChange()
                         },
                         hazeState = hazeState,
-                        isReconcilingTimeline = isReconcilingTimeline,
-                        reconcileTimelineProgress = reconcileTimelineProgress,
-                        onStartTimelineReconciliation = onStartTimelineReconciliation,
-                        onCancelTimelineReconciliation = onCancelTimelineReconciliation,
                         onAddMemory = onAddSessionMemory,
                         onUpdateMemory = onUpdateSessionMemory,
                         onToggleMemory = onToggleSessionMemory,

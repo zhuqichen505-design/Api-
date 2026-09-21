@@ -27,9 +27,10 @@ import com.aiassistant.domain.model.*
         CharacterTag::class,
         CharacterTagCrossRef::class,
         WorldBook::class,
-        WorldBookEntry::class
+        WorldBookEntry::class,
+        TimelineNode::class
     ],
-    version = 27,
+    version = 28,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -49,6 +50,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun roleplayMemoryDao(): RoleplayMemoryDao
     abstract fun characterTagDao(): CharacterTagDao
     abstract fun worldBookDao(): WorldBookDao
+    abstract fun timelineNodeDao(): TimelineNodeDao
 
     companion object {
         @Volatile
@@ -479,6 +481,48 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_27_28 = object : Migration(27, 28) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `timeline_nodes` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `conversationId` INTEGER NOT NULL,
+                        `timeTag` TEXT NOT NULL,
+                        `eventContent` TEXT NOT NULL,
+                        `category` TEXT NOT NULL DEFAULT 'PLOT_EVENT',
+                        `orderIndex` INTEGER NOT NULL DEFAULT 0,
+                        `createdAt` INTEGER NOT NULL DEFAULT 0,
+                        `updatedAt` INTEGER NOT NULL DEFAULT 0,
+                        FOREIGN KEY(`conversationId`) REFERENCES `conversations`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                """.trimIndent())
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_timeline_nodes_conversationId` ON `timeline_nodes` (`conversationId`)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_timeline_nodes_orderIndex` ON `timeline_nodes` (`orderIndex`)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_timeline_nodes_updatedAt` ON `timeline_nodes` (`updatedAt`)")
+
+                addColumnIfMissing(database, "conversations", "currentStoryTime", "TEXT")
+
+                // 自动迁移旧记忆表中的当前故事时间到 conversations 表
+                try {
+                    database.execSQL("""
+                        UPDATE conversations
+                        SET currentStoryTime = (
+                            SELECT TRIM(SUBSTR(content, INSTR(content, '：') + 1))
+                            FROM memory_items
+                            WHERE conversationId = conversations.id
+                              AND (content LIKE '【当前故事时间】：%' OR content LIKE '当前故事时间：%')
+                            ORDER BY updatedAt DESC
+                            LIMIT 1
+                        )
+                        WHERE currentStoryTime IS NULL
+                    """)
+                    // 清理 memory_items 中的时间记忆条目，保证会话记忆纯净
+                    database.execSQL("DELETE FROM memory_items WHERE content LIKE '【当前故事时间】：%' OR content LIKE '当前故事时间：%'")
+                } catch (_: Exception) {
+                }
+            }
+        }
+
         private val LEGACY_REPAIR_MIGRATIONS: Array<Migration> = ((1..22)
             .map { startVersion ->
                 object : Migration(startVersion, 23) {
@@ -486,7 +530,7 @@ abstract class AppDatabase : RoomDatabase() {
                         repairSchema(database)
                     }
                 }
-            } + MIGRATION_17_18 + MIGRATION_18_19 + MIGRATION_19_20 + MIGRATION_20_21 + MIGRATION_21_22 + MIGRATION_22_23 + MIGRATION_23_24 + MIGRATION_24_25 + MIGRATION_25_26 + MIGRATION_26_27)
+            } + MIGRATION_17_18 + MIGRATION_18_19 + MIGRATION_19_20 + MIGRATION_20_21 + MIGRATION_21_22 + MIGRATION_22_23 + MIGRATION_23_24 + MIGRATION_24_25 + MIGRATION_25_26 + MIGRATION_26_27 + MIGRATION_27_28)
             .toTypedArray()
 
         private fun repairSchema(database: SupportSQLiteDatabase) {
@@ -567,6 +611,7 @@ abstract class AppDatabase : RoomDatabase() {
                     ColumnSpec("enableWorldBook", "INTEGER", "NULL", nullable = true),
                     ColumnSpec("activeWorldBookIds", "TEXT", "NULL", nullable = true),
                     ColumnSpec("modelAvatarUri", "TEXT", "NULL", nullable = true),
+                    ColumnSpec("currentStoryTime", "TEXT", "NULL", nullable = true),
                     ColumnSpec("createdAt", "INTEGER NOT NULL", "0"),
                     ColumnSpec("updatedAt", "INTEGER NOT NULL", "0")
                 ),
@@ -859,6 +904,25 @@ abstract class AppDatabase : RoomDatabase() {
                     "CREATE INDEX IF NOT EXISTS `index_world_book_entries_isEnabled` ON `world_book_entries` (`isEnabled`)",
                     "CREATE INDEX IF NOT EXISTS `index_world_book_entries_isConstant` ON `world_book_entries` (`isConstant`)",
                     "CREATE INDEX IF NOT EXISTS `index_world_book_entries_priority` ON `world_book_entries` (`priority`)"
+                )
+            )
+            repairTable(
+                database,
+                tableName = "timeline_nodes",
+                columns = listOf(
+                    ColumnSpec("id", "INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL", "0"),
+                    ColumnSpec("conversationId", "INTEGER NOT NULL", "0"),
+                    ColumnSpec("timeTag", "TEXT NOT NULL", "''"),
+                    ColumnSpec("eventContent", "TEXT NOT NULL", "''"),
+                    ColumnSpec("category", "TEXT NOT NULL", "'PLOT_EVENT'"),
+                    ColumnSpec("orderIndex", "INTEGER NOT NULL", "0"),
+                    ColumnSpec("createdAt", "INTEGER NOT NULL", "0"),
+                    ColumnSpec("updatedAt", "INTEGER NOT NULL", "0")
+                ),
+                indices = listOf(
+                    "CREATE INDEX IF NOT EXISTS `index_timeline_nodes_conversationId` ON `timeline_nodes` (`conversationId`)",
+                    "CREATE INDEX IF NOT EXISTS `index_timeline_nodes_orderIndex` ON `timeline_nodes` (`orderIndex`)",
+                    "CREATE INDEX IF NOT EXISTS `index_timeline_nodes_updatedAt` ON `timeline_nodes` (`updatedAt`)"
                 )
             )
         } finally {

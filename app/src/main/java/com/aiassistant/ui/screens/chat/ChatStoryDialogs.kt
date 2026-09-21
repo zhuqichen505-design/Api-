@@ -2510,7 +2510,7 @@ fun TimelineReconcileDialog(
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "保存并同步到记忆",
+                                    text = "保存时间线与独立设定",
                                     style = MaterialTheme.typography.labelLarge,
                                     fontWeight = FontWeight.Bold,
                                     color = Color.White
