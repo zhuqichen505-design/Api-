@@ -2,7 +2,7 @@
 
 本文档按照工作流规范记录每次版本更新、需求变更与复核结果。
 
-## [2026-09-22] - 时间线梳理防误截用户输入、句意完整性收敛（防硬腰斩）与事件设定跨界消歧去重优化
+## [2026-09-22] - v2.3.1：时间线梳理防误截用户输入、句意完整性收敛（防硬腰斩）与事件设定跨界消歧去重优化
 
 ### 1. 核心需求落实与技术重构详情
 1. **彻底杜绝错误截取用户输入作为事件**：
@@ -25,13 +25,15 @@
      - 扩充 `sceneClusterKeywords` 同义场景词簇（餐饮聚会、交谈商议、战斗交锋、初遇相聚、散步同游、约定盟约、搜查潜入等），同天同场景事件全量聚合；
      - 新增跨界消歧与去重函数 `crossDeduplicateEventsAndSettings`：交叉比对事件与设定，若设定仅为已发生时空事件的动态过程复述，彻底剔除该重复设定，仅保留纯粹静态规则，确保事件与设定界限分明、互不重复。
 
-### 2. 自动化测试与质量核验
+### 2. 自动化测试与工程核验
 - **单元测试**：全量执行 `testDebugUnitTest`，共计 **337 项测试全部通过 (337 passed, 0 failed, BUILD SUCCESSFUL)**。
-  - 新增专属测试用例：
-    1. `testPreventUserInstructionExtractedAsEvent`：验证自由文本口令识别与用户输入事件拦截；
-    2. `testCompactSentenceKeepCompletePreventsMidSentenceTruncation`：验证长句标点收束与防腰斩截断；
-    3. `testCrossDeduplicateEventsAndSettingsEliminatesDuplicateConcepts`：验证事件与设定的跨界消歧去重。
-- **构建准则遵守**：严格执行“未明确要求构建 APK 不执行打包发布流程”，本次仅完成源码与测试重构交付。
+- **构建输出**：
+  - 文件路径：`D:\Agent\APP-烧\app\releases\Echo-v2.3.1.apk`
+  - 文件大小：`16,304,125 字节 (~15.55 MB)`
+  - SHA256：`38C92D984D74FEC28DA9231A598F3DFA3A60C45DCE775334D290924AE8BE142D`
+  - 签名方案：`v2 scheme (APK Signature Scheme v2): true`
+  - 包名与版本：`package: name='com.aiassistant' versionCode='136' versionName='2.3.1'`
+  - 历史包策略：`D:\Agent\APP-烧\app\releases` 目录下所有历史版本永久完整保留，本次仅增量输出 `Echo-v2.3.1.apk`，未包含任何 `-arm64-v8a` 等冗余后缀。
 
 ---
 
