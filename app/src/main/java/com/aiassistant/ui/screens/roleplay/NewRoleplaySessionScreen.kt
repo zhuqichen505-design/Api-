@@ -87,19 +87,23 @@ fun NewRoleplaySessionScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "登场角色设定 (${selectedCharacterIds.size})",
                             style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1
                         )
                         Text(
                             text = "可单选主角或多选群像角色参与演绎",
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                         )
                     }
                     if (selectedCharacterIds.isNotEmpty()) {
+                        Spacer(modifier = Modifier.width(8.dp))
                         TextButton(onClick = { selectedCharacterIds = emptySet() }) {
                             Text("清空选择", style = MaterialTheme.typography.labelSmall)
                         }
@@ -154,12 +158,16 @@ fun NewRoleplaySessionScreen(
                     Text(
                         text = "世界观与背景设定",
                         style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1
                     )
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = "注入宏观时代规则与现场氛围",
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
                 }
                 EchoGlassCard(
@@ -212,12 +220,16 @@ fun NewRoleplaySessionScreen(
                     Text(
                         text = "生成模型与 API 服务",
                         style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1
                     )
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = "与主对话可选模型池完全一致",
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
                 }
                 EchoGlassCard(
@@ -268,12 +280,16 @@ fun NewRoleplaySessionScreen(
                     Text(
                         text = "故事叙事模式",
                         style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1
                     )
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = "决定 AI 回应的角色定位与文风",
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
                 }
                 NarrativeMode.values().forEach { mode ->
@@ -295,7 +311,7 @@ fun NewRoleplaySessionScreen(
                                 onClick = { selectedNarrativeMode = mode }
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                            Column {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(mode.displayName, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
                                 Text(
                                     text = mode.description,

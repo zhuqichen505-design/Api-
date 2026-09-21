@@ -1907,7 +1907,7 @@ fun ToolCallsFooter(
                                 TextButton(
                                     onClick = { selectedRecordForDialog = record },
                                     contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
-                                    modifier = Modifier.height(28.dp)
+                                    modifier = Modifier.defaultMinSize(minHeight = 28.dp)
                                 ) {
                                     Text("详情", style = MaterialTheme.typography.labelSmall)
                                 }

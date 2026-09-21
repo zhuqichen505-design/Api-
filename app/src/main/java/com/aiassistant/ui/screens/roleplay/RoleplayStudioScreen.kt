@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
+
 package com.aiassistant.ui.screens.roleplay
 
 import android.widget.Toast
@@ -452,19 +454,21 @@ private fun SessionCard(
                     )
                 }
                 Spacer(modifier = Modifier.height(6.dp))
-                Row(
+                FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     SuggestionChip(
                         onClick = { showEditContextDialog = true },
                         label = { Text("叙事模式: ${NarrativeMode.fromValue(session.narrativeMode).displayName}") },
-                        modifier = Modifier.height(26.dp)
+                        modifier = Modifier.defaultMinSize(minHeight = 26.dp)
                     )
                     Text(
                         text = "长按故事可同步或修改设定",
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
                 }
             }
@@ -1016,14 +1020,19 @@ private fun CharacterCard(
                     Text(
                         text = character.name,
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
                     if (character.identity.isNotBlank()) {
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = "· ${character.identity}",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.primary
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.weight(1f, fill = false),
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                         )
                     }
                 }
@@ -1252,7 +1261,9 @@ private fun ScenarioCard(
                 Text(
                     text = scenario.name,
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                 )
                 if (scenario.worldview.isNotBlank()) {
                     Spacer(modifier = Modifier.height(4.dp))
@@ -1307,7 +1318,9 @@ private fun ScenarioCard(
                 Text(
                     text = scenario.name,
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                 )
                 if (scenario.worldview.isNotBlank()) {
                     Spacer(modifier = Modifier.height(4.dp))
@@ -1766,9 +1779,10 @@ private fun SmartAnalyzeResultDialog(
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
                                                 Spacer(modifier = Modifier.height(4.dp))
-                                                Row(
+                                                FlowRow(
                                                     modifier = Modifier.fillMaxWidth(),
-                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                                    verticalArrangement = Arrangement.spacedBy(4.dp)
                                                 ) {
                                                     ConflictAction.values().forEach { action ->
                                                         val currentAction = resolutionMap[char.name.trim()] ?: ConflictAction.MERGE
@@ -1777,7 +1791,7 @@ private fun SmartAnalyzeResultDialog(
                                                             selected = isActionSelected,
                                                             onClick = { resolutionMap[char.name.trim()] = action },
                                                             label = { Text(action.displayName, style = MaterialTheme.typography.labelSmall) },
-                                                            modifier = Modifier.height(28.dp)
+                                                            modifier = Modifier.defaultMinSize(minHeight = 28.dp)
                                                         )
                                                     }
                                                 }

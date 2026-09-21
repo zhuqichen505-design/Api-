@@ -151,4 +151,130 @@ class TimelineRefinementAndCompressionTest {
         assertTrue("默认应开启每次对话后自动根据当前对话判断更新时间线", defaultSettings.autoTimelineEnabled)
         assertTrue("默认应开启时间线自动更新提醒", defaultSettings.autoTimelineNoticeEnabled)
     }
+
+    // 7. 全局时间线事件深度汇总与去重压缩测试（需求 1 与需求 2）
+    @Test
+    fun testConsolidateFinalTimelineEventsMacroGroupingAndDeduplication() {
+        // 模拟多轮对话将同一顿饭拆分成了多个细分子事件
+        val fragmentedEvents = listOf(
+            TimelineEventItem(
+                timeTag = "第 1 天·中午",
+                content = "两人进入餐厅入座并翻阅菜单点菜",
+                category = TimelineCategory.PLOT_EVENT
+            ),
+            TimelineEventItem(
+                timeTag = "第 1 天·中午",
+                content = "两人在餐馆就餐并就下一步行动计划达成共识",
+                category = TimelineCategory.PLOT_EVENT
+            ),
+            TimelineEventItem(
+                timeTag = "第 1 天·中午",
+                content = "两人用餐完毕准备结账出发",
+                category = TimelineCategory.PLOT_EVENT
+            ),
+            TimelineEventItem(
+                timeTag = "第 1 天·傍晚",
+                content = "两人抵达车站初次相遇并结盟",
+                category = TimelineCategory.TURNING_POINT
+            ),
+            TimelineEventItem(
+                timeTag = "第 1 天·傍晚",
+                content = "在车站初见并立下同行盟约",
+                category = TimelineCategory.PLOT_EVENT
+            )
+        )
+
+        val consolidated = TimelineMemoryHelper.consolidateFinalTimelineEvents(fragmentedEvents)
+
+        // 验证：3条午餐子事件合并为 1 条，2条车站初遇合并为 1 条
+        assertEquals("原 5 条事件经过全局汇总与去重应浓缩为 2 条宏观里程碑", 2, consolidated.size)
+        assertTrue("午餐事件应当保留核心成果", consolidated[0].content.contains("餐") && consolidated[0].content.contains("共识"))
+        assertTrue("车站相遇事件应当去重合并", consolidated[1].content.contains("车站") && (consolidated[1].content.contains("相遇") || consolidated[1].content.contains("初见")))
+    }
+
+    // 8. 全局常驻与固有设定语义去重测试（需求 2）
+    @Test
+    fun testConsolidateFinalAtemporalSettingsDeduplication() {
+        val rawSettings = listOf(
+            AtemporalSettingItem(
+                category = "习惯偏好",
+                content = "喜好饮用不加糖的浓黑咖啡"
+            ),
+            AtemporalSettingItem(
+                category = "习惯与偏好",
+                content = "习惯喝黑咖啡且不加糖"
+            ),
+            AtemporalSettingItem(
+                category = "生理禁忌",
+                content = "对花生严重过敏，误食会引发哮喘"
+            ),
+            AtemporalSettingItem(
+                category = "生理禁忌与弱点",
+                content = "花生过敏，误食易发哮喘"
+            ),
+            AtemporalSettingItem(
+                category = "世界规则",
+                content = "此世界魔力在满月之夜达到顶峰"
+            )
+        )
+
+        val consolidated = TimelineMemoryHelper.consolidateFinalAtemporalSettings(rawSettings)
+        assertEquals("相似的咖啡习惯与花生过敏设定应合并，最终浓缩为 3 条核心规则", 3, consolidated.size)
+        assertTrue(consolidated.any { it.content.contains("黑咖啡") })
+        assertTrue(consolidated.any { it.content.contains("花生") && it.content.contains("过敏") })
+        assertTrue(consolidated.any { it.content.contains("满月") })
+    }
+
+    // 9. 时空推进推演与防停滞测试（需求 3）
+    @Test
+    fun testDetectAutoStoryTimeAdvancementAntiFreeze() {
+        // 1. 活动完成推进：早晨吃完早餐出发 -> 上午
+        val advancedFromMorning = TimelineMemoryHelper.detectAutoStoryTimeAdvancement(
+            currentStoryTime = "第 1 天·清晨",
+            userMessage = "吃完早餐了，我们准备去北门市场吧。",
+            assistantReply = "两人吃完热腾腾的早点，收拾好随身装备，动身走出客栈，向繁华的北门街市走去。"
+        )
+        assertNotNull("吃完早餐动身出发应当推进时空节点", advancedFromMorning)
+        assertEquals("第 1 天·上午", advancedFromMorning)
+
+        // 2. 时段描写自然推进：下午 -> 傍晚
+        val advancedToDusk = TimelineMemoryHelper.detectAutoStoryTimeAdvancement(
+            currentStoryTime = "第 1 天·下午",
+            userMessage = "在藏书阁查阅资料不知不觉过了好久。",
+            assistantReply = "夕阳西下，天边漫卷金红色的晚霞，街市上的店铺陆续点亮了灯火。"
+        )
+        assertNotNull("夕阳西下掌灯应当推进至傍晚", advancedToDusk)
+        assertEquals("第 1 天·傍晚", advancedToDusk)
+
+        // 3. 次日跨天推进：夜间就寝 -> 次日清晨
+        val advancedToNextDay = TimelineMemoryHelper.detectAutoStoryTimeAdvancement(
+            currentStoryTime = "第 1 天·夜间",
+            userMessage = "太累了，先睡吧，明天见。",
+            assistantReply = "两人互道晚安各自回房。一夜无话，次日清晨的第一缕晨光悄然洒进窗台。"
+        )
+        assertNotNull("一夜无话次日清晨应当跨天推进", advancedToNextDay)
+        assertEquals("第 2 天·清晨", advancedToNextDay)
+    }
+
+    // 10. 时间线 Prompt 防停滞强指令测试（需求 3）
+    @Test
+    fun testBuildTimelineNodesPromptContextContainsAntiFreezeRule() {
+        val dummyNodes = listOf(
+            com.aiassistant.domain.model.TimelineNode(
+                id = 1L,
+                conversationId = 1L,
+                timeTag = "第 1 天·上午",
+                event = "在车站结识同行",
+                category = "PLOT_EVENT",
+                orderIndex = 1
+            )
+        )
+        val prompt = TimelineMemoryHelper.buildTimelineNodesPromptContext(
+            nodes = dummyNodes,
+            currentStoryTime = "第 1 天·上午"
+        )
+        assertTrue("必须包含时空主动推进与防停滞铁律", prompt.contains("时空主动推进与防停滞铁律"))
+        assertTrue("必须指明当前时空仅为基准点而非永恒固化", prompt.contains("仅代表本轮交互开始时的基准时空，绝非永恒固化的时间"))
+        assertTrue("必须要求主动推进时间流逝", prompt.contains("主动描写并推进时间的流逝"))
+    }
 }

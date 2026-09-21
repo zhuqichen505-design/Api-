@@ -973,8 +973,248 @@ object TimelineMemoryHelper {
             sb.append("[${index + 1}] $tagStr【${cat.displayName}】${node.event}\n")
         }
         sb.append("【时序约束】：请严格基于该时序脉络推进，后续对话若发生时间推移请主动输出新时间节点。\n")
+        sb.append("【时空主动推进与防停滞铁律（大模型必须严格遵循）】：\n")
+        sb.append("1.【时空基准点】：当前故事时空节点【${currentStoryTime ?: "未指定"}】仅代表本轮交互开始时的基准时空，绝非永恒固化的时间！\n")
+        sb.append("2.【自主推进时空】：当剧情活动告一段落（如交谈完毕、就餐结束、转移场景、入夜休息、次日天明等），模型在正文叙述中必须【主动描写并推进时间的流逝】（如在叙述中体现“转眼已是午后”、“夜色渐深”、“次日清晨”等），严禁让角色和故事机械地一直停留在旧时空！\n")
+        sb.append("3.【时序连贯】：后续对话请在剧情正文中自然呈现新的时间流转线索，系统将全自动捕获并同步更新时空节点。\n")
         sb.append("</session_timeline>")
         return sb.toString()
+    }
+
+    /**
+     * 智能检测当前轮次对话中的时空推进
+     * 解决模型错误地一直“停留在当前时空”、时空冻结的问题
+     */
+    fun detectAutoStoryTimeAdvancement(
+        currentStoryTime: String?,
+        userMessage: String,
+        assistantReply: String
+    ): String? {
+        val baseTime = currentStoryTime?.trim()?.takeIf { it.isNotBlank() && it != "未确定" && it != "未知" } ?: "第 1 天·清晨"
+        val combined = "$userMessage $assistantReply".trim()
+        if (combined.length < 6) return null
+
+        // 1. 显式跨天 / 相对跨度推进匹配
+        val nextDayKeywords = listOf("第二天", "次日", "次晨", "翌日", "隔天", "又过了一天", "一夜无话", "睡下后", "一觉醒来", "次日清晨", "翌日清晨")
+        val matcher = DAY_NUMBER_PATTERN.matcher(baseTime)
+        val currentDay = if (matcher.find()) {
+            (matcher.group(1) ?: matcher.group(2))?.toIntOrNull() ?: 1
+        } else 1
+
+        val spanJumpDays = estimateTimeSpanJumpDays(combined)
+        if (spanJumpDays > 0) {
+            val newDay = currentDay + spanJumpDays
+            val inferredPhase = DayPhase.inferFromText(combined)?.displayName?.substringBefore("/") ?: "白天"
+            return "第 $newDay 天·$inferredPhase"
+        }
+
+        if (nextDayKeywords.any { combined.contains(it) }) {
+            val newDay = currentDay + 1
+            val phase = DayPhase.inferFromText(combined)?.displayName?.substringBefore("/") ?: "清晨"
+            return "第 $newDay 天·$phase"
+        }
+
+        // 2. 日内时段推移：当前已有时段 -> 文本中体现出向后时段推进
+        val currentPhase = DayPhase.inferFromText(baseTime) ?: DayPhase.EARLY_MORNING
+        val textPhase = DayPhase.inferFromText(combined)
+        val dayPrefix = if (baseTime.contains("第") && baseTime.contains("天")) {
+            baseTime.substringBefore("·").substringBefore("-").trim()
+        } else {
+            "第 $currentDay 天"
+        }
+
+        if (textPhase != null && textPhase.order > currentPhase.order) {
+            val cleanPhase = textPhase.displayName.substringBefore("/")
+            return "$dayPrefix·$cleanPhase"
+        }
+
+        // 3. 典型活动结束触发顺延（例如：吃完早餐出发、会议结束、傍晚散场）
+        val morningCompletionKeywords = listOf("吃完早餐", "吃完早点", "吃过早餐", "早餐过后", "晨间准备完毕", "动身出发", "走出客栈", "动身前往")
+        val noonCompletionKeywords = listOf("吃完午饭", "吃过午餐", "午休结束", "午后出发")
+        val duskCompletionKeywords = listOf("夜幕降临", "天色暗了下来", "掌灯时分", "夕阳西下", "晚霞消退", "华灯初上")
+        val nightCompletionKeywords = listOf("回房就寝", "熄灯休息", "吹熄烛火", "互道晚安", "沉沉睡去", "进入梦乡")
+
+        if (currentPhase == DayPhase.EARLY_MORNING && morningCompletionKeywords.any { combined.contains(it) }) {
+            return "$dayPrefix·上午"
+        }
+        if (currentPhase == DayPhase.MORNING && (combined.contains("午餐") || combined.contains("吃午饭") || combined.contains("正午"))) {
+            return "$dayPrefix·中午"
+        }
+        if (currentPhase == DayPhase.NOON && noonCompletionKeywords.any { combined.contains(it) }) {
+            return "$dayPrefix·下午"
+        }
+        if (currentPhase.order <= DayPhase.AFTERNOON.order && duskCompletionKeywords.any { combined.contains(it) }) {
+            return "$dayPrefix·傍晚"
+        }
+        if (currentPhase.order <= DayPhase.DUSK.order && (combined.contains("晚饭") || combined.contains("晚餐") || combined.contains("夜间"))) {
+            return "$dayPrefix·入夜"
+        }
+        if (currentPhase == DayPhase.NIGHT && nightCompletionKeywords.any { combined.contains(it) }) {
+            return "$dayPrefix·深夜"
+        }
+        if (currentPhase == DayPhase.LATE_NIGHT && (combined.contains("天亮") || combined.contains("破晓") || combined.contains("晨光"))) {
+            return "第 ${currentDay + 1} 天·清晨"
+        }
+
+        return null
+    }
+
+    /**
+     * 全局时间线事件深度汇总与去重压缩（解决问题 1 与问题 2）
+     * 1. 将同一事件（例如同一顿饭、同一场战斗、同一个场景由多轮对话展开）高度凝练并合并为单个事件；
+     * 2. 对跨分段提炼产生的表述极其相似的重复事件进行语义去重；
+     * 3. 严格按时序单调排列，保持时间线简洁有力（单条控制在 15~35 字）。
+     */
+    fun consolidateFinalTimelineEvents(events: List<TimelineEventItem>): List<TimelineEventItem> {
+        if (events.isEmpty()) return emptyList()
+        val normalized = normalizeMonotonicTimeline(events)
+        val consolidated = mutableListOf<TimelineEventItem>()
+
+        val sceneClusterKeywords = listOf(
+            listOf("早餐", "早点", "晨餐", "早饭"),
+            listOf("午餐", "午饭", "中饭"),
+            listOf("晚餐", "晚饭", "夜宵", "晚宴"),
+            listOf("用餐", "吃饭", "点菜", "餐厅", "餐馆", "食堂", "茶馆", "酒楼", "同席", "聚餐"),
+            listOf("战斗", "交手", "对决", "交锋", "围攻", "遇袭", "伏击", "激战", "击败"),
+            listOf("商议", "讨论", "对策", "计划", "筹划", "商谈", "谋划", "密谈"),
+            listOf("相遇", "初遇", "重逢", "碰面", "车站", "初识", "重聚"),
+            listOf("同行", "结伴", "启程", "动身", "出发", "上路", "赶路"),
+            listOf("告白", "表白", "誓言", "立誓", "确立关系", "心意"),
+            listOf("调查", "探查", "搜寻", "发现", "探秘", "查探")
+        )
+
+        for (item in normalized) {
+            val itemTag = item.timeTag.trim()
+            val itemContent = item.content.trim()
+            if (itemContent.isBlank()) continue
+
+            // 寻找同日或同时间标签且具有相同场景/动作集群的已有事件
+            val existingIdx = consolidated.indexOfFirst { existing ->
+                val existingTag = existing.timeTag.trim()
+                val isSameTimeScope = (existingTag == itemTag && itemTag.isNotBlank()) ||
+                        (DAY_NUMBER_PATTERN.matcher(existingTag).find() &&
+                         DAY_NUMBER_PATTERN.matcher(itemTag).find() &&
+                         existingTag.substringBefore("·") == itemTag.substringBefore("·"))
+
+                val cleanA = existing.content.replace(Regex("""[，。！？、\s\[\]【】]"""), "")
+                val cleanB = itemContent.replace(Regex("""[，。！？、\s\[\]【】]"""), "")
+
+                // 1. 直接子集包含
+                if (cleanA.contains(cleanB) || cleanB.contains(cleanA)) return@indexOfFirst true
+
+                // 2. 字符交集相似度 (Jaccard)
+                val setA = cleanA.toSet()
+                val setB = cleanB.toSet()
+                val intersection = setA.intersect(setB).size
+                val union = setA.union(setB).size
+                val similarity = if (union > 0) intersection.toFloat() / union else 0f
+
+                if (isSameTimeScope && similarity >= 0.38f) return@indexOfFirst true
+                if (!isSameTimeScope && similarity >= 0.65f) return@indexOfFirst true
+
+                // 3. 场景关键词同义集群重合
+                val sharesCluster = sceneClusterKeywords.any { cluster ->
+                    cluster.any { cleanA.contains(it) } && cluster.any { cleanB.contains(it) }
+                }
+                if (isSameTimeScope && sharesCluster) return@indexOfFirst true
+                if (!isSameTimeScope && sharesCluster && (similarity >= 0.25f || intersection >= 3)) return@indexOfFirst true
+
+                false
+            }
+
+            if (existingIdx != -1) {
+                val existing = consolidated[existingIdx]
+                val cleanerTime = if (itemTag.contains("·") && !existing.timeTag.contains("·")) itemTag else existing.timeTag
+                val higherCategory = if (item.category != TimelineCategory.PLOT_EVENT) item.category else existing.category
+
+                val mergedText = when {
+                    existing.content == itemContent -> existing.content
+                    existing.content.contains(itemContent) -> existing.content
+                    itemContent.contains(existing.content) -> itemContent
+                    existing.content.length in 12..35 && itemContent.length in 12..35 -> {
+                        val commonEntities = existing.content.take(4)
+                        if (itemContent.startsWith(commonEntities)) {
+                            "${existing.content}，并${itemContent.removePrefix(commonEntities)}"
+                        } else {
+                            if (existing.content.length >= itemContent.length) existing.content else itemContent
+                        }
+                    }
+                    existing.content.length > itemContent.length -> existing.content
+                    else -> itemContent
+                }
+                consolidated[existingIdx] = existing.copy(
+                    timeTag = cleanerTime,
+                    content = mergedText.take(45),
+                    category = higherCategory
+                )
+            } else {
+                consolidated.add(item.copy(content = itemContent.take(45)))
+            }
+        }
+
+        return normalizeMonotonicTimeline(consolidated)
+    }
+
+    /**
+     * 全局与时间无关设定深度汇总与语义去重（解决问题 2）
+     * 消除分段提取导致的“几个极其相似的设定总结”问题
+     */
+    fun consolidateFinalAtemporalSettings(settings: List<AtemporalSettingItem>): List<AtemporalSettingItem> {
+        if (settings.isEmpty()) return emptyList()
+        val consolidated = mutableListOf<AtemporalSettingItem>()
+
+        for (item in settings) {
+            val content = item.content.trim()
+            if (content.isBlank()) continue
+
+            val cleanItem = content.replace(Regex("""[，。！？、\s\[\]【】]"""), "")
+            val existingIdx = consolidated.indexOfFirst { existing ->
+                val cleanExisting = existing.content.replace(Regex("""[，。！？、\s\[\]【】]"""), "")
+                if (cleanExisting == cleanItem) return@indexOfFirst true
+                if (cleanExisting.contains(cleanItem) || cleanItem.contains(cleanExisting)) return@indexOfFirst true
+
+                // Jaccard 相似度判断
+                val setA = cleanExisting.toSet()
+                val setB = cleanItem.toSet()
+                val inter = setA.intersect(setB).size
+                val union = setA.union(setB).size
+                val sim = if (union > 0) inter.toFloat() / union else 0f
+
+                if (sim >= 0.45f) return@indexOfFirst true
+                if (inter >= 5 && sim >= 0.30f) return@indexOfFirst true
+                if (inter >= 4 && (cleanItem.length <= 10 || cleanExisting.length <= 10)) return@indexOfFirst true
+
+                false
+            }
+
+            if (existingIdx != -1) {
+                val existing = consolidated[existingIdx]
+                val best = if (item.content.length in 8..30 && item.content.length > existing.content.length) item.content else existing.content
+                consolidated[existingIdx] = existing.copy(content = best)
+            } else {
+                consolidated.add(item.copy(content = content.take(35)))
+            }
+        }
+
+        return consolidated
+    }
+
+    /**
+     * 全局时间线梳理结果综合汇总收敛 Pass
+     */
+    fun consolidateFinalReconcileResult(result: TimelineReconcileResult): TimelineReconcileResult {
+        val mergedEvents = consolidateFinalTimelineEvents(result.events)
+        val mergedSettings = consolidateFinalAtemporalSettings(result.atemporalSettings)
+        val resolvedStoryTime = if (result.currentStoryTime.isNotBlank() && result.currentStoryTime != "未确定" && result.currentStoryTime != "未知") {
+            result.currentStoryTime
+        } else {
+            inferCurrentStoryTime(mergedEvents, null)
+        }
+        return result.copy(
+            currentStoryTime = resolvedStoryTime,
+            events = mergedEvents.toMutableList(),
+            atemporalSettings = mergedSettings.toMutableList()
+        )
     }
 
     fun cleanTimelineResiduesFromMemories(memories: List<String>): List<String> {

@@ -180,7 +180,7 @@ class ChronicleTimelineStudioTest {
 
         assertEquals("固有设定", TimelineCategory.ATEMPORAL_SETTING.displayName)
         assertEquals("💡", TimelineCategory.ATEMPORAL_SETTING.emoji)
-        assertEquals("#E91E63", TimelineCategory.ATEMPORAL_SETTING.tagColorHex)
+        assertEquals("#607D8B", TimelineCategory.ATEMPORAL_SETTING.tagColorHex)
     }
 
     @Test

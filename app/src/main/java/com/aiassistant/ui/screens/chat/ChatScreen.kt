@@ -491,31 +491,29 @@ fun ChatScreen(
                                     maxLines = 2,
                                     modifier = Modifier.padding(vertical = 4.dp)
                                 )
-                                Row(
-                                    horizontalArrangement = Arrangement.End,
-                                    verticalAlignment = Alignment.CenterVertically,
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     TextButton(
                                         onClick = { viewModel.dismissPendingMemory() },
                                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                        modifier = Modifier.height(28.dp)
+                                        modifier = Modifier.defaultMinSize(minHeight = 32.dp)
                                     ) {
                                         Text("忽略", style = MaterialTheme.typography.labelSmall)
                                     }
-                                    Spacer(modifier = Modifier.width(6.dp))
                                     OutlinedButton(
                                         onClick = { viewModel.acceptPendingMemory("session") },
                                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                        modifier = Modifier.height(28.dp)
+                                        modifier = Modifier.defaultMinSize(minHeight = 32.dp)
                                     ) {
                                         Text("仅本会话生效", style = MaterialTheme.typography.labelSmall)
                                     }
-                                    Spacer(modifier = Modifier.width(6.dp))
                                     Button(
                                         onClick = { viewModel.acceptPendingMemory("user") },
                                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                        modifier = Modifier.height(28.dp)
+                                        modifier = Modifier.defaultMinSize(minHeight = 32.dp)
                                     ) {
                                         Text("存为跨会话长期记忆", style = MaterialTheme.typography.labelSmall)
                                     }

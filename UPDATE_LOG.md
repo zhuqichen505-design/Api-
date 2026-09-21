@@ -2,6 +2,88 @@
 
 本文档按照工作流规范记录每次版本更新、需求变更与复核结果。
 
+## [2026-09-22] - v2.3.0：时间线总结高度凝练与多轮对话单事件合并、全局终审聚合收敛、时空主动推进与防停滞、编年表UI排版重构
+
+### 1. 核心需求落实与技术重构详情
+1. **时间线总结精简与单事件多轮对话合并**：
+   - **痛点分析**：当某一件事被描写的很详细（表现为用很多对话来描述，如聚餐、商谈、初遇交谈等），原时间线提取机制容易将其拆散记录为多个琐碎子事件。
+   - **重构方案**：
+     - 在大模型 `analyzeTimelineChunk` 提示词中加入强约束：同一场景事件必须高度凝练为单一条目（15~30 字），禁止按细碎对话拆分；
+     - `TimelineMemoryHelper` 引入 `consolidateFinalTimelineEvents`：检测同天同时间段下同场景词簇（如餐馆/点菜/进餐、结识/初遇、战斗/交锋、会议/商讨等），自动执行语义融合与冗余剥离，收敛为最长不超过 45 字的宏观里程碑事件。
+2. **全局终审汇总 Pass（设定与事件深度去重与收敛）**：
+   - **痛点分析**：缺少最后的整体汇总，导致无论是设定还是事件，常有极其相似的同义表述共存。
+   - **重构方案**：
+     - 在 `AiRepository.kt` 中设计两阶段 Map-Reduce 架构：多段分析完成后触发 `consolidateTimelineWithModel` 整体汇总；
+     - 若模型未返回或条目精简，则经由 `TimelineMemoryHelper.consolidateFinalReconcileResult` 纯函数收敛；
+     - `consolidateFinalAtemporalSettings` 采用 Jaccard 相似度与核心特征词（如咖啡饮用习惯、药物过敏、武器偏好等）提取比对，彻底剔除语义重复设定。
+3. **当前时空节点自主推进与模型防停滞**：
+   - **痛点分析**：模型在后续对话中常错误地“一直停留在当前时空”，缺乏时间流逝的主动推进意识。
+   - **重构方案**：
+     - 在 `<session_timeline>` 提示词上下文中注入时空推进铁律：明确告知模型当前时空节点是“已发生事件的基准点”，要求模型正文剧情主动体现时间流逝（如日出日落、时段流转、跨天递进）；
+     - `AiRepository.evaluateAndAutoUpdateTimeline` 放宽判定门限，无论单段事件还是时空标签均触发更新；
+     - 新增 `detectAutoStoryTimeAdvancement` 兜底推演：结合具体活动终结（用餐完毕、就寝掌灯等）、时段关键词及次日推进规则，自动推断并更新 `Conversation.currentStoryTime`；自动净化“傍晚/黄昏”等斜杠复合词为清晰的“傍晚”。
+4. **时间节点编年表 UI 结构优化**：
+   - **ChatSettingsDialogs.kt**：重构编年表卡片布局。顶部单行容器水平排布：`序号 (#01)` + `垂直排布的时空标签 (第 1 天·傍晚) 与事件性质徽章 ([主线剧情])` + `编辑按键` + `删除按键`；下方全宽展现具体事件内容；
+   - 彻底避免窄屏下的错位挤压，视觉清晰精致。
+5. **全局 UI 审核加固**：
+   - 全局审核并消除了 `ChatScreen`、`ChatStoryDialogs`、`PlotActionBar`、`SettingsApiConfigDialog`、`HistoryScreen` 等多处的文字遮挡、按键重叠与高度限制截断问题。
+
+### 2. 自动化测试与工程核验
+- **单元测试**：全量执行 `testDebugUnitTest`，共计 334 项单元测试 100% 全部通过 (334 passed, 0 failed)。
+- **构建输出**：
+  - 文件路径：`D:\Agent\APP-烧\app\releases\Echo-v2.3.0.apk`
+  - 文件大小：`16,304,125 字节 (~15.55 MB)`
+  - SHA256：`9BB0F67133B718DE180EA90D1A4A5E1D461FCF8FC104B7E75AC77FD8F9442FDA`
+  - 签名方案：`v2 scheme (APK Signature Scheme v2): true`
+  - 包名与版本：`package: name='com.aiassistant' versionCode='135' versionName='2.3.0'`
+  - 历史包策略：`D:\Agent\APP-烧\app\releases` 目录下所有历史版本永久完整保留，本次仅增量输出 `Echo-v2.3.0.apk`，未包含任何 `-arm64-v8a` 等冗余后缀。
+
+---
+
+## [2026-09-21] - 全局 UI 排版与文字按键重叠错位深度优化
+
+### 1. 核心需求落实与技术重构详情
+1. **全局文字与按键重叠、挤压变形与排版错位修复**：
+   - **ChatScreen.kt**：
+     - `pendingMemoryCandidate` 待确认记忆候选卡片底部操作按键原本使用固定水平容器 `Row` 容纳 3 个宽按钮，在小屏幕宽度下产生文字裁切与按钮重叠溢出；
+     - 重构为弹性流式布局 `FlowRow`，设置合理的 `spacedBy` 与对齐规则，将硬编码 `height(28.dp)` 优化为 `defaultMinSize(minHeight = 32.dp)`，保障按键在多行排布或高系统字号下自适应换行，彻底消除裁切与挤压。
+   - **ChatSettingsDialogs.kt**：
+     - 会话专属记忆/角色约束行原在 `Row(SpaceBetween)` 中缺少权重与省略保护，导致长说明文字与右侧“添加设定”、“清空”按钮剧烈碰撞；现赋予说明文字 `Modifier.weight(1f).padding(end = 8.dp)` 并限制最多 2 行显示；
+     - 当前故事推进时空节点（`currentStoryTime`）文本增加 `maxLines = 1, overflow = Ellipsis`，防止长节点设定与“修改节点”按钮重叠；
+     - 时间线全量梳理与操作工具栏升级为 `FlowRow` 响应式包裹，防止梳理中文案与节点添加按钮越界。
+   - **ChatStoryDialogs.kt**：
+     - “当前叙事模式”、“登场角色”、“世界观与场景设定”等分区标题栏与操作按钮统一配置 `weight(1f, fill = false)` 与单行省略保护，标题与右侧副标题间增加间隔；
+     - 将所有硬编码 `height(28.dp)` 的操作按键（“添加新角色”、“添加新世界观”、快捷剧情提示、分析终止等）升级为 `defaultMinSize(minHeight = 32.dp)` 或 `defaultMinSize(minHeight = 28.dp)`，杜绝文字在垂直方向因小高度限制被裁切。
+   - **RoleplayStudioScreen.kt**：
+     - `SessionCard` 底部“叙事模式”标签与提示文案从固定单行重构为 `FlowRow`，提示文本增加 `maxLines = 1, overflow = Ellipsis`，杜绝小屏宽度下溢出或与更多操作按钮重叠；
+     - `CharacterCard` 角色姓名与身份（`name` + `· ${identity}`）行增加 `maxLines = 1, overflow = Ellipsis` 及弹性权重分配，避免长角色名挤压右侧收藏按钮；
+     - `ScenarioCard` 标题增加单行省略截断保护；
+     - 导入同名冲突处理选项由单行 `Row` 重构为自适应换行的 `FlowRow`。
+   - **PlotActionBar.kt**：
+     - 底部“更多操作”栏中的 4 个 `AssistChip`（改变视角、改变语气、创建分支、回退版本）原本位于静态单行 `Row`，在标准 360dp 屏宽下第 4 个按钮被严重截断；
+     - 重构为 `FlowRow`，确保在任何屏幕宽度与字体倍率下均能优雅整齐折行显示。
+   - **HistoryScreen.kt**：
+     - 会话卡片模型标签增加 `Modifier.weight(1f, fill = false)` 与单行省略保护，避免超长模型名（如各类开源衍生模型名）将消息计数及 Token 统计指标挤压出屏幕。
+   - **SettingsApiConfigDialog.kt**：
+     - `ModelCustomSettingCard` 模型特性徽章（上下文窗口、视觉、工具、思考、联网）原在单行排布，在弹窗中间仅 150dp 区域发生严重溢出并遮挡右侧单选框与折叠按键；
+     - 升级为 `FlowRow`，实现特性徽章自适应柔性换行。
+   - **SettingsPersonalizationTab.kt**：
+     - 修复 `MemoryItemCard` 中 `Switch` 上强制设置 `Modifier.height(24.dp)` 导致的轨道与滑块形变裁切，统一调整为规范缩放；
+     - `WorldBookCardItem` 书籍名称增加 `weight(1f, fill = false)` 与单行省略保护，避免长书籍名称挤压设定条数徽章。
+   - **SettingsModelFeaturesTab.kt**：
+     - 针对辅助模型卡片 13 个中文字符的超长标题与“已启用”徽章，重构为 `FlowRow` 弹性排布，彻底消除与右侧总开关的碰撞变形。
+   - **NewRoleplaySessionScreen.kt**：
+     - 登场角色设定、世界观与背景设定、生成模型与 API 服务、故事叙事模式等所有核心标题栏统一注入 `Modifier.weight(1f)` 与单行省略保护，叙事模式列表项内部容器加入权重自适应约束。
+   - **ChatMessageComponents.kt**：
+     - 工具调用详情按钮的固定高度调整为弹性最小高度，确保高字体缩放下完整显示。
+
+### 2. 自动化测试与质量核验
+- **单元测试**：全量执行 `.\gradlew.bat testDebugUnitTest --no-daemon`，共计 **330 项测试全部通过 (330 passed, 0 failed)**，测试覆盖核心架构、时间线推理、数据克隆与排版边界逻辑。
+- **编译检查**：执行 `.\gradlew.bat compileDebugKotlin --no-daemon`，退出码 0，所有 Compose 语法与布局闭包无任何错误。
+- **规范遵守**：严格执行“未明确要求构建 APK 不执行打包发布流程”，不触发发布构建。
+
+---
+
 ## [2026-09-21] - v2.2.9：独立单一存放的时间线体系 (timeline_nodes)、同一事件防跨天归并、根除非正常时间大跳跃、实时动态更新与完整用户编辑
 
 ### 1. 核心需求落实与技术重构详情

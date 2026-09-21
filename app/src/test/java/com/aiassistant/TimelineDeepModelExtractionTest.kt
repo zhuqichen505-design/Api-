@@ -90,17 +90,17 @@ class TimelineDeepModelExtractionTest {
 
     @Test
     fun testCategoryDisplayNameAndTagColors() {
-        // 验证 5 大类别名称与色值完整性
+        // 验证 9 大类别名称与色值完整性
         val categories = TimelineCategory.values()
-        assertEquals(5, categories.size)
+        assertEquals(9, categories.size)
 
         val atemporal = TimelineCategory.ATEMPORAL_SETTING
         assertEquals("固有设定", atemporal.displayName)
         assertEquals("💡", atemporal.emoji)
-        assertEquals("#E91E63", atemporal.tagColorHex)
+        assertEquals("#607D8B", atemporal.tagColorHex)
 
         val plot = TimelineCategory.PLOT_EVENT
-        assertEquals("剧情推进", plot.displayName)
+        assertEquals("剧情事件", plot.displayName)
         assertEquals("📖", plot.emoji)
 
         val rule = TimelineCategory.RULE_CONSTRAINT
@@ -112,7 +112,7 @@ class TimelineDeepModelExtractionTest {
         assertEquals("🎭", charSetting.emoji)
 
         val world = TimelineCategory.WORLD_SETTING
-        assertEquals("剧情设定", world.displayName)
+        assertEquals("世界设定", world.displayName)
         assertEquals("🌍", world.emoji)
     }
 }

@@ -1321,10 +1321,10 @@ private fun ModelCustomSettingCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    Row(
+                    FlowRow(
                         modifier = Modifier.padding(top = 2.dp),
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
                         val ctxTokens = currentSettings.contextWindowTokens
                         val ctxLabel = if (ctxTokens != null && ctxTokens > 0) {

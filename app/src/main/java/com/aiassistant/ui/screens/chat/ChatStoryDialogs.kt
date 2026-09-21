@@ -380,8 +380,15 @@ internal fun StoryUnifiedSettingsDialog(
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text("当前叙事模式", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                                        Text("点击即时切换导演/对话风格", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text("当前叙事模式", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, maxLines = 1)
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            "点击即时切换导演/对话风格",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                        )
                                     }
                                     NarrativeMode.values().forEach { mode ->
                                         val isSelected = selectedNarrativeMode == mode
@@ -441,7 +448,7 @@ internal fun StoryUnifiedSettingsDialog(
                                                     }
                                                 },
                                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                                modifier = Modifier.height(28.dp)
+                                                modifier = Modifier.defaultMinSize(minHeight = 28.dp)
                                             ) {
                                                 Text(label, style = MaterialTheme.typography.labelSmall)
                                             }
@@ -491,13 +498,21 @@ internal fun StoryUnifiedSettingsDialog(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("登场角色 (${effectiveSelectedCharIds.size}/${charListToDisplay.size})", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                    Text(
+                                        "登场角色 (${effectiveSelectedCharIds.size}/${charListToDisplay.size})",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.weight(1f, fill = false),
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
                                     OutlinedButton(
                                         onClick = {
                                             editingLocalCharacter = CharacterProfile(id = 0, name = "")
                                         },
                                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                        modifier = Modifier.height(28.dp)
+                                        modifier = Modifier.defaultMinSize(minHeight = 32.dp)
                                     ) {
                                         Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp))
                                         Spacer(modifier = Modifier.width(4.dp))
@@ -588,13 +603,21 @@ internal fun StoryUnifiedSettingsDialog(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("世界观与场景设定", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                    Text(
+                                        "世界观与场景设定",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.weight(1f, fill = false),
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
                                     OutlinedButton(
                                         onClick = {
                                             editingLocalScenario = RoleplayScenario(id = 0, name = "")
                                         },
                                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                        modifier = Modifier.height(28.dp)
+                                        modifier = Modifier.defaultMinSize(minHeight = 32.dp)
                                     ) {
                                         Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp))
                                         Spacer(modifier = Modifier.width(4.dp))
@@ -1500,7 +1523,7 @@ internal fun SmartAppendStoryDialog(
                                 },
                                 colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                                modifier = Modifier.height(28.dp)
+                                modifier = Modifier.defaultMinSize(minHeight = 28.dp)
                             ) {
                                 Text("停止", style = MaterialTheme.typography.labelSmall)
                             }

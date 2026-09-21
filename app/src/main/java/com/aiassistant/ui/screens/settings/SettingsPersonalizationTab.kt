@@ -203,7 +203,7 @@ fun MemoryItemCard(
                 Switch(
                     checked = memory.isEnabled,
                     onCheckedChange = onToggleEnabled,
-                    modifier = Modifier.height(24.dp)
+                    modifier = Modifier.scale(0.8f)
                 )
             }
 
@@ -254,7 +254,10 @@ fun WorldBookCardItem(
                         text = book.name,
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
-                        color = if (book.isEnabled) glass.textPrimary else glass.textPrimary.copy(alpha = 0.6f)
+                        color = if (book.isEnabled) glass.textPrimary else glass.textPrimary.copy(alpha = 0.6f),
+                        modifier = Modifier.weight(1f, fill = false),
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Surface(

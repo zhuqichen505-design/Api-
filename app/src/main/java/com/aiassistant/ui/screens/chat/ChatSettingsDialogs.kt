@@ -1097,7 +1097,9 @@ fun ChatSettingsTimelineSection(
                             text = if (!currentStoryTime.isNullOrBlank()) "当前时空节点：$currentStoryTime" else "当前时空节点：未设定",
                             style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.Bold,
-                            color = primaryColor
+                            color = primaryColor,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                         )
                     }
                     TextButton(
@@ -1115,9 +1117,9 @@ fun ChatSettingsTimelineSection(
             }
 
             // 操作栏：梳理全量时间线、添加节点、清空时间线
-            Row(
+            FlowRow(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
+                verticalArrangement = Arrangement.spacedBy(4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 if (isReconcilingTimeline) {
@@ -1271,40 +1273,42 @@ fun ChatSettingsTimelineSection(
                                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (enableTimeline) 0.45f else 0.22f),
                                 border = BorderStroke(1.dp, glass.outline.copy(alpha = if (enableTimeline) 0.5f else 0.25f))
                             ) {
-                                Row(
+                                Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(horizontal = 12.dp, vertical = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
-                                    // 左侧时序序号
-                                    Surface(
-                                        shape = CircleShape,
-                                        color = primaryColor.copy(alpha = 0.2f),
-                                        modifier = Modifier.size(22.dp)
+                                    // 顶部行：序号、时间点与事件性质（上下排布）、编辑与删除键放在同一行
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Box(contentAlignment = Alignment.Center) {
-                                            Text(
-                                                text = "${index + 1}",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = primaryColor,
-                                                fontWeight = FontWeight.Bold
-                                            )
+                                        // 1. 左侧序号
+                                        Surface(
+                                            shape = CircleShape,
+                                            color = primaryColor.copy(alpha = 0.2f),
+                                            modifier = Modifier.size(22.dp)
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Text(
+                                                    text = "${index + 1}",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = primaryColor,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
                                         }
-                                    }
 
-                                    // 中间：时间标签、分类与关键事件描述
-                                    Column(
-                                        modifier = Modifier.weight(1f),
-                                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        Spacer(modifier = Modifier.width(8.dp))
+
+                                        // 2. 时间点与事件性质上下排布
+                                        Column(
+                                            modifier = Modifier.weight(1f),
+                                            verticalArrangement = Arrangement.spacedBy(2.dp)
                                         ) {
                                             Surface(
-                                                shape = RoundedCornerShape(6.dp),
+                                                shape = RoundedCornerShape(4.dp),
                                                 color = primaryColor.copy(alpha = 0.15f),
                                                 border = BorderStroke(0.8.dp, primaryColor.copy(alpha = 0.35f))
                                             ) {
@@ -1313,11 +1317,11 @@ fun ChatSettingsTimelineSection(
                                                     style = MaterialTheme.typography.labelSmall,
                                                     color = primaryColor,
                                                     fontWeight = FontWeight.Bold,
-                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
                                                 )
                                             }
                                             Surface(
-                                                shape = RoundedCornerShape(6.dp),
+                                                shape = RoundedCornerShape(4.dp),
                                                 color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.12f),
                                                 border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.3f))
                                             ) {
@@ -1326,53 +1330,55 @@ fun ChatSettingsTimelineSection(
                                                     style = MaterialTheme.typography.labelSmall,
                                                     color = MaterialTheme.colorScheme.tertiary,
                                                     fontWeight = FontWeight.Medium,
-                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
                                                 )
                                             }
                                         }
 
-                                        Text(
-                                            text = node.event,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = if (enableTimeline) contentColor else secondaryColor
-                                        )
+                                        // 3. 右侧编辑与删除按键在同一行
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            IconButton(
+                                                onClick = {
+                                                    editTimeTag = node.timeTag
+                                                    editEventText = node.event
+                                                    editCategory = cat
+                                                    nodeToEdit = node
+                                                },
+                                                enabled = enableTimeline,
+                                                modifier = Modifier.size(28.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.Edit,
+                                                    contentDescription = "编辑",
+                                                    modifier = Modifier.size(14.dp),
+                                                    tint = secondaryColor
+                                                )
+                                            }
+                                            IconButton(
+                                                onClick = { onDeleteTimelineNode(node.id) },
+                                                enabled = enableTimeline,
+                                                modifier = Modifier.size(28.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.DeleteOutline,
+                                                    contentDescription = "删除",
+                                                    modifier = Modifier.size(14.dp),
+                                                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f)
+                                                )
+                                            }
+                                        }
                                     }
 
-                                    // 右侧操作：编辑与删除
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(2.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        IconButton(
-                                            onClick = {
-                                                editTimeTag = node.timeTag
-                                                editEventText = node.event
-                                                editCategory = cat
-                                                nodeToEdit = node
-                                            },
-                                            enabled = enableTimeline,
-                                            modifier = Modifier.size(28.dp)
-                                        ) {
-                                            Icon(
-                                                Icons.Default.Edit,
-                                                contentDescription = "编辑",
-                                                modifier = Modifier.size(14.dp),
-                                                tint = secondaryColor
-                                            )
-                                        }
-                                        IconButton(
-                                            onClick = { onDeleteTimelineNode(node.id) },
-                                            enabled = enableTimeline,
-                                            modifier = Modifier.size(28.dp)
-                                        ) {
-                                            Icon(
-                                                Icons.Default.DeleteOutline,
-                                                contentDescription = "删除",
-                                                modifier = Modifier.size(14.dp),
-                                                tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f)
-                                            )
-                                        }
-                                    }
+                                    // 下方展示完整的事件描述
+                                    Text(
+                                        text = node.event,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (enableTimeline) contentColor else secondaryColor,
+                                        modifier = Modifier.fillMaxWidth().padding(start = 2.dp)
+                                    )
                                 }
                             }
                         }
@@ -1733,7 +1739,10 @@ fun ChatSettingsSessionMemorySection(
                 Text(
                     text = if (enableSessionMemory) "已生效：发送消息时将附带上述规则约束" else "已停用：发送消息时不附带设定",
                     style = MaterialTheme.typography.bodySmall,
-                    color = secondaryColor
+                    color = secondaryColor,
+                    modifier = Modifier.weight(1f).padding(end = 8.dp),
+                    maxLines = 2,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                 )
 
                 Row(

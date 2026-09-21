@@ -88,8 +88,9 @@ fun PlotActionBar(
             Spacer(modifier = Modifier.height(8.dp))
 
             // 更多操作
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 AssistChip(
                     onClick = { onAction(PlotAction.CHANGE_PERSPECTIVE, null) },
