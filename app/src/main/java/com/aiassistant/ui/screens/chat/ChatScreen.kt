@@ -187,8 +187,10 @@ fun ChatScreen(
     val translatingMessageIds by viewModel.translatingMessageIds.collectAsState()
     val sessionMemories by viewModel.sessionMemories.collectAsState()
     val isReconcilingTimeline by viewModel.isReconcilingTimeline.collectAsState()
+    val timelineReconcileProgress by viewModel.timelineReconcileProgress.collectAsState()
     val timelineReconcileResult by viewModel.timelineReconcileResult.collectAsState()
     val showTimelineReconcileDialog by viewModel.showTimelineReconcileDialog.collectAsState()
+    val timelineUpdateNotice by viewModel.timelineUpdateNotice.collectAsState()
 
     val roleplayRepo = remember { com.aiassistant.AiAssistantApp.instance.roleplayRepository }
     val allAvailableCharacters by roleplayRepo.getAllCharacters().collectAsState(initial = emptyList())
@@ -202,6 +204,7 @@ fun ChatScreen(
     var showSettingsDialog by remember { mutableStateOf(false) }
     var showConvertToRoleplayDialog by remember { mutableStateOf(false) }
     var showContextUsageDialog by remember { mutableStateOf(false) }
+    var showRollingSummaryDialog by remember { mutableStateOf(false) }
     var showStoryManagerDialog by remember { mutableStateOf(false) }
     var showStorySmartAnalyzeDialog by remember { mutableStateOf(false) }
     var showPlotActionDialog by remember { mutableStateOf(false) }
@@ -514,6 +517,72 @@ fun ChatScreen(
                                         modifier = Modifier.height(28.dp)
                                     ) {
                                         Text("存为跨会话长期记忆", style = MaterialTheme.typography.labelSmall)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 时间线自动增量更新提醒胶囊
+                AnimatedVisibility(
+                    visible = timelineUpdateNotice != null,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically()
+                ) {
+                    timelineUpdateNotice?.let { notice ->
+                        EchoGlassCard(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 4.dp),
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.92f),
+                            shape = EchoTokens.Radius.shapeMd
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    modifier = Modifier.weight(1f),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.HistoryEdu,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Text(
+                                        text = notice,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    TextButton(
+                                        onClick = {
+                                            viewModel.dismissTimelineUpdateNotice()
+                                            showSettingsDialog = true
+                                        },
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                    ) {
+                                        Text("查看", style = MaterialTheme.typography.labelSmall)
+                                    }
+                                    IconButton(
+                                        onClick = { viewModel.dismissTimelineUpdateNotice() },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Close,
+                                            contentDescription = "关闭",
+                                            modifier = Modifier.size(14.dp)
+                                        )
                                     }
                                 }
                             }
@@ -1405,7 +1474,9 @@ fun ChatScreen(
             templates = promptTemplates,
             sessionMemories = sessionMemories,
             isReconcilingTimeline = isReconcilingTimeline,
+            reconcileTimelineProgress = timelineReconcileProgress,
             onStartTimelineReconciliation = { viewModel.startTimelineReconciliation() },
+            onCancelTimelineReconciliation = { viewModel.cancelTimelineReconciliation() },
             onAddSessionMemory = { viewModel.addSessionMemory(it) },
             onUpdateSessionMemory = { viewModel.updateSessionMemory(it) },
             onToggleSessionMemory = { id, enabled -> viewModel.toggleSessionMemory(id, enabled) },
@@ -1588,7 +1659,24 @@ fun ChatScreen(
             state = contextUsage,
             onDismiss = { showContextUsageDialog = false },
             onRefresh = { viewModel.refreshContextUsage() },
-            onCompress = { viewModel.compressContextNow() }
+            onCompress = { viewModel.compressContextNow() },
+            onGenerateRollingSummary = { viewModel.generateRollingSummaryNow() },
+            onEditRollingSummary = { showRollingSummaryDialog = true }
+        )
+    }
+
+    if (showRollingSummaryDialog) {
+        val currentSummary = viewModel.getCurrentRollingSummary()
+        RollingSummaryEditDialog(
+            hazeState = hazeState,
+            initialSummary = currentSummary,
+            onDismiss = { showRollingSummaryDialog = false },
+            onSave = { updatedSummary ->
+                viewModel.updateRollingSummary(updatedSummary)
+            },
+            onClear = {
+                viewModel.clearRollingSummary()
+            }
         )
     }
 

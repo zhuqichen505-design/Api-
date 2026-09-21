@@ -333,7 +333,9 @@ internal fun ContextUsageDialog(
     state: ContextUsageUiState,
     onDismiss: () -> Unit,
     onRefresh: () -> Unit,
-    onCompress: () -> Unit
+    onCompress: () -> Unit,
+    onGenerateRollingSummary: () -> Unit = {},
+    onEditRollingSummary: (() -> Unit)? = null
 ) {
     val usage = state.usage
 
@@ -357,7 +359,7 @@ internal fun ContextUsageDialog(
                 Column(modifier = Modifier.weight(1f)) {
                     Text("上下文使用情况", style = MaterialTheme.typography.titleLarge)
                     Text(
-                        text = "当前模型窗口、上下文预算与压缩状态",
+                        text = "当前模型窗口、上下文预算与滚动摘要管理",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -385,7 +387,11 @@ internal fun ContextUsageDialog(
                         ContextUsageOverview(usage = usage)
                     }
                     item {
-                        ContextUsageDetails(usage = usage)
+                        ContextUsageDetails(
+                            usage = usage,
+                            onGenerateRollingSummary = onGenerateRollingSummary,
+                            onEditRollingSummary = onEditRollingSummary
+                        )
                     }
                     item {
                         ContextUsageStatus(
@@ -399,33 +405,52 @@ internal fun ContextUsageDialog(
         buttons = {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                TextButton(
-                    onClick = onRefresh,
-                    enabled = !state.isCompressing
-                ) {
-                    Text("刷新")
-                }
-                TextButton(onClick = onDismiss) {
-                    Text("关闭")
-                }
-                Button(
-                    onClick = onCompress,
-                    enabled = !state.isCompressing
-                ) {
-                    if (state.isCompressing) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.onPrimary
-                        )
-                    } else {
-                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(
+                        onClick = onRefresh,
+                        enabled = !state.isCompressing
+                    ) {
+                        Text("刷新")
                     }
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(if (state.isCompressing) "压缩中" else "主动压缩")
+                    TextButton(onClick = onDismiss) {
+                        Text("关闭")
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = onGenerateRollingSummary,
+                        enabled = !state.isCompressing
+                    ) {
+                        if (state.isCompressing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(14.dp),
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(15.dp))
+                        }
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(if (usage?.hasRollingSummary == true) "更新摘要" else "生成摘要")
+                    }
+                    Button(
+                        onClick = onCompress,
+                        enabled = !state.isCompressing
+                    ) {
+                        if (state.isCompressing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                        } else {
+                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(if (state.isCompressing) "压缩中" else "主动压缩")
+                    }
                 }
             }
         }
@@ -475,7 +500,11 @@ internal fun ContextUsageOverview(usage: ConversationContextUsage) {
 }
 
 @Composable
-internal fun ContextUsageDetails(usage: ConversationContextUsage) {
+internal fun ContextUsageDetails(
+    usage: ConversationContextUsage,
+    onGenerateRollingSummary: (() -> Unit)? = null,
+    onEditRollingSummary: (() -> Unit)? = null
+) {
     Surface(
         shape = RoundedCornerShape(14.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f)
@@ -496,14 +525,54 @@ internal fun ContextUsageDetails(usage: ConversationContextUsage) {
                 label = "较早消息",
                 value = "${usage.olderMessageCount} 条"
             )
-            ContextUsageRow(
-                label = "滚动摘要",
-                value = if (usage.hasRollingSummary) {
-                    "${formatTokenCount(usage.summaryTokens)} tokens"
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "滚动摘要",
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (usage.hasRollingSummary) {
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable(enabled = onEditRollingSummary != null) { onEditRollingSummary?.invoke() }
+                            .padding(horizontal = 4.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = "${formatTokenCount(usage.summaryTokens)} tokens",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Icon(
+                            Icons.Default.Edit,
+                            contentDescription = "查看或微调滚动摘要",
+                            modifier = Modifier.size(13.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 } else {
-                    "尚未生成"
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable(enabled = onGenerateRollingSummary != null) { onGenerateRollingSummary?.invoke() }
+                            .padding(horizontal = 4.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = "尚未生成 (点击生成)",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.tertiary
+                        )
+                    }
                 }
-            )
+            }
             ContextUsageRow(
                 label = "长期记忆",
                 value = "${usage.memoryItemCount} 条 · ${formatTokenCount(usage.memoryTokens)} tokens"
@@ -638,5 +707,83 @@ internal fun ChatHeaderTitle(
             )
         }
     }
+}
+
+@Composable
+internal fun RollingSummaryEditDialog(
+    hazeState: dev.chrisbanes.haze.HazeState,
+    initialSummary: String,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit,
+    onClear: () -> Unit
+) {
+    var text by remember(initialSummary) { mutableStateOf(initialSummary) }
+
+    EchoGlassDialog(
+        hazeState = hazeState,
+        onDismissRequest = onDismiss,
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    Icons.Default.AutoAwesome,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+                Text("会话滚动摘要", style = MaterialTheme.typography.titleLarge)
+            }
+        },
+        content = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "滚动摘要由 AI 根据早期历史对话提炼，已自动注入到系统上下文中。您可以直接审阅或按需编辑修改：",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 160.dp, max = 340.dp),
+                    placeholder = { Text("暂无滚动摘要内容...") },
+                    textStyle = MaterialTheme.typography.bodyMedium
+                )
+            }
+        },
+        buttons = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(
+                    onClick = {
+                        onClear()
+                        onDismiss()
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("清除摘要")
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = onDismiss) {
+                        Text("取消")
+                    }
+                    Button(
+                        onClick = {
+                            onSave(text)
+                            onDismiss()
+                        }
+                    ) {
+                        Text("保存")
+                    }
+                }
+            }
+        }
+    )
 }
 

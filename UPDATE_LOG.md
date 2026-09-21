@@ -1,5 +1,173 @@
 # Echo AI 助手更新日志 (Update Log)
 
+## [2026-09-21] - v2.2.8：时间线与会话记忆门禁合并、大模型深度参与时间线与事件提取、设置中跨会话记忆与对话专属记忆彻底物理隔离
+
+### 1. 核心需求落实与技术重构详情
+1. **时间线功能与对话记忆开关合并（消除繁琐检测与规则门禁）**：
+   - **重构背景**：
+     - 之前的时间线自动评估依赖独立的文本关键字正则嗅探与多重启发式门禁，容易因日常交谈缺少敏感词而将剧情互动短路，导致大模型无法参与时间推进。
+   - **技术方案**：
+     - 彻底简化门禁逻辑，时间线功能不再需要单独检测是否开启，直接与“对话记忆”（`conversation.enableSessionMemory`）开关完全合并；
+     - 只要用户在单对话中启用了“对话记忆”（角色扮演/故事会话默认生效），时间线功能即自动跟随生效；若用户显式关闭对话记忆，时间线评估同步停用；
+     - 在 `AiRepository.kt` 中移除旧的启发式过滤，纯粹基于 `enableSessionMemory` 决定是否调度后台轻量评估。
+   - **文件改动**：`app/src/main/java/com/aiassistant/data/repository/AiRepository.kt`。
+
+2. **大模型真正参与时间线与事件智能提取（告别粗糙纯文字识别与正则）**：
+   - **重构背景**：
+     - 单纯依赖本地规则与关键字文字识别在复杂剧情与小说创作中效果极差，容易漏判时间流逝或错判关键事件。
+   - **技术方案**：
+     - 在 `AiRepository.kt` 中重构 `evaluateAndAutoUpdateTimeline` 与增量提取 Prompt：
+       ① 深入理解正文对话，敏锐判断日内时段流转（清晨、午后、深夜）、跨日演进、相对时间跨度（几天后、两周后）及阶段节气节点（暑假开始、深秋初雪等）；
+       ② 精炼提炼具有长远影响的剧情里程碑事实，并强制要求去除“用户”、“AI”、“助手”等元词汇，严禁把导演指令原样记录为事件；
+       ③ 优先调用当前会话正在使用的活动大模型进行高质量增量提炼，若模型未配置则调度系统默认模型，仅在离线或异常时平滑降级为本地规则兜底；
+     - 在 `extractMemoryCandidate` 中同步扩展支持会话活跃模型提取，实现端到端大模型深度参与。
+   - **文件改动**：`app/src/main/java/com/aiassistant/data/repository/AiRepository.kt`、`app/src/main/java/com/aiassistant/ui/screens/chat/ChatViewModel.kt`。
+
+3. **设置中跨会话记忆只管理全局偏好，与对话专属记忆完全物理隔离**：
+   - **重构背景**：
+     - 设置中的“跨会话长期记忆”此前存在全局偏好与各会话专属记忆混杂的问题，清空或开关操作存在误伤对话私密上下文的隐患。
+   - **技术方案**：
+     - 在 `Daos.kt` (`MemoryDao`) 中新增 `getGlobalMemoriesFlow()`、`searchGlobalMemories()` 与 `deleteGlobalMemories()`，明确通过 `scope IN ('user', 'global')` 进行严格过滤与独立清空；
+     - 在 `SettingsPromptsMemoryTab.kt` 中彻底移除会话作用域过滤标签，设置界面仅展示全局偏好条目（“全局偏好库管理”），明确文案说明“开关仅影响全局偏好；各对话专属偏好和记忆完全独立运作”；
+     - 设置页中的“清空”按钮仅调用 `repository.clearGlobalMemories()`，100% 保护各对话内部的专属记忆与时间线设定；
+     - 在 `AiRepository.kt` 的 `captureMemoryCandidate` 中实现解耦控制：全局偏好入库由设置页的 `autoMemoryEnabled` 控制，会话专属记忆由该会话自身的 `enableSessionMemory` 独立控制。
+   - **文件改动**：`app/src/main/java/com/aiassistant/data/local/Daos.kt`、`app/src/main/java/com/aiassistant/data/repository/AiRepository.kt`、`app/src/main/java/com/aiassistant/ui/screens/settings/SettingsPromptsMemoryTab.kt`。
+
+---
+
+## [2026-09-21] - v2.2.7：角色扮演与小说创作时间与事件记忆重构（日内时段状态机、防时序错乱、长对话分段 Map-Reduce 梳理与即时取消、对话后自动增量更新提醒）
+
+### 1. 核心需求落实与技术重构详情
+1. **时间线自动提取与每次对话后自动判断增量更新**：
+   - **根因分析**：
+     - 原“梳理时间线”功能只能由用户在设置弹窗中手动全量触发，模型无法在日常对话推进中自动捕获时间流逝与事件推进；
+     - 缺乏自动化增量提炼机制，导致长对话中模型对时间线的认知停留在旧节点。
+   - **技术方案**：
+     - 在 `PersonalizationManager.kt` 中为 `PersonalizationSettings` 新增 `autoTimelineEnabled: Boolean = true` 与 `autoTimelineNoticeEnabled: Boolean = true` 开关；
+     - 在 `AiRepository.kt` 中实现 `evaluateAndAutoUpdateTimeline`：利用轻量 System Prompt 针对最新轮次对话评估时间是否有推进（天数变化、时段变化）及是否有新的关键事件发生；
+     - 当检测到实质推进时，自动更新会话专属记忆中的【当前故事时间】与时间线事件，并返回轻量变更摘要；
+     - 在 `ChatViewModel.kt` 的 `sendMessageInternal` 回调中挂载该后台协程任务，不阻塞前端回复展示；
+     - 在 `ChatScreen.kt` 聊天输入框上方新增基于液态玻璃卡片的 `timelineUpdateNotice` 浮动胶囊提醒（“🕒 时间线已自动推进至：第 X 天·下午，新增 1 条事件”），支持点击“查看”直接打开设置审核或点击关闭忽略。
+   - **文件改动**：`app/src/main/java/com/aiassistant/utils/PersonalizationManager.kt`、`app/src/main/java/com/aiassistant/data/repository/AiRepository.kt`、`app/src/main/java/com/aiassistant/ui/screens/chat/ChatViewModel.kt`、`app/src/main/java/com/aiassistant/ui/screens/chat/ChatScreen.kt`。
+
+2. **时间精度防错乱与日内时段细分状态机（解决“在一起几天后误记为昨天”与“早餐后下一句天黑入睡”等割裂）**：
+   - **根因分析**：
+     - 大模型在记忆压缩后产生“昨天才在一起”的幻觉，是因为压缩摘要仅记录了事件动作而丢失了**绝对天数锚点与相对总天数跨度**；
+     - 出现“男女主吃完早餐后，下一句回复突兀描写天黑了要早点睡”，是由于缺乏**日内时段（DayPhase）连续性与生理常识约束**，模型直接跨越了数小时。
+   - **技术方案**：
+     - 借鉴开源社区成熟方案（SillyTavern Timekeeper、NovelAI 状态机、Mem0 实体时序关联），在 `TimelineMemoryHelper.kt` 中引入 `DayPhase` 枚举（定义清晨/早晨、上午、中午、下午、傍晚/黄昏、入夜/晚间、深夜/拂晓 7 个细分状态机）；
+     - 重构 `buildTimelinePromptContext`，向模型注入四维时序守护看板：
+       ①【故事当前时间节点与时空看板】：明确当前绝对故事时间与停驻时段；
+       ②【关键里程碑置顶防漂移看板】：自动识别“确立关系/告白/结盟”等关键里程碑，计算与当前故事天数的时间差，并醒目加注 `[注意：此事件发生在 X 天前，距今已过去 X 天（X 个日夜），绝非昨天！]`，彻底切断时间漂移；
+       ③【剧情推进时间线与日常备忘明细】：按时序展示所有事件相对于当前故事时间的相对推算；
+       ④【时空连贯性与日内时序守护铁律】：明确作息规律约束，日内时段处于白天/吃早餐时，严禁在未描写数小时自然流逝的情况下突兀跳跃至天黑入睡。
+   - **文件改动**：`app/src/main/java/com/aiassistant/utils/TimelineMemoryHelper.kt`。
+
+3. **自主增量更新与去重润色**：
+   - **根因分析**：
+     - 多轮对话讨论同一事件（如反复商议同一任务或多轮描写同一告别场景）时，简单追加会导致时间线上堆积多条雷同的碎片记忆。
+   - **技术方案**：
+     - 在 `TimelineMemoryHelper.kt` 中实现 `mergeOrAppendEvent`；
+     - 通过比对时间标签与核心语义重叠度（关键词匹配与字符子集判定），同天同节点的重叠事件执行智能润色合并，自动采纳更完整丰富的描写版本；不同时间或新事件则正常追加并执行单调递增标准化。
+   - **文件改动**：`app/src/main/java/com/aiassistant/utils/TimelineMemoryHelper.kt`。
+
+4. **长对话分段梳理后汇总 (Map-Reduce) 架构与中途取消支持**：
+   - **根因分析**：
+     - 原梳理功能将整个会长文本（可达数万字符）一次性发送给模型，导致梳理耗时超长（1~2分钟）、注意力漂移遗漏中间细节、易触发网关超时，且无法中途取消。
+   - **技术方案**：
+     - 在 `TimelineMemoryHelper.kt` 中实现 `chunkMessagesForAnalysis`：将长对话切分为每组 25 条消息的小片段，且相邻片段保留 3 条重叠滑动窗口，保障因果时序与上下文连续性；
+     - 在 `AiRepository.kt` 中将 `reconcileConversationTimeline` 重构为 Map-Reduce 架构：
+       - Map 阶段：分段解析各片段的时间线与设定，支持实时进度回调 `onProgress("正在梳理分段 $idx/$total...")`；
+       - 在每个分段处理前检查 `currentCoroutineContext().ensureActive()`，配合 `ChatViewModel.cancelTimelineReconciliation()` 实现随时即时取消；
+       - Reduce 阶段：将各段抽取出的时间线事件与设定进行全局去重合并，并统一通过 `normalizeMonotonicTimeline` 进行递增校对；
+     - 在 `ChatSettingsDialogs.kt` 中更新 `ChatSettingsSessionMemorySection`：当处于梳理状态时，显示动态进度（如“正在梳理分段 2/4...”）以及红色的【点击取消】按钮，给予用户充分的控制权。
+   - **文件改动**：`app/src/main/java/com/aiassistant/utils/TimelineMemoryHelper.kt`、`app/src/main/java/com/aiassistant/data/repository/AiRepository.kt`、`app/src/main/java/com/aiassistant/ui/screens/chat/ChatViewModel.kt`、`app/src/main/java/com/aiassistant/ui/screens/chat/ChatSettingsDialogs.kt`。
+
+5. **四层结构化滚动压缩提示词升级**：
+   - **根因分析**：
+     - 滚动压缩生成摘要时若仅保留情节概要，模型在压缩后的多轮对话中必然会遗忘“从故事开端至今过去了多少天”，从而发生“把几天前发生的里程碑当成昨天”的时序幻觉。
+   - **技术方案**：
+     - 在 `AdvancedMemoryEngine.kt` 的 `buildStructuredSummaryPrompt` 中升级多维状态机提示词，强制要求模型输出：
+       ① 【核心背景与用户固定约束】；
+       ② 【时空演变与关键时间节点（极重要，严禁遗漏）】：必须包含“故事起始点与总跨度天数”、“重大里程碑时间锚点（严禁模糊为昨天）”、“当前故事停顿节点（精确至日内时段）”；
+       ③ 【历史关键里程碑与决策推进】；
+       ④ 【当前未决议题与待办上下文】；
+     - 确保即使在超长长篇创作的多轮压缩后，时空绝对锚点依然牢不可破。
+   - **文件改动**：`app/src/main/java/com/aiassistant/utils/AdvancedMemoryEngine.kt`。
+
+6. **私密对话记忆对齐、全域里程碑泛化、粗粒度时序理解与普通会话隔离（复核完善）**：
+   - **私密对话记忆完全对齐**：移除 `AiRepository.kt` 中对 `"private"` tag 的硬拦截（3198行、3771行、4170行），使私密对话在聊天过程中能 100% 完整享用专属记忆提取、记忆检索注入与自动时间线评估能力；退出会话时保留阅后即焚安全机制，彻底清理专属记忆与历史记录；
+   - **全域里程碑看板泛化**：彻底打破“在一起/告白”狭隘举例限制，升级 `isCoreMilestoneEvent` 泛化模型，全量覆盖人际羁绊与剧变（结盟/决裂/立誓/反目/背叛/拜师）、重大冲突与决战转折（大决战/刺杀/破城/称帝/坠崖）、生死境界与质变（突破/觉醒/战死/飞升/复活/痊愈）、人生转折与迁徙（毕业/开学/灭门/启程/远征/流放），并全面注入叙事时序三大铁律（相对跨度守恒律、日内作息连贯律、跨度锚点连贯律）；
+   - **粗粒度/笼统时间节点概念理解与先后相对判断**：在 `calculateRelativeTime` 与 `estimateTimeSpanJumpDays` 中全面支持“几天后”、“两周后”、“暑假开始”、“暑假期间”、“暑假尾声”、“新学期/开学”、“深秋”、“寒假”、“来年春天”等文学与阶段性时间节点，实现精准天数差换算与阶段性相对先后推算（如新学期看暑假为“约1-2个月前”、开学看暑假尾声为“数天前”等）；
+   - **普通知识问答与日常聊天严格隔离**：在 `TimelineMemoryHelper` 中实现 `isNarrativeOrCreativeTurn` 纯函数，精准识别编程开发（代码块/函数/构建报错/SQL）、学术翻译与日常事实问答；在 `AiRepository` 中对普通会话仅注入简洁会话专属约束（杜绝注入小说时空看板与时序铁律），并在 `evaluateAndAutoUpdateTimeline` 中对非剧情会话直接短路返回，零额外网络与 API 开销。
+   - **文件改动**：`app/src/main/java/com/aiassistant/utils/TimelineMemoryHelper.kt`、`app/src/main/java/com/aiassistant/data/repository/AiRepository.kt`、`app/src/test/java/com/aiassistant/TimelineGeneralizationAndIsolationTest.kt`。
+
+### 2. 自动化测试与工程交付
+- **单元测试**：新增 `TimelineGeneralizationAndIsolationTest` 覆盖全域里程碑识别、粗粒度时序相对推算、三大铁律注入、普通技术会话隔离判定等核心逻辑。全项目 320 个单元测试 100% 顺利通过（退出码 0）。
+- **Release APK 构建与发布**：
+  - 用户明确提出“构建apk”要求，严格执行 Release 打包流程并一次性构建成功；
+  - 安装包命名：`Echo-v2.2.7.apk`（严禁带有任何 `-arm64-v8a` 后缀）；
+  - 发布输出路径：统一且仅输出到 `D:\Agent\APP-烧\app\releases\Echo-v2.2.7.apk`；
+  - 历史安装包保护准则：严格遵守铁律，未删除、覆盖或清理任何历史版本，目录内历史安装包由 142 个增量累进至 143 个；
+  - 文件大小：16,271,357 字节（~15.52 MB）；
+  - SHA256 校验和：`1D75AC9C1B40DA0A3746E59BA212DD1D0EE605393604D48374A6CB4B7C6091BD`。
+
+## [2026-09-21] - v2.2.6：连接超时稳定性强化、多 API Key 报错全量透出、暂停回复报错留痕、端到端按需滚动摘要实现与沉浸式记忆去元词汇
+
+### 1. 核心需求落实与技术重构详情
+1. **连接超时与网络稳定性强化（排查软件自身原因）**：
+   - **根因分析**：
+     - 原 `streamHttpClient` 与 `restHttpClient` 未显式配置专用连接池，使用的是默认的 OkHttp 连接池（keep-alive 5分钟）。在移动端网络环境或通过 Nginx/Cloudflare/自建反向代理访问 LLM 时，反代服务通常设置了 30s~60s 的 idle timeout，一旦服务器端掐断了连接而客户端不知情并尝试复用死连接，就会导致频繁的首字节超时（SocketTimeoutException）；
+     - 未配置 HTTP/2 心跳保活机制（`pingInterval`），在长文本流式传输、思考链等待或者连接建立后短暂空闲时，NAT 网关或移动运营商防火墙会静默丢弃空闲 TCP 连接；
+     - 未统一注入合规的 `User-Agent` 与 `Connection: keep-alive`，部分 WAF 防火墙或反代服务会拦截或降级非浏览器/非标准标识的请求；
+     - 异常重试判定中未涵盖 `ProtocolException: unexpected end of stream`、HTTP/2 stream reset 与 SSL 握手抖动，导致瞬时握手或通道重置直接判定为致命错误而非触发自动退避重试。
+   - **技术方案**：
+     - 在 `RetrofitClient.kt` 中配置专用连接池 `ConnectionPool(10, 45, TimeUnit.SECONDS)`，保持 45s 最大空闲时间，短于常见的 60s 反代超时，有效杜绝复用死连接；
+     - 为流式客户端 `streamHttpClient` 开启 `pingInterval(15, TimeUnit.SECONDS)`，主动发送 HTTP/2 PING 帧保活，穿透 NAT 网关与防火墙；
+     - 全局注入规范的 `User-Agent: Echo-Assistant/2.2.5 (Android; Mobile)` 与 `Connection: keep-alive` 请求头；
+     - 在 `AiRepository.kt` 中完善 `isNetworkFluctuationException`，精准识别协议截断、HTTP/2 reset 与 SSL 握手超时并自动触发退避重试。
+   - **文件改动**：`app/src/main/java/com/aiassistant/data/remote/RetrofitClient.kt`、`app/src/main/java/com/aiassistant/data/repository/AiRepository.kt`。
+
+2. **多 API Key 尝试时完整显示所有 Key 对应报错原因**：
+   - **根因分析**：
+     - 当用户配置了多个 API Key（换行输入多个 Key 或配置了备份 Key）时，此前轮询机制在尝试下一个 Key 时，虽然底层捕获了错误，但向上透出的错误信息会被最后一个 Key 的报错覆盖，或者只显示简略的通用错误，导致用户无法判断到底是哪个 Key 欠费、哪个 Key 无效、哪个 Key 频率超限。
+   - **技术方案**：
+     - 在 `AiRepository.kt` 中设计 `KeyAttemptFailure` 数据结构，记录每个失败 Key 的序号、脱敏特征（例如 `...4a8b`）以及精确的 HTTP 状态码与错误信息；
+     - 在所有 Key 均尝试失败时，生成结构化的复合报错清单（包含每个 Key 的编号、脱敏后缀及明确错误信息），并向用户提出针对性排查建议。
+   - **文件改动**：`app/src/main/java/com/aiassistant/data/repository/AiRepository.kt`。
+
+3. **尝试多个 API Key 时用户选择暂停回复，正常保留已发生报错原因**：
+   - **根因分析**：
+     - 原 `ChatViewModel.stopGeneration()` 逻辑中，如果收到用户停止指令时模型尚未吐出任何文字内容（正在轮询尝试第 1 个、第 2 个 Key 并发生报错），最终消息内容被直接写死为单一字符串 `"回复已停止"`，彻底抹掉了前序已经发生的 Key 报错详情。
+   - **技术方案**：
+     - 在 `ChatViewModel.kt` 中增加 `currentKeyAttemptErrors` 列表跟踪请求周期中各 Key 的尝试记录；
+     - 在 `stopGeneration()` 中进行判断：当 `currentResponse` 为空但存在前序 Key 报错时，保留结构化报错记录与暂停提示，避免关键排查信息丢失。
+   - **文件改动**：`app/src/main/java/com/aiassistant/ui/screens/chat/ChatViewModel.kt`。
+
+4. **端到端实现按需生成、更新与清除滚动摘要功能**：
+   - **根因分析**：
+     - 上下文使用情况弹窗提示“可按需生成滚动摘要，提炼前序关键事实”，但代码中仅有自动压缩阈值触发的被动逻辑，用户无法主动点击生成，也无法查看、修改或微调提炼出的滚动摘要。
+   - **技术方案**：
+     - 在 `AiRepository.kt` 中实现 `generateRollingSummaryNow(conversationId, modelNameOverride)`，支持根据当前会话历史按需立即提炼摘要；实现 `updateRollingSummary(conversationId, newSummary)` 与 `clearRollingSummary(conversationId)` 数据持久化；
+     - 在 `ChatViewModel.kt` 中暴露 `generateRollingSummaryNow()`、`updateRollingSummary(newSummary)`、`clearRollingSummary()` 与 `getCurrentRollingSummary()`；
+     - 在 `ChatContextComponents.kt` 的 `ContextUsageDialog` 顶部增加【生成摘要】/【更新摘要】快捷操作按钮；在 `ContextUsageDetails` 的滚动摘要指标行中增加操作标签（“点击查看/编辑”或“立即生成”）；
+     - 新增 `RollingSummaryEditDialog` 弹窗，支持全屏液态玻璃磨砂卡片预览、多行文本微调编辑、字数与 Token 预估、一键清空与保存，更新后即刻联动刷新上下文用量和环形指示器；
+     - 在 `ChatScreen.kt` 中联动渲染该对话框。
+   - **文件改动**：`app/src/main/java/com/aiassistant/data/repository/AiRepository.kt`、`app/src/main/java/com/aiassistant/ui/screens/chat/ChatViewModel.kt`、`app/src/main/java/com/aiassistant/ui/screens/chat/ChatContextComponents.kt`、`app/src/main/java/com/aiassistant/ui/screens/chat/ChatScreen.kt`。
+
+5. **记忆偏好去出戏化与沉浸式设定净化（消除“用户把AI当成心爱的哥哥”等元词汇）**：
+   - **根因分析**：
+     - 在自动记忆提炼或偏好生成中，原有辅助提示词缺乏沉浸式角色扮演约束，模型习惯以第三人称元技术词汇总结（如“用户把AI当做心爱的哥哥”、“AI的身份设定为...”），而在角色扮演（RP）对话中，这些“用户”、“AI”、“模型”、“助手”等元词汇一旦出现在记忆或前情提示中，会严重破坏剧情代入感。
+   - **技术方案**：
+     - 在 `PersonalizationManager.kt` 的辅助记忆提炼提示词 `DEFAULT_AUXILIARY_MEMORY_PROMPT` 中注入【沉浸感最高准则】，明文禁止在提炼出的事实中出现“用户”、“AI”、“模型”、“助手”等词汇，明确角色关系必须以第一/第二人称或纯剧情视角提炼（例如“角色关系：视对方为心爱的哥哥”）；
+     - 在 `SmartMemoryExtractor.kt` 中新增 `sanitizeMetaLanguage(text)` 净化器，智能将“用户把AI当成/当做/视为”转换为“视对方为”，净化“AI的身份设定为/模型设定为”，净化“用户喜欢/讨厌”为“偏好：/忌讳：”，净化“用户要求AI...”为“要求在互动中...”；
+     - 在 `AiRepository.kt` 的 `buildRelevantMemoryBlock` 注入上下文时自动执行 `sanitizeMetaLanguage` 过滤，确保即使存量历史记忆存在残留出戏表述，也能在组装发给模型前完成沉浸式清洗。
+   - **文件改动**：`app/src/main/java/com/aiassistant/utils/PersonalizationManager.kt`、`app/src/main/java/com/aiassistant/utils/SmartMemoryExtractor.kt`、`app/src/main/java/com/aiassistant/data/repository/AiRepository.kt`。
+
+### 2. 自动化测试与工程交付
+- **单元测试**：针对网络配置、心跳、超时重试识别、多 Key 报错复合透出、暂停保留记录、沉浸式元语言过滤等编写并通过全部用例（`NetworkAndKeyStabilityTest`）。
+- **发布规范**：根据用户未明确要求构建 APK 准则，本轮次未触发非必要的 APK 打包构建，完整保留 `releases/` 目录中所有历史版本安装包。
+
 ## [2026-09-20] - v2.2.5：API 与 Key 独立启用开关、停用模型自动从选择列表隐藏、端点上下文超限拦截与输出 Token 自适应收敛
 
 ### 1. 核心需求落实与技术重构详情

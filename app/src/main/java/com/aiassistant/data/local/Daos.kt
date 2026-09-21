@@ -430,4 +430,18 @@ interface MemoryDao {
 
     @Query("DELETE FROM memory_items WHERE conversationId = :conversationId AND scope = 'conversation'")
     suspend fun deleteConversationMemories(conversationId: Long)
+
+    @Query("SELECT * FROM memory_items WHERE scope IN ('user', 'global') ORDER BY isEnabled DESC, updatedAt DESC")
+    fun getGlobalMemoriesFlow(): Flow<List<MemoryItem>>
+
+    @Query("""
+        SELECT * FROM memory_items
+        WHERE scope IN ('user', 'global')
+          AND (content LIKE '%' || :query || '%' OR keywords LIKE '%' || :query || '%')
+        ORDER BY isEnabled DESC, updatedAt DESC
+    """)
+    fun searchGlobalMemories(query: String): Flow<List<MemoryItem>>
+
+    @Query("DELETE FROM memory_items WHERE scope IN ('user', 'global')")
+    suspend fun deleteGlobalMemories()
 }

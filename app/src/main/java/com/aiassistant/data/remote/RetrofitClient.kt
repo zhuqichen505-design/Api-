@@ -2,6 +2,7 @@ package com.aiassistant.data.remote
 
 import okhttp3.OkHttpClient
 import okhttp3.Call
+import okhttp3.ConnectionPool
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.logging.HttpLoggingInterceptor
@@ -11,6 +12,8 @@ import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
 
 object RetrofitClient {
+    const val DEFAULT_USER_AGENT = "Echo-Assistant/2.2.5 (Android; Mobile)"
+
     @Volatile
     private var currentBaseUrl: String = ""
 
@@ -26,19 +29,25 @@ object RetrofitClient {
         level = HttpLoggingInterceptor.Level.BASIC
     }
 
-    // 专用于长文本与深度思考 SSE 流式输出（读超时为 0 无限等待）
+    // 专用的 AI 请求连接池：保持最大 10 个空闲连接，空闲保活 45 秒（避免被反代/防火墙静默掐断后复用僵尸连接导致超时或断连）
+    private val sharedConnectionPool = ConnectionPool(10, 45, TimeUnit.SECONDS)
+
+    // 专用于长文本与深度思考 SSE 流式输出（开启专用连接池与 15s 心跳保活）
     val streamHttpClient = OkHttpClient.Builder()
         .addInterceptor(loggingInterceptor)
         .retryOnConnectionFailure(true)
+        .connectionPool(sharedConnectionPool)
+        .pingInterval(15, TimeUnit.SECONDS) // HTTP/2 长连接保活心跳，防止深度推理/思考长挂时被中间 NAT 掐断
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    // 专用于普通 REST 请求、模型拉取与摘要生成（设置明确 30s 超时，防止永久挂死）
+    // 专用于普通 REST 请求、模型拉取与摘要生成（设置明确超时与专用连接池，防止永久挂死）
     val restHttpClient = OkHttpClient.Builder()
         .addInterceptor(loggingInterceptor)
         .retryOnConnectionFailure(true)
+        .connectionPool(sharedConnectionPool)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
@@ -48,6 +57,8 @@ object RetrofitClient {
     val longAnalysisHttpClient = OkHttpClient.Builder()
         .addInterceptor(loggingInterceptor)
         .retryOnConnectionFailure(true)
+        .connectionPool(sharedConnectionPool)
+        .pingInterval(15, TimeUnit.SECONDS)
         .connectTimeout(60, TimeUnit.SECONDS)
         .readTimeout(600, TimeUnit.SECONDS)
         .writeTimeout(120, TimeUnit.SECONDS)
@@ -110,6 +121,8 @@ object RetrofitClient {
         val requestBuilder = Request.Builder()
             .url(url)
             .post(body)
+            .header("User-Agent", DEFAULT_USER_AGENT)
+            .header("Connection", "keep-alive")
 
         headers.forEach { (name, value) ->
             requestBuilder.header(name, value)
@@ -125,6 +138,8 @@ object RetrofitClient {
         val requestBuilder = Request.Builder()
             .url(url)
             .get()
+            .header("User-Agent", DEFAULT_USER_AGENT)
+            .header("Connection", "keep-alive")
 
         headers.forEach { (name, value) ->
             requestBuilder.header(name, value)

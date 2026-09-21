@@ -1,5 +1,6 @@
 package com.aiassistant.utils
 
+import com.aiassistant.domain.model.Message
 import com.google.gson.JsonParser
 import java.util.UUID
 import java.util.regex.Pattern
@@ -24,6 +25,36 @@ enum class TimelineCategory(val displayName: String, val emoji: String, val tagC
                 lower.contains("char") || lower.contains("role") || lower.contains("角色") || lower.contains("人物") || lower.contains("关系") -> CHARACTER_SETTING
                 lower.contains("world") || lower.contains("scene") || lower.contains("世界") || lower.contains("设定") || lower.contains("状态") -> WORLD_SETTING
                 else -> PLOT_EVENT
+            }
+        }
+    }
+}
+
+/**
+ * 日内时段细分状态机（解决吃完早餐突兀天黑等割裂问题）
+ */
+enum class DayPhase(val order: Int, val displayName: String, val typicalActivities: String) {
+    EARLY_MORNING(1, "清晨/早晨", "醒来、洗漱、吃早餐、晨间谈话"),
+    MORNING(2, "上午", "白天工作、外出行动、研讨事务"),
+    NOON(3, "中午/午间", "午餐、短暂休憩、午后计划"),
+    AFTERNOON(4, "下午", "下午活动、茶歇、外出推进事情"),
+    DUSK(5, "傍晚/黄昏", "日落、夕阳、返程、晚餐准备"),
+    NIGHT(6, "入夜/晚间", "晚餐、夜间交谈、室内放松、夜间事件"),
+    LATE_NIGHT(7, "深夜/拂晓", "就寝休息、失眠深谈、夜巡、破晓前夕");
+
+    companion object {
+        fun inferFromText(text: String): DayPhase? {
+            val lower = text.lowercase()
+            return when {
+                lower.contains("清晨") || lower.contains("早晨") || lower.contains("早上") || lower.contains("拂晓") ||
+                lower.contains("晨光") || lower.contains("破晓") || lower.contains("晨曦") || lower.contains("早餐") || lower.contains("早点") -> EARLY_MORNING
+                lower.contains("上午") -> MORNING
+                lower.contains("中午") || lower.contains("正午") || lower.contains("晌午") || lower.contains("午间") || lower.contains("午餐") || lower.contains("吃午饭") -> NOON
+                lower.contains("下午") || lower.contains("午后") || lower.contains("下午茶") -> AFTERNOON
+                lower.contains("傍晚") || lower.contains("黄昏") || lower.contains("日落") || lower.contains("暮色") || lower.contains("夕阳") || lower.contains("晚霞") -> DUSK
+                lower.contains("深夜") || lower.contains("子时") || lower.contains("半夜") || lower.contains("凌晨") || lower.contains("更深") -> LATE_NIGHT
+                lower.contains("晚") || lower.contains("夜") || lower.contains("掌灯") || lower.contains("晚餐") || lower.contains("晚饭") || lower.contains("晚安") -> NIGHT
+                else -> null
             }
         }
     }
@@ -118,7 +149,7 @@ object TimelineMemoryHelper {
     }
 
     /**
-     * 判断并估算叙事时间跨度跃迁天数（例如：两周后、一个月后、数日后）
+     * 判断并估算叙事时间跨度跃迁天数（例如：两周后、一个月后、暑假开始、新学期、数日后等）
      * 返回跃迁的天数（> 0），若非时间跨度则返回 0
      */
     fun estimateTimeSpanJumpDays(tag: String): Int {
@@ -129,32 +160,36 @@ object TimelineMemoryHelper {
             clean.contains("四年") || clean.contains("4年") -> 1460
             clean.contains("三年") || clean.contains("3年") || clean.contains("三载") -> 1095
             clean.contains("两年") || clean.contains("2年") || clean.contains("两载") -> 730
-            clean.contains("一年") || clean.contains("1年") || clean.contains("一载") -> 365
-            clean.contains("数年") || clean.contains("数载") -> 730
+            clean.contains("一年后") || clean.contains("1年后") || clean.contains("一年过后") -> 365
+            clean.contains("数年后") || clean.contains("数载后") -> 730
+            clean.contains("半年后") || clean.contains("半年过后") -> 180
+            clean.contains("四个月后") || clean.contains("4个月后") -> 120
+            clean.contains("三个月后") || clean.contains("3个月后") -> 90
+            clean.contains("两个月后") || clean.contains("2个月后") || clean.contains("两个月过后") -> 60
+            clean.contains("数月后") || clean.contains("数月过后") -> 60
+            clean.contains("一个半月后") -> 45
+            clean.contains("一个月后") || clean.contains("1个月后") || clean.contains("一月后") || clean.contains("次月") -> 30
+            clean.contains("四周后") || clean.contains("4周后") -> 28
+            clean.contains("三周后") || clean.contains("3周后") -> 21
+            clean.contains("半个月后") || clean.contains("半月后") -> 15
+            clean.contains("两周后") || clean.contains("两周过后") || clean.contains("两周") || clean.contains("2周") -> 14
+            clean.contains("数周后") || clean.contains("数周") -> 14
+            clean.contains("十天后") || clean.contains("10天后") -> 10
+            clean.contains("九天后") || clean.contains("9天后") -> 9
+            clean.contains("八天后") || clean.contains("8天后") -> 8
+            clean.contains("一周后") || clean.contains("一周过后") || clean.contains("一周") || clean.contains("1周") || clean.contains("一星期") || clean.contains("七天") -> 7
+            clean.contains("六天后") || clean.contains("6天后") -> 6
+            clean.contains("五天后") || clean.contains("5天后") -> 5
+            clean.contains("四天后") || clean.contains("4天后") -> 4
+            clean.contains("大后天") -> 3
+            clean.contains("三天后") || clean.contains("3天后") || clean.contains("数日后") || clean.contains("几天后") || clean.contains("数天后") -> 3
+            clean.contains("两天后") || clean.contains("2天后") || clean.contains("隔天") || clean.contains("后天") -> 2
+            clean.contains("一年") -> 365
             clean.contains("半年") -> 180
-            clean.contains("暑假后") || clean.contains("暑假过后") || clean.contains("寒假后") || clean.contains("寒假过后") -> 60
-            clean.contains("四个月") || clean.contains("4个月") -> 120
-            clean.contains("三个月") || clean.contains("3个月") || clean.contains("一季度") || clean.contains("一季") -> 90
-            clean.contains("两个月") || clean.contains("2个月") -> 60
-            clean.contains("一个半月") -> 45
-            clean.contains("一个月") || clean.contains("1个月") || clean.contains("一月后") || clean.contains("次月") -> 30
-            clean.contains("数月") -> 60
-            clean.contains("新学期后") || clean.contains("开学后") -> 30
-            clean.contains("半个月") || clean.contains("半月") -> 15
-            clean.contains("四周") || clean.contains("4周") -> 28
-            clean.contains("三周") || clean.contains("3周") -> 21
-            clean.contains("两周") || clean.contains("2周") -> 14
-            clean.contains("一周") || clean.contains("1周") || clean.contains("一星期") || clean.contains("七天") -> 7
-            clean.contains("数周") -> 14
-            clean.contains("十天") || clean.contains("10天") -> 10
-            clean.contains("九天") || clean.contains("9天") -> 9
-            clean.contains("八天") || clean.contains("8天") -> 8
-            clean.contains("七天") || clean.contains("7天") -> 7
-            clean.contains("六天") || clean.contains("6天") -> 6
-            clean.contains("五天") || clean.contains("5天") -> 5
-            clean.contains("四天") || clean.contains("4天") -> 4
-            clean.contains("三天") || clean.contains("3天") || clean.contains("数日") || clean.contains("几天") || clean.contains("数天") || clean.contains("大后天") -> 3
-            clean.contains("两天") || clean.contains("2天") || clean.contains("隔天") || clean.contains("后天") -> 2
+            clean.contains("一个月") -> 30
+            clean.contains("数日") || clean.contains("几天") -> 3
+            clean.contains("两天") || clean.contains("2天") -> 2
+            clean.contains("三天") || clean.contains("3天") -> 3
             else -> 0
         }
     }
@@ -525,7 +560,8 @@ object TimelineMemoryHelper {
     }
 
     /**
-     * 计算事件时间相对于当前时间的相对参照（如：今天 / 昨天 / 2天前 / 约两周前）
+     * 计算事件时间相对于当前时间的相对参照（如：今天 / 昨天 / 2天前 / 约两周前 / 放假之初 / 上学期）
+     * 涵盖具体数字天数推算与粗粒度/文学阶段节点相对推算
      */
     fun calculateRelativeTime(eventTimeTag: String, currentTimeTag: String): String? {
         val cleanEvent = eventTimeTag.trim().trim('[', ']', '【', '】')
@@ -536,6 +572,7 @@ object TimelineMemoryHelper {
         val eventMatcher = DAY_NUMBER_PATTERN.matcher(cleanEvent)
         val currentMatcher = DAY_NUMBER_PATTERN.matcher(cleanCurrent)
 
+        // 1. 双方均包含具体天数：精准计算相对天数与周/月换算
         if (eventMatcher.find() && currentMatcher.find()) {
             val eventDay = (eventMatcher.group(1) ?: eventMatcher.group(2))?.toIntOrNull() ?: return null
             val currentDay = (currentMatcher.group(1) ?: currentMatcher.group(2))?.toIntOrNull() ?: return null
@@ -545,40 +582,256 @@ object TimelineMemoryHelper {
                 diff == 0 -> "今天"
                 diff == 1 -> "昨天"
                 diff == 2 -> "前天"
-                diff > 2 -> "${diff}天前"
+                diff in 3..6 -> "${diff}天前"
+                diff in 7..13 -> "约1周前"
+                diff in 14..20 -> "约2周前"
+                diff in 21..29 -> "约3周前"
+                diff in 30..59 -> "约1个月前"
+                diff in 60..89 -> "约2个月前"
+                diff >= 90 -> "数月前（约${diff}天前）"
                 diff == -1 -> "明天"
-                diff < -1 -> "${-diff}天后"
+                diff in -6..-2 -> "${-diff}天后"
+                diff in -13..-7 -> "约1周后"
+                diff <= -14 -> "${-diff}天后"
                 else -> null
             }
         }
 
-        // 自然时间相对语义推导
-        if (cleanCurrent.contains("两周") && (cleanEvent.contains("第 1 天") || cleanEvent.contains("第1天") || cleanEvent.contains("初遇") || cleanEvent.contains("初期"))) {
+        // 2. 粗粒度/文学与阶段性时间节点相对推导
+        val currentJump = estimateTimeSpanJumpDays(cleanCurrent)
+        val eventJump = estimateTimeSpanJumpDays(cleanEvent)
+
+        // 语义级阶段匹配
+        if (cleanCurrent.contains("新学期") || cleanCurrent.contains("开学")) {
+            return when {
+                cleanEvent.contains("暑假快结束") || cleanEvent.contains("暑假尾声") -> "暑假末尾（数天前）"
+                cleanEvent.contains("放假首日") || cleanEvent.contains("暑假开始") || cleanEvent.contains("放假之初") -> "放假之初（约两个多月前）"
+                cleanEvent.contains("暑假期间") || cleanEvent.contains("暑假中期") || cleanEvent.contains("暑假") -> "暑假期间（约1-2个月前）"
+                cleanEvent.contains("上学期") || cleanEvent.contains("期末") || cleanEvent.contains("第 1 天") -> "上学期（数月前）"
+                else -> "上一学期/假期"
+            }
+        }
+
+        if (cleanCurrent.contains("暑假快结束") || cleanCurrent.contains("暑假尾声")) {
+            return when {
+                cleanEvent.contains("暑假开始") || cleanEvent.contains("放假首日") -> "暑假之初（约两个月前）"
+                cleanEvent.contains("暑假期间") || cleanEvent.contains("暑假中期") -> "暑假中期（约一个月前）"
+                cleanEvent.contains("第 1 天") || cleanEvent.contains("期末") -> "放假前（两个多月前）"
+                else -> "暑假前期"
+            }
+        }
+
+        if (cleanCurrent.contains("暑假期间") || cleanCurrent.contains("暑假中期") || cleanCurrent.contains("暑假过半")) {
+            return when {
+                cleanEvent.contains("放假首日") || cleanEvent.contains("暑假开始") || cleanEvent.contains("刚放假") -> "放假之初（约一个月前）"
+                cleanEvent.contains("第 1 天") || cleanEvent.contains("学期") -> "放假前（一个多月前）"
+                else -> "放假前夕"
+            }
+        }
+
+        if (cleanCurrent.contains("暑假开始") || cleanCurrent.contains("放假首日") || cleanCurrent.contains("刚放假")) {
+            return when {
+                cleanEvent.contains("期末") || cleanEvent.contains("学期末") || cleanEvent.contains("学期") || cleanEvent.contains("第 1 天") -> "放假前"
+                else -> "放假前"
+            }
+        }
+
+        if (cleanCurrent.contains("深秋") || cleanCurrent.contains("中秋") || cleanCurrent.contains("入秋")) {
+            return when {
+                cleanEvent.contains("暑假") || cleanEvent.contains("夏天") -> "盛夏（约两三个月前）"
+                cleanEvent.contains("新学期") || cleanEvent.contains("开学") -> "开学之初（约一个月前）"
+                cleanEvent.contains("春天") || cleanEvent.contains("第 1 天") -> "春季（半年前）"
+                else -> "上一季节"
+            }
+        }
+
+        if (cleanCurrent.contains("寒假") || cleanCurrent.contains("新年") || cleanCurrent.contains("过年") || cleanCurrent.contains("春节")) {
+            return when {
+                cleanEvent.contains("新学期") || cleanEvent.contains("开学") -> "秋季学期之初（数月前）"
+                cleanEvent.contains("暑假") -> "去年夏天（半年前）"
+                cleanEvent.contains("深秋") -> "几个月前"
+                else -> "去年/上学期"
+            }
+        }
+
+        if (cleanCurrent.contains("来年春天") || cleanCurrent.contains("次年春")) {
+            return when {
+                cleanEvent.contains("寒假") || cleanEvent.contains("过年") || cleanEvent.contains("冬天") -> "上一冬季（两三个月前）"
+                cleanEvent.contains("暑假") || cleanEvent.contains("夏天") -> "去年盛夏（大半年前）"
+                cleanEvent.contains("第 1 天") || cleanEvent.contains("最初") -> "整整一年前"
+                else -> "上一年度"
+            }
+        }
+
+        // 自然相对跨度匹配
+        if (cleanCurrent.contains("两周") && (cleanEvent.contains("第 1 天") || cleanEvent.contains("第1天") || cleanEvent.contains("初遇") || cleanEvent.contains("初期") || cleanEvent.contains("当初"))) {
             return "约两周前"
         }
-        if (cleanCurrent.contains("暑假") && cleanEvent.contains("学期")) {
-            return "放假前"
+        if (cleanCurrent.contains("一周") && (cleanEvent.contains("第 1 天") || cleanEvent.contains("第1天") || cleanEvent.contains("初遇"))) {
+            return "约一周前"
         }
-        if (cleanCurrent.contains("开学") && cleanEvent.contains("暑假")) {
-            return "暑假期间"
+        if ((cleanCurrent.contains("几天后") || cleanCurrent.contains("数日后")) && (cleanEvent.contains("第 1 天") || cleanEvent.contains("前日"))) {
+            return "数日前"
+        }
+
+        // 跨度换算推导
+        if (currentJump > 0 && eventJump > 0) {
+            val jumpDiff = currentJump - eventJump
+            return when {
+                jumpDiff == 0 -> "同一时期"
+                jumpDiff in 1..2 -> "一两天前"
+                jumpDiff in 3..6 -> "数天前"
+                jumpDiff in 7..13 -> "约1周前"
+                jumpDiff in 14..27 -> "约两周前"
+                jumpDiff in 28..59 -> "约1个月前"
+                jumpDiff in 60..89 -> "约2个月前"
+                jumpDiff >= 90 -> "数月前"
+                jumpDiff in -6..-1 -> "数天后"
+                jumpDiff in -27..-7 -> "数周后"
+                jumpDiff <= -28 -> "数月后"
+                else -> null
+            }
         }
 
         return null
     }
 
     /**
-     * 构建注入给大模型的完整时间线参照上下文
+     * 判断文本是否属于关系剧变、重大冲突、生死转折或人生节点等核心里程碑事件（全域泛化模型）
+     */
+    fun isCoreMilestoneEvent(text: String): Boolean {
+        val lower = text.lowercase(java.util.Locale.ROOT)
+        val milestoneKeywords = listOf(
+            // 1. 关系剧变与人际羁绊
+            "在一起", "确立关系", "恋爱", "告白", "表白", "初遇", "相遇", "相识", "重逢",
+            "决裂", "断交", "反目", "背叛", "结盟", "同盟", "契约", "立誓", "誓言", "结拜",
+            "拜师", "收徒", "成婚", "成亲", "订婚", "结婚", "分道扬镳", "误会冰释", "收养",
+            // 2. 重大冲突与决战转折
+            "决战", "大战", "围攻", "伏击", "刺杀", "遇刺", "败北", "大捷", "破城", "突围",
+            "坠崖", "封印", "解封", "陷害", "反叛", "称帝", "登基", "继位", "篡位", "即位",
+            // 3. 生死境界与重大质变
+            "战死", "牺牲", "阵亡", "陨落", "重伤", "残废", "复活", "苏生", "觉醒", "蜕变",
+            "突破", "晋升", "飞升", "入魔", "顿悟", "痊愈", "失忆", "恢复记忆",
+            // 4. 环境迁移与人生阶段
+            "毕业", "开学", "结业", "入职", "离职", "放假", "启程", "远征", "远行",
+            "流放", "迁徙", "定居", "灭门", "分家", "退隐", "出山", "归来"
+        )
+        return milestoneKeywords.any { lower.contains(it) }
+    }
+
+    /**
+     * 判断某条记忆是否具有显式故事时间线事件特征
+     */
+    fun isExplicitTimelineEvent(content: String): Boolean {
+        val trimmed = content.trim()
+        val matcher = TIME_TAG_PATTERN.matcher(trimmed)
+        if (matcher.find()) return true
+        return trimmed.startsWith("[第") || trimmed.startsWith("【第") ||
+               trimmed.startsWith("[day", ignoreCase = true) ||
+               trimmed.startsWith("[暑假") || trimmed.startsWith("[寒假") ||
+               trimmed.startsWith("[新学期") || trimmed.startsWith("[两周") ||
+               trimmed.startsWith("[数日") || trimmed.startsWith("[几天")
+    }
+
+    /**
+     * 判断当前交互是否属于小说创作、剧情推进或角色扮演叙事
+     * 用于严格隔离普通技术问答、代码编写、学术论文、日常闲聊等会话，杜绝无意义开销与时空看板误注入
+     */
+    fun isNarrativeOrCreativeTurn(userMessage: String, assistantReply: String): Boolean {
+        val user = userMessage.trim().lowercase(java.util.Locale.ROOT)
+        val assistant = assistantReply.trim().lowercase(java.util.Locale.ROOT)
+        val combined = "$user $assistant"
+
+        // 1. 明确的纯技术与编程特征检测（若包含明显编程代码、技术关键词、无任何剧情特征，则判定为非叙事）
+        val technicalMarkers = listOf(
+            "```java", "```kt", "```kotlin", "```python", "```c", "```cpp", "```js", "```ts", "```html", "```sql",
+            "```bash", "```sh", "```powershell", "```json", "```xml", "```gradle",
+            "fun ", "val ", "var ", "class ", "def ", "import ", "public class", "private val",
+            "npm ", "pip ", "git commit", "docker ", "kubernetes", "select * from", "spring boot",
+            "android studio", "build.gradle", "dependencies {", "targetsdk", "compilesdk"
+        )
+        val hasStrongTechnicalCode = technicalMarkers.count { combined.contains(it) } >= 2
+
+        // 2. 明确的剧情、创作、小说与角色互动特征检测
+        val narrativeMarkers = listOf(
+            "剧情", "故事", "角色", "小说", "设定", "旁白", "主角", "配角", "世界观",
+            "下一章", "上一章", "续写", "重写", "接上文", "视角", "对话", "神情", "神色",
+            "眼神", "微笑", "叹息", "轻声", "低语", "沉声", "冷笑", "点头", "摇头",
+            "转身", "走向", "离去", "拔出", "握紧", "脚步", "心头", "眸中", "眉宇",
+            "天色", "夜幕", "清晨", "黄昏", "客栈", "学院", "殿堂", "宗门", "王朝",
+            "第1天", "第2天", "第3天", "第 1 天", "第 2 天", "第 3 天", "两天后", "数日后"
+        )
+        val hasNarrativeCues = narrativeMarkers.any { combined.contains(it) }
+
+        // 如果包含强编程代码且几乎没有叙事线索，绝非小说剧情
+        if (hasStrongTechnicalCode && !hasNarrativeCues) return false
+
+        // 3. 常见非剧情问答模式判定（如翻译、润色纯公文、学术解析）
+        val pureFactualQueryMarkers = listOf(
+            "帮我翻译", "请翻译", "解释一下这个报错", "这段代码什么意思", "怎么优化",
+            "如何实现", "帮我写一个函数", "帮我写个脚本", "计算一下", "公式是", "总结这篇文章"
+        )
+        if (pureFactualQueryMarkers.any { user.startsWith(it) } && !hasNarrativeCues) {
+            return false
+        }
+
+        // 4. 叙事对话或小说创作特征判断
+        if (hasNarrativeCues) return true
+
+        // 5. 对白形态检测（小说常用的引号对白交替格式，如 “……”、“……”）
+        val dialogueQuotesCount = combined.count { it == '“' || it == '”' || it == '「' || it == '」' }
+        if (dialogueQuotesCount >= 4) return true
+
+        // 默认若无任何剧情痕迹，保守返回 false，不打扰普通会话
+        return false
+    }
+
+    /**
+     * 构建注入给大模型的完整时间线参照上下文（强化泛化时空参照系、全域关键里程碑看板与时空连贯性三大铁律）
      */
     fun buildTimelinePromptContext(currentStoryTime: String?, memoryContents: List<String>): String {
         if (memoryContents.isEmpty()) return ""
 
         val effectiveCurrent = currentStoryTime?.trim()?.takeIf { it.isNotBlank() } ?: "未指定"
+        val events = memoryContents.map { parseContentToEvent(it) }
         val sb = StringBuilder()
-        sb.append("【故事当前时间节点】：$effectiveCurrent\n")
-        sb.append("【会话真实时间线与日常备忘】：\n")
 
-        memoryContents.forEach { raw ->
-            val event = parseContentToEvent(raw)
+        // 1. 故事当前时间与时空看板
+        sb.append("【故事当前时间节点】：$effectiveCurrent\n")
+        sb.append("【故事当前时间节点与时空看板】：\n")
+        sb.append("• 当前绝对故事时间：$effectiveCurrent\n")
+
+        val currentDayMatcher = DAY_NUMBER_PATTERN.matcher(effectiveCurrent)
+        val currentDay = if (currentDayMatcher.find()) {
+            (currentDayMatcher.group(1) ?: currentDayMatcher.group(2))?.toIntOrNull() ?: 1
+        } else 1
+
+        val currentPhase = DayPhase.inferFromText(effectiveCurrent)
+
+        // 2. 全域重大里程碑与关键转折防漂移看板（泛化模型：涵盖人际剧变、冲突决战、生死境界、人生转折等）
+        val coreMilestones = events.filter { isCoreMilestoneEvent(it.content) }
+        if (coreMilestones.isNotEmpty()) {
+            sb.append("• 核心关系与重大里程碑锚点（绝对禁止混淆时序！）：\n")
+            coreMilestones.forEach { m ->
+                val rel = calculateRelativeTime(m.timeTag, effectiveCurrent)
+                val mMatcher = DAY_NUMBER_PATTERN.matcher(m.timeTag)
+                val mDay = if (mMatcher.find()) (mMatcher.group(1) ?: mMatcher.group(2))?.toIntOrNull() else null
+                val distanceHint = when {
+                    mDay != null && currentDay > mDay -> {
+                        val daysAgo = currentDay - mDay
+                        if (daysAgo >= 2) " [注意：此事件发生在 $daysAgo 天前，距今已过去 $daysAgo 天（$daysAgo 个日夜），绝非昨天！绝非刚刚发生，严禁时序错乱！]"
+                        else " [注意：发生在昨天]"
+                    }
+                    rel != null && rel != "今天" -> " [注意：此事件发生在 $rel，绝非昨天！绝非刚刚发生，严禁时序错乱！]"
+                    else -> ""
+                }
+                sb.append("  ★ [${m.timeTag.ifBlank { "早期" }}] ${m.content}$distanceHint\n")
+            }
+        }
+
+        // 3. 完整时间线与事件演进明细
+        sb.append("\n【剧情推进时间线与日常演进明细】：\n")
+        events.forEach { event ->
             val catPrefix = if (event.category != TimelineCategory.PLOT_EVENT) "【${event.category.displayName}】" else ""
             if (event.timeTag.isNotBlank()) {
                 val rel = calculateRelativeTime(event.timeTag, effectiveCurrent)
@@ -589,7 +842,100 @@ object TimelineMemoryHelper {
             }
         }
 
-        sb.append("\n【时序交互准则】：请严格保持对上述时间线的认知。当用户使用“昨天”、“上次”、“之前”等相对时间词时，请务必根据时间线参照系准确对齐具体是哪一天发生的事件，严禁将不同日子的事件混淆为同一天。")
+        // 4. 全域时空连贯性与叙事时序三大铁律（时序交互准则，必须无条件遵守）
+        sb.append("\n【时空连贯性与日内时序守护铁律（时序交互准则，全域叙事时序三大铁律，大模型必须无条件遵守）】：\n")
+        sb.append("1.【时序参照系与相对跨度守恒律】：当提及以往发生的人际变故、重大转折、盟约决裂、生死考验或往事经历时，必须以当前故事时间节点（$effectiveCurrent）为基准严格推算相对时间跨度。若某重大转折发生在多日、数周或数月前，严禁叙述为“昨天才发生”或“刚发生”；若发生在几天前，亦不得夸大为“多年以前”。\n")
+
+        val lastEvent = events.lastOrNull { it.timeTag.isNotBlank() || it.content.isNotBlank() }
+        val inferredPhase = currentPhase ?: lastEvent?.let { DayPhase.inferFromText(it.timeTag + " " + it.content) }
+        if (inferredPhase != null) {
+            val phaseName = inferredPhase.displayName
+            sb.append("2.【日内时序与生理作息连贯律】：当前故事时段停留在【$phaseName】（典型活动：${inferredPhase.typicalActivities}）。")
+            if (inferredPhase.order <= DayPhase.NOON.order) {
+                sb.append("当前仍处于白天！若上一情境为早晨/吃早餐/上午行动，严格禁止在未描写数小时时间自然流逝（如“夕阳西下”、“待到夜幕降临”）的情况下，突兀跳跃到“天黑了/深夜入睡”！\n")
+            } else {
+                sb.append("剧情推进必须保持时空自然过渡，严禁时序倒流或无逻辑时空突变！\n")
+            }
+        } else {
+            sb.append("2.【日内时序与生理作息连贯律】：严格保持日内时间流逝与生活节律的自然过渡。若当前为早晨/白天，严禁在无明确时间流逝过渡描述的情况下突兀跳转至夜间就寝；若当前为深更半夜，亦严禁突兀转入次日白昼活动。\n")
+        }
+
+        sb.append("3.【跨度锚点与宏观阶段连贯律】：当故事经历“几天后”、“数周后”、“暑假”或“新学期”等时间跨度跃迁时，角色心理状态、环境演变及事件沉淀必须符合该跨度长度，禁止在跃迁后仍表现得如同事件就在上一秒发生。\n")
+
         return sb.toString().trim()
+    }
+
+    /**
+     * 智能增量合并或追加事件（解决多轮对话同一事件重复添加冗余问题）
+     * 如果传入事件与已有事件在同一时间节点且核心语义/实体重合度高，执行增量润色合并，否则追加。
+     */
+    fun mergeOrAppendEvent(existingEvents: List<TimelineEventItem>, incoming: TimelineEventItem): List<TimelineEventItem> {
+        val result = existingEvents.map { it.copy() }.toMutableList()
+        val incomingTag = incoming.timeTag.trim()
+        val incomingContent = incoming.content.trim()
+        if (incomingContent.isBlank()) return result
+
+        // 寻找同时间或同天且语义高度重叠的已有条目
+        val targetIndex = result.indexOfFirst { existing ->
+            val tagMatch = (existing.timeTag.trim() == incomingTag && incomingTag.isNotBlank()) ||
+                    (DAY_NUMBER_PATTERN.matcher(existing.timeTag).find() &&
+                     DAY_NUMBER_PATTERN.matcher(incomingTag).find() &&
+                     existing.timeTag.substringBefore("·") == incomingTag.substringBefore("·"))
+            if (!tagMatch) return@indexOfFirst false
+
+            // 计算关键词/字重叠
+            val cleanExisting = existing.content.replace(Regex("""[，。！？、\s]"""), "")
+            val cleanIncoming = incomingContent.replace(Regex("""[，。！？、\s]"""), "")
+
+            val isSubset = cleanExisting.contains(cleanIncoming) || cleanIncoming.contains(cleanExisting)
+            val overlapKeywords = listOf("早餐", "午餐", "晚餐", "在一起", "同行", "战斗", "逃跑", "商议", "告白", "重逢", "车站", "学校", "离开", "到达")
+            val keywordMatch = overlapKeywords.any { cleanExisting.contains(it) && cleanIncoming.contains(it) }
+
+            isSubset || keywordMatch
+        }
+
+        if (targetIndex != -1) {
+            val existing = result[targetIndex]
+            val cleanExisting = existing.content.replace(Regex("""[，。！？、\s]"""), "")
+            val cleanIncoming = incomingContent.replace(Regex("""[，。！？、\s]"""), "")
+            val overlapKeywords = listOf("早餐", "午餐", "晚餐", "在一起", "同行", "战斗", "逃跑", "商议", "告白", "重逢", "车站", "学校", "离开", "到达")
+            val hasKeywordOverlap = overlapKeywords.any { cleanExisting.contains(it) && cleanIncoming.contains(it) }
+
+            val mergedContent = when {
+                existing.content == incomingContent -> existing.content
+                existing.content.contains(incomingContent) -> existing.content
+                incomingContent.contains(existing.content) -> incomingContent
+                incomingContent.length >= existing.content.length &&
+                    (cleanIncoming.contains(cleanExisting) || hasKeywordOverlap) -> incomingContent
+                existing.content.length > incomingContent.length &&
+                    (cleanExisting.contains(cleanIncoming) || hasKeywordOverlap) -> existing.content
+                else -> "${existing.content}，且${incomingContent}"
+            }
+            result[targetIndex] = existing.copy(
+                content = mergedContent,
+                timeTag = if (incomingTag.isNotBlank() && incomingTag.contains("·")) incomingTag else existing.timeTag
+            )
+        } else {
+            result.add(incoming)
+        }
+
+        return normalizeMonotonicTimeline(result)
+    }
+
+    /**
+     * 长会话分段切片（用于分段梳理 Chunking Map 阶段）
+     * 将长消息列表按照 chunkSize 切片，相邻切片之间保留 overlap 条重叠消息以保持时序上下文连续
+     */
+    fun chunkMessagesForAnalysis(messages: List<Message>, chunkSize: Int = 25, overlap: Int = 3): List<List<Message>> {
+        if (messages.size <= chunkSize) return listOf(messages)
+        val chunks = mutableListOf<List<Message>>()
+        var startIndex = 0
+        while (startIndex < messages.size) {
+            val endIndex = (startIndex + chunkSize).coerceAtMost(messages.size)
+            chunks.add(messages.subList(startIndex, endIndex))
+            if (endIndex >= messages.size) break
+            startIndex += (chunkSize - overlap).coerceAtLeast(1)
+        }
+        return chunks
     }
 }

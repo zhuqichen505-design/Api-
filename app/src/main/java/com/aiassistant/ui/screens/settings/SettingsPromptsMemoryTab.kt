@@ -177,21 +177,12 @@ fun PromptsMemoryTab(
         }
     }
 
-    // 记忆管理状态
+    // 跨会话长期记忆管理状态（仅维护全局偏好，彻底与对话专属偏好解耦独立，需求 3）
     var isMemoriesExpanded by remember { mutableStateOf(false) }
     var memorySearchQuery by remember { mutableStateOf("") }
-    val allMemories by remember(memorySearchQuery) {
-        if (memorySearchQuery.isBlank()) repository.getAllMemories() else repository.searchMemories(memorySearchQuery.trim())
+    val globalMemories by remember(memorySearchQuery) {
+        if (memorySearchQuery.isBlank()) repository.getGlobalMemories() else repository.searchGlobalMemories(memorySearchQuery.trim())
     }.collectAsState(initial = emptyList())
-
-    var memoryFilterScope by remember { mutableIntStateOf(0) } // 0: 全部, 1: 全局偏好, 2: 会话专属
-    val filteredMemories = remember(allMemories, memoryFilterScope) {
-        when (memoryFilterScope) {
-            1 -> allMemories.filter { it.scope in listOf("user", "global") }
-            2 -> allMemories.filter { it.scope == "conversation" }
-            else -> allMemories
-        }
-    }
 
     var memoryToEdit by remember { mutableStateOf<MemoryItem?>(null) }
     var isAddingMemory by remember { mutableStateOf(false) }
@@ -490,7 +481,7 @@ fun PromptsMemoryTab(
                     Column(modifier = Modifier.weight(1f)) {
                         Text("跨会话长期记忆", style = MaterialTheme.typography.titleMedium)
                         Text(
-                            "AI 会在日常对话中识别重要信息，弹出确认条由您决定是否存入记忆库，跨对话持续生效。",
+                            "管理跨所有对话共通参考的全局偏好。开关仅影响全局偏好；各对话专属偏好和记忆完全独立运作。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -518,7 +509,7 @@ fun PromptsMemoryTab(
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                "记忆库管理",
+                                "全局偏好库管理",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold
                             )
@@ -528,7 +519,7 @@ fun PromptsMemoryTab(
                                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
                             ) {
                                 Text(
-                                    text = if (memoryFilterScope == 0) "${allMemories.size} 条" else "${filteredMemories.size}/${allMemories.size} 条",
+                                    text = "${globalMemories.size} 条",
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.primary,
@@ -539,7 +530,7 @@ fun PromptsMemoryTab(
 
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             IconButton(onClick = { isAddingMemory = true }, modifier = Modifier.size(32.dp)) {
-                                Icon(Icons.Default.Add, contentDescription = "添加记忆", tint = MaterialTheme.colorScheme.primary)
+                                Icon(Icons.Default.Add, contentDescription = "添加偏好", tint = MaterialTheme.colorScheme.primary)
                             }
                             IconButton(onClick = { isMemoriesExpanded = !isMemoriesExpanded }, modifier = Modifier.size(32.dp)) {
                                 Icon(
@@ -559,7 +550,7 @@ fun PromptsMemoryTab(
                             OutlinedTextField(
                                 value = memorySearchQuery,
                                 onValueChange = { memorySearchQuery = it },
-                                placeholder = { Text("搜索记忆内容或关键词...") },
+                                placeholder = { Text("搜索全局偏好内容或关键词...") },
                                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
                                 trailingIcon = {
                                     if (memorySearchQuery.isNotBlank()) {
@@ -573,43 +564,7 @@ fun PromptsMemoryTab(
                                 shape = RoundedCornerShape(999.dp)
                             )
 
-                            // 记忆范围分类筛选栏：全部 / 全局偏好 / 会话专属
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                val totalCount = allMemories.size
-                                val globalCount = remember(allMemories) { allMemories.count { it.scope in listOf("user", "global") } }
-                                val sessionCount = remember(allMemories) { allMemories.count { it.scope == "conversation" } }
-
-                                FilterChip(
-                                    selected = memoryFilterScope == 0,
-                                    onClick = { memoryFilterScope = 0 },
-                                    label = { Text("全部 ($totalCount)", style = MaterialTheme.typography.labelSmall) },
-                                    colors = echoFilterChipColors(),
-                                    border = echoFilterChipBorder(memoryFilterScope == 0),
-                                    elevation = echoFilterChipElevation()
-                                )
-                                FilterChip(
-                                    selected = memoryFilterScope == 1,
-                                    onClick = { memoryFilterScope = 1 },
-                                    label = { Text("全局偏好 ($globalCount)", style = MaterialTheme.typography.labelSmall) },
-                                    colors = echoFilterChipColors(),
-                                    border = echoFilterChipBorder(memoryFilterScope == 1),
-                                    elevation = echoFilterChipElevation()
-                                )
-                                FilterChip(
-                                    selected = memoryFilterScope == 2,
-                                    onClick = { memoryFilterScope = 2 },
-                                    label = { Text("会话专属 ($sessionCount)", style = MaterialTheme.typography.labelSmall) },
-                                    colors = echoFilterChipColors(),
-                                    border = echoFilterChipBorder(memoryFilterScope == 2),
-                                    elevation = echoFilterChipElevation()
-                                )
-                            }
-
-                            if (filteredMemories.isEmpty()) {
+                            if (globalMemories.isEmpty()) {
                                 Surface(
                                     modifier = Modifier.fillMaxWidth(),
                                     shape = SettingsInnerShape,
@@ -627,8 +582,8 @@ fun PromptsMemoryTab(
                                         )
                                         Spacer(modifier = Modifier.height(6.dp))
                                         Text(
-                                            if (allMemories.isEmpty()) "暂无记忆条目\n当与 AI 对话提及个人习惯或点击右上角「+」时将在此处列出。"
-                                            else "没有符合当前筛选条件的记忆条目",
+                                            if (memorySearchQuery.isBlank()) "暂无全局偏好条目\n当与 AI 对话提及个人习惯或点击右上角「+」时将在此处列出。"
+                                            else "没有搜索到符合条件的全局偏好条目",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -640,7 +595,7 @@ fun PromptsMemoryTab(
                                     modifier = Modifier.fillMaxWidth(),
                                     verticalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    filteredMemories.forEach { memory ->
+                                    globalMemories.forEach { memory ->
                                         MemoryItemCard(
                                             memory = memory,
                                             onToggleEnabled = { enabled ->
@@ -664,7 +619,7 @@ fun PromptsMemoryTab(
                                         TextButton(onClick = { showClearAllConfirm = true }) {
                                             Icon(Icons.Default.DeleteSweep, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error)
                                             Spacer(modifier = Modifier.width(4.dp))
-                                            Text("清空所有记忆", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
+                                            Text("清空全局偏好", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
                                         }
                                     }
                                 }
@@ -1100,40 +1055,40 @@ fun PromptsMemoryTab(
                 isAddingMemory = false
                 memoryToEdit = null
             },
-            onConfirm = { content, scope, keywords ->
+            onConfirm = { content, _, keywords ->
                 coroutineScope.launch {
                     val target = memoryToEdit?.copy(
                         content = content,
-                        scope = scope,
+                        scope = "user",
                         keywords = keywords,
                         updatedAt = System.currentTimeMillis()
                     ) ?: MemoryItem(
                         content = content,
-                        scope = scope,
+                        scope = "user",
                         keywords = keywords
                     )
                     repository.saveMemory(target)
                     isAddingMemory = false
                     memoryToEdit = null
-                    savedMessage = "记忆已保存"
+                    savedMessage = "全局偏好已保存"
                 }
             }
         )
     }
 
-    // 清空记忆确认弹窗
+    // 清空全局偏好确认弹窗（严格与对话专属偏好和记忆隔离，需求 3）
     if (showClearAllConfirm) {
         EchoGlassDialog(
             hazeState = hazeState,
-            title = { Text("清空所有记忆") },
-            text = { Text("确定要清空全部长期记忆吗？此操作无法撤销。") },
+            title = { Text("清空全局偏好记忆") },
+            text = { Text("确定要清空全部跨会话全局偏好吗？此操作仅清除全局通用偏好，各对话内部的专属记忆与时间线设定将完全保留不受任何影响。") },
             confirmButton = {
                 Button(
                     onClick = {
                         coroutineScope.launch {
-                            repository.clearAllMemories()
+                            repository.clearGlobalMemories()
                             showClearAllConfirm = false
-                            savedMessage = "已清空全部记忆"
+                            savedMessage = "已清空跨会话全局偏好"
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)

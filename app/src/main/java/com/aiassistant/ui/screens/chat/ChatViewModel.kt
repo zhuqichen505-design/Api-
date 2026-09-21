@@ -11,6 +11,7 @@ import com.aiassistant.utils.TimelineEventItem
 import com.aiassistant.utils.TimelineCategory
 import com.aiassistant.utils.AtemporalSettingItem
 import com.google.gson.Gson
+import android.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -20,6 +21,7 @@ import kotlinx.coroutines.withContext
 
 class ChatViewModel(private val conversationId: Long) : ViewModel() {
     private val repository = AiAssistantApp.instance.repository
+    private val personalizationManager = AiAssistantApp.instance.personalizationManager
     private val gson = Gson()
 
     private val _uiState = MutableStateFlow(ChatUiState())
@@ -103,6 +105,24 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
     private val _showTimelineReconcileDialog = MutableStateFlow(false)
     val showTimelineReconcileDialog: StateFlow<Boolean> = _showTimelineReconcileDialog.asStateFlow()
 
+    private var timelineReconcileJob: Job? = null
+    private val _timelineReconcileProgress = MutableStateFlow<String?>(null)
+    val timelineReconcileProgress: StateFlow<String?> = _timelineReconcileProgress.asStateFlow()
+
+    private val _timelineUpdateNotice = MutableStateFlow<String?>(null)
+    val timelineUpdateNotice: StateFlow<String?> = _timelineUpdateNotice.asStateFlow()
+
+    fun dismissTimelineUpdateNotice() {
+        _timelineUpdateNotice.value = null
+    }
+
+    fun cancelTimelineReconciliation() {
+        timelineReconcileJob?.cancel()
+        timelineReconcileJob = null
+        _isReconcilingTimeline.value = false
+        _timelineReconcileProgress.value = null
+    }
+
     private var activeAssistantVariantGroupId: String? = null
     private var activeAssistantVariantIndex: Int = 1
 
@@ -112,6 +132,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
     private var systemPromptSaveJob: Job? = null
     private var isMessageSaved = false
     @Volatile private var isUserStopping = false
+    private val currentKeyAttemptErrors = mutableListOf<String>()
     private var isPrivateConversation = false
     private var privateExitHandled = false
 
@@ -479,6 +500,56 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
         _contextUsage.update { it.copy(statusMessage = null) }
     }
 
+    fun generateRollingSummaryNow() {
+        if (_contextUsage.value.isCompressing) return
+        viewModelScope.launch {
+            _contextUsage.update { it.copy(isCompressing = true, statusMessage = "🔄 正在提炼滚动摘要...") }
+            val modelName = _currentModel.value ?: conversation?.modelName ?: _uiState.value.modelName
+            repository.generateRollingSummaryNow(
+                conversationId = conversationId,
+                modelNameOverride = modelName
+            ).fold(
+                onSuccess = { usage ->
+                    conversation = repository.getConversationById(conversationId) ?: conversation
+                    val summaryTokenCount = usage.summaryTokens
+                    val msg = "✅ 滚动摘要提炼成功（当前摘要约 $summaryTokenCount tokens），已自动融入上下文"
+                    _contextUsage.value = ContextUsageUiState(
+                        usage = usage,
+                        statusMessage = msg
+                    )
+                },
+                onFailure = { error ->
+                    _contextUsage.update {
+                        it.copy(
+                            isCompressing = false,
+                            statusMessage = error.message ?: "生成滚动摘要失败"
+                        )
+                    }
+                }
+            )
+        }
+    }
+
+    fun updateRollingSummary(newSummary: String) {
+        viewModelScope.launch {
+            repository.updateRollingSummary(conversationId, newSummary)
+            conversation = repository.getConversationById(conversationId) ?: conversation
+            refreshContextUsage()
+            _contextUsage.update { it.copy(statusMessage = "✅ 滚动摘要已手动更新并保存") }
+        }
+    }
+
+    fun clearRollingSummary() {
+        viewModelScope.launch {
+            repository.clearRollingSummary(conversationId)
+            conversation = repository.getConversationById(conversationId) ?: conversation
+            refreshContextUsage()
+            _contextUsage.update { it.copy(statusMessage = "✅ 滚动摘要已清除") }
+        }
+    }
+
+    fun getCurrentRollingSummary(): String = conversation?.rollingSummary.orEmpty()
+
     private fun evaluateAutoCompression() {
         viewModelScope.launch {
             try {
@@ -722,6 +793,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
             _currentResponse.value = ""
             _currentThinking.value = ""
             _error.value = null
+            currentKeyAttemptErrors.clear()
             val currentCallingModel = selectedOption.modelName
             val requestStartTime = System.currentTimeMillis()
             runtimeMessageModelMap[requestStartTime] = currentCallingModel
@@ -745,12 +817,14 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                     )
                     val savedMsgId = repository.saveMessage(userMessage)
 
-                    // 智能记忆提取（仅在普通会话生效，且在开启会话记忆时，需用户在界面主动确认才入库；优先辅助模型，故障时自动平滑降级为本地规则）
+                    // 智能记忆提取（仅在普通会话生效，且在开启会话记忆时，需用户在界面主动确认才入库；优先调度模型智能提取，离线或故障时自动平滑降级为本地规则）
                     if (_uiState.value.roleplaySession == null && content.isNotBlank() && settings?.enableSessionMemory != false) {
                         val candidate = repository.extractMemoryCandidate(
                             content = content,
                             conversationId = conversationId,
-                            messageId = savedMsgId
+                            messageId = savedMsgId,
+                            activeConfigId = selectedOption.apiConfigId,
+                            activeModelName = selectedOption.modelName
                         )
                         if (candidate != null) {
                             _pendingMemoryCandidate.value = candidate
@@ -813,22 +887,27 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                         onStatusUpdate = { status ->
                             _reconnectStatus.value = status
                         },
+                        onKeyAttemptError = { keyIndex, keyMasked, errorMsg ->
+                            currentKeyAttemptErrors.add("Key #$keyIndex ($keyMasked)：$errorMsg")
+                        },
                         onResetBuffer = {
                             _currentResponse.value = ""
                             _currentThinking.value = ""
                         },
-                        onComplete = { _, _, _ ->
+                        onComplete = { replyContent, _, _ ->
                             slowTimeoutJob.cancel()
                             isMessageSaved = true
                             _isGenerating.value = false
                             activeAssistantVariantGroupId = null
                             activeAssistantVariantIndex = 1
+                            val savedReply = replyContent.ifBlank { _currentResponse.value }
                             _currentResponse.value = ""
                             _currentThinking.value = ""
                             _reconnectStatus.value = null
                             autoNameIfNeeded()
                             refreshContextUsage()
                             evaluateAutoCompression()
+                            evaluateAutoTimelineUpdate(content, savedReply)
                             checkAndDispatchQueue()
                         },
                         onError = { errorMsg ->
@@ -918,6 +997,14 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
             val finalContent = when {
                 responseToSave.isNotBlank() -> "$responseToSave\n\n*(回复已被暂停)*"
                 thinkingToSave != null -> "*(思考已停止，回复已暂停)*"
+                currentKeyAttemptErrors.isNotEmpty() -> {
+                    buildString {
+                        append("回复已停止 (用户已暂停)\n\n")
+                        append("【已尝试 Key 报错记录】：\n")
+                        currentKeyAttemptErrors.forEach { append("• $it\n") }
+                        append("\n*(在尝试后续 Key 期间，用户主动暂停了回复)*")
+                    }.trim()
+                }
                 else -> "回复已停止"
             }
             AiAssistantApp.instance.applicationScope.launch {
@@ -1203,17 +1290,25 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
     fun startTimelineReconciliation() {
         if (_isReconcilingTimeline.value) return
         _isReconcilingTimeline.value = true
-        viewModelScope.launch {
+        _timelineReconcileProgress.value = "准备分析对话历史..."
+        timelineReconcileJob?.cancel()
+        timelineReconcileJob = viewModelScope.launch {
             try {
                 val activeCfgId = apiConfig?.id ?: _currentModelOption.value?.apiConfigId
                 val activeModel = _currentModel.value?.ifBlank { null } ?: _currentModelOption.value?.modelName.orEmpty()
                 val result = repository.reconcileConversationTimeline(
                     conversationId = conversationId,
                     activeConfigId = activeCfgId,
-                    activeModelName = activeModel
+                    activeModelName = activeModel,
+                    onProgress = { step, total, detail ->
+                        _timelineReconcileProgress.value = if (total > 1) "[$step/$total] $detail" else detail
+                    }
                 )
                 _timelineReconcileResult.value = result
                 _showTimelineReconcileDialog.value = true
+            } catch (e: CancellationException) {
+                // 用户主动取消，优雅重置
+                _timelineReconcileResult.value = null
             } catch (e: Exception) {
                 _timelineReconcileResult.value = TimelineReconcileResult(
                     currentStoryTime = "未确定",
@@ -1224,6 +1319,33 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                 _showTimelineReconcileDialog.value = true
             } finally {
                 _isReconcilingTimeline.value = false
+                _timelineReconcileProgress.value = null
+                timelineReconcileJob = null
+            }
+        }
+    }
+
+    private fun evaluateAutoTimelineUpdate(userMsg: String, assistantReply: String) {
+        viewModelScope.launch {
+            try {
+                val activeCfgId = apiConfig?.id ?: _currentModelOption.value?.apiConfigId
+                val activeModel = _currentModel.value?.ifBlank { null } ?: _currentModelOption.value?.modelName.orEmpty()
+                val result = repository.evaluateAndAutoUpdateTimeline(
+                    conversationId = conversationId,
+                    userMessage = userMsg,
+                    assistantReply = assistantReply,
+                    activeConfigId = activeCfgId,
+                    activeModelName = activeModel
+                )
+                if (result != null) {
+                    val settings = personalizationManager.getSettings()
+                    if (settings.autoTimelineNoticeEnabled) {
+                        _timelineUpdateNotice.value = result.summaryNotice
+                    }
+                    loadConversation()
+                }
+            } catch (e: Exception) {
+                Log.w("ChatViewModel", "自动更新时间线后台任务异常: ${e.message}")
             }
         }
     }

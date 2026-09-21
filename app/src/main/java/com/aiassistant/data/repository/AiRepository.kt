@@ -23,6 +23,8 @@ import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -34,6 +36,19 @@ import java.io.InputStreamReader
 import java.util.concurrent.ConcurrentHashMap
 
 class ApiException(val statusCode: Int, message: String, val errorBody: String? = null) : Exception(message)
+
+data class KeyAttemptFailure(
+    val keyIndex: Int,
+    val keyMasked: String,
+    val errorMessage: String,
+    val isTimeout: Boolean = false
+)
+
+data class AutoTimelineUpdateResult(
+    val updatedStoryTime: String?,
+    val newEvent: TimelineEventItem?,
+    val summaryNotice: String
+)
 
 class AiRepository(
     private val folderDao: FolderDao,
@@ -309,6 +324,12 @@ class AiRepository(
             }
         }
 
+        fun isRequestCancellation(error: Throwable): Boolean {
+            if (error is kotlinx.coroutines.CancellationException) return true
+            if (error.message.equals("Canceled", ignoreCase = true)) return true
+            return error.cause?.let(::isRequestCancellation) == true
+        }
+
         fun isNetworkFluctuationException(e: Throwable): Boolean {
             if (isTimeoutException(e)) return true
             var current: Throwable? = e
@@ -318,7 +339,9 @@ class AiRepository(
                     current is java.net.NoRouteToHostException ||
                     current is java.net.SocketException ||
                     current is javax.net.ssl.SSLException ||
-                    current is java.net.SocketTimeoutException
+                    current is java.net.SocketTimeoutException ||
+                    current is java.net.ProtocolException ||
+                    (current is java.io.InterruptedIOException && !isRequestCancellation(current))
                 ) {
                     return true
                 }
@@ -326,6 +349,7 @@ class AiRepository(
                 if (msg.contains("connection abort") ||
                     msg.contains("unexpected end of stream") ||
                     msg.contains("stream was reset") ||
+                    msg.contains("stream reset") ||
                     msg.contains("broken pipe") ||
                     msg.contains("network is unreachable") ||
                     msg.contains("connection reset") ||
@@ -333,7 +357,14 @@ class AiRepository(
                     msg.contains("unable to resolve host") ||
                     msg.contains("failed to connect") ||
                     msg.contains("route to host") ||
-                    msg.contains("end of stream")
+                    msg.contains("end of stream") ||
+                    msg.contains("timed out") ||
+                    msg.contains("timeout") ||
+                    msg.contains("http2") ||
+                    msg.contains("connection refused") ||
+                    msg.contains("handshake failed") ||
+                    msg.contains("ssl handshake") ||
+                    msg.contains("clean shutdown")
                 ) {
                     return true
                 }
@@ -1059,6 +1090,14 @@ class AiRepository(
 
     fun getAllMemories(): Flow<List<MemoryItem>> = memoryDao.getAllMemories()
 
+    fun getGlobalMemories(): Flow<List<MemoryItem>> = memoryDao.getGlobalMemoriesFlow()
+
+    fun searchGlobalMemories(query: String): Flow<List<MemoryItem>> = memoryDao.searchGlobalMemories(query)
+
+    suspend fun clearGlobalMemories() = withContext(Dispatchers.IO) {
+        memoryDao.deleteGlobalMemories()
+    }
+
     fun getConversationMemories(conversationId: Long): Flow<List<MemoryItem>> =
         memoryDao.getConversationMemoriesFlow(conversationId)
 
@@ -1327,6 +1366,98 @@ class AiRepository(
         }
     }
 
+    /**
+     * 按需生成/重新生成滚动摘要（由用户在界面显式触发）：
+     * 不受后台自动归约 16 条的高门槛限制，只要会话有 >= 2 条有效对话，即可根据当前对话提炼前序摘要并入库。
+     */
+    suspend fun generateRollingSummaryNow(
+        conversationId: Long,
+        modelNameOverride: String? = null
+    ): Result<ConversationContextUsage> = withContext(Dispatchers.IO) {
+        runCatching {
+            val conversation = getConversationById(conversationId)
+                ?: throw IllegalStateException("对话不存在")
+            val config = getDecryptedConfig(conversation.apiConfigId)
+                ?: throw IllegalStateException("API配置不存在")
+            val messages = getMessagesList(conversationId).collapseVariantsForHistory()
+            val usableMessages = messages.filter { message ->
+                (message.role == "user" || message.role == "assistant") && message.content.isNotBlank() && !message.isExcluded
+            }
+            if (usableMessages.size < 2) {
+                throw IllegalStateException("当前对话消息过少（至少需 2 条），无需生成滚动摘要")
+            }
+
+            val modelName = modelNameOverride
+                ?.takeIf { it.isNotBlank() }
+                ?: resolveRequestModel(config.copy(modelName = conversation.modelName), resolveChatRequestOptions(config, null))
+
+            val snapshot = buildContextUsageSnapshot(
+                conversation = conversation,
+                messages = messages,
+                modelName = modelName
+            )
+            val tokenBudget = (snapshot.promptBudgetTokens * SUMMARY_BUDGET_RATIO)
+                .toInt()
+                .coerceIn(600, 2_000)
+
+            // 用户主动请求生成滚动摘要：
+            // 保留最近 2 条作为活跃最新消息，其余全部作为摘要源；若总共只有 2 条，则以全部 2 条为源提炼核心背景
+            val sourceMessages = if (usableMessages.size > 2) usableMessages.dropLast(2) else usableMessages
+            val lastSourceMessageId = sourceMessages.last().id
+
+            val existingSummary = conversation.rollingSummary?.takeIf { it.isNotBlank() }
+            val generated = runCatching {
+                withTimeoutOrNull(25_000L) {
+                    generateRollingSummary(
+                        config = config.copy(modelName = modelName),
+                        modelName = modelName,
+                        existingSummary = existingSummary,
+                        pendingMessages = sourceMessages,
+                        tokenBudget = tokenBudget
+                    )
+                }
+            }.getOrNull() ?: buildExtractiveConversationSummary(sourceMessages, tokenBudget)
+
+            val finalSummary = generated?.takeIf { it.isNotBlank() }
+                ?.let { compactTextToTokenBudget(it, tokenBudget) }
+                ?: throw IllegalStateException("未能提炼出有效摘要内容")
+
+            conversationDao.updateRollingSummary(
+                conversationId = conversation.id,
+                summary = finalSummary,
+                messageId = lastSourceMessageId
+            )
+
+            val refreshed = getConversationById(conversationId) ?: conversation
+            buildContextUsageSnapshot(
+                conversation = refreshed,
+                messages = messages,
+                modelName = modelName
+            )
+        }
+    }
+
+    suspend fun updateRollingSummary(
+        conversationId: Long,
+        newSummary: String
+    ) = withContext(Dispatchers.IO) {
+        val trimmed = newSummary.trim()
+        val summaryToSave = if (trimmed.isBlank()) null else trimmed
+        conversationDao.updateRollingSummary(
+            conversationId = conversationId,
+            summary = summaryToSave,
+            messageId = if (summaryToSave != null) System.currentTimeMillis() else 0L
+        )
+    }
+
+    suspend fun clearRollingSummary(conversationId: Long) = withContext(Dispatchers.IO) {
+        conversationDao.updateRollingSummary(
+            conversationId = conversationId,
+            summary = null,
+            messageId = 0L
+        )
+    }
+
     suspend fun updateConversationModelAvatar(conversationId: Long, avatarUri: String?) = withContext(Dispatchers.IO) {
         conversationDao.updateModelAvatarUri(conversationId, avatarUri)
     }
@@ -1428,6 +1559,7 @@ class AiRepository(
         onToken: (String) -> Unit,
         onThinkingToken: (String) -> Unit = {},
         onStatusUpdate: ((String) -> Unit)? = null,
+        onKeyAttemptError: ((keyIndex: Int, keyMasked: String, errorMsg: String) -> Unit)? = null,
         onResetBuffer: (() -> Unit)? = null,
         onComplete: (String, String?, Any?) -> Unit,
         onError: (String) -> Unit
@@ -1444,6 +1576,7 @@ class AiRepository(
                 onToken = onToken,
                 onThinkingToken = onThinkingToken,
                 onStatusUpdate = onStatusUpdate,
+                onKeyAttemptError = onKeyAttemptError,
                 onResetBuffer = onResetBuffer,
                 onComplete = onComplete
             )
@@ -1459,6 +1592,7 @@ class AiRepository(
                     assistantVariantIndex = assistantVariantIndex,
                     onToken = onToken,
                     onThinkingToken = onThinkingToken,
+                    onKeyAttemptError = onKeyAttemptError,
                     onResetBuffer = onResetBuffer,
                     onComplete = onComplete,
                     originalError = e
@@ -1496,6 +1630,7 @@ class AiRepository(
         onToken: (String) -> Unit,
         onThinkingToken: (String) -> Unit,
         onStatusUpdate: ((String) -> Unit)? = null,
+        onKeyAttemptError: ((keyIndex: Int, keyMasked: String, errorMsg: String) -> Unit)? = null,
         onResetBuffer: (() -> Unit)? = null,
         onComplete: (String, String?, Any?) -> Unit
     ) {
@@ -1509,6 +1644,7 @@ class AiRepository(
         }
         var lastException: Exception? = null
         var hasEmittedTokens = false
+        val keyFailures = mutableListOf<KeyAttemptFailure>()
 
         val wrappedOnToken: (String) -> Unit = { token ->
             hasEmittedTokens = true
@@ -1521,9 +1657,10 @@ class AiRepository(
 
         for ((keyIndex, currentKey) in allKeys.withIndex()) {
             val keyConfig = config.copy(apiKey = currentKey)
+            val keyMasked = maskApiKeyForDisplay(currentKey)
             var attempt = 0
             val maxTimeoutAttempts = 3 // 遇网络波动/超时在未收到任何内容时最多重试3次
-            val retryDelays = longArrayOf(1000L, 2000L, 5000L) // 需求 5：退避 1s / 2s / 5s
+            val retryDelays = longArrayOf(1000L, 2000L, 5000L) // 退避 1s / 2s / 5s
 
             while (attempt <= maxTimeoutAttempts) {
                 try {
@@ -1544,9 +1681,11 @@ class AiRepository(
                     if (isRequestCancellation(e)) throw e
                     lastException = e
 
-                    // 需求 5：如果已经收到部分内容，坚决不自动重试，避免向用户重复输出
+                    // 保护策略：如果已经收到部分内容，坚决不自动重试，避免向用户重复输出
                     if (hasEmittedTokens) {
                         Log.w(tag, "Key[$keyIndex] 已向用户输出部分内容，根据保护策略不再自动重试以避免重复输出: ${e.message}")
+                        val cleanErrMsg = e.message?.trim()?.ifBlank { "连接中断" } ?: "连接中断"
+                        onKeyAttemptError?.invoke(keyIndex + 1, keyMasked, cleanErrMsg)
                         throw e
                     }
 
@@ -1566,26 +1705,37 @@ class AiRepository(
                             kotlinx.coroutines.delay(delayMs)
                             continue
                         } else {
+                            val cleanMsg = exMsg ?: "网络超时重试已达 $maxTimeoutAttempts 次"
+                            val failure = KeyAttemptFailure(
+                                keyIndex = keyIndex + 1,
+                                keyMasked = keyMasked,
+                                errorMessage = "网络连接超时 ($cleanMsg)",
+                                isTimeout = true
+                            )
+                            keyFailures.add(failure)
+                            onKeyAttemptError?.invoke(keyIndex + 1, keyMasked, failure.errorMessage)
+
                             val failText = if (keyIndex + 1 < allKeys.size) {
-                                if (!exMsg.isNullOrBlank()) {
-                                    "网络重试已达 $maxTimeoutAttempts 次 ($exMsg)，自动尝试下一个 Key (${keyIndex + 2}/${allKeys.size})..."
-                                } else {
-                                    "网络重连重试已达 $maxTimeoutAttempts 次，自动尝试下一个 Key (${keyIndex + 2}/${allKeys.size})..."
-                                }
+                                "网络重试已达 $maxTimeoutAttempts 次 ($cleanMsg)，自动尝试下一个 Key (${keyIndex + 2}/${allKeys.size})..."
                             } else {
-                                if (!exMsg.isNullOrBlank()) {
-                                    "网络波动 ($exMsg)，重试已达 $maxTimeoutAttempts 次"
-                                } else {
-                                    "网络波动，重连重试已达 $maxTimeoutAttempts 次"
-                                }
+                                "网络波动 ($cleanMsg)，重连重试已达 $maxTimeoutAttempts 次"
                             }
                             Log.w(tag, failText)
                             onStatusUpdate?.invoke(failText)
                             break
                         }
                     } else {
-                        // 无论客户端参数/模型错误(400, 404, 422)还是服务端错误(401, 403, 429, 500)，只要还有备用Key且未收到内容就自动尝试下一个Key
+                        // 客户端参数/模型错误(400, 404, 422)或服务端错误(401, 403, 429, 500)
                         val cleanErrMsg = e.message?.trim()?.ifBlank { "未知异常" } ?: "未知异常"
+                        val failure = KeyAttemptFailure(
+                            keyIndex = keyIndex + 1,
+                            keyMasked = keyMasked,
+                            errorMessage = cleanErrMsg,
+                            isTimeout = false
+                        )
+                        keyFailures.add(failure)
+                        onKeyAttemptError?.invoke(keyIndex + 1, keyMasked, cleanErrMsg)
+
                         if (keyIndex + 1 < allKeys.size) {
                             val nextIdx = keyIndex + 2
                             val failText = "当前 Key 异常 ($cleanErrMsg)，正在自动尝试备用 Key ($nextIdx/${allKeys.size})..."
@@ -1596,15 +1746,39 @@ class AiRepository(
                             val failText = "Key[${keyIndex + 1}] 请求报错: $cleanErrMsg"
                             Log.w(tag, failText)
                             onStatusUpdate?.invoke(failText)
-                            throw e
+                            break
                         }
                     }
                 }
             }
         }
 
-        // 所有 Key 都尝试失败
+        // 所有 Key 都尝试失败：汇总所有 Key 的具体报错原因，完整展示
+        if (keyFailures.isNotEmpty()) {
+            if (allKeys.size > 1) {
+                val compositeMessage = buildString {
+                    append("所有 API Key 均请求失败 (共尝试 ${allKeys.size} 个 Key)：\n")
+                    keyFailures.forEach { failure ->
+                        append("• Key #${failure.keyIndex} (${failure.keyMasked})：${failure.errorMessage}\n")
+                    }
+                    append("\n建议检查 API 地址、网络连接或对应 Key 的额度与可用状态。")
+                }.trim()
+                throw Exception(compositeMessage)
+            } else {
+                throw Exception(keyFailures.first().errorMessage)
+            }
+        }
+
         throw lastException ?: Exception("所有 API Key 均连接失败或报错")
+    }
+
+    private fun maskApiKeyForDisplay(key: String): String {
+        val trimmed = key.trim()
+        return if (trimmed.length > 8) {
+            "..." + trimmed.takeLast(4)
+        } else {
+            "尾号" + trimmed.takeLast(2)
+        }
     }
 
     private suspend fun retryWithCompressedContext(
@@ -1617,6 +1791,7 @@ class AiRepository(
         assistantVariantIndex: Int,
         onToken: (String) -> Unit,
         onThinkingToken: (String) -> Unit,
+        onKeyAttemptError: ((keyIndex: Int, keyMasked: String, errorMsg: String) -> Unit)? = null,
         onResetBuffer: (() -> Unit)? = null,
         onComplete: (String, String?, Any?) -> Unit,
         originalError: Exception
@@ -1664,6 +1839,7 @@ class AiRepository(
                 assistantVariantIndex = assistantVariantIndex,
                 onToken = onToken,
                 onThinkingToken = onThinkingToken,
+                onKeyAttemptError = onKeyAttemptError,
                 onResetBuffer = onResetBuffer,
                 onComplete = onComplete
             )
@@ -2522,7 +2698,7 @@ class AiRepository(
         conversation: Conversation,
         messages: List<Message>,
         modelName: String,
-        maxOutputTokens: Int?,
+        maxOutputTokens: Int? = null,
         contextWindowOverrideTokens: Int? = null
     ): ConversationContextUsage {
         val usableMessages = messages.filter { message ->
@@ -3023,12 +3199,9 @@ class AiRepository(
         if (System.currentTimeMillis() - message.createdAt > MEMORY_CAPTURE_FRESHNESS_MS) return
         if (memoryDao.getBySourceMessage(message.id) != null) return
 
-        if (!personalizationManager.getSettings().autoMemoryEnabled) return
-
         val conversation = conversationDao.getConversationById(message.conversationId) ?: return
-        // 严格隔离：私密对话、角色扮演/故事创作会话均不写入全局长期记忆，防止小说情节与角色设定污染全局用户偏好
-        if (hasConversationTag(conversation, "private") ||
-            hasConversationTag(conversation, "roleplay") ||
+        // 严格隔离：角色扮演/故事创作会话不写入全局长期记忆，防止小说情节与角色设定污染全局用户偏好
+        if (hasConversationTag(conversation, "roleplay") ||
             hasConversationTag(conversation, "story")
         ) return
 
@@ -3040,6 +3213,14 @@ class AiRepository(
 
         val memoryContent = candidate.distilledContent
         val scope = candidate.suggestedScope
+
+        // 准则 3：在设置中跨会话记忆开关只影响全局偏好。对话专属偏好开关和记忆完全独立。
+        if (scope in listOf("user", "global")) {
+            if (!personalizationManager.getSettings().autoMemoryEnabled) return
+        } else if (scope == "conversation") {
+            if (conversation.enableSessionMemory == false) return
+        }
+
         val scopedConversationId = if (scope == "conversation") message.conversationId else null
         val keywords = tokenizeForMemory(memoryContent).take(18).joinToString(",")
         val existing = memoryDao.getByScopeAndContent(scope, memoryContent)
@@ -3091,7 +3272,9 @@ class AiRepository(
     suspend fun extractMemoryCandidate(
         content: String,
         conversationId: Long = 0L,
-        messageId: Long? = null
+        messageId: Long? = null,
+        activeConfigId: Long? = null,
+        activeModelName: String? = null
     ): PendingMemoryCandidate? = withContext(Dispatchers.IO) {
         val settings = personalizationManager.getSettings()
         // 1. 如果启用了辅助模型，尝试使用指定的辅助模型进行提炼
@@ -3109,11 +3292,32 @@ class AiRepository(
                     return@withContext candidate
                 }
             } catch (e: Exception) {
-                Log.w(tag, "辅助模型提取记忆失败，自动降级为本地规则提取: ${e.message}")
+                Log.w(tag, "辅助模型提取记忆失败: ${e.message}")
             }
         }
 
-        // 2. 本地纯规则提取兜底（当辅助模型未开启、不可用、超时、报错或返回空时无缝生效）
+        // 2. 让模型真正参与智能提取（需求 2）：优先调度当前会话正在使用的活动模型/会话绑定模型
+        val conversation = if (conversationId > 0L) conversationDao.getConversationById(conversationId) else null
+        val configPair = resolveTimelineAnalysisConfig(activeConfigId, activeModelName, conversation)
+        if (configPair != null) {
+            try {
+                val candidate = extractMemoryWithAuxiliaryModel(
+                    content = content,
+                    conversationId = conversationId,
+                    messageId = messageId,
+                    apiConfigId = configPair.first.id,
+                    modelName = configPair.second,
+                    customPrompt = settings.auxiliaryMemoryPrompt
+                )
+                if (candidate != null) {
+                    return@withContext candidate
+                }
+            } catch (e: Exception) {
+                Log.w(tag, "会话模型智能提取记忆异常，平滑降级为本地规则: ${e.message}")
+            }
+        }
+
+        // 3. 本地纯规则提取兜底（当模型不可用、超时、报错或离线时安全平滑生效）
         SmartMemoryExtractor.extractCandidate(
             content = content,
             conversationId = conversationId,
@@ -3299,59 +3503,15 @@ class AiRepository(
     /**
      * 读取会话全量历史，调用模型对时间推进轴与日常记忆进行提取、消灭相对时间词并校对推断
      */
-    suspend fun reconcileConversationTimeline(
-        conversationId: Long,
-        activeConfigId: Long? = null,
-        activeModelName: String? = null
-    ): TimelineReconcileResult = withContext(Dispatchers.IO) {
-        val messages = messageDao.getMessagesList(conversationId)
-            .filter { !it.isExcluded && it.role != "system" && it.content.isNotBlank() }
-            .sortedBy { it.createdAt }
-
-        if (messages.isEmpty()) {
-            return@withContext TimelineReconcileResult(
-                currentStoryTime = "未确定",
-                events = mutableListOf(),
-                extractionSource = "AI_MODEL"
-            )
-        }
-
-        // 解决问题 3：取消死板截断，全量分析历史对话，让脉络完整连贯
-        // 当文本量在 60,000 字符内时全量送入；极超大文本时智能保留开端 30 条核心设定与最新连续大段对话
-        val totalChars = messages.sumOf { it.content.length }
-        val messagesToAnalyze = if (totalChars <= 60000) {
-            messages
-        } else {
-            val head = messages.take(30)
-            val headChars = head.sumOf { it.content.length }
-            val tailBudget = 55000 - headChars
-            val tail = mutableListOf<Message>()
-            var acc = 0
-            for (msg in messages.drop(30).reversed()) {
-                if (acc + msg.content.length > tailBudget) break
-                tail.add(msg)
-                acc += msg.content.length
-            }
-            (head + tail.reversed()).sortedBy { it.createdAt }
-        }
-
-        // 解决问题 4：严格区分编剧指令与故事正文，从源头防止模型把指令误当剧情事实
-        val formattedHistory = messagesToAnalyze.joinToString("\n") { msg ->
-            val contentTrimmed = msg.content.trim()
-            if (msg.role == "user") {
-                if (TimelineMemoryHelper.isPureDirectorInstruction(contentTrimmed)) {
-                    "【编剧写作指导/导演要求】: $contentTrimmed"
-                } else {
-                    "[用户发言/动作]: $contentTrimmed"
-                }
-            } else {
-                "[助手演出的剧情正文]: $contentTrimmed"
-            }
-        }
-
+    /**
+     * 解析时间线梳理与自动更新所使用的 API 配置与模型
+     */
+    private suspend fun resolveTimelineAnalysisConfig(
+        activeConfigId: Long?,
+        activeModelName: String?,
+        conversation: Conversation?
+    ): Pair<ApiConfig, String>? {
         val settings = personalizationManager.getSettings()
-        val conversation = conversationDao.getConversationById(conversationId)
-
         var rawConfig: ApiConfig? = null
         var targetModel: String = ""
 
@@ -3359,10 +3519,10 @@ class AiRepository(
         if (settings.auxiliaryMemoryEnabled && settings.auxiliaryMemoryApiConfigId > 0L && settings.auxiliaryMemoryModel.isNotBlank()) {
             rawConfig = getDecryptedConfig(settings.auxiliaryMemoryApiConfigId)
             targetModel = settings.auxiliaryMemoryModel
-            Log.d(tag, "时间轴提炼：优先调度辅助模型 [${targetModel}] (configId=${settings.auxiliaryMemoryApiConfigId})")
+            Log.d(tag, "时间轴分析：优先调度辅助模型 [${targetModel}] (configId=${settings.auxiliaryMemoryApiConfigId})")
         }
 
-        // 2. 若未启用辅助模型，依次寻找：ChatViewModel 当前活动配置 -> 会话绑定配置 -> 全局默认配置 -> 首个有效配置
+        // 2. 若未启用辅助模型，依次寻找：活动配置 -> 会话绑定配置 -> 全局默认配置 -> 首个有效配置
         if (rawConfig == null || targetModel.isBlank()) {
             val candidateConfigId = activeConfigId?.takeIf { it > 0L }
                 ?: conversation?.apiConfigId?.takeIf { it > 0L }
@@ -3391,12 +3551,55 @@ class AiRepository(
             }.ifBlank { rawConfig.modelName }
         }
 
+        return if (rawConfig != null && targetModel.isNotBlank()) {
+            Pair(rawConfig, targetModel)
+        } else null
+    }
+
+    /**
+     * 单段消息切片的时间线与设定深度提炼
+     */
+    private suspend fun analyzeTimelineChunk(
+        messagesChunk: List<Message>,
+        config: ApiConfig,
+        targetModel: String,
+        fallbackCurrentTime: String?
+    ): TimelineReconcileResult {
+        val totalChars = messagesChunk.sumOf { it.content.length }
+        val messagesToAnalyze = if (totalChars <= 50000) {
+            messagesChunk
+        } else {
+            val head = messagesChunk.take(20)
+            val headChars = head.sumOf { it.content.length }
+            val tailBudget = 45000 - headChars
+            val tail = mutableListOf<Message>()
+            var acc = 0
+            for (msg in messagesChunk.drop(20).reversed()) {
+                if (acc + msg.content.length > tailBudget) break
+                tail.add(msg)
+                acc += msg.content.length
+            }
+            (head + tail.reversed()).sortedBy { it.createdAt }
+        }
+
+        val formattedHistory = messagesToAnalyze.joinToString("\n") { msg ->
+            val contentTrimmed = msg.content.trim()
+            if (msg.role == "user") {
+                if (TimelineMemoryHelper.isPureDirectorInstruction(contentTrimmed)) {
+                    "【编剧写作指导/导演要求】: $contentTrimmed"
+                } else {
+                    "[用户发言/动作]: $contentTrimmed"
+                }
+            } else {
+                "[助手演出的剧情正文]: $contentTrimmed"
+            }
+        }
+
         val prompt = """
             你是一个专业的小说时间线、剧情推进与常驻设定深度提炼专家。
-            请通读以下完整的历史对话记录，梳理出故事内部真实的【单向推进叙事时间轴（In-Story Timeline）】、【在各时间点确立的规则与设定】以及【与时间无关的全局角色与世界固有常驻设定（Atemporal Settings）】。
+            请通读以下对话记录切片，梳理出故事内部真实的【单向推进叙事时间轴（In-Story Timeline）】、【在各时间点确立的规则与设定】以及【与时间无关的全局角色与世界固有常驻设定（Atemporal Settings）】。
 
             【特别指导核心准则】：
-
             1.【时间锚点极致敏感与精准捕捉法则（文学叙事时空深度挖掘）】：
                - 必须以极高敏感度嗅探剧情中所有的显式与隐式时间过渡，严禁遗漏任何细微的时序跃迁与暗线推移！
                - 包含但不限于：
@@ -3404,7 +3607,7 @@ class AiRepository(
                  ② 相对与自然时间跨度：如 [两周过后]、[半个月后]、[三日后·微雨]、[数月后·初冬]、[三年后·重逢]、[次日拂晓]；
                  ③ 季节轮替与阶段节气：如 [暑假开始]、[新学期伊始]、[深秋初雪]、[除夕之夜]、[惊蛰过后]；
                  ④ 篇章转折与时空锚点：如 [回忆·五年前]、[转折之夜]、[决战前夕]、[破晓时刻]；
-               - 敏感捕捉文字中潜藏的暗线时间推移（如“聊到了掌灯时分”、“不知不觉窗外泛白”、“大雪封山已过七日”、“数日并进”），将其提炼为定位精准的规范时间标签！
+               - 敏感捕捉文字中潜藏的暗线时间推移（如“聊到了掌灯时分”、“不知不觉窗外泛白”、“大雪封山已过七日”），将其提炼为定位精准的规范时间标签！
                - 时序单向单调递增：剧情正文中若前文已是第2天，后文描写“第二天/次日/又过了一天”，必须合理推断累进为第3天；遇到“两周过后”等跨度词时，自然承接并推进入内部递增序列。
 
             2.【全方位剧情里程碑事件提炼（覆盖 5 大核心维度，拒绝遗漏重要进展）】：
@@ -3416,17 +3619,11 @@ class AiRepository(
                  ③ 秘密揭露与重要发现：探明隐秘真相、识破真实身份、获悉关键情报或伏笔；
                  ④ 状态转变与阶段成果：获得关键信物/道具/武器、实力突破、负伤中毒或痊愈、处境重大改变；
                  ⑤ 关键约定与未决悬念：暗中达成的盟约、尚未解决的潜伏威胁、下一步核心目标。
-               - 提炼 15~40 条结构完整事件，让整个故事脉络充实连贯（从初遇到展开、冲突、转折到当前停留节点）。
 
             3.【多维固有与常驻设定深度提炼（覆盖 6 大核心维度）】：
                - 敏锐从角色言行、反应、对话及背景中，捕捉具有长久约束力的常驻设定（每条凝练为 8~30 字明确规则事实）：
-                 ① 角色特质与心结：核心性格、隐秘身世、心理执念、不可触犯的行为底线；
-                 ② 习惯偏好与小动作：生活作息、特定饮食嗜好、思考/紧张时的肢体微动作、说话口癖；
-                 ③ 生理特征与禁忌：过敏原、体质弱点、不可触碰的生理或心理禁区、旧伤残疾；
-                 ④ 世界规则与法则限制：超自然/魔法体系代价、法律与禁令、特殊结界或社会制度；
-                 ⑤ 人际羁绊与誓言契约：特定人物间的生死承诺、守护誓言、不可违背的关系契约；
-                 ⑥ 专属信物与特殊器物：随身佩戴的特殊信物、标志性武器道具、契约印记。
-               - 严禁原句抄录大段文学抒情描写或环境长句，必须凝练为规则属性的【原子设定事实】！
+                 ① 角色特质与心结；② 习惯偏好与小动作；③ 生理特征与禁忌；④ 世界规则与法则限制；⑤ 人际羁绊与誓言契约；⑥ 专属信物与特殊器物。
+               - 严禁原句抄录大段抒情，必须凝练为规则属性的【原子设定事实】！
 
             4.【用户写作指令 `[...]` 与正文剧情严格解耦】：
                - 用户发送的中括号内容（如 `[让两人在雨夜再次相遇]`、`[推进剧情]`）是【编剧/导演的写作指令】，严禁将指令原话当作剧情事件记录！依据正文实际演出的事实进行提炼。
@@ -3440,42 +3637,12 @@ class AiRepository(
                   "timeTag": "第1天·上午",
                   "category": "PLOT_EVENT",
                   "content": "两人在车站碰面并达成同行契约（客观完整的剧情里程碑总结）"
-                },
-                {
-                  "timeTag": "两周过后",
-                  "category": "PLOT_EVENT",
-                  "content": "在旧城废墟完成第二阶段封印修复，同伴在战斗中展现了治愈能力"
-                },
-                {
-                  "timeTag": "暑假开始",
-                  "category": "RULE_CONSTRAINT",
-                  "content": "学院全面封闭后山禁地，严禁未经许可擅入"
                 }
               ],
               "atemporalSettings": [
                 {
-                  "category": "生理禁忌",
-                  "content": "酒精严重过敏，滴酒不沾",
-                  "targetScope": "session"
-                },
-                {
-                  "category": "习惯偏好",
-                  "content": "思考对策时习惯以指尖轻叩桌面",
-                  "targetScope": "session"
-                },
-                {
                   "category": "角色特质",
                   "content": "极度重视契约承诺，一旦立誓绝不反悔",
-                  "targetScope": "session"
-                },
-                {
-                  "category": "世界规则",
-                  "content": "帝国宵禁生效时，平民严禁携武器穿行中央广场",
-                  "targetScope": "global"
-                },
-                {
-                  "category": "专属信物",
-                  "content": "随身携带刻有家族纹章的银质怀表",
                   "targetScope": "session"
                 }
               ]
@@ -3486,50 +3653,293 @@ class AiRepository(
             $formattedHistory
         """.trimIndent()
 
-        var modelException: Exception? = null
+        val cfg = config.copy(modelName = targetModel)
         var responseText: String? = null
+        var modelException: Exception? = null
 
-        if (rawConfig != null && targetModel.isNotBlank()) {
-            val config = rawConfig.copy(modelName = targetModel)
-            Log.i(tag, "开始调用大模型深度分析全量时间线与设定: provider=${config.provider}, model=${config.modelName}")
-            try {
-                responseText = if (config.apiType == "anthropic") {
-                    generateAnthropicTimelineAnalysis(config, prompt)
-                } else {
-                    generateOpenAITimelineAnalysis(config, prompt)
-                }
-                Log.i(tag, "大模型分析全量时间线响应成功，返回长度=${responseText?.length ?: 0}")
-            } catch (e: Exception) {
-                modelException = e
-                Log.e(tag, "调用大模型分析全量时间线异常: ${e.message}", e)
+        try {
+            responseText = if (cfg.apiType == "anthropic") {
+                generateAnthropicTimelineAnalysis(cfg, prompt)
+            } else {
+                generateOpenAITimelineAnalysis(cfg, prompt)
             }
-        } else {
-            modelException = IllegalStateException("未找到可用的 API 配置或模型名称，请先配置模型 API")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            modelException = e
+            Log.e(tag, "调用大模型分析时间线切片异常: ${e.message}", e)
         }
 
-        // 读取已有故事时间，防止重新提炼时丢失或退回到未确定
-        val existingStoryTime = memoryDao.getCandidateMemories(conversationId)
-            .firstOrNull { it.content.startsWith("【当前故事时间】：") || it.content.startsWith("当前故事时间：") }
-            ?.content?.substringAfter("：")?.trim()
-
         if (!responseText.isNullOrBlank()) {
-            val parsedResult = TimelineMemoryHelper.parseModelOutput(responseText, fallbackCurrentTime = existingStoryTime)
+            val parsedResult = TimelineMemoryHelper.parseModelOutput(responseText, fallbackCurrentTime = fallbackCurrentTime)
             if (parsedResult.events.isNotEmpty() || parsedResult.atemporalSettings.isNotEmpty()) {
                 parsedResult.extractionSource = "AI_MODEL"
                 parsedResult.modelUsed = targetModel
-                return@withContext parsedResult
+                return parsedResult
             }
         }
 
-        // 降级兜底：从消息中进行本地精纯时序扫描
-        val fallback = fallbackLocalTimelineScan(messages)
+        val fallback = fallbackLocalTimelineScan(messagesChunk)
         if (fallback.currentStoryTime.isBlank() || fallback.currentStoryTime == "未确定") {
-            fallback.currentStoryTime = existingStoryTime?.takeIf { it.isNotBlank() && it != "未确定" } ?: "第 1 天·起始"
+            fallback.currentStoryTime = fallbackCurrentTime?.takeIf { it.isNotBlank() && it != "未确定" } ?: "第 1 天·起始"
         }
         fallback.extractionSource = "LOCAL_FALLBACK"
         fallback.modelUsed = targetModel
         fallback.extractionErrorMessage = modelException?.message ?: "模型返回解析内容为空"
-        return@withContext fallback
+        return fallback
+    }
+
+    /**
+     * 读取会话全量历史，调用分段提炼 (Map) + 单调时序汇总 (Reduce) 架构对时间推进轴与日常记忆进行提炼
+     * 解决超长对话梳理效果差、耗时长且无法取消的问题
+     */
+    suspend fun reconcileConversationTimeline(
+        conversationId: Long,
+        activeConfigId: Long? = null,
+        activeModelName: String? = null,
+        onProgress: ((step: Int, total: Int, detail: String) -> Unit)? = null
+    ): TimelineReconcileResult = withContext(Dispatchers.IO) {
+        val messages = messageDao.getMessagesList(conversationId)
+            .filter { !it.isExcluded && it.role != "system" && it.content.isNotBlank() }
+            .sortedBy { it.createdAt }
+
+        if (messages.isEmpty()) {
+            return@withContext TimelineReconcileResult(
+                currentStoryTime = "未确定",
+                events = mutableListOf(),
+                extractionSource = "AI_MODEL"
+            )
+        }
+
+        val conversation = conversationDao.getConversationById(conversationId)
+        val configPair = resolveTimelineAnalysisConfig(activeConfigId, activeModelName, conversation)
+        val existingStoryTime = memoryDao.getCandidateMemories(conversationId)
+            .firstOrNull { it.content.startsWith("【当前故事时间】：") || it.content.startsWith("当前故事时间：") }
+            ?.content?.substringAfter("：")?.trim()
+
+        if (configPair == null) {
+            val fallback = fallbackLocalTimelineScan(messages)
+            if (fallback.currentStoryTime.isBlank() || fallback.currentStoryTime == "未确定") {
+                fallback.currentStoryTime = existingStoryTime?.takeIf { it.isNotBlank() && it != "未确定" } ?: "第 1 天·起始"
+            }
+            fallback.extractionSource = "LOCAL_FALLBACK"
+            fallback.extractionErrorMessage = "未找到可用的 API 配置或模型"
+            return@withContext fallback
+        }
+
+        val (config, targetModel) = configPair
+
+        // 分段切片：如果消息数 <= 25，直接执行单段分析；如果 > 25，按每 20~25 条切片分段梳理后汇总 (Map-Reduce)
+        val chunks = TimelineMemoryHelper.chunkMessagesForAnalysis(messages, chunkSize = 25, overlap = 3)
+        if (chunks.size <= 1) {
+            currentCoroutineContext().ensureActive()
+            onProgress?.invoke(1, 1, "正在梳理全量时间线与核心设定...")
+            return@withContext analyzeTimelineChunk(messages, config, targetModel, existingStoryTime)
+        }
+
+        // 多段 Map 阶段
+        val aggregatedEvents = mutableListOf<TimelineEventItem>()
+        val aggregatedSettings = mutableListOf<AtemporalSettingItem>()
+        var latestStoryTime: String = existingStoryTime ?: "第 1 天·起始"
+
+        for ((idx, chunk) in chunks.withIndex()) {
+            currentCoroutineContext().ensureActive()
+            val step = idx + 1
+            onProgress?.invoke(step, chunks.size + 1, "正在梳理第 $step/${chunks.size} 阶段对话...")
+
+            try {
+                val chunkResult = analyzeTimelineChunk(chunk, config, targetModel, latestStoryTime)
+                if (chunkResult.currentStoryTime.isNotBlank() && chunkResult.currentStoryTime != "未确定") {
+                    latestStoryTime = chunkResult.currentStoryTime
+                }
+                for (event in chunkResult.events) {
+                    val updated = TimelineMemoryHelper.mergeOrAppendEvent(aggregatedEvents, event)
+                    aggregatedEvents.clear()
+                    aggregatedEvents.addAll(updated)
+                }
+                for (setting in chunkResult.atemporalSettings) {
+                    if (aggregatedSettings.none { it.content == setting.content }) {
+                        aggregatedSettings.add(setting)
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(tag, "分段 $step 梳理发生局部异常，继续处理后续分段: ${e.message}")
+            }
+        }
+
+        currentCoroutineContext().ensureActive()
+        onProgress?.invoke(chunks.size + 1, chunks.size + 1, "正在汇总各阶段时间线与去重合并...")
+
+        val finalEvents = TimelineMemoryHelper.normalizeMonotonicTimeline(aggregatedEvents)
+        val resolvedStoryTime = if (latestStoryTime.isNotBlank() && latestStoryTime != "未确定") {
+            latestStoryTime
+        } else {
+            TimelineMemoryHelper.inferCurrentStoryTime(finalEvents, existingStoryTime)
+        }
+
+        TimelineReconcileResult(
+            currentStoryTime = resolvedStoryTime,
+            events = finalEvents.toMutableList(),
+            atemporalSettings = aggregatedSettings,
+            extractionSource = "AI_MODEL",
+            modelUsed = targetModel
+        )
+    }
+
+    /**
+     * 对话结束后模型自动根据当前对话判断是否需要更新时间线（轻量增量评估）
+     * 解决“时间线只能手动启动”、“缺少对时间线自动提取”等痛点
+     */
+    suspend fun evaluateAndAutoUpdateTimeline(
+        conversationId: Long,
+        userMessage: String,
+        assistantReply: String,
+        activeConfigId: Long? = null,
+        activeModelName: String? = null
+    ): AutoTimelineUpdateResult? = withContext(Dispatchers.IO) {
+        if (userMessage.isBlank() && assistantReply.isBlank()) return@withContext null
+
+        val conversation = conversationDao.getConversationById(conversationId) ?: return@withContext null
+
+        val isRoleplay = hasConversationTag(conversation, "roleplay") || hasConversationTag(conversation, "story")
+
+        // 核心规范（需求 1）：时间线功能不需要繁琐自动检测是否开启，直接和“对话记忆”功能开启合并！
+        val isSessionMemoryEnabled = conversation.enableSessionMemory == true || (isRoleplay && conversation.enableSessionMemory != false)
+        if (!isSessionMemoryEnabled) {
+            return@withContext null
+        }
+
+        val totalLength = userMessage.length + assistantReply.length
+        if (totalLength < 10) return@withContext null
+
+        val existingMemories = memoryDao.getCandidateMemories(conversationId)
+
+        val existingStoryTime = existingMemories
+            .firstOrNull { it.content.startsWith("【当前故事时间】：") || it.content.startsWith("当前故事时间：") }
+            ?.content?.substringAfter("：")?.trim() ?: "第 1 天·起始"
+
+        val existingEvents = existingMemories
+            .map { it.content }
+            .filter { it.startsWith("[") || it.startsWith("【") }
+            .map { TimelineMemoryHelper.parseContentToEvent(it) }
+
+        val configPair = resolveTimelineAnalysisConfig(activeConfigId, activeModelName, conversation) ?: return@withContext null
+        val (config, targetModel) = configPair
+
+        // 需求 2：让大模型深度理解剧情与上下文，真正参与智能提取时间推进与关键事件事实，告别低效正则
+        val prompt = """
+            你是一个专业的故事时间线推进与剧情里程碑事件智能提取引擎。
+            已知当前故事停留在时间节点：【$existingStoryTime】。
+            以下是最新的一轮对话交互：
+            [用户发言/指令]: ${userMessage.take(800)}
+            [助手剧情正文]: ${assistantReply.take(2000)}
+
+            请深度理解正文对话，敏锐判断并智能提取：
+            1.【时间流逝与时空推进】：正文剧情中时间是否有向前推移？
+               - 包含：日内时段流转（如清晨到午后、从下午聊至傍晚/深夜掌灯）、跨越至次日/翌日、相对时间跨度（如几天后、两周后、次月）、或阶段节气节点（如暑假开始、深秋初雪等）；
+               - 若有时移，请推断并输出推进后的精确故事时间（如：第 1 天·黄昏、第 2 天·清晨、三天后·黄昏、暑假开始·上午等）；
+               - 若未发生时间推移，保持原故事时间【$existingStoryTime】。
+            2.【剧情里程碑关键事件智能提炼】：本轮剧情中是否发生了具有长远影响的关键事实？
+               - 包含：确立关系、重要誓约、危机爆发、重大抉择、探明秘密真相、抵达新地点、取得关键信物或道具、处境或状态质变等；
+               - 请用客观、精炼的文学叙事语言归纳该事实（格式：主体在何处完成了什么关键事实，15~40字）；
+               - 严禁包含“用户”、“AI”、“助手”、“模型”等出戏元词汇！
+               - 严禁把用户的写作指导指令（如“继续写”、“让他们在雨夜相遇”）原样作为事件记录，必须依据助手正文中实际演出的情节事实提炼！
+
+            注意：
+            1. 若本轮交互只是普通客套、简单寒暄或常规交谈，未发生任何时间推移且无关键剧情里程碑事件，请直接输出：NO_UPDATE
+            2. 若有变化，请输出以下纯 JSON：
+            ```json
+            {
+              "newStoryTime": "推移后的故事时间节点",
+              "newEvent": {
+                "timeTag": "事件发生的具体时间标签，如：第 1 天·黄昏、第 2 天·清晨",
+                "category": "PLOT_EVENT",
+                "content": "精简凝练的事实（主体在何处完成了什么，15~40字），严禁包含用户/AI等元词汇"
+              }
+            }
+            ```
+        """.trimIndent()
+
+        val responseText = try {
+            val cfg = config.copy(modelName = targetModel)
+            if (cfg.apiType == "anthropic") {
+                generateAnthropicTimelineAnalysis(cfg, prompt)
+            } else {
+                generateOpenAITimelineAnalysis(cfg, prompt)
+            }
+        } catch (e: Exception) {
+            Log.w(tag, "自动评估时间线更新异常: ${e.message}")
+            null
+        }
+
+        if (responseText.isNullOrBlank() || responseText.contains("NO_UPDATE", ignoreCase = true)) {
+            return@withContext null
+        }
+
+        // 解析模型响应
+        val stripped = TimelineMemoryHelper.stripThinkingTags(responseText)
+        val jsonMatcher = Regex("""\{[\s\S]*\}""").find(stripped) ?: return@withContext null
+        val jsonObj = try {
+            JsonParser.parseString(jsonMatcher.value).asJsonObject
+        } catch (_: Exception) {
+            return@withContext null
+        }
+
+        val newStoryTime = jsonObj.get("newStoryTime")?.asString?.trim()?.takeIf { it.isNotBlank() && it != "未确定" }
+        val newEventObj = jsonObj.getAsJsonObject("newEvent")
+        val newEvent = if (newEventObj != null) {
+            val tag = newEventObj.get("timeTag")?.asString?.trim().orEmpty()
+            val content = newEventObj.get("content")?.asString?.trim().orEmpty()
+            val cat = TimelineCategory.fromKey(newEventObj.get("category")?.asString)
+            if (content.isNotBlank()) TimelineEventItem(timeTag = tag, content = content, category = cat) else null
+        } else null
+
+        var isStoryTimeChanged = false
+        var isEventAddedOrMerged = false
+
+        if (!newStoryTime.isNullOrBlank() && newStoryTime != existingStoryTime) {
+            val existingTimeMemory = existingMemories.firstOrNull { it.content.startsWith("【当前故事时间】：") || it.content.startsWith("当前故事时间：") }
+            if (existingTimeMemory != null) {
+                memoryDao.updateMemory(existingTimeMemory.copy(content = "【当前故事时间】：$newStoryTime", updatedAt = System.currentTimeMillis()))
+            } else {
+                addConversationMemory(conversationId, "【当前故事时间】：$newStoryTime")
+            }
+            isStoryTimeChanged = true
+        }
+
+        if (newEvent != null && newEvent.content.isNotBlank()) {
+            val mergedList = TimelineMemoryHelper.mergeOrAppendEvent(existingEvents, newEvent)
+            // 检查是否有现有条目被合并丰富，或者插入新条目
+            val targetExisting = existingMemories.firstOrNull {
+                it.content.contains(newEvent.content.take(15)) ||
+                (newEvent.content.length >= 15 && it.content.take(15).let { sub -> newEvent.content.contains(sub) })
+            }
+            if (targetExisting != null) {
+                val formatted = TimelineMemoryHelper.formatEventContent(newEvent.timeTag.ifBlank { targetExisting.content.substringBefore("]").removePrefix("[") }, newEvent.content, newEvent.category)
+                memoryDao.updateMemory(targetExisting.copy(content = formatted, updatedAt = System.currentTimeMillis()))
+                isEventAddedOrMerged = true
+            } else {
+                val formatted = TimelineMemoryHelper.formatEventContent(newEvent.timeTag, newEvent.content, newEvent.category)
+                addConversationMemory(conversationId, formatted)
+                isEventAddedOrMerged = true
+            }
+        }
+
+        if (!isStoryTimeChanged && !isEventAddedOrMerged) return@withContext null
+
+        val notice = buildString {
+            append("🕒 时间线已自动更新")
+            if (isStoryTimeChanged && !newStoryTime.isNullOrBlank()) {
+                append("：推进至【$newStoryTime】")
+            }
+            if (newEvent != null && newEvent.content.isNotBlank()) {
+                append(" · 记录：${newEvent.content.take(20)}")
+            }
+        }
+
+        return@withContext AutoTimelineUpdateResult(newStoryTime, newEvent, notice)
     }
 
     private suspend fun generateOpenAITimelineAnalysis(config: ApiConfig, prompt: String): String? {
@@ -3796,8 +4206,6 @@ class AiRepository(
         tokenBudget: Int,
         options: ChatRequestOptions? = null
     ): String? {
-        if (hasConversationTag(conversation, "private")) return null
-
         val isRoleplay = hasConversationTag(conversation, "roleplay") || hasConversationTag(conversation, "story")
         // 角色扮演会话中严格隔离跨会话全局长期记忆，防止外部工作/代码等日常偏好污染小说剧情
         val extMemoryEnabled = if (isRoleplay) false else (options?.enableExternalMemory ?: conversation.enableExternalMemory ?: false)
@@ -3805,7 +4213,7 @@ class AiRepository(
         val candidates = memoryDao.getCandidateMemories(conversation.id).filter { it.isEnabled }
         if (candidates.isEmpty()) return null
 
-        // 会话专属记忆在所有对话（包括普通对话、日常角色扮演）中只要开启均生效
+        // 会话专属记忆在所有对话（包括普通对话、私密对话、角色扮演）中只要开启均生效
         val sessionMemories = if (options?.enableSessionMemory == false) {
             emptyList()
         } else {
@@ -3836,7 +4244,7 @@ class AiRepository(
 
         // 1. 核心行为准则与绝对约束（100% 无条件注入，最高约束级别，解决需求 4c）
         if (allDirectives.isNotEmpty()) {
-            val directiveLines = allDirectives.map { "- [绝对准则] ${it.content.trim()}" }.joinToString("\n")
+            val directiveLines = allDirectives.map { "- [绝对准则] ${SmartMemoryExtractor.sanitizeMetaLanguage(it.content.trim())}" }.joinToString("\n")
             blocks += """
                 【核心行为准则与绝对约束（最高优先级，必须严格无条件遵守）】
                 以下是用户已确认并生效的核心行为准则、称谓规范与输出禁令。在任何对话与输出中均拥有最高绝对效力，必须无条件执行：
@@ -3854,22 +4262,23 @@ class AiRepository(
                 if (trimmed.startsWith("【当前故事时间】：") || trimmed.startsWith("当前故事时间：")) {
                     currentStoryTime = trimmed.substringAfter("：").trim()
                 } else {
-                    sessionLines.add(trimmed)
+                    sessionLines.add(SmartMemoryExtractor.sanitizeMetaLanguage(trimmed))
                 }
             }
 
-            // 积极调度检测：如果用户提到“昨天”、“前天”、“上次”、“之前”、“哪天”、“那天”、“记得”、“吃过”等回忆关键词
-            val timeRecallKeywords = listOf("昨天", "前天", "上次", "之前", "哪天", "那天", "记得", "吃过", "去过", "那时候", "上周", "前几天")
-            val isTimeRecall = timeRecallKeywords.any { currentUserMessage.contains(it) }
+            // 严格隔离与按需调度：仅在角色扮演/故事会话、已记录当前故事时间、或存在显式故事时间线标签时注入小说时空看板；普通技术问答与闲聊绝对不注入故事时空看板
+            val hasExplicitTimelineData = sessionLines.any { TimelineMemoryHelper.isExplicitTimelineEvent(it) }
+            val shouldInjectTimelineContext = isRoleplay || (currentStoryTime != null) || hasExplicitTimelineData
 
-            val timelineContext = if (sessionLines.any { it.startsWith("[") || it.startsWith("【") } || isTimeRecall || isRoleplay) {
+            val timelineContext = if (shouldInjectTimelineContext) {
                 TimelineMemoryHelper.buildTimelinePromptContext(currentStoryTime, sessionLines)
             } else {
                 val lines = sessionLines.map { "- $it" }.joinToString("\n")
                 "【当前会话专属记忆与项目约束】：\n$lines"
             }
 
-            blocks += "<session_timeline_memory>\n$timelineContext\n</session_timeline_memory>"
+            val blockTag = if (shouldInjectTimelineContext) "session_timeline_memory" else "session_memory"
+            blocks += "<$blockTag>\n$timelineContext\n</$blockTag>"
         }
 
         if (normalLongTermMemories.isNotEmpty()) {

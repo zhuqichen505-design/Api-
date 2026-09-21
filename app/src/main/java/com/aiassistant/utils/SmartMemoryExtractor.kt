@@ -47,15 +47,18 @@ object SmartMemoryExtractor {
         explicitRememberRegex.find(trimmed)?.let { match ->
             val fact = match.groupValues[1].trim()
             if (fact.isNotBlank()) {
-                val isConv = isConversationScoped(fact.lowercase(Locale.ROOT))
-                val isPref = listOf("喜欢", "偏好", "习惯", "希望", "要求", "必须", "注释", "语言", "回答", "代码").any { fact.contains(it) }
+                val cleanFact = sanitizeMetaLanguage(fact)
+                val isConv = isConversationScoped(cleanFact.lowercase(Locale.ROOT))
+                val isPref = listOf("喜欢", "偏好", "习惯", "希望", "要求", "必须", "注释", "语言", "回答", "代码").any { cleanFact.contains(it) }
+                val isRoleOrWorld = listOf("身份", "角色", "设定", "关系", "视对方为", "哥哥", "姐姐", "妹妹", "弟弟", "恋人", "朋友", "搭档").any { cleanFact.contains(it) }
+                val prefix = if (isRoleOrWorld) "角色设定：" else if (isPref) "用户偏好：" else "用户设定："
                 return PendingMemoryCandidate(
-                    distilledContent = "用户设定：$fact",
+                    distilledContent = "$prefix$cleanFact",
                     originalSnippet = trimmed.take(80),
                     suggestedScope = if (isConv) "conversation" else "user",
                     conversationId = conversationId,
                     sourceMessageId = messageId,
-                    category = if (isPref) "PREFERENCE" else "FACT"
+                    category = if (isRoleOrWorld) "PROJECT" else if (isPref) "PREFERENCE" else "FACT"
                 )
             }
         }
@@ -168,7 +171,7 @@ object SmartMemoryExtractor {
         sessionRoleRegex.find(trimmed)?.let { match ->
             val role = match.groupValues[1].trim()
             return PendingMemoryCandidate(
-                distilledContent = "会话设定：模型身份设定为「$role」",
+                distilledContent = "会话设定：当前身份设定为「$role」",
                 originalSnippet = trimmed.take(80),
                 suggestedScope = "conversation",
                 conversationId = conversationId,
@@ -354,18 +357,37 @@ object SmartMemoryExtractor {
 
         if (text.length < 2) return "" to defaultCategory
 
+        // 沉浸感净化：彻底消除“用户把AI当成...”、“用户要求模型...”等出戏的第三方技术元词汇
+        text = sanitizeMetaLanguage(text)
+
         val isPreference = listOf("喜欢", "偏好", "习惯", "讨厌", "风格", "爱喝", "爱吃", "倾向", "简短", "精炼", "注释").any { text.contains(it) }
         val isConstraint = listOf("不要", "别", "禁止", "严禁", "必须", "避免", "务必", "始终", "格式", "规范", "限制", "不许", "不允许", "不得", "不准", "切勿", "称呼", "叫我", "自称").any { text.contains(it) }
-        val isRoleOrWorld = listOf("身份", "角色", "设定", "世界观", "背景", "关系", "扮演", "你是一个", "你是").any { text.contains(it) }
+        val isRoleOrWorld = listOf("身份", "角色", "设定", "世界观", "背景", "关系", "扮演", "你是一个", "你是", "视对方为", "哥哥", "姐姐", "妹妹", "弟弟", "恋人", "朋友", "搭档").any { text.contains(it) }
 
         return when {
             isConstraint -> "行为约束：$text" to "PREFERENCE"
+            isRoleOrWorld -> "角色设定：$text" to "PROJECT"
             isPreference -> "用户偏好：$text" to "PREFERENCE"
-            isRoleOrWorld -> "会话设定：$text" to "PROJECT"
             defaultCategory == "PROJECT" -> "会话事实：$text" to "PROJECT"
             defaultCategory == "PREFERENCE" -> "行为约束：$text" to "PREFERENCE"
             else -> "重要事实：$text" to "FACT"
         }
+    }
+
+    /**
+     * 沉浸式元技术词汇净化过滤：
+     * 彻底清除在角色扮演与日常深度对话中容易导致出戏的第三方旁白式技术词汇（如“用户把AI当成...”、“用户要求模型...”）。
+     * 将其智能重构为沉浸自然的“视对方为...”、“互动时...”等设定与偏好表述。
+     */
+    fun sanitizeMetaLanguage(raw: String): String {
+        var result = raw.trim()
+        // 1. 净化关系与人设出戏表述：“用户把AI/模型当成/视为心爱的哥哥” -> “视对方为心爱的哥哥”
+        result = result.replace(Regex("""(?:用户)?(?:把|将)(?:AI|ai|模型|大模型|助手|机器人)(?:当成|当做|当做是|当成是|视为|看作|看做|看成|设定为)\s*"""), "视对方为")
+        result = result.replace(Regex("""(?:把|将)(?:AI|ai|模型|大模型|助手|机器人)(?:作为|认作)\s*"""), "视对方为")
+        result = result.replace(Regex("""(?:用户)?希望(?:AI|ai|模型|大模型|助手|机器人)\s*"""), "期望在交流中")
+        result = result.replace(Regex("""(?:用户)?要求(?:AI|ai|模型|大模型|助手|机器人)\s*"""), "要求在互动中")
+        result = result.replace(Regex("""(?:AI|ai|模型|大模型|助手|机器人)(?:应该|应当|需|需要|必须)\s*"""), "互动时必须")
+        return result
     }
 
     fun isCodeOrTechnicalNoise(text: String): Boolean {

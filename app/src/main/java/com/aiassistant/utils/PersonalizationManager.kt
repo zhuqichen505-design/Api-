@@ -27,7 +27,9 @@ data class PersonalizationSettings(
     val auxiliaryMemoryEnabled: Boolean = false,
     val auxiliaryMemoryApiConfigId: Long = 0L,
     val auxiliaryMemoryModel: String = "",
-    val auxiliaryMemoryPrompt: String = ""
+    val auxiliaryMemoryPrompt: String = "",
+    val autoTimelineEnabled: Boolean = true,
+    val autoTimelineNoticeEnabled: Boolean = true
 )
 
 class PersonalizationManager(private val context: Context) {
@@ -70,7 +72,9 @@ class PersonalizationManager(private val context: Context) {
             auxiliaryMemoryEnabled = prefs.getBoolean(KEY_AUXILIARY_MEMORY_ENABLED, false),
             auxiliaryMemoryApiConfigId = prefs.getLong(KEY_AUXILIARY_MEMORY_API_CONFIG_ID, 0L),
             auxiliaryMemoryModel = prefs.getString(KEY_AUXILIARY_MEMORY_MODEL, "").orEmpty(),
-            auxiliaryMemoryPrompt = prefs.getString(KEY_AUXILIARY_MEMORY_PROMPT, DEFAULT_AUXILIARY_MEMORY_PROMPT).orEmpty().ifBlank { DEFAULT_AUXILIARY_MEMORY_PROMPT }
+            auxiliaryMemoryPrompt = prefs.getString(KEY_AUXILIARY_MEMORY_PROMPT, DEFAULT_AUXILIARY_MEMORY_PROMPT).orEmpty().ifBlank { DEFAULT_AUXILIARY_MEMORY_PROMPT },
+            autoTimelineEnabled = prefs.getBoolean(KEY_AUTO_TIMELINE_ENABLED, true),
+            autoTimelineNoticeEnabled = prefs.getBoolean(KEY_AUTO_TIMELINE_NOTICE_ENABLED, true)
         )
     }
 
@@ -102,6 +106,8 @@ class PersonalizationManager(private val context: Context) {
             .putLong(KEY_AUXILIARY_MEMORY_API_CONFIG_ID, settings.auxiliaryMemoryApiConfigId)
             .putString(KEY_AUXILIARY_MEMORY_MODEL, settings.auxiliaryMemoryModel)
             .putString(KEY_AUXILIARY_MEMORY_PROMPT, settings.auxiliaryMemoryPrompt)
+            .putBoolean(KEY_AUTO_TIMELINE_ENABLED, settings.autoTimelineEnabled)
+            .putBoolean(KEY_AUTO_TIMELINE_NOTICE_ENABLED, settings.autoTimelineNoticeEnabled)
             .commit()
     }
 
@@ -159,7 +165,13 @@ class PersonalizationManager(private val context: Context) {
         private const val KEY_AUXILIARY_MEMORY_API_CONFIG_ID = "auxiliary_memory_api_config_id"
         private const val KEY_AUXILIARY_MEMORY_MODEL = "auxiliary_memory_model"
         private const val KEY_AUXILIARY_MEMORY_PROMPT = "auxiliary_memory_prompt"
+        private const val KEY_AUTO_TIMELINE_ENABLED = "auto_timeline_enabled"
+        private const val KEY_AUTO_TIMELINE_NOTICE_ENABLED = "auto_timeline_notice_enabled"
 
-        const val DEFAULT_AUXILIARY_MEMORY_PROMPT = "你是一个专业的记忆与设定提炼助手。请阅读以下用户发言与对话内容，判断是否包含值得跨会话长期记住的用户画像、长期偏好、重要事实、剧情设定或行为约束（如称呼要求、绝对禁忌、输出规范等）。若包含，请直接输出一条主谓宾结构完整、表意清晰确凿的陈述事实（30~80字，必须保留完整的约束条件与限定词，严禁中途截断，严禁输出任何'根据分析'等说明或标点废话）；若只是客套、单次任务、临时疑问或瞬态动作，请只输出'IGNORE'。"
+        const val DEFAULT_AUXILIARY_MEMORY_PROMPT = "你是一个专业的记忆与设定提炼助手。请阅读以下对话内容，判断是否包含值得长期记住的人物画像、长期偏好、重要事实、剧情设定或行为约束（如称呼要求、绝对禁忌、输出规范等）。\n" +
+            "【沉浸感最高准则（铁律）】：\n" +
+            "1. 严禁在提炼的事实中出现“用户”、“AI”、“模型”、“助手”、“大模型”、“系统”、“机器人”等出戏的元技术词汇！\n" +
+            "2. 若涉及角色扮演、称谓关系或互动人设（如将对方当做哥哥、朋友、恋人等），必须以自然沉浸的角色关系或互动规范表述（例如提炼为“角色关系：视对方为心爱的哥哥”、“互动设定：以哥哥身份进行关怀交流”，绝对不可输出“用户把AI当成...”）！\n" +
+            "3. 若判定值得记忆，请直接输出一条主谓宾结构完整、表意清晰确凿的陈述事实（30~80字，必须保留完整的约束条件与限定词，严禁中途截断，严禁输出任何'根据分析'等说明或标点废话）；若只是客套、单次任务、临时疑问或瞬态动作，请只输出'IGNORE'。"
     }
 }
