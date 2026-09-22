@@ -579,6 +579,18 @@ class AiRepository(
         return hasTokenOrContext && hasOverflow
     }
 
+    private fun isContextLimitOrEmptyResponseError(error: Throwable): Boolean {
+        if (isContextLimitError(error)) return true
+        val messages = mutableListOf<String>()
+        var current: Throwable? = error
+        while (current != null) {
+            current.message?.let(messages::add)
+            current = current.cause
+        }
+        val message = messages.joinToString(" ").lowercase()
+        return message.contains("empty response") || message.contains("empty response detected")
+    }
+
     // ============ 文件夹相关 ============
 
     fun getAllFolders(): Flow<List<Folder>> = folderDao.getAllFolders()
@@ -1594,7 +1606,7 @@ class AiRepository(
             )
         } catch (e: Exception) {
             if (isRequestCancellation(e)) throw CancellationException("请求已取消", e)
-            if (isContextLimitError(e) && retryWithCompressedContext(
+            if (isContextLimitOrEmptyResponseError(e) && retryWithCompressedContext(
                     config = config,
                     conversationId = conversationId,
                     userMessage = userMessage,
@@ -1824,7 +1836,7 @@ class AiRepository(
             }
         }
 
-        val safeRetryOutput = minOf(options?.maxTokens ?: 4096, 4096, (retryWindow * 0.25f).toInt().coerceAtLeast(512))
+        val safeRetryOutput = maxOf(options?.maxTokens ?: 4096, 4096).coerceIn(4096, 16384)
 
         runCatching {
             compressConversationContext(
@@ -1923,18 +1935,20 @@ class AiRepository(
             }
         }
 
-        // 双端注水机制 (Dual-Anchor Prompting)：当长历史超过6轮或存在摘要时，注入尾部系统强化声明
+        // 双端注水机制 (Dual-Anchor Prompting)：安全合并至最终用户消息头部，严禁在消息列表中段或尾部插入非首位 role="system"（各大模型如 DeepSeek、Claude 等严格禁止非首位 system 消息，否则导致网关或大模型报错/空回复）
         val customPrompt = promptResolution.first
-        if (!isRoleplayConv && !customPrompt.isNullOrBlank() && (contextBundle.recentMessages.size >= 6 || contextBundle.summary != null)) {
+        val finalEnrichedUserMessage = if (!isRoleplayConv && !customPrompt.isNullOrBlank() && (contextBundle.recentMessages.size >= 6 || contextBundle.summary != null)) {
             val tailOverride = "[System Override Directive / 核心指令强化声明]\n" +
                 "请注意：用户已对当前对话设定了最新的行为规范与提示词要求。\n" +
                 "无论前序历史对话风格如何，你必须立即完全遵循以下最新指令，放弃先前的惯性回复模式：\n" +
                 customPrompt.trim()
-            chatMessages.add(ChatMessage(role = "system", content = tailOverride))
+            "$tailOverride\n\n$enrichedUserMessage"
+        } else {
+            enrichedUserMessage
         }
 
         // 构建当前用户消息（支持多模态）
-        val userContent = buildUserMessage(enrichedUserMessage, attachments)
+        val userContent = buildUserMessage(finalEnrichedUserMessage, attachments)
         chatMessages.add(ChatMessage(role = "user", content = userContent))
 
         // 创建请求 - OpenAI格式不发送top_k
@@ -1950,18 +1964,17 @@ class AiRepository(
             options = effectiveOptions,
             allowNativeWebSearch = !searchIsReady
         )
-        val estimatedPromptTokens = chatMessages.sumOf { estimateContentTokenCount(it.content) + 16 }
-        val contextWindow = effectiveOptions.contextWindowOverrideTokens
-            ?: estimateModelContextWindowTokens(requestModel)
-        val headroom = (contextWindow - estimatedPromptTokens - 512).coerceAtLeast(256)
         val configuredMax = effectiveOptions.maxTokens ?: config.maxTokens
-        val safeMaxTokens = minOf(configuredMax, headroom).coerceIn(256, 16384)
+        // 思考模型充足预算保底：主流模型皆为思考模型（Reasoning Model），思考链消耗巨大（通常数百至数千 Token）。
+        // 严禁因 headroom 挤压将 max_tokens 降至 256/512 等过小数值，否则思考链未完毕即触发 length 截断导致正文为空并被网关判定为 empty response (500)
+        val safeMaxTokens = maxOf(configuredMax, 4096).coerceIn(4096, 64000)
 
         val request = ChatCompletionRequest(
             model = requestModel,
             messages = chatMessages,
             temperature = requestTemperature(config, effectiveOptions),
             max_tokens = safeMaxTokens,
+            max_completion_tokens = safeMaxTokens,
             top_p = effectiveOptions.topP,
             top_k = if (providerToggles.includeTopK) config.topK else null,
             stream = true,
@@ -2321,18 +2334,8 @@ class AiRepository(
             thinkingBudgetForEffort(effectiveOptions.thinkingEffort, config.thinkingBudget)
         } else null
         val configuredMaxTokens = effectiveOptions.maxTokens ?: config.maxTokens
-        val requestMaxTokens = if (thinkingBudget != null && configuredMaxTokens <= thinkingBudget) {
-            thinkingBudget + 2048
-        } else {
-            configuredMaxTokens
-        }
-
-        val estimatedPromptTokens = anthropicMessages.sumOf { estimateContentTokenCount(it.content) + 16 } +
-            estimateTokenCount(systemPrompt.orEmpty())
-        val contextWindow = effectiveOptions.contextWindowOverrideTokens
-            ?: estimateModelContextWindowTokens(requestModel)
-        val headroom = (contextWindow - estimatedPromptTokens - 512).coerceAtLeast(256)
-        val safeRequestMaxTokens = minOf(requestMaxTokens, headroom).coerceIn(256, 64000)
+        // Anthropic 协议要求 max_tokens 必须大于 budget_tokens，且保留充裕正文额度
+        val safeRequestMaxTokens = maxOf(configuredMaxTokens, (thinkingBudget ?: 0) + 4096).coerceIn(4096, 64000)
 
         // 创建请求 - Anthropic格式支持top_k
         val request = AnthropicRequest(
@@ -2694,20 +2697,18 @@ class AiRepository(
         val isDeepSeek = "deepseek" in identity
         val isMiMo = "mimo" in identity || "xiaomi" in identity
         val isOpenAi = "openai" in identity || "api.openai.com" in identity
-        val capability = com.aiassistant.domain.model.ModelCapabilityEngine.evaluateModel(
-            config.modelName, config.provider, config.baseUrl
-        )
-        val isOpenAiReasoningModel = capability.reasoningProviderType == "openai" ||
-            Regex("""(^|[-_/])(o[134]|gpt-5)""").containsMatchIn(config.modelName.lowercase())
+        val isSiliconFlow = "siliconflow" in identity
 
         return OpenAiProviderToggles(
             includeTopK = options != null && isMiMo,
             includeGenericSearch = wantsSearch && !isDeepSeek && !isOpenAi,
             includeOpenAiSearchOptions = wantsSearch && isOpenAi,
-            includeEnableThinking = wantsThinking && !isDeepSeek && !isOpenAiReasoningModel,
-            includeThinkingBudget = wantsThinking && !isDeepSeek && !isOpenAiReasoningModel && !isMiMo,
-            includeThinkingEffort = wantsThinking && !isDeepSeek && !isOpenAiReasoningModel && !isMiMo,
-            includeReasoningEffort = wantsThinking && isOpenAiReasoningModel
+            // 绝不盲目发送非标准属性 enable_thinking / thinking_budget，避免第三方中转网关解析异常与 1024 Token 截断导致的空回复 (empty response detected)
+            includeEnableThinking = wantsThinking && isSiliconFlow,
+            includeThinkingBudget = false,
+            includeThinkingEffort = false,
+            // 标准 OpenAI 与主流中转网关协议统一使用 reasoning_effort 控制思考强度
+            includeReasoningEffort = wantsThinking
         )
     }
 

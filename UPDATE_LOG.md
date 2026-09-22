@@ -2,6 +2,41 @@
 
 本文档按照工作流规范记录每次版本更新、需求变更与复核结果。
 
+## [2026-09-22] - v2.3.5：彻底根治思考模型长输入 empty response (500) 报错、双端注水协议合规化与主流思考模型通用适配
+
+### 1. 核心需求落实与技术重构详情
+1. **彻底根治思考模型输入超过十几个字报错 500 (empty response detected) 核心病灶（痛点根治）**：
+   - **根本原因深度排查**：
+     - **思考模型输出额度致命截断**：旧版 `safeMaxTokens` 算法依据剩余窗口盲目计算 `headroom`，在长上下文会话中将 `safeMaxTokens` 压制至最低 256 或 512。而现代思考模型（o1、o3、deepseek-reasoner、qwq 等）必须先输出 `<think>` 思考链。当用户输入超过十几个字触发复杂推理时，思考链动辄耗费 1000~3000 Token，导致思考过程直接撞上 256 的输出上限而被服务端截断（`finish_reason: length`），正文完全为空（null）。反代/中转网关（NewAPI、OneAPI 等）检测到流式结束且无任何正文，直接对外抛出 `API错误 (500): failed to stream request: empty response detected`。缩短至极短文本时，模型思考仅需几十 Token 即可输出正文，因此恰好能在 256 内完成；
+     - **双端注水（Dual-Anchor）协议违规注入**：旧版在历史轮次 >= 6 时，在对话列表中段和末尾强行注入单独的 `ChatMessage(role = "system")`。而 DeepSeek、Claude、Gemini 等主流思考模型严格要求消息必须是 `user` 与 `assistant` 严格交替，中途插入独立的 system 消息会被各大反代网关直接拦截报错；
+     - **非标思考预算掐死推理**：旧版对未在白名单的模型强传 `thinking_budget: 1024`，当用户输入复杂长文本时，思考预算被限制在 1024 导致过早耗尽截断。
+   - **全面重构落地**：
+     - **思考模型充裕输出额度保底**：重构 `safeMaxTokens` 算法，由原来的 `minOf(configuredMax, headroom).coerceIn(256, 16384)` 升级为 `maxOf(configuredMax, 4096).coerceIn(4096, 64000)`，确保为思考链留足至少 4096 Token 的完整推理预算，正文绝不因思考链过长而被截断；
+     - **支持标准 `max_completion_tokens`**：在 `ChatCompletionRequest` 中引入 `max_completion_tokens` 字段，精准对齐现代思考模型与各大网关规范；
+     - **双端注水协议 100% 合规**：彻底废除消息列表末尾独立注入 system 消息的危险做法，改为安全拼接至用户最新消息头部（`"$tailOverride\n\n$enrichedUserMessage"`），100% 遵循 `user/assistant` 严格交替标准；
+     - **清理非标思考参数冲突**：移除粗暴发送 `thinking_budget: 1024`，统一采用标准 `reasoning_effort` 控制思考强度；
+     - **Anthropic 思考预算智能匹配保底**：`safeRequestMaxTokens` 严格保证至少为 `thinkingBudget + 4096`；
+     - **空响应自动重试与智能压缩兜底**：在 `isContextLimitOrEmptyResponseError` 中集成对网关 empty response (500) 的自动捕获，异常发生时自动触发上下文安全压缩并平稳重试。
+2. **践行“现在主流模型都是思考模型，无需按名判断”（用户硬性指令 1）**：
+   - 在 `ModelCapabilityEngine.resolveThinkingCapabilities` 中，全面解除对特定名称的依赖：对所有常规模型默认开启思考能力支持（`supportsThinking = true`），并提供 4 档标准思考强度档位（快速、平衡、深入、极高），默认思考预算充足设置为 4096；
+   - 彻底移除对 `gpt-4` 类基座粗暴压制为 8k 上下文的陈旧代码，统一赋予现代大模型 128k/256k 的宽裕上下文窗口。
+3. **现有记忆功能 100% 完整保留（用户硬性指令 2）**：
+   - 包含上下文记忆注入 `buildRelevantMemoryBlock`、核心规则约束持久化、时间线上下文融合及后台异步提炼 `evaluateMemoryCandidate` 的整套记忆链路 100% 完整保留，运行平稳顺畅。
+4. **设置中“本次更新”同步更新**：
+   - 在 `SettingsScreen.kt` 中添加 `V235UserUpdates`，并同步更新 `CurrentVersionUserUpdates = V235UserUpdates`。
+
+### 2. 自动化测试与工程核验
+- **单元测试**：全量执行 `testDebugUnitTest`，共计 **356 项测试全部通过 (356 passed, 0 failed, BUILD SUCCESSFUL)**。
+- **构建输出**：
+  - 文件路径：`D:\Agent\APP-烧\app\releases\Echo-v2.3.5.apk`
+  - 文件大小：`16,320,509 字节 (~15.56 MB)`
+  - SHA256：`7E44A873873A3235CA061E22BA262D1E5A5C2A7AB56FD4E022E790A7C8124C03`
+  - 签名方案：`v2 scheme (APK Signature Scheme v2): true`
+  - 包名与版本：`package: name='com.aiassistant' versionCode='140' versionName='2.3.5'`
+  - 历史包策略：`D:\Agent\APP-烧\app\releases` 目录下所有历史版本（包含 `Echo-v2.3.4.apk` 等共 150 个文件）永久完整保留，本次仅增量输出 `Echo-v2.3.5.apk`，严格杜绝任何 `-arm64-v8a` 等架构后缀。
+
+---
+
 ## [2026-09-22] - v2.3.4：思考模型全面解耦、长输入流式防抢占彻底修复、记忆机制体验优化与辅助任务温度安全兼容
 
 ### 1. 核心需求落实与技术重构详情

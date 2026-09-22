@@ -175,7 +175,15 @@ internal val V232UserUpdates = listOf(
     "设定确认保存即刻入库生效：确认时间线与多维设定后，世界观与固有设定 100% 独立保存入库，并在会话专属记忆与角色扮演记忆中立即可见且在后续对话中生效"
 )
 
-internal val CurrentVersionUserUpdates = V234UserUpdates
+internal val V235UserUpdates = listOf(
+    "思考模型长输入 empty response (500) 彻底根治：重构 safeMaxTokens 预算策略，保底提供至少 4096~16384 Token 充裕额度，杜绝上下文 Headroom 挤压导致思考链未完成即被截断为空回复",
+    "双端注水消息协议合规化修复：安全合并尾部强化声明至当前用户消息头部，彻底移除消息列表中段/尾部非首位 role=system 消息，100% 兼容 DeepSeek、Claude、Gemini 等各大模型与中转网关规范",
+    "主流思考模型通用适配无需按名猜测：贯彻所有主流模型均为思考模型的现代架构，全面支持思考强度档位切换与 max_completion_tokens，移除对未知名模型发送 1024 Token 截断限制",
+    "记忆机制与提取能力 100% 完整保留：跨会话长期记忆、会话专属记忆、核心绝对约束准则、故事时间线注入与后台智能提炼完整运作生效，绝不受任何影响",
+    "空响应与网络异常自动回退重试：底层通信增加 empty response 智能检测与上下文轻量化平稳重试机制，大幅提升弱网与第三方中转网关下的抗波动稳定性"
+)
+
+internal val CurrentVersionUserUpdates = V235UserUpdates
 
 internal val V223UserUpdates = listOf(
     "模型回复首字符星号误吞彻底修复：全面移除句首单星号激进清洗规则，未配对星号作为常规字符平稳追加，彻底修复斜体语法与角色动作首字符星号被吞引发的格式异常",

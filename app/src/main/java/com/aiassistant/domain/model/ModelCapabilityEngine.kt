@@ -118,13 +118,12 @@ object ModelCapabilityEngine {
             name.contains("yi-large") || name.contains("yi-medium") || name.contains("open-mixtral-8x7b") || name.contains("mistral-7b") ->
                 Pair(32_000, "32K")
 
-            // 16K 上下文
-            name.contains("gpt-3.5-turbo") ->
+            // 16K 上下文（仅针对明确的历史早期固定版本）
+            name.contains("gpt-3.5-turbo-0613") || name.contains("gpt-3.5-turbo-0301") ->
                 Pair(16_000, "16K")
 
-            // 8K 上下文
-            (name.contains("gpt-4") && !name.contains("gpt-4o") && !name.contains("gpt-4-turbo") && !name.contains("gpt-4.5")) ||
-            name.contains("llama-3-8b") || name.contains("llama-3-70b") ->
+            // 8K 上下文（仅针对明确的历史早期固定版本）
+            name.contains("gpt-4-0613") || name.contains("gpt-4-0314") ->
                 Pair(8_000, "8K")
 
             // 4K 上下文（历史早期模型）
@@ -194,8 +193,13 @@ object ModelCapabilityEngine {
             return Tuple4(true, listOf("low", "medium", "high"), 1024, "none")
         }
 
-        // 6. 普通标准模型（gpt-4o, gpt-4o-mini, qwen-turbo, baichuan, deepseek-chat 等）：不支持思考档位
-        return Tuple4(false, emptyList(), 0, "none")
+        // 6. 明确标记的历史非思考基准纯对话模型（如 gpt-4o, gpt-4o-mini, deepseek-chat 等）
+        if (name == "gpt-4o" || name == "gpt-4o-mini" || name == "deepseek-chat" || name.contains("turbo") || name.contains("baichuan")) {
+            return Tuple4(false, emptyList(), 0, "none")
+        }
+
+        // 7. 其余主流模型默认全面对齐思考架构（依据用户准则：现在的主流模型都是思考模型，无需根据名字判断）
+        return Tuple4(true, listOf("low", "medium", "high", "max"), 4096, "generic")
     }
 
     data class Tuple4<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
