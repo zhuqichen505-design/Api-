@@ -22,6 +22,19 @@ data class TimelineReconcileDraft(
 )
 
 /**
+ * 时间线梳理水线与检查点模型（记录上一次已梳理入库的对话节点与状态）
+ */
+data class TimelineReconcileCheckpoint(
+    val conversationId: Long,
+    val lastReconciledMessageId: Long,
+    val lastReconciledMessageIndex: Int,
+    val totalMessageCountAtReconciliation: Int,
+    val storyTimeAtReconciliation: String? = null,
+    val nodeCountAtReconciliation: Int = 0,
+    val timestamp: Long = System.currentTimeMillis()
+)
+
+/**
  * 时间线梳理草稿管理器（单例，负责磁盘文件的读写与缓存管理）
  */
 object TimelineDraftManager {
@@ -90,6 +103,62 @@ object TimelineDraftManager {
      */
     fun hasDraft(context: Context, conversationId: Long): Boolean {
         val file = getDraftFile(context, conversationId)
+        return file.exists() && file.length() > 0
+    }
+
+    private fun getCheckpointFile(context: Context, conversationId: Long): File {
+        return File(getDraftDir(context), "checkpoint_${conversationId}.json")
+    }
+
+    /**
+     * 保存时间线梳理水线/检查点
+     */
+    fun saveCheckpoint(context: Context, checkpoint: TimelineReconcileCheckpoint) {
+        try {
+            val file = getCheckpointFile(context, checkpoint.conversationId)
+            val json = gson.toJson(checkpoint)
+            file.writeText(json, Charsets.UTF_8)
+            Log.d(TAG, "已记录会话 ${checkpoint.conversationId} 时间线梳理检查点: 消息 #${checkpoint.lastReconciledMessageId} (第 ${checkpoint.lastReconciledMessageIndex} 条)")
+        } catch (e: Exception) {
+            Log.e(TAG, "保存时间线梳理检查点失败: ${e.message}", e)
+        }
+    }
+
+    /**
+     * 读取指定会话的时间线梳理水线/检查点
+     */
+    fun getCheckpoint(context: Context, conversationId: Long): TimelineReconcileCheckpoint? {
+        try {
+            val file = getCheckpointFile(context, conversationId)
+            if (!file.exists()) return null
+            val json = file.readText(Charsets.UTF_8)
+            if (json.isBlank()) return null
+            return gson.fromJson(json, TimelineReconcileCheckpoint::class.java)
+        } catch (e: Exception) {
+            Log.w(TAG, "读取时间线梳理检查点失败: ${e.message}")
+            return null
+        }
+    }
+
+    /**
+     * 清理指定会话的检查点
+     */
+    fun clearCheckpoint(context: Context, conversationId: Long) {
+        try {
+            val file = getCheckpointFile(context, conversationId)
+            if (file.exists()) {
+                file.delete()
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "删除时间线梳理检查点失败: ${e.message}")
+        }
+    }
+
+    /**
+     * 是否存在可用检查点
+     */
+    fun hasCheckpoint(context: Context, conversationId: Long): Boolean {
+        val file = getCheckpointFile(context, conversationId)
         return file.exists() && file.length() > 0
     }
 }

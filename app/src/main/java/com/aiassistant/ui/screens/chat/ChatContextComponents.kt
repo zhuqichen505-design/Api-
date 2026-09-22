@@ -359,7 +359,7 @@ internal fun ContextUsageDialog(
                 Column(modifier = Modifier.weight(1f)) {
                     Text("上下文使用情况", style = MaterialTheme.typography.titleLarge)
                     Text(
-                        text = "当前模型窗口、上下文预算与滚动摘要管理",
+                        text = "模型窗口预算、滚动摘要与上下文压缩管理",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -380,11 +380,20 @@ internal fun ContextUsageDialog(
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 500.dp),
+                        .heightIn(max = 520.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     item {
                         ContextUsageOverview(usage = usage)
+                    }
+                    item {
+                        ContextOptimizationActions(
+                            usage = usage,
+                            state = state,
+                            onGenerateRollingSummary = onGenerateRollingSummary,
+                            onEditRollingSummary = onEditRollingSummary,
+                            onCompress = onCompress
+                        )
                     }
                     item {
                         ContextUsageDetails(
@@ -408,54 +417,216 @@ internal fun ContextUsageDialog(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    TextButton(
-                        onClick = onRefresh,
-                        enabled = !state.isCompressing
-                    ) {
-                        Text("刷新")
-                    }
-                    TextButton(onClick = onDismiss) {
-                        Text("关闭")
-                    }
+                TextButton(
+                    onClick = onRefresh,
+                    enabled = !state.isCompressing && !state.isGeneratingSummary
+                ) {
+                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("刷新状态")
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(
-                        onClick = onGenerateRollingSummary,
-                        enabled = !state.isCompressing
-                    ) {
-                        if (state.isCompressing) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(14.dp),
-                                strokeWidth = 2.dp
-                            )
-                        } else {
-                            Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(15.dp))
-                        }
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(if (usage?.hasRollingSummary == true) "更新摘要" else "生成摘要")
-                    }
-                    Button(
-                        onClick = onCompress,
-                        enabled = !state.isCompressing
-                    ) {
-                        if (state.isCompressing) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.onPrimary
-                            )
-                        } else {
-                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                        }
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(if (state.isCompressing) "压缩中" else "主动压缩")
-                    }
+                Button(onClick = onDismiss) {
+                    Text("完成")
                 }
             }
         }
     )
+}
 
+@Composable
+internal fun ContextOptimizationActions(
+    usage: ConversationContextUsage,
+    state: ContextUsageUiState,
+    onGenerateRollingSummary: () -> Unit,
+    onEditRollingSummary: (() -> Unit)?,
+    onCompress: () -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        // 卡片 1：滚动摘要管理
+        Surface(
+            shape = RoundedCornerShape(14.dp),
+            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.AutoAwesome,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "滚动摘要 (Rolling Summary)",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    if (usage.hasRollingSummary) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                        ) {
+                            Text(
+                                text = "已提炼 · ${formatTokenCount(usage.summaryTokens)} tokens",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                }
+
+                Text(
+                    text = "提炼全篇历史剧情梗概并置入 System Prompt（前情提要），【不裁剪、不丢弃任何消息原文】，保留全部对话细节同时让大模型精准掌握全局长文走向。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (usage.hasRollingSummary && onEditRollingSummary != null) {
+                        OutlinedButton(
+                            onClick = onEditRollingSummary,
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(13.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("查看 / 编辑", style = MaterialTheme.typography.labelSmall)
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                    }
+
+                    Button(
+                        onClick = onGenerateRollingSummary,
+                        enabled = !state.isGeneratingSummary,
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        if (state.isGeneratingSummary) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(13.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("提炼中...", style = MaterialTheme.typography.labelSmall)
+                        } else {
+                            Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(13.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(if (usage.hasRollingSummary) "更新滚动摘要" else "立即提炼摘要", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
+            }
+        }
+
+        // 卡片 2：主动上下文压缩
+        val isCompressed = usage.compressedThroughMessageId != null
+        Surface(
+            shape = RoundedCornerShape(14.dp),
+            color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.08f),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.25f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Compress,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.tertiary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "主动上下文压缩 (Compression)",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.tertiary
+                        )
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.15f)
+                    ) {
+                        Text(
+                            text = if (isCompressed) "已裁剪至 #${usage.compressedThroughMessageId}" else "尚未压缩",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.tertiary,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+
+                Text(
+                    text = "【强力释放 Token 预算】！基于核心摘要与记忆，物理裁剪早期历史对话原文（标记裁剪水线），仅发送近期活跃消息，释放 50%~80% 窗口空间，防止超长对话报错断连。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Button(
+                        onClick = onCompress,
+                        enabled = !state.isCompressing,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.tertiary,
+                            contentColor = MaterialTheme.colorScheme.onTertiary
+                        ),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        if (state.isCompressing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(13.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onTertiary
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("正在压缩...", style = MaterialTheme.typography.labelSmall)
+                        } else {
+                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(13.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(if (isCompressed) "重新压缩 / 更新水线" else "立即压缩释放空间", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable

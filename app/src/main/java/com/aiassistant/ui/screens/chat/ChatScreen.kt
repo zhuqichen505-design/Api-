@@ -194,6 +194,7 @@ fun ChatScreen(
     val timelineUpdateNotice by viewModel.timelineUpdateNotice.collectAsState()
     val pendingTimelineProposal by viewModel.pendingTimelineProposal.collectAsState()
     val liveReconcileDraft by viewModel.liveReconcileDraft.collectAsState()
+    val timelineCheckpoint by viewModel.timelineCheckpoint.collectAsState()
 
     val roleplayRepo = remember { com.aiassistant.AiAssistantApp.instance.roleplayRepository }
     val allAvailableCharacters by roleplayRepo.getAllCharacters().collectAsState(initial = emptyList())
@@ -1674,8 +1675,11 @@ fun ChatScreen(
             isReconcilingTimeline = isReconcilingTimeline,
             reconcileTimelineProgress = timelineReconcileProgress,
             hasSavedTimelineDraft = liveReconcileDraft != null || viewModel.hasTimelineDraft(),
-            onStartTimelineReconciliation = { viewModel.startTimelineReconciliation(startFromDraft = false) },
-            onContinueTimelineReconciliation = { viewModel.startTimelineReconciliation(startFromDraft = true) },
+            checkpoint = timelineCheckpoint,
+            newMessagesCountSinceCheckpoint = viewModel.getNewMessagesCountSinceCheckpoint(),
+            onStartTimelineReconciliation = { viewModel.startTimelineReconciliation(startFromDraft = false, fromCheckpoint = false) },
+            onContinueTimelineReconciliation = { viewModel.startTimelineReconciliation(startFromDraft = true, fromCheckpoint = false) },
+            onReconcileFromCheckpoint = { viewModel.startTimelineReconciliation(startFromDraft = false, fromCheckpoint = true) },
             onOpenTimelineDraft = {
                 if (isReconcilingTimeline) {
                     viewModel.openLiveDraftForReview()

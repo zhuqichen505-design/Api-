@@ -117,7 +117,9 @@ data class TimelineReconcileResult(
     val atemporalSettings: MutableList<AtemporalSettingItem> = mutableListOf(),
     var extractionSource: String = "AI_MODEL", // "AI_MODEL" 或 "LOCAL_FALLBACK"
     var modelUsed: String = "",
-    var extractionErrorMessage: String? = null
+    var extractionErrorMessage: String? = null,
+    var lastProcessedMessageId: Long = 0L,
+    var totalProcessedMessages: Int = 0
 )
 
 /**

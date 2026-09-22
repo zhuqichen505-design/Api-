@@ -19,6 +19,7 @@ import com.aiassistant.utils.TimelineCategory
 import com.aiassistant.utils.AtemporalSettingItem
 import com.aiassistant.utils.AdvancedMemoryEngine
 import com.aiassistant.utils.TimelineReconcileDraft
+import com.aiassistant.utils.TimelineReconcileCheckpoint
 import com.aiassistant.utils.TimelineDraftManager
 import com.google.gson.Gson
 import com.google.gson.JsonElement
@@ -3741,6 +3742,8 @@ class AiRepository(
         activeConfigId: Long? = null,
         activeModelName: String? = null,
         startFromDraft: TimelineReconcileDraft? = null,
+        reconcileCheckpoint: TimelineReconcileCheckpoint? = null,
+        existingTimelineNodes: List<TimelineNode>? = null,
         onProgress: ((step: Int, total: Int, detail: String) -> Unit)? = null,
         onIntermediateResult: ((TimelineReconcileDraft) -> Unit)? = null
     ): TimelineReconcileResult = withContext(Dispatchers.IO) {
@@ -3748,18 +3751,47 @@ class AiRepository(
             .filter { !it.isExcluded && it.role != "system" && it.content.isNotBlank() }
             .sortedBy { it.createdAt }
 
+        val baselineEvents = existingTimelineNodes?.map { node ->
+            TimelineEventItem(
+                timeTag = node.timeTag,
+                content = node.event,
+                category = TimelineCategory.fromKey(node.category)
+            )
+        } ?: emptyList()
+
         val messages = if (startFromDraft != null && startFromDraft.lastProcessedMessageId > 0L) {
             allMessages.filter { it.id > startFromDraft.lastProcessedMessageId }
+        } else if (reconcileCheckpoint != null && reconcileCheckpoint.lastReconciledMessageId > 0L) {
+            allMessages.filter { it.id > reconcileCheckpoint.lastReconciledMessageId }
         } else {
             allMessages
         }
+
+        val conversation = conversationDao.getConversationById(conversationId)
+        val existingStoryTime = conversation?.currentStoryTime?.takeIf { it.isNotBlank() && it != "未确定" }
+            ?: memoryDao.getCandidateMemories(conversationId)
+                .firstOrNull { it.content.startsWith("【当前故事时间】：") || it.content.startsWith("当前故事时间：") }
+                ?.content?.substringAfter("：")?.trim()
 
         if (messages.isEmpty() && startFromDraft != null && startFromDraft.events.isNotEmpty()) {
             return@withContext TimelineReconcileResult(
                 currentStoryTime = startFromDraft.currentStoryTime,
                 events = startFromDraft.events.toMutableList(),
                 atemporalSettings = startFromDraft.atemporalSettings.toMutableList(),
-                extractionSource = "AI_MODEL"
+                extractionSource = "AI_MODEL",
+                lastProcessedMessageId = allMessages.lastOrNull()?.id ?: 0L,
+                totalProcessedMessages = allMessages.size
+            )
+        }
+
+        if (messages.isEmpty() && reconcileCheckpoint != null && baselineEvents.isNotEmpty()) {
+            return@withContext TimelineReconcileResult(
+                currentStoryTime = existingStoryTime ?: reconcileCheckpoint.storyTimeAtReconciliation ?: "未确定",
+                events = baselineEvents.toMutableList(),
+                atemporalSettings = mutableListOf(),
+                extractionSource = "AI_MODEL",
+                lastProcessedMessageId = allMessages.lastOrNull()?.id ?: 0L,
+                totalProcessedMessages = allMessages.size
             )
         }
 
@@ -3767,24 +3799,28 @@ class AiRepository(
             return@withContext TimelineReconcileResult(
                 currentStoryTime = "未确定",
                 events = mutableListOf(),
-                extractionSource = "AI_MODEL"
+                extractionSource = "AI_MODEL",
+                lastProcessedMessageId = 0L,
+                totalProcessedMessages = 0
             )
         }
 
-        val conversation = conversationDao.getConversationById(conversationId)
         val configPair = resolveTimelineAnalysisConfig(activeConfigId, activeModelName, conversation)
-        val existingStoryTime = conversation?.currentStoryTime?.takeIf { it.isNotBlank() && it != "未确定" }
-            ?: memoryDao.getCandidateMemories(conversationId)
-                .firstOrNull { it.content.startsWith("【当前故事时间】：") || it.content.startsWith("当前故事时间：") }
-                ?.content?.substringAfter("：")?.trim()
 
         if (configPair == null) {
             val fallback = fallbackLocalTimelineScan(messages)
             if (fallback.currentStoryTime.isBlank() || fallback.currentStoryTime == "未确定") {
                 fallback.currentStoryTime = existingStoryTime?.takeIf { it.isNotBlank() && it != "未确定" } ?: "第 1 天·起始"
             }
+            if (baselineEvents.isNotEmpty()) {
+                val combined = (baselineEvents + fallback.events).distinctBy { it.content }
+                fallback.events.clear()
+                fallback.events.addAll(combined)
+            }
             fallback.extractionSource = "LOCAL_FALLBACK"
             fallback.extractionErrorMessage = "未找到可用的 API 配置或模型"
+            fallback.lastProcessedMessageId = allMessages.lastOrNull()?.id ?: 0L
+            fallback.totalProcessedMessages = allMessages.size
             return@withContext fallback
         }
 
@@ -3795,7 +3831,7 @@ class AiRepository(
         val chunks = TimelineMemoryHelper.chunkMessagesForAnalysis(messages, chunkSize = 25, overlap = 3)
         if (chunks.size <= 1) {
             currentCoroutineContext().ensureActive()
-            onProgress?.invoke(1, 1, "正在梳理时间线与核心设定...")
+            onProgress?.invoke(1, 1, if (baselineEvents.isNotEmpty()) "正在结合原有时间线梳理后续对话..." else "正在梳理时间线与核心设定...")
             val singleResult = analyzeTimelineChunk(messages, config, targetModel, existingStoryTime)
             val mergedEvents = if (startFromDraft != null) {
                 (startFromDraft.events + singleResult.events).distinctBy { it.content }
@@ -3807,7 +3843,13 @@ class AiRepository(
                 events = mergedEvents.toMutableList(),
                 atemporalSettings = mergedSettings.toMutableList()
             )
-            val consolidated = TimelineMemoryHelper.consolidateFinalReconcileResult(combinedResult, userMessages)
+            val consolidated = if (baselineEvents.isNotEmpty() || combinedResult.events.size > 2) {
+                consolidateTimelineWithModel(combinedResult, config, targetModel, userMessages, baselineEvents)
+            } else {
+                TimelineMemoryHelper.consolidateFinalReconcileResult(combinedResult, userMessages)
+            }
+            consolidated.lastProcessedMessageId = allMessages.lastOrNull()?.id ?: 0L
+            consolidated.totalProcessedMessages = allMessages.size
             val draft = TimelineReconcileDraft(
                 conversationId = conversationId,
                 lastProcessedMessageId = allMessages.lastOrNull()?.id ?: 0L,
@@ -3838,7 +3880,12 @@ class AiRepository(
         for ((idx, chunk) in chunks.withIndex()) {
             currentCoroutineContext().ensureActive()
             val step = idx + 1
-            onProgress?.invoke(step, chunks.size + 1, "正在梳理第 $step/${chunks.size} 阶段对话...")
+            val progressMsg = if (baselineEvents.isNotEmpty()) {
+                "正在梳理后续第 $step/${chunks.size} 阶段对话..."
+            } else {
+                "正在梳理第 $step/${chunks.size} 阶段对话..."
+            }
+            onProgress?.invoke(step, chunks.size + 1, progressMsg)
 
             try {
                 val chunkResult = analyzeTimelineChunk(chunk, config, targetModel, latestStoryTime)
@@ -3875,7 +3922,7 @@ class AiRepository(
         }
 
         currentCoroutineContext().ensureActive()
-        onProgress?.invoke(chunks.size + 1, chunks.size + 1, "正在汇总各阶段时间线与去重合并...")
+        onProgress?.invoke(chunks.size + 1, chunks.size + 1, if (baselineEvents.isNotEmpty()) "正在结合原有时间线整体汇总与去重优化..." else "正在汇总各阶段时间线与去重合并...")
 
         val finalEvents = TimelineMemoryHelper.normalizeMonotonicTimeline(aggregatedEvents)
         val resolvedStoryTime = if (latestStoryTime.isNotBlank() && latestStoryTime != "未确定") {
@@ -3893,7 +3940,9 @@ class AiRepository(
         )
 
         // 执行最后的整体汇总 Pass (Global Consolidation Pass)
-        val finalResult = consolidateTimelineWithModel(intermediateResult, config, targetModel, userMessages)
+        val finalResult = consolidateTimelineWithModel(intermediateResult, config, targetModel, userMessages, baselineEvents)
+        finalResult.lastProcessedMessageId = allMessages.lastOrNull()?.id ?: 0L
+        finalResult.totalProcessedMessages = allMessages.size
         val finalDraft = TimelineReconcileDraft(
             conversationId = conversationId,
             lastProcessedMessageId = allMessages.lastOrNull()?.id ?: 0L,
@@ -3911,18 +3960,72 @@ class AiRepository(
     /**
      * 全局整体汇总 Pass（解决问题 1、问题 2 与问题 3）
      * 针对分段提炼产生的类似事件（同一件事被多次记录）、极其相似的设定以及事件与设定的跨界重复进行模型智能汇总与去重压缩
+     * 支持传入 baselineEvents，实现结合既有时间线对后续增量事件进行全局融合与深化
      */
     private suspend fun consolidateTimelineWithModel(
         rawResult: TimelineReconcileResult,
         config: ApiConfig,
         targetModel: String,
-        userMessages: Collection<String> = emptyList()
+        userMessages: Collection<String> = emptyList(),
+        baselineEvents: List<TimelineEventItem> = emptyList()
     ): TimelineReconcileResult {
-        if (rawResult.events.size <= 2 && rawResult.atemporalSettings.size <= 2) {
+        if (baselineEvents.isEmpty() && rawResult.events.size <= 2 && rawResult.atemporalSettings.size <= 2) {
             return TimelineMemoryHelper.consolidateFinalReconcileResult(rawResult, userMessages)
         }
 
-        val prompt = """
+        val baselinePromptSection = if (baselineEvents.isNotEmpty()) {
+            """
+            【此前已确立的时间线（时序基准）】：
+            ${baselineEvents.joinToString("\n") { "- [${it.timeTag}] 【${it.category.displayName}】${it.content}" }}
+
+            【后续新对话提炼出的增量事件与改动】：
+            """.trimIndent()
+        } else {
+            "【初步事件列表】：\n"
+        }
+
+        val prompt = if (baselineEvents.isNotEmpty()) {
+            """
+            你是一个专业的小说时间线与常驻设定全局统筹专家。
+            本次任务是【结合此前已确立的时间线，对后续新剧情进行整体梳理、深化与去重融合】：
+            当前故事停留在：${rawResult.currentStoryTime}
+
+            $baselinePromptSection
+            ${rawResult.events.joinToString("\n") { "- [${it.timeTag}] 【${it.category.displayName}】${it.content}" }}
+
+            【初步设定列表】：
+            ${rawResult.atemporalSettings.joinToString("\n") { "- 【${it.category}】${it.content}" }}
+
+            请对上述内容进行【结合原有时间线的整体统筹、去重与深化优化】：
+            1.【继承时序基准】：【此前已确立的时间线】是已经发生并确认的时序基准。请确保基准时间线中的核心历史事件在因果与时序上得到保全与延续。
+            2.【吸收与深化】：后续新增事件（包括在此期间自动记录的事件节点），请精准确定其时间标签、归纳事件内容，并顺畅衔接在基准时间线之后。
+            3.【同一事件合并与补充】：如果后续对话是对之前某个事件的补充、反转、完结或延伸，必须在原有事件基础上进行深化合并或改写补充，避免同一事件被多次重复记录！
+            4.【设定去重与本质提炼】：提取后续对话中新明确的世界观规则、角色固有设定，消除与事件列表的冗余！
+            5.【按时序排列】：确保输出的全部事件按时间发展严格单调递增排列。
+
+            请严格输出以下 JSON：
+            ```json
+            {
+              "currentStoryTime": "${rawResult.currentStoryTime.ifBlank { "第 1 天·起始" }}",
+              "timelineEvents": [
+                {
+                  "timeTag": "时间标签",
+                  "category": "PLOT_EVENT",
+                  "content": "精简凝练的完整事实（12~25字，拒绝截断）"
+                }
+              ],
+              "atemporalSettings": [
+                {
+                  "category": "角色核心特质",
+                  "content": "精简规则事实（8~25字）",
+                  "targetScope": "session"
+                }
+              ]
+            }
+            ```
+            """.trimIndent()
+        } else {
+            """
             你是一个专业的小说时间线与常驻设定全局终审专家。
             以下是从全篇长对话中分段提炼出的初步时间线事件和设定列表：
             当前故事停留在：${rawResult.currentStoryTime}
@@ -3964,7 +4067,8 @@ class AiRepository(
               ]
             }
             ```
-        """.trimIndent()
+            """.trimIndent()
+        }
 
         try {
             val cfg = config.copy(modelName = targetModel)
@@ -3985,7 +4089,13 @@ class AiRepository(
             Log.w(tag, "大模型全局终审汇总异常，使用本地算法去重汇总: ${e.message}")
         }
 
-        return TimelineMemoryHelper.consolidateFinalReconcileResult(rawResult, userMessages)
+        val fallbackResult = if (baselineEvents.isNotEmpty()) {
+            val combined = (baselineEvents + rawResult.events).distinctBy { it.content }
+            rawResult.copy(events = combined.toMutableList())
+        } else {
+            rawResult
+        }
+        return TimelineMemoryHelper.consolidateFinalReconcileResult(fallbackResult, userMessages)
     }
 
     /**

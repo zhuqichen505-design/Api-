@@ -52,6 +52,7 @@ import com.aiassistant.utils.TimelineReconcileResult
 import com.aiassistant.utils.TimelineEventItem
 import com.aiassistant.utils.TimelineCategory
 import com.aiassistant.utils.AtemporalSettingItem
+import com.aiassistant.utils.TimelineReconcileCheckpoint
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -995,8 +996,11 @@ fun ChatSettingsTimelineSection(
     isReconcilingTimeline: Boolean = false,
     reconcileTimelineProgress: String? = null,
     hasSavedTimelineDraft: Boolean = false,
+    checkpoint: TimelineReconcileCheckpoint? = null,
+    newMessagesCountSinceCheckpoint: Int = 0,
     onStartTimelineReconciliation: () -> Unit = {},
     onContinueTimelineReconciliation: () -> Unit = {},
+    onReconcileFromCheckpoint: () -> Unit = {},
     onOpenTimelineDraft: () -> Unit = {},
     onClearTimelineDraft: () -> Unit = {},
     onCancelTimelineReconciliation: () -> Unit = {},
@@ -1195,6 +1199,78 @@ fun ChatSettingsTimelineSection(
                 }
             }
 
+            // 梳理检查点水线（满足需求 1：记录上次梳理到的对话节点并支持结合原有时间线梳理后续）
+            if (checkpoint != null) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.30f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Bookmark,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = "上次梳理断点",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                            Text(
+                                text = "已梳理至第 ${checkpoint.lastReconciledMessageIndex} 条对话",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+
+                        if (newMessagesCountSinceCheckpoint > 0) {
+                            Text(
+                                text = "断点后产生 $newMessagesCountSinceCheckpoint 条后续新增对话（包含期间自动记录的增量节点），推荐结合已确认的基准时间线进行整体优化梳理：",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
+                            )
+                            Button(
+                                onClick = onReconcileFromCheckpoint,
+                                enabled = enableTimeline && !isReconcilingTimeline,
+                                modifier = Modifier.fillMaxWidth(),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Icon(Icons.Default.AutoFixHigh, contentDescription = null, modifier = Modifier.size(15.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("结合原有时间线梳理后续 (推荐)", style = MaterialTheme.typography.labelMedium)
+                            }
+                        } else {
+                            Text(
+                                text = "时间线已与全部历史对话完全同步（暂无断点后新增对话）。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f)
+                            )
+                        }
+                    }
+                }
+            }
+
             // 操作栏：梳理全量时间线、添加节点、清空时间线
             FlowRow(
                 modifier = Modifier.fillMaxWidth(),
@@ -1245,7 +1321,7 @@ fun ChatSettingsTimelineSection(
                     ) {
                         Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(14.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text(if (hasSavedTimelineDraft) "重新全量梳理" else "全量梳理与校对", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                        Text(if (checkpoint != null || hasSavedTimelineDraft) "全量重新梳理" else "全量梳理与校对", style = MaterialTheme.typography.labelSmall, maxLines = 1)
                     }
                 }
 
@@ -2286,8 +2362,11 @@ fun ChatSettingsDialog(
     isReconcilingTimeline: Boolean = false,
     reconcileTimelineProgress: String? = null,
     hasSavedTimelineDraft: Boolean = false,
+    checkpoint: TimelineReconcileCheckpoint? = null,
+    newMessagesCountSinceCheckpoint: Int = 0,
     onStartTimelineReconciliation: () -> Unit = {},
     onContinueTimelineReconciliation: () -> Unit = {},
+    onReconcileFromCheckpoint: () -> Unit = {},
     onOpenTimelineDraft: () -> Unit = {},
     onClearTimelineDraft: () -> Unit = {},
     onCancelTimelineReconciliation: () -> Unit = {},
@@ -2716,8 +2795,11 @@ fun ChatSettingsDialog(
                         isReconcilingTimeline = isReconcilingTimeline,
                         reconcileTimelineProgress = reconcileTimelineProgress,
                         hasSavedTimelineDraft = hasSavedTimelineDraft,
+                        checkpoint = checkpoint,
+                        newMessagesCountSinceCheckpoint = newMessagesCountSinceCheckpoint,
                         onStartTimelineReconciliation = onStartTimelineReconciliation,
                         onContinueTimelineReconciliation = onContinueTimelineReconciliation,
+                        onReconcileFromCheckpoint = onReconcileFromCheckpoint,
                         onOpenTimelineDraft = onOpenTimelineDraft,
                         onClearTimelineDraft = onClearTimelineDraft,
                         onCancelTimelineReconciliation = onCancelTimelineReconciliation,

@@ -2,6 +2,55 @@
 
 本文档按照工作流规范记录每次版本更新、需求变更与复核结果。
 
+## [2026-09-22] - v2.3.3：时间线梳理断点水线记录与结合原有时间线智能深化、上下文更新摘要与主动压缩解耦防错位、设置本次更新同步
+
+### 1. 核心需求落实与技术重构详情
+1. **时间线梳理断点水线持久化记录（需求 1 前半部）**：
+   - **痛点分析**：过去会话进行时间线梳理后，应用没有记录梳理到了哪一条对话（无 Watermark/Checkpoint）。用户在产生新对话后再次梳理时，无法得知哪些对话是新增的，也无法仅基于新增对话进行增量推演。
+   - **重构方案**：
+     - 在 `TimelineDraftManager` 中设计并持久化 `TimelineReconcileCheckpoint` 数据结构，记录 `conversationId`、`lastReconciledMessageId`（最后梳理消息 ID）、`lastReconciledMessageIndex`（序号）、`totalMessageCountAtReconciliation`（当时总消息数）、`storyTimeAtReconciliation`（梳理时故事时间）、`nodeCountAtReconciliation`（节点数）与时间戳；
+     - 在 `ChatViewModel.applyReconciledTimeline` 用户确认应用时间线时，自动原子写入该水线检查点；
+     - 在设置弹窗时间线专区以 `EchoGlassCard` 清晰呈现断点信息（如“上次梳理断点：已梳理至第 28 条对话”），并动态检测“后续已产生 X 条新对话”。
+2. **结合原有时间线智能深化与去重优化（需求 1 后半部）**：
+   - **痛点分析**：若重新全量梳理，既有已确认梳理的时间线与用户微调的内容容易被重写或破坏；若仅提取新对话，又割裂了前序世界观与既有事件背景，无法将多轮对话补充融入既有事件。
+   - **重构方案**：
+     - 在 `AiRepository.reconcileConversationTimeline` 中支持传入 `reconcileCheckpoint` 与 `existingTimelineNodes`；
+     - 自动切片获取断点之后的增量对话：`allMessages.filter { it.id > checkpoint.lastReconciledMessageId }`；
+     - 提示词中分别注入【此前已确立的时间线（时序基准）】与【后续新对话提炼出的增量事件与改动】，指导模型在严格尊重原有时间线基准的前提下，将新剧情自然衔接、将涉及既有事件的新细节就地扩充深化，并对世界观与角色设定做跨界消歧与去重；
+     - 提供【结合原有时间线梳理后续 (推荐)】与【全量重新梳理】双入口，满足不同创作场景。
+3. **上下文「更新摘要」与「主动压缩」功能错位彻底修复（需求 2）**：
+   - **痛点与根因排查**：
+     - 状态混淆：在 `ChatViewModel.kt` 与 `ContextUsageUiState` 中，更新摘要与主动压缩的加载状态存在耦合，且提示文案共用，导致触发其中一个时另一个按钮也发生转圈、变灰或文案错乱；
+     - 布局挤压溢出：在 `ContextUsageDialog` 中，底部同时放置了【生成/更新摘要】、【压缩上下文】、【刷新】、【完成】4 个按钮，在移动端窄屏或大字体下严重换行折叠，导致视觉错位与误触。
+   - **重构方案**：
+     - 状态彻底解耦：在 `ContextUsageUiState` 中将 `isCompressing` 与 `isGeneratingSummary` 完全独立，互不影响；
+     - 弹窗双引擎卡片化重构：在 `ContextUsageDialog` 中设计专门的 `ContextOptimizationActions` 双卡片布局，独立拆分为「📜 滚动摘要」卡片与「⚡ 主动上下文压缩」卡片，各自拥有独立的原理说明、加载进度菊花圈与触发按钮；
+     - 底部按键简化：底部只保留【刷新状态】与【完成】，彻底根除按键折行挤压错位缺陷。
+4. **两者的核心功能与本质区别（详见产品手册与设置说明）**：
+   - **📜 滚动摘要 (Rolling Summary)**：
+     - **功能定位**：全局剧情梗概提炼与前情提要维护。
+     - **运作机制**：模型对至今为止的所有历史对话进行智能通读与长文脉络概括，提炼出紧凑的全局剧情摘要，注入在 System Prompt 的 `<context_summary>` 区块中；
+     - **核心特质**：**【绝不裁剪任何原文】**。所有原始消息在列表与上下文中依然完好保留，主要用于辅助模型始终牢记故事核心主线与前情提要。
+   - **⚡ 主动上下文压缩 (Active Context Compression)**：
+     - **功能定位**：物理释放 Token 预算，拯救超长会话防爆防超限。
+     - **运作机制**：当历史消息累计达到成百上千轮、Token 占用接近或超出端点上限（导致 400/413 报错或超长卡死）时，系统以滚动摘要和长期记忆为护城河，**【物理裁剪并移除早期原始对话】**；
+     - **核心特质**：**强力释放 50%~80% 上下文 Token 空间**。将早期大量细节精炼沉淀后，把宝贵的上下文窗口留给最新的高频互动，彻底解决长对话连接报错、超时与空回复难题。
+5. **设置中“本次更新”同步更新（需求 3）**：
+   - 在 `SettingsScreen.kt` 中编写 `V233UserUpdates` 详细清单（7 项完整条目），并将 `CurrentVersionUserUpdates` 切换对齐至 `V233UserUpdates`；
+   - 用户打开设置 -> 关于与更新中可直观查看 v2.3.3 的所有更新与改进。
+
+### 2. 自动化测试与工程核验
+- **单元测试**：全量执行 `testDebugUnitTest`，共计 **347 项测试全部通过 (347 passed, 0 failed, BUILD SUCCESSFUL)**。
+- **构建输出**：
+  - 文件路径：`D:\Agent\APP-烧\app\releases\Echo-v2.3.3.apk`
+  - 文件大小：`16,320,509 字节 (~15.56 MB)`
+  - SHA256：`65B4D0DBDCE01E4304E822171E3696D20AEB36AB33F6FEAE105FD0A0C839A0A3`
+  - 签名方案：`v2 scheme (APK Signature Scheme v2): true`
+  - 包名与版本：`package: name='com.aiassistant' versionCode='138' versionName='2.3.3'`
+  - 历史包策略：`D:\Agent\APP-烧\app\releases` 目录下所有历史版本（包含 `Echo-v2.3.2.apk` 等）永久完整保留，本次仅增量输出 `Echo-v2.3.3.apk`，严格杜绝任何 `-arm64-v8a` 等架构后缀。
+
+---
+
 ## [2026-09-22] - v2.3.2：时间线自动识别确认交互、多轮事件修改补充合并、暂停保留错误记录、实时梳理与断点续梳、长文本防报错根治、两行式设定排版与生效强化
 
 ### 1. 核心需求落实与技术重构详情

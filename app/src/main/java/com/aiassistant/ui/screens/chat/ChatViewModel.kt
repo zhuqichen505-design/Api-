@@ -12,6 +12,7 @@ import com.aiassistant.utils.TimelineCategory
 import com.aiassistant.utils.AtemporalSettingItem
 import com.aiassistant.utils.TimelineDraftManager
 import com.aiassistant.utils.TimelineReconcileDraft
+import com.aiassistant.utils.TimelineReconcileCheckpoint
 import com.aiassistant.data.repository.AutoTimelineUpdateResult
 import com.google.gson.Gson
 import android.util.Log
@@ -133,6 +134,12 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
     )
     val liveReconcileDraft: StateFlow<TimelineReconcileDraft?> = _liveReconcileDraft.asStateFlow()
 
+    // 时间线梳理断点检查点（需求 1：记录上次梳理到的对话节点）
+    private val _timelineCheckpoint = MutableStateFlow<TimelineReconcileCheckpoint?>(
+        TimelineDraftManager.getCheckpoint(AiAssistantApp.instance, conversationId)
+    )
+    val timelineCheckpoint: StateFlow<TimelineReconcileCheckpoint?> = _timelineCheckpoint.asStateFlow()
+
     private val _showDraftDialog = MutableStateFlow(false)
     val showDraftDialog: StateFlow<Boolean> = _showDraftDialog.asStateFlow()
 
@@ -197,6 +204,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
     private fun loadConversation() {
         viewModelScope.launch {
             conversation = repository.getConversationById(conversationId)
+            _timelineCheckpoint.value = TimelineDraftManager.getCheckpoint(AiAssistantApp.instance, conversationId)
             conversation?.let { conv ->
                 isPrivateConversation = repository.hasConversationTag(conv, "private")
                 apiConfig = repository.getApiConfigById(conv.apiConfigId)
@@ -516,10 +524,13 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                     } else {
                         "当前上下文已处于最优压缩状态"
                     }
-                    _contextUsage.value = ContextUsageUiState(
-                        usage = usage,
-                        statusMessage = finishMsg
-                    )
+                    _contextUsage.update {
+                        it.copy(
+                            usage = usage,
+                            isCompressing = false,
+                            statusMessage = finishMsg
+                        )
+                    }
                 },
                 onFailure = { error ->
                     _contextUsage.update {
@@ -538,9 +549,9 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
     }
 
     fun generateRollingSummaryNow() {
-        if (_contextUsage.value.isCompressing) return
+        if (_contextUsage.value.isGeneratingSummary) return
         viewModelScope.launch {
-            _contextUsage.update { it.copy(isCompressing = true, statusMessage = "🔄 正在提炼滚动摘要...") }
+            _contextUsage.update { it.copy(isGeneratingSummary = true, statusMessage = "🔄 正在提炼滚动摘要...") }
             val modelName = _currentModel.value ?: conversation?.modelName ?: _uiState.value.modelName
             repository.generateRollingSummaryNow(
                 conversationId = conversationId,
@@ -550,15 +561,18 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                     conversation = repository.getConversationById(conversationId) ?: conversation
                     val summaryTokenCount = usage.summaryTokens
                     val msg = "✅ 滚动摘要提炼成功（当前摘要约 $summaryTokenCount tokens），已自动融入上下文"
-                    _contextUsage.value = ContextUsageUiState(
-                        usage = usage,
-                        statusMessage = msg
-                    )
+                    _contextUsage.update {
+                        it.copy(
+                            usage = usage,
+                            isGeneratingSummary = false,
+                            statusMessage = msg
+                        )
+                    }
                 },
                 onFailure = { error ->
                     _contextUsage.update {
                         it.copy(
-                            isCompressing = false,
+                            isGeneratingSummary = false,
                             statusMessage = error.message ?: "生成滚动摘要失败"
                         )
                     }
@@ -1349,10 +1363,14 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
         }
     }
 
-    fun startTimelineReconciliation(startFromDraft: Boolean = false) {
+    fun startTimelineReconciliation(startFromDraft: Boolean = false, fromCheckpoint: Boolean = false) {
         if (_isReconcilingTimeline.value) return
         _isReconcilingTimeline.value = true
-        _timelineReconcileProgress.value = if (startFromDraft) "正在读取先前进度继续梳理..." else "准备分析对话历史..."
+        _timelineReconcileProgress.value = when {
+            startFromDraft -> "正在读取先前进度继续梳理..."
+            fromCheckpoint -> "正在结合原有时间线，梳理后续新对话..."
+            else -> "准备分析对话历史..."
+        }
         timelineReconcileJob?.cancel()
         timelineReconcileJob = viewModelScope.launch {
             try {
@@ -1361,11 +1379,17 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                 val draft = if (startFromDraft) {
                     TimelineDraftManager.getDraft(AiAssistantApp.instance, conversationId)
                 } else null
+                val checkpoint = if (fromCheckpoint) {
+                    _timelineCheckpoint.value ?: TimelineDraftManager.getCheckpoint(AiAssistantApp.instance, conversationId)
+                } else null
+                val existingNodes = if (fromCheckpoint) timelineNodes.value else null
                 val result = repository.reconcileConversationTimeline(
                     conversationId = conversationId,
                     activeConfigId = activeCfgId,
                     activeModelName = activeModel,
                     startFromDraft = draft,
+                    reconcileCheckpoint = checkpoint,
+                    existingTimelineNodes = existingNodes,
                     onProgress = { step, total, detail ->
                         _timelineReconcileProgress.value = if (total > 1) "[$step/$total] $detail" else detail
                     },
@@ -1602,6 +1626,30 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                 }
             }
 
+            // 记录时间线水线检查点 (Checkpoint)
+            try {
+                val allMsgs = _messages.value
+                    .filter { !it.isExcluded && it.role != "system" && it.content.isNotBlank() }
+                    .sortedBy { it.createdAt }
+                val lastProcessedId = _timelineReconcileResult.value?.lastProcessedMessageId
+                    ?: _liveReconcileDraft.value?.lastProcessedMessageId
+                    ?: allMsgs.lastOrNull()?.id ?: 0L
+                val lastIdx = allMsgs.indexOfFirst { it.id == lastProcessedId }.takeIf { it >= 0 }?.let { it + 1 } ?: allMsgs.size
+                val checkpoint = TimelineReconcileCheckpoint(
+                    conversationId = conversationId,
+                    lastReconciledMessageId = lastProcessedId,
+                    lastReconciledMessageIndex = lastIdx,
+                    totalMessageCountAtReconciliation = allMsgs.size,
+                    storyTimeAtReconciliation = cleanStoryTime,
+                    nodeCountAtReconciliation = nodesToSave.size,
+                    timestamp = System.currentTimeMillis()
+                )
+                TimelineDraftManager.saveCheckpoint(AiAssistantApp.instance, checkpoint)
+                _timelineCheckpoint.value = checkpoint
+            } catch (e: Exception) {
+                Log.w("ChatViewModel", "记录时间线水线检查点失败: ${e.message}")
+            }
+
             // 清理已应用的草稿
             TimelineDraftManager.clearDraft(AiAssistantApp.instance, conversationId)
             _liveReconcileDraft.value = null
@@ -1655,8 +1703,23 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
         viewModelScope.launch {
             repository.clearTimeline(conversationId)
             repository.updateStoryTime(conversationId, null)
+            TimelineDraftManager.clearDraft(AiAssistantApp.instance, conversationId)
+            TimelineDraftManager.clearCheckpoint(AiAssistantApp.instance, conversationId)
+            _liveReconcileDraft.value = null
+            _timelineCheckpoint.value = null
             loadConversation()
         }
+    }
+
+    fun clearTimelineCheckpoint() {
+        TimelineDraftManager.clearCheckpoint(AiAssistantApp.instance, conversationId)
+        _timelineCheckpoint.value = null
+    }
+
+    fun getNewMessagesCountSinceCheckpoint(): Int {
+        val checkpoint = _timelineCheckpoint.value ?: return 0
+        val allMsgs = _messages.value.filter { !it.isExcluded && it.role != "system" && it.content.isNotBlank() }
+        return allMsgs.count { it.id > checkpoint.lastReconciledMessageId }
     }
 
     fun convertToRoleplay(
@@ -2447,6 +2510,7 @@ data class ChatUiState(
 data class ContextUsageUiState(
     val usage: ConversationContextUsage? = null,
     val isCompressing: Boolean = false,
+    val isGeneratingSummary: Boolean = false,
     val statusMessage: String? = null
 )
 
