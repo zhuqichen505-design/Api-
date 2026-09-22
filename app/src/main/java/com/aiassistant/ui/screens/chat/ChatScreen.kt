@@ -192,6 +192,8 @@ fun ChatScreen(
     val timelineReconcileResult by viewModel.timelineReconcileResult.collectAsState()
     val showTimelineReconcileDialog by viewModel.showTimelineReconcileDialog.collectAsState()
     val timelineUpdateNotice by viewModel.timelineUpdateNotice.collectAsState()
+    val pendingTimelineProposal by viewModel.pendingTimelineProposal.collectAsState()
+    val liveReconcileDraft by viewModel.liveReconcileDraft.collectAsState()
 
     val roleplayRepo = remember { com.aiassistant.AiAssistantApp.instance.roleplayRepository }
     val allAvailableCharacters by roleplayRepo.getAllCharacters().collectAsState(initial = emptyList())
@@ -516,6 +518,196 @@ fun ChatScreen(
                                         modifier = Modifier.defaultMinSize(minHeight = 32.dp)
                                     ) {
                                         Text("存为跨会话长期记忆", style = MaterialTheme.typography.labelSmall)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 需求 4：时间线实时梳理进度卡片（实时可见已梳理事件数、随时查看与暂停/保存）
+                AnimatedVisibility(
+                    visible = isReconcilingTimeline,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically()
+                ) {
+                    EchoGlassCard(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 4.dp),
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.94f),
+                        shape = EchoTokens.Radius.shapeMd
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Column {
+                                    Text(
+                                        text = "时间线正在全量梳理...",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = timelineReconcileProgress ?: "已梳理 ${liveReconcileDraft?.events?.size ?: 0} 条事件",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                TextButton(
+                                    onClick = { viewModel.openLiveDraftForReview() },
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                ) {
+                                    Text("实时查看", style = MaterialTheme.typography.labelSmall)
+                                }
+                                TextButton(
+                                    onClick = { viewModel.cancelTimelineReconciliation() },
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                ) {
+                                    Text("暂停/保存", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 需求 1 & 2：时间线自动识别事件与时间变动待确认卡片
+                AnimatedVisibility(
+                    visible = pendingTimelineProposal != null,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically()
+                ) {
+                    pendingTimelineProposal?.let { proposal ->
+                        EchoGlassCard(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 4.dp),
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.94f),
+                            shape = EchoTokens.Radius.shapeMd
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        modifier = Modifier.weight(1f),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.HistoryEdu,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Text(
+                                            text = if (proposal.action == "UPDATE") "时间线更新待确认 (补充过往事件)" else "时间线推进待确认",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = { viewModel.dismissTimelineProposal() },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Close,
+                                            contentDescription = "忽略",
+                                            modifier = Modifier.size(16.dp),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+
+                                if (!proposal.updatedStoryTime.isNullOrBlank()) {
+                                    Text(
+                                        text = "🕒 推进时空：${proposal.updatedStoryTime}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
+                                    )
+                                }
+
+                                if (proposal.newEvent != null) {
+                                    if (proposal.action == "UPDATE" && !proposal.previousEventContent.isNullOrBlank()) {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .background(
+                                                    MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+                                                    shape = EchoTokens.Radius.shapeSm
+                                                )
+                                                .padding(6.dp),
+                                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                                        ) {
+                                            Text(
+                                                text = "原事件：${proposal.previousEventContent}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Text(
+                                                text = "充实更新：[${proposal.newEvent.timeTag}] ${proposal.newEvent.content}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
+                                            )
+                                        }
+                                    } else {
+                                        Text(
+                                            text = "📌 新增事件：[${proposal.newEvent.timeTag}] 【${proposal.newEvent.category.displayName}】${proposal.newEvent.content}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                }
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.End,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    TextButton(
+                                        onClick = { viewModel.dismissTimelineProposal() },
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                    ) {
+                                        Text("忽略", style = MaterialTheme.typography.labelSmall)
+                                    }
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Button(
+                                        onClick = { viewModel.applyTimelineProposal(proposal) },
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp),
+                                        shape = EchoTokens.Radius.shapePill
+                                    ) {
+                                        Text("确认应用", style = MaterialTheme.typography.labelSmall)
                                     }
                                 }
                             }
@@ -1481,7 +1673,17 @@ fun ChatScreen(
             onClearTimeline = { viewModel.clearTimeline() },
             isReconcilingTimeline = isReconcilingTimeline,
             reconcileTimelineProgress = timelineReconcileProgress,
-            onStartTimelineReconciliation = { viewModel.startTimelineReconciliation() },
+            hasSavedTimelineDraft = liveReconcileDraft != null || viewModel.hasTimelineDraft(),
+            onStartTimelineReconciliation = { viewModel.startTimelineReconciliation(startFromDraft = false) },
+            onContinueTimelineReconciliation = { viewModel.startTimelineReconciliation(startFromDraft = true) },
+            onOpenTimelineDraft = {
+                if (isReconcilingTimeline) {
+                    viewModel.openLiveDraftForReview()
+                } else {
+                    viewModel.openSavedDraftForReview()
+                }
+            },
+            onClearTimelineDraft = { viewModel.clearTimelineDraft() },
             onCancelTimelineReconciliation = { viewModel.cancelTimelineReconciliation() },
             onAddSessionMemory = { viewModel.addSessionMemory(it) },
             onUpdateSessionMemory = { viewModel.updateSessionMemory(it) },

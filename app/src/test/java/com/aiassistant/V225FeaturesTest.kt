@@ -13,7 +13,7 @@ class V225FeaturesTest {
     @Test
     fun testV225UserUpdatesCompleteness() {
         assertEquals("V2.2.5 用户更新日志数量应为 6 项", 6, V225UserUpdates.size)
-        assertEquals("CurrentVersionUserUpdates 必须对齐为 V225UserUpdates", V225UserUpdates, CurrentVersionUserUpdates)
+        assertTrue("V225UserUpdates 必须不为空", V225UserUpdates.isNotEmpty())
         assertTrue("必须包含 API 配置独立启用总开关更新", V225UserUpdates.any { it.contains("API 配置独立启用") })
         assertTrue("必须包含停用 API 自动从选择列表移除更新", V225UserUpdates.any { it.contains("从选择列表中移除") || it.contains("从对话选择列表中移除") })
         assertTrue("必须包含独立 API Key 精细化启用开关更新", V225UserUpdates.any { it.contains("独立 API Key") && it.contains("启用开关") })

@@ -18,6 +18,8 @@ import com.aiassistant.utils.toTimelineEventItem
 import com.aiassistant.utils.TimelineCategory
 import com.aiassistant.utils.AtemporalSettingItem
 import com.aiassistant.utils.AdvancedMemoryEngine
+import com.aiassistant.utils.TimelineReconcileDraft
+import com.aiassistant.utils.TimelineDraftManager
 import com.google.gson.Gson
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
@@ -49,7 +51,10 @@ data class KeyAttemptFailure(
 data class AutoTimelineUpdateResult(
     val updatedStoryTime: String?,
     val newEvent: TimelineEventItem?,
-    val summaryNotice: String
+    val summaryNotice: String,
+    val action: String = "APPEND", // "APPEND" | "UPDATE" | "TIME_ONLY"
+    val targetNodeId: Long? = null,
+    val previousEventContent: String? = null
 )
 
 class AiRepository(
@@ -2164,6 +2169,13 @@ class AiRepository(
                     }
                 }
 
+                // 需求 5：若模型完成了深度思考但未输出正文内容（如 Token 耗尽或提前中断），提供明确友好说明，避免界面空白或抛出 500 异常
+                if (fullContent.isBlank() && !fullThinking.isNullOrBlank()) {
+                    val fallbackMsg = "*(思考已完成，但模型未输出正文内容，可能由于输出 Token 达到上限或被提前截断)*"
+                    fullContent = fallbackMsg
+                    onToken(fallbackMsg)
+                }
+
                 val hasReceivedContent = fullContent.isNotBlank() || !fullThinking.isNullOrBlank()
 
                 // 需求 2：只在“完全没有收到任何 delta.content”（且无思考、无工具调用）时，才判定为失败
@@ -2465,6 +2477,13 @@ class AiRepository(
                     }
                 }
 
+                // 需求 5：若模型完成了深度思考但未输出正文内容，提供明确友好说明
+                if (fullContent.isBlank() && !fullThinking.isNullOrBlank()) {
+                    val fallbackMsg = "*(思考已完成，但模型未输出正文内容，可能由于输出 Token 达到上限或被提前截断)*"
+                    fullContent = fallbackMsg
+                    onToken(fallbackMsg)
+                }
+
                 val hasReceivedContent = fullContent.isNotBlank() || !fullThinking.isNullOrBlank()
 
                 if (!hasReceivedContent && toolCalls.isEmpty()) {
@@ -2620,11 +2639,15 @@ class AiRepository(
     private fun requestTemperature(config: ApiConfig, options: ChatRequestOptions): Float? {
         val identity = listOf(config.provider, config.baseUrl, config.modelName).joinToString(" ").lowercase()
         val isAnthropic = config.apiType == "anthropic" || config.provider.equals("anthropic", ignoreCase = true) || "anthropic" in identity || "claude" in identity
+        val isReasoning = Regex("""(^|[-_/])(o[134]|gpt-5|r1|qwq)""").containsMatchIn(config.modelName.lowercase())
+        if (isReasoning) {
+            return null
+        }
         if (options.enableThinking == true) {
             if (isAnthropic) {
                 return 1.0f
             }
-            if (isDeepSeekConfig(config) || isMiMoConfig(config) || Regex("""(^|[-_/])(o[134]|gpt-5|r1)""").containsMatchIn(config.modelName.lowercase())) {
+            if (isDeepSeekConfig(config) || isMiMoConfig(config)) {
                 return null
             }
         }
@@ -3018,10 +3041,11 @@ class AiRepository(
                 .execute()
             if (!response.isSuccessful) null else response.body()?.content?.firstOrNull()?.text
         } else {
+            val isReasoning = Regex("""(^|[-_/])(o[134]|gpt-5|r1|qwq)""").containsMatchIn(modelName.lowercase())
             val request = ChatCompletionRequest(
                 model = modelName,
                 messages = listOf(ChatMessage(role = "user", content = prompt)),
-                temperature = 0.2f,
+                temperature = if (isReasoning) null else 0.2f,
                 max_tokens = tokenBudget.coerceIn(SUMMARY_COMPLETION_MIN_TOKENS, SUMMARY_COMPLETION_MAX_TOKENS),
                 stream = false
             )
@@ -3395,10 +3419,11 @@ class AiRepository(
         var lastException: Exception? = null
         for (key in allKeys) {
             try {
+                val isReasoning = Regex("""(^|[-_/])(o[134]|gpt-5|r1|qwq)""").containsMatchIn(config.modelName.lowercase())
                 val request = ChatCompletionRequest(
                     model = config.modelName,
                     messages = listOf(ChatMessage(role = "user", content = prompt)),
-                    temperature = 0.1f,
+                    temperature = if (isReasoning) null else 0.1f,
                     max_tokens = 1024,
                     stream = false
                 )
@@ -3715,13 +3740,30 @@ class AiRepository(
         conversationId: Long,
         activeConfigId: Long? = null,
         activeModelName: String? = null,
-        onProgress: ((step: Int, total: Int, detail: String) -> Unit)? = null
+        startFromDraft: TimelineReconcileDraft? = null,
+        onProgress: ((step: Int, total: Int, detail: String) -> Unit)? = null,
+        onIntermediateResult: ((TimelineReconcileDraft) -> Unit)? = null
     ): TimelineReconcileResult = withContext(Dispatchers.IO) {
-        val messages = messageDao.getMessagesList(conversationId)
+        val allMessages = messageDao.getMessagesList(conversationId)
             .filter { !it.isExcluded && it.role != "system" && it.content.isNotBlank() }
             .sortedBy { it.createdAt }
 
-        if (messages.isEmpty()) {
+        val messages = if (startFromDraft != null && startFromDraft.lastProcessedMessageId > 0L) {
+            allMessages.filter { it.id > startFromDraft.lastProcessedMessageId }
+        } else {
+            allMessages
+        }
+
+        if (messages.isEmpty() && startFromDraft != null && startFromDraft.events.isNotEmpty()) {
+            return@withContext TimelineReconcileResult(
+                currentStoryTime = startFromDraft.currentStoryTime,
+                events = startFromDraft.events.toMutableList(),
+                atemporalSettings = startFromDraft.atemporalSettings.toMutableList(),
+                extractionSource = "AI_MODEL"
+            )
+        }
+
+        if (allMessages.isEmpty()) {
             return@withContext TimelineReconcileResult(
                 currentStoryTime = "未确定",
                 events = mutableListOf(),
@@ -3747,21 +3789,51 @@ class AiRepository(
         }
 
         val (config, targetModel) = configPair
-        val userMessages = messages.filter { it.role == "user" }.map { it.content }
+        val userMessages = allMessages.filter { it.role == "user" }.map { it.content }
 
         // 分段切片：如果消息数 <= 25，直接执行单段分析；如果 > 25，按每 20~25 条切片分段梳理后汇总 (Map-Reduce)
         val chunks = TimelineMemoryHelper.chunkMessagesForAnalysis(messages, chunkSize = 25, overlap = 3)
         if (chunks.size <= 1) {
             currentCoroutineContext().ensureActive()
-            onProgress?.invoke(1, 1, "正在梳理全量时间线与核心设定...")
+            onProgress?.invoke(1, 1, "正在梳理时间线与核心设定...")
             val singleResult = analyzeTimelineChunk(messages, config, targetModel, existingStoryTime)
-            return@withContext TimelineMemoryHelper.consolidateFinalReconcileResult(singleResult, userMessages)
+            val mergedEvents = if (startFromDraft != null) {
+                (startFromDraft.events + singleResult.events).distinctBy { it.content }
+            } else singleResult.events
+            val mergedSettings = if (startFromDraft != null) {
+                (startFromDraft.atemporalSettings + singleResult.atemporalSettings).distinctBy { it.content }
+            } else singleResult.atemporalSettings
+            val combinedResult = singleResult.copy(
+                events = mergedEvents.toMutableList(),
+                atemporalSettings = mergedSettings.toMutableList()
+            )
+            val consolidated = TimelineMemoryHelper.consolidateFinalReconcileResult(combinedResult, userMessages)
+            val draft = TimelineReconcileDraft(
+                conversationId = conversationId,
+                lastProcessedMessageId = allMessages.lastOrNull()?.id ?: 0L,
+                currentStoryTime = consolidated.currentStoryTime,
+                events = consolidated.events,
+                atemporalSettings = consolidated.atemporalSettings,
+                isCompleted = true,
+                totalChunks = 1,
+                processedChunks = 1
+            )
+            onIntermediateResult?.invoke(draft)
+            return@withContext consolidated
         }
 
         // 多段 Map 阶段
         val aggregatedEvents = mutableListOf<TimelineEventItem>()
         val aggregatedSettings = mutableListOf<AtemporalSettingItem>()
         var latestStoryTime: String = existingStoryTime ?: "第 1 天·起始"
+
+        if (startFromDraft != null) {
+            aggregatedEvents.addAll(startFromDraft.events)
+            aggregatedSettings.addAll(startFromDraft.atemporalSettings)
+            if (startFromDraft.currentStoryTime.isNotBlank() && startFromDraft.currentStoryTime != "未确定") {
+                latestStoryTime = startFromDraft.currentStoryTime
+            }
+        }
 
         for ((idx, chunk) in chunks.withIndex()) {
             currentCoroutineContext().ensureActive()
@@ -3783,6 +3855,18 @@ class AiRepository(
                         aggregatedSettings.add(setting)
                     }
                 }
+                val chunkLastMsgId = chunk.lastOrNull()?.id ?: 0L
+                val intermediateDraft = TimelineReconcileDraft(
+                    conversationId = conversationId,
+                    lastProcessedMessageId = chunkLastMsgId,
+                    currentStoryTime = latestStoryTime,
+                    events = aggregatedEvents.toList(),
+                    atemporalSettings = aggregatedSettings.toList(),
+                    isCompleted = false,
+                    totalChunks = chunks.size,
+                    processedChunks = step
+                )
+                onIntermediateResult?.invoke(intermediateDraft)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -3809,7 +3893,19 @@ class AiRepository(
         )
 
         // 执行最后的整体汇总 Pass (Global Consolidation Pass)
-        consolidateTimelineWithModel(intermediateResult, config, targetModel, userMessages)
+        val finalResult = consolidateTimelineWithModel(intermediateResult, config, targetModel, userMessages)
+        val finalDraft = TimelineReconcileDraft(
+            conversationId = conversationId,
+            lastProcessedMessageId = allMessages.lastOrNull()?.id ?: 0L,
+            currentStoryTime = finalResult.currentStoryTime,
+            events = finalResult.events,
+            atemporalSettings = finalResult.atemporalSettings,
+            isCompleted = true,
+            totalChunks = chunks.size,
+            processedChunks = chunks.size
+        )
+        onIntermediateResult?.invoke(finalDraft)
+        finalResult
     }
 
     /**
@@ -3925,9 +4021,20 @@ class AiRepository(
                 .firstOrNull { it.content.startsWith("【当前故事时间】：") || it.content.startsWith("当前故事时间：") }
                 ?.content?.substringAfter("：")?.trim() ?: "第 1 天·起始"
 
+        val recentNodes = currentTimelineNodes.takeLast(4)
+        val recentNodesContext = if (recentNodes.isEmpty()) {
+            "（暂无先前已记录的事件）"
+        } else {
+            recentNodes.joinToString("\n") { node ->
+                "- [ID: ${node.id}] [${node.timeTag}] 【${TimelineCategory.fromKey(node.category).displayName}】${node.event}"
+            }
+        }
+
         val configPair = resolveTimelineAnalysisConfig(activeConfigId, activeModelName, conversation)
         var modelStoryTime: String? = null
         var newEvent: TimelineEventItem? = null
+        var parsedAction: String = "APPEND"
+        var parsedTargetNodeId: Long? = null
 
         if (configPair != null) {
             val (config, targetModel) = configPair
@@ -3935,6 +4042,10 @@ class AiRepository(
             val prompt = """
                 你是一个专业的故事时间线推进与剧情里程碑事件智能提取引擎。
                 已知当前故事停留在时间节点：【$existingStoryTime】。
+
+                【已记录的时间线最近事件列表】：
+                $recentNodesContext
+
                 以下是最新的一轮对话交互：
                 [用户发言/指令]: ${userMessage.take(800)}
                 [助手剧情正文]: ${assistantReply.take(2000)}
@@ -3945,15 +4056,16 @@ class AiRepository(
                    - 包含：活动转换（如用餐完毕准备出发、交谈结束离开、战斗结束、休息就寝）、日内时段流转（从早晨到上午、从下午聊至傍晚/夜幕降临/深夜掌灯）、跨越至次日/翌日、相对时间跨度（如几天后、两周后、次月）或阶段节点（如暑假开始、新学期）；
                    - 若剧情活动已告一段落或出现时移描写，必须积极推断并输出推进后的精确故事时间（例如从“第 1 天·早晨”推移至“第 1 天·上午”或“第 1 天·中午”，从“第 1 天·夜间”推移至“第 2 天·清晨”），严禁让故事错误地一直僵化停留在原时空【$existingStoryTime】！
                    - 仅当此轮对话依然在同一时段同一场景紧密对话、活动尚未有任何进展时，才保持原时间。
-                2.【剧情里程碑关键事件智能提炼（极简短句，严禁截取用户输入）】：
-                   - 本轮剧情中是否发生了具有长远影响的关键事实？
-                   - 包含：确立关系、重要誓约、危机爆发、重大抉择、探明秘密真相、抵达新地点、取得关键信物或道具、处境或状态质变等；
-                   - 必须用客观、精炼的文学叙事语言归纳该事实（格式：主体在何处完成了什么关键事实，12~25字完整句子）；
-                   - 严禁包含“用户”、“AI”、“助手”、“模型”等出戏元词汇！
-                   - 【严禁直接截取或搬运用户输入】：若用户发言是指导指令（如“继续写”、“让他们在雨夜相遇”）或台词，严禁照抄指令或台词作为事件，必须依据助手正文中实际演出的情节事实提炼！
+                2.【多轮事件修改补充 vs 新增事件（拒绝流水账重复，核心铁律）】：
+                   - 现实中一件事情往往由多轮对话连续进行（如同一场交谈、同一顿饭、同一场战斗、同一个场景的活动、同一个任务的前后进展）；
+                   - 如果当前对话属于过往已记录事件（见上述【已记录的时间线最近事件列表】）的延续、细节补充、深入推进或同一事件的收尾，【严禁新增独立重复事件】！
+                     必须设置 "action": "UPDATE"，并在 "targetNodeId" 中填入该事件对应的数值 ID，在 "newEvent" 中给出【融合旧事件与新进展后的单条完整新描述】（12~28字完整单句），实现对过往事件的修改与充实！
+                   - 仅当真正发生了不同场景、不同时段、不同性质的全新独立重大事件时，才设置 "action": "APPEND"，此时 "targetNodeId" 设为 null。
                 3.【同一场景归并与防虚假跨天铁律】：
                    - 严禁将同一个连续场景或同一件事（如一顿饭、一次促膝长谈、一场战斗）错误拆分成多天多顿饭！
                    - 若对话中出现“两年前”、“这两天”、“数日前”，这属于回忆或提及，绝不可当成故事推进并跃迁两年！
+                4.【严禁直接截取或搬运用户输入】：
+                   - 依据助手正文中实际演出的情节事实提炼，严禁出现“用户”、“AI”、“助手”等元词汇。
 
                 注意：
                 1. 若本轮交互只是普通客套、简单寒暄或常规交谈，未发生任何时间推移且无关键剧情里程碑事件，请直接输出：NO_UPDATE
@@ -3961,10 +4073,12 @@ class AiRepository(
                 ```json
                 {
                   "newStoryTime": "推移后的故事时间节点",
+                  "action": "UPDATE 或 APPEND",
+                  "targetNodeId": 123,
                   "newEvent": {
                     "timeTag": "事件发生的具体时间标签，如：第 1 天·黄昏、第 2 天·清晨",
                     "category": "PLOT_EVENT",
-                    "content": "精简完整的客观事实（12~25字，拒绝截断与元词汇）"
+                    "content": "精简完整的客观事实（12~28字，拒绝截断与元词汇）"
                   }
                 }
                 ```
@@ -3989,6 +4103,11 @@ class AiRepository(
                     try {
                         val jsonObj = JsonParser.parseString(jsonMatcher.value).asJsonObject
                         modelStoryTime = jsonObj.get("newStoryTime")?.asString?.trim()?.takeIf { it.isNotBlank() && it != "未确定" && it != "未知" }
+                        val rawAction = jsonObj.get("action")?.asString?.trim()?.uppercase()
+                        if (rawAction == "UPDATE" || rawAction == "APPEND") {
+                            parsedAction = rawAction
+                        }
+                        parsedTargetNodeId = jsonObj.get("targetNodeId")?.takeIf { !it.isJsonNull }?.asLong
                         val newEventObj = jsonObj.getAsJsonObject("newEvent")
                         if (newEventObj != null) {
                             val tag = newEventObj.get("timeTag")?.asString?.trim().orEmpty()
@@ -4010,68 +4129,62 @@ class AiRepository(
         val localAdvancedTime = TimelineMemoryHelper.detectAutoStoryTimeAdvancement(existingStoryTime, userMessage, assistantReply)
         val resolvedNewStoryTime = modelStoryTime ?: localAdvancedTime
 
-        var isStoryTimeChanged = false
-        var isEventAddedOrMerged = false
+        val isStoryTimeChanged = !resolvedNewStoryTime.isNullOrBlank() && resolvedNewStoryTime != existingStoryTime
+        val hasEvent = newEvent != null && newEvent.content.isNotBlank() && !TimelineMemoryHelper.isInvalidOrUserInstructionEvent(newEvent.content, listOf(userMessage))
 
-        if (!resolvedNewStoryTime.isNullOrBlank() && resolvedNewStoryTime != existingStoryTime) {
-            // 直接更新 Conversation 的 currentStoryTime，彻底与普通记忆表解耦
-            conversationDao.updateConversation(
-                conversation.copy(
-                    currentStoryTime = resolvedNewStoryTime,
-                    updatedAt = System.currentTimeMillis()
-                )
-            )
-            isStoryTimeChanged = true
-        }
+        if (!isStoryTimeChanged && !hasEvent) return@withContext null
 
-        if (newEvent != null && newEvent.content.isNotBlank() && !TimelineMemoryHelper.isInvalidOrUserInstructionEvent(newEvent.content, listOf(userMessage))) {
+        // 匹配修改目标节点
+        var resolvedTargetNode: TimelineNode? = null
+        if (hasEvent) {
             val existingNodes = timelineNodeDao?.getTimelineNodes(conversationId) ?: emptyList()
-            val targetExisting = existingNodes.firstOrNull { node ->
-                val cleanNode = node.event.replace(Regex("""[，。！？、\s\[\]【】"”'’]"""), "")
-                val cleanIncoming = newEvent.content.replace(Regex("""[，。！？、\s\[\]【】"”'’]"""), "")
-                cleanNode.contains(cleanIncoming) || cleanIncoming.contains(cleanNode) ||
-                (cleanNode.length >= 8 && cleanIncoming.length >= 8 && cleanNode.take(8) == cleanIncoming.take(8))
-            }
-            if (targetExisting != null) {
-                timelineNodeDao?.updateTimelineNode(
-                    targetExisting.copy(
-                        timeTag = newEvent.timeTag.ifBlank { targetExisting.timeTag },
-                        event = newEvent.content,
-                        category = newEvent.category.key,
-                        updatedAt = System.currentTimeMillis()
-                    )
-                )
-                isEventAddedOrMerged = true
+            if (parsedAction == "UPDATE") {
+                resolvedTargetNode = if (parsedTargetNodeId != null && parsedTargetNodeId > 0L) {
+                    existingNodes.firstOrNull { it.id == parsedTargetNodeId }
+                } else null
+                if (resolvedTargetNode == null) {
+                    resolvedTargetNode = existingNodes.takeLast(4).firstOrNull { node ->
+                        val cleanNode = node.event.replace(Regex("""[，。！？、\s\[\]【】"”'’]"""), "")
+                        val cleanIncoming = newEvent!!.content.replace(Regex("""[，。！？、\s\[\]【】"”'’]"""), "")
+                        cleanNode.contains(cleanIncoming) || cleanIncoming.contains(cleanNode) ||
+                        (cleanNode.length >= 6 && cleanIncoming.length >= 6 && cleanNode.take(6) == cleanIncoming.take(6))
+                    }
+                }
             } else {
-                val nextOrder = (existingNodes.maxOfOrNull { it.orderIndex } ?: 0) + 1
-                timelineNodeDao?.insertTimelineNode(
-                    TimelineNode(
-                        conversationId = conversationId,
-                        timeTag = newEvent.timeTag.ifBlank { resolvedNewStoryTime ?: existingStoryTime },
-                        event = newEvent.content,
-                        category = newEvent.category.key,
-                        orderIndex = nextOrder,
-                        createdAt = System.currentTimeMillis(),
-                        updatedAt = System.currentTimeMillis()
-                    )
-                )
-                isEventAddedOrMerged = true
+                // 如果是 APPEND 但与最后一条高度重叠，智能转为 UPDATE
+                resolvedTargetNode = existingNodes.takeLast(2).firstOrNull { node ->
+                    val cleanNode = node.event.replace(Regex("""[，。！？、\s\[\]【】"”'’]"""), "")
+                    val cleanIncoming = newEvent!!.content.replace(Regex("""[，。！？、\s\[\]【】"”'’]"""), "")
+                    cleanNode.contains(cleanIncoming) || cleanIncoming.contains(cleanNode) ||
+                    (cleanNode.length >= 8 && cleanIncoming.length >= 8 && cleanNode.take(8) == cleanIncoming.take(8))
+                }
             }
         }
 
-        if (!isStoryTimeChanged && !isEventAddedOrMerged) return@withContext null
+        val finalAction = if (resolvedTargetNode != null) "UPDATE" else if (hasEvent) "APPEND" else "TIME_ONLY"
 
         val notice = buildString {
-            append("🕒 时间线已自动更新")
+            append("🕒 识别到时间线推进建议")
             if (isStoryTimeChanged && !resolvedNewStoryTime.isNullOrBlank()) {
-                append("：推进至【$resolvedNewStoryTime】")
+                append(" · 故事时间【$resolvedNewStoryTime】")
             }
-            if (newEvent != null && newEvent.content.isNotBlank()) {
-                append(" · 记录：${newEvent.content.take(20)}")
+            if (hasEvent && newEvent != null) {
+                if (finalAction == "UPDATE" && resolvedTargetNode != null) {
+                    append(" · 补充更新事件：${newEvent.content.take(22)}")
+                } else {
+                    append(" · 新增事件：${newEvent.content.take(22)}")
+                }
             }
         }
 
-        return@withContext AutoTimelineUpdateResult(resolvedNewStoryTime, newEvent, notice)
+        return@withContext AutoTimelineUpdateResult(
+            updatedStoryTime = if (isStoryTimeChanged) resolvedNewStoryTime else null,
+            newEvent = if (hasEvent) newEvent else null,
+            summaryNotice = notice,
+            action = finalAction,
+            targetNodeId = resolvedTargetNode?.id,
+            previousEventContent = resolvedTargetNode?.event
+        )
     }
 
     private suspend fun generateOpenAITimelineAnalysis(config: ApiConfig, prompt: String): String? {

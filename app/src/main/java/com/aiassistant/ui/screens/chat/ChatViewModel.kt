@@ -10,6 +10,9 @@ import com.aiassistant.utils.TimelineReconcileResult
 import com.aiassistant.utils.TimelineEventItem
 import com.aiassistant.utils.TimelineCategory
 import com.aiassistant.utils.AtemporalSettingItem
+import com.aiassistant.utils.TimelineDraftManager
+import com.aiassistant.utils.TimelineReconcileDraft
+import com.aiassistant.data.repository.AutoTimelineUpdateResult
 import com.google.gson.Gson
 import android.util.Log
 import kotlinx.coroutines.CancellationException
@@ -120,8 +123,33 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
     private val _timelineUpdateNotice = MutableStateFlow<String?>(null)
     val timelineUpdateNotice: StateFlow<String?> = _timelineUpdateNotice.asStateFlow()
 
+    // 时间线变动待确认提案（需求 1：自动识别需用户确认）
+    private val _pendingTimelineProposal = MutableStateFlow<AutoTimelineUpdateResult?>(null)
+    val pendingTimelineProposal: StateFlow<AutoTimelineUpdateResult?> = _pendingTimelineProposal.asStateFlow()
+
+    // 实时梳理草稿（需求 4：实时可见与断点续梳）
+    private val _liveReconcileDraft = MutableStateFlow<TimelineReconcileDraft?>(
+        TimelineDraftManager.getDraft(AiAssistantApp.instance, conversationId)
+    )
+    val liveReconcileDraft: StateFlow<TimelineReconcileDraft?> = _liveReconcileDraft.asStateFlow()
+
+    private val _showDraftDialog = MutableStateFlow(false)
+    val showDraftDialog: StateFlow<Boolean> = _showDraftDialog.asStateFlow()
+
     fun dismissTimelineUpdateNotice() {
         _timelineUpdateNotice.value = null
+    }
+
+    fun dismissTimelineProposal() {
+        _pendingTimelineProposal.value = null
+    }
+
+    fun openDraftDialog() {
+        _showDraftDialog.value = true
+    }
+
+    fun closeDraftDialog() {
+        _showDraftDialog.value = false
     }
 
     fun cancelTimelineReconciliation() {
@@ -826,17 +854,23 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                     )
                     val savedMsgId = repository.saveMessage(userMessage)
 
-                    // 智能记忆提取（仅在普通会话生效，且在开启会话记忆时，需用户在界面主动确认才入库；优先调度模型智能提取，离线或故障时自动平滑降级为本地规则）
+                    // 智能记忆提取（异步执行，坚决不阻塞聊天生成主流程，彻底杜绝长输入因辅助调用阻塞或超时引发的连接中断与空回复）
                     if (_uiState.value.roleplaySession == null && content.isNotBlank() && settings?.enableSessionMemory != false) {
-                        val candidate = repository.extractMemoryCandidate(
-                            content = content,
-                            conversationId = conversationId,
-                            messageId = savedMsgId,
-                            activeConfigId = selectedOption.apiConfigId,
-                            activeModelName = selectedOption.modelName
-                        )
-                        if (candidate != null) {
-                            _pendingMemoryCandidate.value = candidate
+                        AiAssistantApp.instance.applicationScope.launch(Dispatchers.IO) {
+                            try {
+                                val candidate = repository.extractMemoryCandidate(
+                                    content = content,
+                                    conversationId = conversationId,
+                                    messageId = savedMsgId,
+                                    activeConfigId = selectedOption.apiConfigId,
+                                    activeModelName = selectedOption.modelName
+                                )
+                                if (candidate != null) {
+                                    _pendingMemoryCandidate.value = candidate
+                                }
+                            } catch (e: Exception) {
+                                Log.w("ChatViewModel", "异步提取记忆候选异常: ${e.message}")
+                            }
                         }
                     }
                 }
@@ -1001,21 +1035,40 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
         activeAssistantVariantGroupId = null
         activeAssistantVariantIndex = 1
 
+        val connStatus = _reconnectStatus.value?.takeIf { it.isNotBlank() }
+        val activeError = _error.value?.takeIf { it.isNotBlank() }
+        val hasErrors = currentKeyAttemptErrors.isNotEmpty() || connStatus != null || activeError != null
+
         if (!isMessageSaved) {
             isMessageSaved = true
-            val finalContent = when {
-                responseToSave.isNotBlank() -> "$responseToSave\n\n*(回复已被暂停)*"
-                thinkingToSave != null -> "*(思考已停止，回复已暂停)*"
-                currentKeyAttemptErrors.isNotEmpty() -> {
-                    buildString {
-                        append("回复已停止 (用户已暂停)\n\n")
-                        append("【已尝试 Key 报错记录】：\n")
-                        currentKeyAttemptErrors.forEach { append("• $it\n") }
-                        append("\n*(在尝试后续 Key 期间，用户主动暂停了回复)*")
-                    }.trim()
+            val finalContent = buildString {
+                when {
+                    responseToSave.isNotBlank() -> {
+                        append(responseToSave)
+                        append("\n\n*(回复已被暂停)*")
+                    }
+                    thinkingToSave != null -> {
+                        append("*(思考已停止，回复已暂停)*")
+                    }
+                    else -> {
+                        append("回复已停止 (用户已暂停)")
+                    }
                 }
-                else -> "回复已停止"
-            }
+
+                if (hasErrors) {
+                    append("\n\n【连接异常信息记录】：")
+                    if (connStatus != null) {
+                        append("\n• 当前状态: $connStatus")
+                    }
+                    if (activeError != null && activeError != connStatus) {
+                        append("\n• 报错详情: $activeError")
+                    }
+                    if (currentKeyAttemptErrors.isNotEmpty()) {
+                        append("\n• 尝试的 Key 报错记录:")
+                        currentKeyAttemptErrors.forEach { append("\n  - $it") }
+                    }
+                }
+            }.trim()
             AiAssistantApp.instance.applicationScope.launch {
                 val message = Message(
                     conversationId = conversationId,
@@ -1296,28 +1349,36 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
         }
     }
 
-    fun startTimelineReconciliation() {
+    fun startTimelineReconciliation(startFromDraft: Boolean = false) {
         if (_isReconcilingTimeline.value) return
         _isReconcilingTimeline.value = true
-        _timelineReconcileProgress.value = "准备分析对话历史..."
+        _timelineReconcileProgress.value = if (startFromDraft) "正在读取先前进度继续梳理..." else "准备分析对话历史..."
         timelineReconcileJob?.cancel()
         timelineReconcileJob = viewModelScope.launch {
             try {
                 val activeCfgId = apiConfig?.id ?: _currentModelOption.value?.apiConfigId
                 val activeModel = _currentModel.value?.ifBlank { null } ?: _currentModelOption.value?.modelName.orEmpty()
+                val draft = if (startFromDraft) {
+                    TimelineDraftManager.getDraft(AiAssistantApp.instance, conversationId)
+                } else null
                 val result = repository.reconcileConversationTimeline(
                     conversationId = conversationId,
                     activeConfigId = activeCfgId,
                     activeModelName = activeModel,
+                    startFromDraft = draft,
                     onProgress = { step, total, detail ->
                         _timelineReconcileProgress.value = if (total > 1) "[$step/$total] $detail" else detail
+                    },
+                    onIntermediateResult = { intermediateDraft ->
+                        TimelineDraftManager.saveDraft(AiAssistantApp.instance, intermediateDraft)
+                        _liveReconcileDraft.value = intermediateDraft
                     }
                 )
                 _timelineReconcileResult.value = result
                 _showTimelineReconcileDialog.value = true
             } catch (e: CancellationException) {
-                // 用户主动取消，优雅重置
-                _timelineReconcileResult.value = null
+                // 用户主动取消，当前进度已实时留存在本地草稿文件
+                Log.d("ChatViewModel", "时间线梳理已暂停/取消，中间结果已保存草稿")
             } catch (e: Exception) {
                 _timelineReconcileResult.value = TimelineReconcileResult(
                     currentStoryTime = "未确定",
@@ -1347,11 +1408,8 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                     activeModelName = activeModel
                 )
                 if (result != null) {
-                    val settings = personalizationManager.getSettings()
-                    if (settings.autoTimelineNoticeEnabled) {
-                        _timelineUpdateNotice.value = result.summaryNotice
-                    }
-                    loadConversation()
+                    // 需求 1：自动识别到的时间和事件放入待确认提案，由用户在界面交互确认后再应用
+                    _pendingTimelineProposal.value = result
                 }
             } catch (e: Exception) {
                 Log.w("ChatViewModel", "自动更新时间线后台任务异常: ${e.message}")
@@ -1359,9 +1417,115 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
         }
     }
 
+    fun applyTimelineProposal(proposal: AutoTimelineUpdateResult) {
+        viewModelScope.launch {
+            try {
+                // 1. 故事时间推进
+                if (!proposal.updatedStoryTime.isNullOrBlank()) {
+                    repository.updateStoryTime(conversationId, proposal.updatedStoryTime)
+                }
+
+                // 2. 事件操作 (UPDATE 或 APPEND)
+                val ev = proposal.newEvent
+                if (ev != null && ev.content.isNotBlank()) {
+                    val currentNodes = timelineNodes.value
+                    if (proposal.action == "UPDATE" && proposal.targetNodeId != null && proposal.targetNodeId > 0L) {
+                        val existingNode = currentNodes.firstOrNull { it.id == proposal.targetNodeId }
+                        if (existingNode != null) {
+                            repository.updateTimelineNode(
+                                existingNode.copy(
+                                    timeTag = ev.timeTag.ifBlank { existingNode.timeTag },
+                                    event = ev.content,
+                                    category = ev.category.key,
+                                    updatedAt = System.currentTimeMillis()
+                                )
+                            )
+                        } else {
+                            val nextOrder = (currentNodes.maxOfOrNull { it.orderIndex } ?: 0) + 1
+                            repository.addTimelineNode(
+                                TimelineNode(
+                                    conversationId = conversationId,
+                                    timeTag = ev.timeTag.ifBlank { proposal.updatedStoryTime ?: "未确定" },
+                                    event = ev.content,
+                                    category = ev.category.key,
+                                    orderIndex = nextOrder,
+                                    createdAt = System.currentTimeMillis(),
+                                    updatedAt = System.currentTimeMillis()
+                                )
+                            )
+                        }
+                    } else {
+                        val nextOrder = (currentNodes.maxOfOrNull { it.orderIndex } ?: 0) + 1
+                        repository.addTimelineNode(
+                            TimelineNode(
+                                conversationId = conversationId,
+                                timeTag = ev.timeTag.ifBlank { proposal.updatedStoryTime ?: "未确定" },
+                                event = ev.content,
+                                category = ev.category.key,
+                                orderIndex = nextOrder,
+                                createdAt = System.currentTimeMillis(),
+                                updatedAt = System.currentTimeMillis()
+                            )
+                        )
+                    }
+                }
+
+                _pendingTimelineProposal.value = null
+                _timelineUpdateNotice.value = "已将时间线变动应用到记录"
+                loadConversation()
+            } catch (e: Exception) {
+                Log.e("ChatViewModel", "应用时间线提案失败: ${e.message}", e)
+            }
+        }
+    }
+
     fun dismissTimelineReconcileDialog() {
         _showTimelineReconcileDialog.value = false
         _timelineReconcileResult.value = null
+    }
+
+    fun getSavedTimelineDraft(): TimelineReconcileDraft? {
+        return TimelineDraftManager.getDraft(AiAssistantApp.instance, conversationId)
+    }
+
+    fun hasTimelineDraft(): Boolean {
+        return TimelineDraftManager.hasDraft(AiAssistantApp.instance, conversationId)
+    }
+
+    fun clearTimelineDraft() {
+        TimelineDraftManager.clearDraft(AiAssistantApp.instance, conversationId)
+        _liveReconcileDraft.value = null
+    }
+
+    fun openSavedDraftForReview() {
+        val draft = getSavedTimelineDraft() ?: _liveReconcileDraft.value ?: return
+        _timelineReconcileResult.value = TimelineReconcileResult(
+            currentStoryTime = draft.currentStoryTime,
+            events = draft.events.toMutableList(),
+            atemporalSettings = draft.atemporalSettings.toMutableList(),
+            extractionSource = "SAVED_DRAFT"
+        )
+        _showTimelineReconcileDialog.value = true
+    }
+
+    fun openLiveDraftForReview() {
+        val draft = _liveReconcileDraft.value ?: getSavedTimelineDraft() ?: return
+        _timelineReconcileResult.value = TimelineReconcileResult(
+            currentStoryTime = draft.currentStoryTime,
+            events = draft.events.toMutableList(),
+            atemporalSettings = draft.atemporalSettings.toMutableList(),
+            extractionSource = "LIVE_PROGRESS"
+        )
+        _showTimelineReconcileDialog.value = true
+    }
+
+    fun applySavedDraft() {
+        val draft = getSavedTimelineDraft() ?: return
+        applyReconciledTimeline(
+            currentStoryTime = draft.currentStoryTime,
+            events = draft.events,
+            confirmedSettings = draft.atemporalSettings
+        )
     }
 
     fun applyReconciledTimeline(
@@ -1401,17 +1565,46 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                 Log.w("ChatViewModel", "清理旧时间线记忆缓存失败: ${e.message}")
             }
 
-            // 4. 仅将时间无关的全局或会话角色与世界设定存入专属记忆表
+            // 4. 需求 8：展示的世界观与固有设定 100% 真正保存进记忆中（在会话专属记忆与角色扮演记忆中立即可见并生效）
+            val roleplayRepo = AiAssistantApp.instance.roleplayRepository
+            val currentRpSession = _uiState.value.roleplaySession
             for (setting in confirmedSettings) {
                 if (setting.isSelected && setting.content.isNotBlank()) {
                     val formatted = "【${setting.category}】${setting.content.trim()}"
+                    // 无论 targetScope 是 session 还是 global，都向当前会话专属记忆存入一条（带 conversationId），确保在当前会话的“会话专属记忆与规则”列表中 100% 立即可见！
+                    repository.addConversationMemory(conversationId, formatted)
+                    // 若用户明确选择 global，额外存入一条 user 级全局记忆，让跨会话生效
                     if (setting.targetScope == "global") {
                         repository.addUserMemory(formatted)
-                    } else {
-                        repository.addConversationMemory(conversationId, formatted)
+                    }
+                    // 若当前处于角色扮演/剧情创作会话，同时写入角色扮演专属记忆表 (RoleplayMemory) 并标记为已固定，确保在角色扮演上下文组装中立即生效
+                    if (currentRpSession != null) {
+                        try {
+                            roleplayRepo.insertMemory(
+                                RoleplayMemory(
+                                    sessionId = currentRpSession.id,
+                                    memoryType = "fact",
+                                    content = formatted,
+                                    isPinned = true
+                                )
+                            )
+                        } catch (e: Exception) {
+                            Log.w("ChatViewModel", "保存角色扮演专属记忆失败: ${e.message}")
+                        }
                     }
                 }
             }
+
+            // 确保当前会话的会话记忆功能处于开启状态，使刚存入的设定立即可用
+            conversation?.let { conv ->
+                if (conv.enableSessionMemory != true) {
+                    repository.updateConversation(conv.copy(enableSessionMemory = true))
+                }
+            }
+
+            // 清理已应用的草稿
+            TimelineDraftManager.clearDraft(AiAssistantApp.instance, conversationId)
+            _liveReconcileDraft.value = null
 
             dismissTimelineReconcileDialog()
             loadConversation()

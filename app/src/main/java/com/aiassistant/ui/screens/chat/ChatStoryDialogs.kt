@@ -1732,66 +1732,123 @@ fun TimelineReconcileDialog(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 // 0. 模型提炼来源与状态指示
-                if (initialResult.extractionSource == "AI_MODEL") {
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                when (initialResult.extractionSource) {
+                    "AI_MODEL" -> {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Icon(
-                                Icons.Default.AutoAwesome,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = if (initialResult.modelUsed.isNotBlank()) {
-                                    "✨ AI 大模型智慧深度提炼完成（模型：${initialResult.modelUsed}）"
-                                } else {
-                                    "✨ AI 大模型智慧深度提炼完成"
-                                },
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Bold
-                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.AutoAwesome,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = if (initialResult.modelUsed.isNotBlank()) {
+                                        "✨ AI 大模型智慧深度提炼完成（模型：${initialResult.modelUsed}）"
+                                    } else {
+                                        "✨ AI 大模型智慧深度提炼完成"
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
                     }
-                } else {
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.45f)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                    "SAVED_DRAFT" -> {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.12f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.35f)),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Icon(
-                                Icons.Default.Warning,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            val modelHint = if (initialResult.modelUsed.isNotBlank()) "调用模型：${initialResult.modelUsed} | " else ""
-                            val errorDetail = initialResult.extractionErrorMessage.orEmpty()
-                            val timeoutHint = if (errorDetail.contains("timeout", ignoreCase = true) || errorDetail.contains("timed out", ignoreCase = true)) {
-                                "全文较长且模型推理响应超时，可再次点击重新梳理或在「设置 -> 辅助模型」选用推理更快的模型"
-                            } else {
-                                errorDetail.ifBlank { "未检测到模型响应" }
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.BookmarkBorder,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.secondary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "📁 已加载本地保存的时间线梳理草稿（支持编辑与确认入库，或稍后接着进度继续梳理）",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.secondary,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
-                            Text(
-                                text = "⚠️ 模型响应未成功（$modelHint$timeoutHint），当前显示本地精纯扫描。可在「设置 -> 辅助模型」指定独立模型或检查当前网络。",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onErrorContainer
-                            )
+                        }
+                    }
+                    "LIVE_PROGRESS" -> {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.12f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.35f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.Visibility,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.tertiary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "👁️ 实时梳理快照预览（后台仍可继续梳理，草稿已自动实时留存）",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.tertiary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                    else -> {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.45f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.Warning,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                val modelHint = if (initialResult.modelUsed.isNotBlank()) "调用模型：${initialResult.modelUsed} | " else ""
+                                val errorDetail = initialResult.extractionErrorMessage.orEmpty()
+                                val timeoutHint = if (errorDetail.contains("timeout", ignoreCase = true) || errorDetail.contains("timed out", ignoreCase = true)) {
+                                    "全文较长且模型推理响应超时，可再次点击重新梳理或在「设置 -> 辅助模型」选用推理更快的模型"
+                                } else {
+                                    errorDetail.ifBlank { "未检测到模型响应" }
+                                }
+                                Text(
+                                    text = "⚠️ 模型响应未成功（$modelHint$timeoutHint），当前显示本地精纯扫描。可在「设置 -> 辅助模型」指定独立模型或检查当前网络。",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onErrorContainer
+                                )
+                            }
                         }
                     }
                 }
@@ -1944,15 +2001,19 @@ fun TimelineReconcileDialog(
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text(
-                                                "💡 世界观与角色固有设定（时间无关）",
-                                                style = MaterialTheme.typography.labelMedium,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.tertiary
-                                            )
-                                        }
-                                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text(
+                                            "💡 世界观与角色固有设定（时间无关）",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.tertiary,
+                                            modifier = Modifier.weight(1f, fill = false).padding(end = 8.dp),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
                                             TextButton(
                                                 onClick = {
                                                     for (i in atemporalSettings.indices) {
@@ -1961,7 +2022,7 @@ fun TimelineReconcileDialog(
                                                 },
                                                 contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
                                             ) {
-                                                Text("全选", style = MaterialTheme.typography.labelSmall)
+                                                Text("全选", style = MaterialTheme.typography.labelSmall, maxLines = 1, softWrap = false)
                                             }
                                             TextButton(
                                                 onClick = {
@@ -1971,7 +2032,7 @@ fun TimelineReconcileDialog(
                                                 },
                                                 contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
                                             ) {
-                                                Text("全不选", style = MaterialTheme.typography.labelSmall)
+                                                Text("全不选", style = MaterialTheme.typography.labelSmall, maxLines = 1, softWrap = false)
                                             }
                                         }
                                     }
@@ -1989,45 +2050,93 @@ fun TimelineReconcileDialog(
                                             border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
                                             modifier = Modifier.fillMaxWidth()
                                         ) {
-                                            Row(
-                                                modifier = Modifier.padding(6.dp),
-                                                verticalAlignment = Alignment.CenterVertically
+                                            Column(
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                                verticalArrangement = Arrangement.spacedBy(6.dp)
                                             ) {
-                                                Checkbox(
-                                                    checked = setting.isSelected,
-                                                    onCheckedChange = { checked ->
-                                                        val idx = atemporalSettings.indexOfFirst { it.id == setting.id }
-                                                        if (idx != -1) {
-                                                            atemporalSettings[idx] = setting.copy(isSelected = checked)
-                                                        }
-                                                    },
-                                                    modifier = Modifier.size(28.dp)
-                                                )
-                                                Spacer(modifier = Modifier.width(4.dp))
-
-                                                // 类别切换胶囊
-                                                Surface(
-                                                    shape = RoundedCornerShape(6.dp),
-                                                    color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.15f),
-                                                    modifier = Modifier.clickable {
-                                                        val idx = atemporalSettings.indexOfFirst { it.id == setting.id }
-                                                        if (idx != -1) {
-                                                            atemporalSettings[idx] = setting.copy(category = setting.nextCategory())
-                                                        }
-                                                    }
+                                                // 第一行：方框、设定性质、应用范围和删除键放在同一行
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    verticalAlignment = Alignment.CenterVertically
                                                 ) {
-                                                    Text(
-                                                        text = setting.category,
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        color = MaterialTheme.colorScheme.tertiary,
-                                                        fontWeight = FontWeight.Bold,
-                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                                                    Checkbox(
+                                                        checked = setting.isSelected,
+                                                        onCheckedChange = { checked ->
+                                                            val idx = atemporalSettings.indexOfFirst { it.id == setting.id }
+                                                            if (idx != -1) {
+                                                                atemporalSettings[idx] = setting.copy(isSelected = checked)
+                                                            }
+                                                        },
+                                                        modifier = Modifier.size(26.dp)
                                                     )
+                                                    Spacer(modifier = Modifier.width(4.dp))
+
+                                                    // 设定性质（类别切换胶囊）
+                                                    Surface(
+                                                        shape = RoundedCornerShape(6.dp),
+                                                        color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.15f),
+                                                        modifier = Modifier.clickable {
+                                                            val idx = atemporalSettings.indexOfFirst { it.id == setting.id }
+                                                            if (idx != -1) {
+                                                                atemporalSettings[idx] = setting.copy(category = setting.nextCategory())
+                                                            }
+                                                        }
+                                                    ) {
+                                                        Text(
+                                                            text = setting.category,
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = MaterialTheme.colorScheme.tertiary,
+                                                            fontWeight = FontWeight.Bold,
+                                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                                        )
+                                                    }
+
+                                                    Spacer(modifier = Modifier.weight(1f))
+
+                                                    // 目标范围切换按钮
+                                                    Surface(
+                                                        shape = RoundedCornerShape(6.dp),
+                                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                                                        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
+                                                        modifier = Modifier.clickable {
+                                                            val idx = atemporalSettings.indexOfFirst { it.id == setting.id }
+                                                            if (idx != -1) {
+                                                                val nextScope = if (setting.targetScope == "global") "session" else "global"
+                                                                atemporalSettings[idx] = setting.copy(targetScope = nextScope)
+                                                            }
+                                                        }
+                                                    ) {
+                                                        Text(
+                                                            text = if (setting.targetScope == "global") "范围: 全局" else "范围: 会话",
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = MaterialTheme.colorScheme.primary,
+                                                            fontWeight = FontWeight.Bold,
+                                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                                        )
+                                                    }
+
+                                                    Spacer(modifier = Modifier.width(4.dp))
+
+                                                    // 删除按钮
+                                                    IconButton(
+                                                        onClick = {
+                                                            val idx = atemporalSettings.indexOfFirst { it.id == setting.id }
+                                                            if (idx != -1) {
+                                                                atemporalSettings.removeAt(idx)
+                                                            }
+                                                        },
+                                                        modifier = Modifier.size(28.dp)
+                                                    ) {
+                                                        Icon(
+                                                            Icons.Default.DeleteOutline,
+                                                            contentDescription = "删除",
+                                                            tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
+                                                            modifier = Modifier.size(16.dp)
+                                                        )
+                                                    }
                                                 }
 
-                                                Spacer(modifier = Modifier.width(6.dp))
-
-                                                // 设定内容直接编辑
+                                                // 第二行：文字放在下一行
                                                 BasicTextField(
                                                     value = setting.content,
                                                     onValueChange = { newContent ->
@@ -2063,47 +2172,8 @@ fun TimelineReconcileDialog(
                                                             innerTextField()
                                                         }
                                                     },
-                                                    modifier = Modifier.weight(1f)
+                                                    modifier = Modifier.fillMaxWidth()
                                                 )
-
-                                                Spacer(modifier = Modifier.width(4.dp))
-
-                                                // 目标范围切换按钮
-                                                IconButton(
-                                                    onClick = {
-                                                        val idx = atemporalSettings.indexOfFirst { it.id == setting.id }
-                                                        if (idx != -1) {
-                                                            val nextScope = if (setting.targetScope == "global") "session" else "global"
-                                                            atemporalSettings[idx] = setting.copy(targetScope = nextScope)
-                                                        }
-                                                    },
-                                                    modifier = Modifier.size(30.dp)
-                                                ) {
-                                                    Text(
-                                                        text = if (setting.targetScope == "global") "全局" else "会话",
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        color = MaterialTheme.colorScheme.primary,
-                                                        fontWeight = FontWeight.Bold
-                                                    )
-                                                }
-
-                                                // 删除按钮
-                                                IconButton(
-                                                    onClick = {
-                                                        val idx = atemporalSettings.indexOfFirst { it.id == setting.id }
-                                                        if (idx != -1) {
-                                                            atemporalSettings.removeAt(idx)
-                                                        }
-                                                    },
-                                                    modifier = Modifier.size(30.dp)
-                                                ) {
-                                                    Icon(
-                                                        Icons.Default.DeleteOutline,
-                                                        contentDescription = "删除",
-                                                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
-                                                        modifier = Modifier.size(16.dp)
-                                                    )
-                                                }
                                             }
                                         }
                                     }

@@ -994,7 +994,11 @@ fun ChatSettingsTimelineSection(
     hazeState: dev.chrisbanes.haze.HazeState? = null,
     isReconcilingTimeline: Boolean = false,
     reconcileTimelineProgress: String? = null,
+    hasSavedTimelineDraft: Boolean = false,
     onStartTimelineReconciliation: () -> Unit = {},
+    onContinueTimelineReconciliation: () -> Unit = {},
+    onOpenTimelineDraft: () -> Unit = {},
+    onClearTimelineDraft: () -> Unit = {},
     onCancelTimelineReconciliation: () -> Unit = {},
     onUpdateCurrentStoryTime: (String?) -> Unit,
     onAddTimelineNode: (timeTag: String, event: String, category: String) -> Unit,
@@ -1116,6 +1120,81 @@ fun ChatSettingsTimelineSection(
                 }
             }
 
+            // 需求 4：存在先前梳理草稿提示卡片（可查看/应用或断点续梳）
+            if (hasSavedTimelineDraft && !isReconcilingTimeline) {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.65f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.4f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.BookmarkBorder,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.secondary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = "存在先前梳理草稿",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                            }
+                            TextButton(
+                                onClick = onClearTimelineDraft,
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                            ) {
+                                Text("丢弃", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                        Text(
+                            text = "可直接查看并应用已保存草稿，或接着上次进度继续向下梳理。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = onOpenTimelineDraft,
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text("查看草稿", style = MaterialTheme.typography.labelSmall)
+                            }
+                            Button(
+                                onClick = onContinueTimelineReconciliation,
+                                modifier = Modifier.weight(1.2f),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("继续向下梳理", style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                }
+            }
+
             // 操作栏：梳理全量时间线、添加节点、清空时间线
             FlowRow(
                 modifier = Modifier.fillMaxWidth(),
@@ -1123,24 +1202,38 @@ fun ChatSettingsTimelineSection(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 if (isReconcilingTimeline) {
-                    OutlinedButton(
-                        onClick = onCancelTimelineReconciliation,
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                        shape = RoundedCornerShape(8.dp),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.6f))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(12.dp),
-                            strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.error
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            reconcileTimelineProgress ?: "梳理中 (点击取消)",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.error,
-                            maxLines = 1
-                        )
+                        OutlinedButton(
+                            onClick = onOpenTimelineDraft,
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.Visibility, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("实时查看", style = MaterialTheme.typography.labelSmall)
+                        }
+                        OutlinedButton(
+                            onClick = onCancelTimelineReconciliation,
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.6f))
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(12.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                reconcileTimelineProgress ?: "暂停/保存",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error,
+                                maxLines = 1
+                            )
+                        }
                     }
                 } else {
                     OutlinedButton(
@@ -1152,7 +1245,7 @@ fun ChatSettingsTimelineSection(
                     ) {
                         Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(14.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("全量梳理与校对", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                        Text(if (hasSavedTimelineDraft) "重新全量梳理" else "全量梳理与校对", style = MaterialTheme.typography.labelSmall, maxLines = 1)
                     }
                 }
 
@@ -1698,6 +1791,7 @@ fun ChatSettingsSessionMemorySection(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Row(
+                    modifier = Modifier.weight(1f).padding(end = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -1709,7 +1803,7 @@ fun ChatSettingsSessionMemorySection(
                     )
                     Column {
                         Text(
-                            "💡 会话专属设定与规则",
+                            "会话专属设定与规则",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = contentColor
@@ -2191,7 +2285,11 @@ fun ChatSettingsDialog(
     onClearTimeline: () -> Unit = {},
     isReconcilingTimeline: Boolean = false,
     reconcileTimelineProgress: String? = null,
+    hasSavedTimelineDraft: Boolean = false,
     onStartTimelineReconciliation: () -> Unit = {},
+    onContinueTimelineReconciliation: () -> Unit = {},
+    onOpenTimelineDraft: () -> Unit = {},
+    onClearTimelineDraft: () -> Unit = {},
     onCancelTimelineReconciliation: () -> Unit = {},
     onAddSessionMemory: (String) -> Unit = {},
     onUpdateSessionMemory: (MemoryItem) -> Unit = {},
@@ -2617,7 +2715,11 @@ fun ChatSettingsDialog(
                         hazeState = hazeState,
                         isReconcilingTimeline = isReconcilingTimeline,
                         reconcileTimelineProgress = reconcileTimelineProgress,
+                        hasSavedTimelineDraft = hasSavedTimelineDraft,
                         onStartTimelineReconciliation = onStartTimelineReconciliation,
+                        onContinueTimelineReconciliation = onContinueTimelineReconciliation,
+                        onOpenTimelineDraft = onOpenTimelineDraft,
+                        onClearTimelineDraft = onClearTimelineDraft,
                         onCancelTimelineReconciliation = onCancelTimelineReconciliation,
                         onUpdateCurrentStoryTime = onUpdateCurrentStoryTime,
                         onAddTimelineNode = onAddTimelineNode,

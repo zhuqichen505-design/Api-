@@ -92,7 +92,8 @@ class EchoToolHub(
 
     suspend fun enrichUserPrompt(
         userMessage: String,
-        options: ChatRequestOptions
+        options: ChatRequestOptions,
+        isRoleplay: Boolean = false
     ): EnrichedPromptResult = withContext(Dispatchers.IO) {
         val blocks = mutableListOf<String>()
         val toolRecords = mutableListOf<ToolCallRecord>()
@@ -132,8 +133,8 @@ class EchoToolHub(
             }
         }
 
-        // 若未启用智能设备工具箱，则直接返回基础处理结果
-        if (!isDeviceToolsEnabled()) {
+        // 若未启用智能设备工具箱，或在角色扮演创作对话中且未显式开启设备工具，则直接返回基础处理结果
+        if (!isDeviceToolsEnabled() || isRoleplay) {
             return@withContext EnrichedPromptResult(formatEnrichedMessage(userMessage, blocks), toolRecords)
         }
 
@@ -207,6 +208,7 @@ class EchoToolHub(
         }
 
         // 5. 手机健康与步数意图
+        if (isHealthIntent(trimmed)) {
             val healthSummary = healthDataManager.getHealthDataSummary()
             blocks.add(healthSummary.toPromptBlock())
             val healthBrief = buildString {
@@ -224,6 +226,7 @@ class EchoToolHub(
                     isSuccess = true
                 )
             )
+        }
 
         // 6. 手机设备与硬件状态意图
         if (isDeviceStatusIntent(trimmed)) {
