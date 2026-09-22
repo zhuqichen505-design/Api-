@@ -91,14 +91,14 @@ class AiRepository(
         const val MIN_SUMMARY_SOURCE_MESSAGES = 16
         const val MIN_SUMMARY_SOURCE_TOKENS = 8_000
         const val SUMMARY_PROMPT_MIN_TOKENS = 300
-        const val SUMMARY_PROMPT_MAX_TOKENS = 1_200
-        const val SUMMARY_COMPLETION_MIN_TOKENS = 256
-        const val SUMMARY_COMPLETION_MAX_TOKENS = 1_200
+        const val SUMMARY_PROMPT_MAX_TOKENS = 3_000
+        const val SUMMARY_COMPLETION_MIN_TOKENS = 512
+        const val SUMMARY_COMPLETION_MAX_TOKENS = 4_096
         const val SUMMARY_TRANSCRIPT_MESSAGE_LIMIT = 80
         const val SUMMARY_TRANSCRIPT_HEAD_COUNT = 20
-        const val SUMMARY_TRANSCRIPT_CHAR_LIMIT = 1_200
+        const val SUMMARY_TRANSCRIPT_CHAR_LIMIT = 10_000
         const val EXTRACTIVE_SUMMARY_MESSAGE_LIMIT = 12
-        const val EXTRACTIVE_SUMMARY_CHAR_LIMIT = 500
+        const val EXTRACTIVE_SUMMARY_CHAR_LIMIT = 2_000
 
         const val MEMORY_CAPTURE_FRESHNESS_MS = 10 * 60 * 1000L
         const val MEMORY_CAPTURE_CONFIDENCE = 0.72f
@@ -202,27 +202,25 @@ class AiRepository(
         }
 
         fun normalizeThinkingEffort(effort: String?, providerType: String = "openai"): String {
-            val normalized = effort?.lowercase()
-            return if (providerType.equals("deepseek", true) || providerType.equals("deepseek_fixed", true)) {
-                when (normalized) {
-                    "max", "ultra" -> "max"
-                    else -> "high"
+            val normalized = effort?.lowercase()?.trim()
+            return when (normalized) {
+                "low", "fast" -> "low"
+                "medium", "balanced" -> "medium"
+                "high", "deep" -> "high"
+                "max", "ultra" -> {
+                    // 严格官方 OpenAI 仅支持 low, medium, high；为避免第三方或官方端点返回 400 校验错误，在 openai 模式下安全映射为 high
+                    if (providerType.equals("openai", true)) "high" else "max"
                 }
-            } else {
-                when (normalized) {
-                    "low", "medium", "high" -> normalized
-                    "ultra", "max" -> "high"
-                    else -> "medium"
-                }
+                else -> "medium"
             }
         }
 
         fun thinkingBudgetForEffort(effort: String?, configuredBudget: Int): Int {
-            val base = configuredBudget.coerceIn(1024, 32768)
-            return when (effort?.lowercase()) {
-                "low" -> (base / 2).coerceIn(1024, 32768)
-                "max", "ultra" -> 32768
-                "high" -> (base * 2).coerceIn(1024, 32768)
+            val base = configuredBudget.coerceIn(1024, 64000)
+            return when (effort?.lowercase()?.trim()) {
+                "low", "fast" -> (base / 2).coerceIn(1024, 64000)
+                "high", "deep" -> (base * 2).coerceIn(1024, 64000)
+                "max", "ultra" -> 32768.coerceAtLeast(base * 4).coerceAtMost(64000)
                 else -> base
             }
         }
@@ -1422,7 +1420,7 @@ class AiRepository(
             )
             val tokenBudget = (snapshot.promptBudgetTokens * SUMMARY_BUDGET_RATIO)
                 .toInt()
-                .coerceIn(600, 2_000)
+                .coerceIn(1200, 4_000)
 
             // 用户主动请求生成滚动摘要：
             // 保留最近 2 条作为活跃最新消息，其余全部作为摘要源；若总共只有 2 条，则以全部 2 条为源提炼核心背景
@@ -1442,8 +1440,7 @@ class AiRepository(
                 }
             }.getOrNull() ?: buildExtractiveConversationSummary(sourceMessages, tokenBudget)
 
-            val finalSummary = generated?.takeIf { it.isNotBlank() }
-                ?.let { compactTextToTokenBudget(it, tokenBudget) }
+            val finalSummary = generated?.takeIf { it.isNotBlank() }?.trim()
                 ?: throw IllegalStateException("未能提炼出有效摘要内容")
 
             conversationDao.updateRollingSummary(
@@ -2994,8 +2991,7 @@ class AiRepository(
         }.getOrNull()
 
         val finalSummary = generated
-            ?.takeIf { it.isNotBlank() }
-            ?.let { compactTextToTokenBudget(it, tokenBudget) }
+            ?.takeIf { it.isNotBlank() }?.trim()
             ?: existingSummary
             ?: buildExtractiveConversationSummary(olderMessages, tokenBudget)
 
@@ -3023,12 +3019,13 @@ class AiRepository(
             transcript = transcript,
             tokenBudget = tokenBudget.coerceIn(SUMMARY_PROMPT_MIN_TOKENS, SUMMARY_PROMPT_MAX_TOKENS)
         )
+        val completionTokens = maxOf(tokenBudget * 2, 4096).coerceIn(4096, 16384)
 
         return if (config.apiType == "anthropic") {
             val request = AnthropicRequest(
                 model = modelName,
                 messages = listOf(AnthropicMessage(role = "user", content = prompt)),
-                max_tokens = tokenBudget.coerceIn(SUMMARY_COMPLETION_MIN_TOKENS, SUMMARY_COMPLETION_MAX_TOKENS),
+                max_tokens = completionTokens,
                 temperature = null
             )
             val response = RetrofitClient.getService(config.baseUrl)
@@ -3040,7 +3037,8 @@ class AiRepository(
                 model = modelName,
                 messages = listOf(ChatMessage(role = "user", content = prompt)),
                 temperature = null,
-                max_tokens = tokenBudget.coerceIn(SUMMARY_COMPLETION_MIN_TOKENS, SUMMARY_COMPLETION_MAX_TOKENS),
+                max_tokens = completionTokens,
+                max_completion_tokens = completionTokens,
                 stream = false
             )
             val response = RetrofitClient.getService(config.baseUrl)
@@ -3116,6 +3114,10 @@ class AiRepository(
             }
         }
 
+        val summaryBlock = olderSummary?.takeIf { it.isNotBlank() }?.let {
+            "<session_summary>\n【前序历史对话滚动摘要 (脉络与未决议题)】\n${it.trim()}\n</session_summary>"
+        }
+
         return listOfNotNull(
             basePrompt,
             personalizationPart,
@@ -3123,7 +3125,7 @@ class AiRepository(
             promptPart,
             memoryBlock,
             worldBookBlock,
-            olderSummary
+            summaryBlock
         ).joinToString("\n\n").ifBlank { null }
     }
 
@@ -3205,17 +3207,18 @@ class AiRepository(
 
     private fun compactTextToTokenBudget(text: String, tokenBudget: Int): String {
         val normalized = text.trim()
-        if (estimateTokenCount(normalized) <= tokenBudget) return normalized
+        val safeBudget = maxOf(tokenBudget, 4_000)
+        if (estimateTokenCount(normalized) <= safeBudget) return normalized
 
-        var charLimit = (tokenBudget * 2.4f).toInt().coerceAtLeast(400)
-        while (charLimit > 400) {
+        var charLimit = (safeBudget * 2.4f).toInt().coerceAtLeast(1_000)
+        while (charLimit > 1_000) {
             val compact = normalized.take(charLimit).trimEnd()
-            if (estimateTokenCount(compact) <= tokenBudget) {
-                return "$compact\n...[summary truncated]"
+            if (estimateTokenCount(compact) <= safeBudget) {
+                return compact
             }
-            charLimit = (charLimit * 0.82f).toInt()
+            charLimit = (charLimit * 0.9f).toInt()
         }
-        return normalized.take(charLimit).trimEnd() + "\n...[summary truncated]"
+        return normalized.take(charLimit).trimEnd()
     }
 
     private suspend fun captureMemoryCandidate(message: Message) {
@@ -3417,7 +3420,8 @@ class AiRepository(
                     model = config.modelName,
                     messages = listOf(ChatMessage(role = "user", content = prompt)),
                     temperature = null,
-                    max_tokens = 1024,
+                    max_tokens = 4096,
+                    max_completion_tokens = 4096,
                     stream = false
                 )
                 val response = RetrofitClient.getService(config.baseUrl)
@@ -3448,7 +3452,7 @@ class AiRepository(
                 val request = AnthropicRequest(
                     model = config.modelName,
                     messages = listOf(AnthropicMessage(role = "user", content = prompt)),
-                    max_tokens = 1024,
+                    max_tokens = 4096,
                     temperature = null
                 )
                 val response = RetrofitClient.getService(config.baseUrl)
@@ -4296,6 +4300,7 @@ class AiRepository(
             messages = listOf(ChatMessage(role = "user", content = prompt)),
             temperature = null,
             max_tokens = 8192,
+            max_completion_tokens = 8192,
             stream = false
         )
         val allKeys = parseApiKeys(config.apiKey).ifEmpty { listOf(config.apiKey) }
@@ -4947,7 +4952,8 @@ class AiRepository(
             model = config.modelName,
             messages = listOf(ChatMessage(role = "user", content = prompt)),
             temperature = null,
-            max_tokens = 64,
+            max_tokens = 2048,
+            max_completion_tokens = 2048,
             stream = false
         )
         val response = RetrofitClient.getService(config.baseUrl)
@@ -4961,7 +4967,7 @@ class AiRepository(
         val request = AnthropicRequest(
             model = config.modelName,
             messages = listOf(AnthropicMessage(role = "user", content = prompt)),
-            max_tokens = 64,
+            max_tokens = 2048,
             temperature = null
         )
         val response = RetrofitClient.getService(config.baseUrl)
@@ -4983,6 +4989,7 @@ class AiRepository(
                 messages = listOf(ChatMessage(role = "user", content = prompt)),
                 temperature = null,
                 max_tokens = maxTokens,
+                max_completion_tokens = maxTokens,
                 stream = true
             )
             val auth = RetrofitClient.formatApiKey(key)

@@ -90,8 +90,8 @@ object ModelCapabilityEngine {
             name.contains("grok-3") || name.contains("gpt-4.1") ->
                 Pair(1_000_000, "1M")
 
-            // 200K 上下文（Anthropic Claude 3/3.5/3.7 与 OpenAI o系列）
-            name.contains("claude-3-7") || name.contains("claude-3-5") || name.contains("claude-3") ||
+            // 200K 上下文（Anthropic Claude 系列与 OpenAI o系列）
+            name.contains("claude") ||
             name.contains("o1") || name.contains("o3") || name.contains("o4") ||
             name.contains("yi-34b-200k") || name.contains("yi-large-rag") ->
                 Pair(200_000, "200K")
@@ -152,54 +152,43 @@ object ModelCapabilityEngine {
     }
 
     private fun resolveSupportsToolCalling(name: String): Boolean {
-        // o1-mini / o1-preview 早期版本不支持 Function Calling
-        if (name.contains("o1-mini") || name.contains("o1-preview")) return false
-        return name.contains("gpt-4") ||
-            name.contains("gpt-3.5") ||
-            name.contains("deepseek") ||
-            name.contains("claude") ||
-            name.contains("gemini") ||
-            name.contains("qwen") ||
-            name.contains("glm") ||
-            name.contains("mistral") ||
-            name.contains("o1") ||
-            name.contains("o3") ||
-            name.contains("o4")
+        // 早期特定预览版不支持 Function Calling
+        if (name.contains("o1-mini") || name.contains("o1-preview") || name.contains("text-embedding")) return false
+        return true
     }
 
     private fun resolveThinkingCapabilities(name: String, identity: String): Tuple4<Boolean, List<String>, Int, String> {
-        // 1. OpenAI o系列推理模型 (o1, o3, o4)
-        if (Regex("""(^|[-_/])(o[134]|gpt-5)""").containsMatchIn(name)) {
-            return Tuple4(true, listOf("low", "medium", "high"), 1024, "openai")
-        }
+        val standardGears = listOf("low", "medium", "high", "max")
 
-        // 2. Anthropic Claude 3.7 Sonnet 思考模型
-        if (name.contains("claude-3-7")) {
-            return Tuple4(true, listOf("low", "medium", "high", "max"), 2048, "anthropic")
-        }
-
-        // 3. DeepSeek 官方深度思考/推理模型 (deepseek-reasoner, deepseek-r1)
-        if (name.contains("deepseek-reasoner") || name.contains("r1") || name.contains("deepseek-r")) {
-            return Tuple4(true, listOf("low", "medium", "high", "max"), 4096, "deepseek_fixed")
-        }
-
-        // 4. 通义千问推理模型 QwQ 与通用 Thinking 模型
-        if (name.contains("qwq") || name.contains("thinking") || name.contains("reasoner")) {
-            return Tuple4(true, listOf("low", "medium", "high", "max"), 2048, "deepseek_fixed")
-        }
-
-        // 5. MiMo / 小米模型
-        if (identity.contains("mimo") || identity.contains("xiaomi")) {
-            return Tuple4(true, listOf("low", "medium", "high"), 1024, "none")
-        }
-
-        // 6. 明确标记的历史非思考基准纯对话模型（如 gpt-4o, gpt-4o-mini, deepseek-chat 等）
-        if (name == "gpt-4o" || name == "gpt-4o-mini" || name == "deepseek-chat" || name.contains("turbo") || name.contains("baichuan")) {
+        // 明确标注的纯非思考非对话模型或历史经典标准非思考模型（gpt-4o, 标准 gpt-4, gpt-3.5 等）
+        if (name.contains("text-embedding") || name.contains("dall-e") || name.contains("tts") || name.contains("whisper") ||
+            name.contains("gpt-4o") || name == "gpt-4" || name.startsWith("gpt-3.5")
+        ) {
             return Tuple4(false, emptyList(), 0, "none")
         }
 
-        // 7. 其余主流模型默认全面对齐思考架构（依据用户准则：现在的主流模型都是思考模型，无需根据名字判断）
-        return Tuple4(true, listOf("low", "medium", "high", "max"), 4096, "generic")
+        // 1. OpenAI o 系列推理模型 (o1, o3, o4)
+        if (Regex("""(^|[-_/])(o[1-9])""").containsMatchIn(name) || name.contains("o1") || name.contains("o3") || name.contains("o4")) {
+            return Tuple4(true, listOf("low", "medium", "high"), 4096, "openai")
+        }
+
+        // 2. Anthropic Claude 系列
+        if (identity.contains("anthropic") || name.contains("claude")) {
+            return Tuple4(true, standardGears, 4096, "anthropic")
+        }
+
+        // 3. DeepSeek 官方深度思考/推理系列 (deepseek-reasoner, r1 等) 与 QwQ
+        if (identity.contains("deepseek") || name.contains("deepseek") || name.contains("r1") || name.contains("qwq")) {
+            return Tuple4(true, standardGears, 4096, "deepseek_fixed")
+        }
+
+        // 4. OpenAI 兼容推理与思考系列 (reasoner, thinking, gpt-5 等)
+        if (identity.contains("openai") || name.contains("reasoner") || name.contains("thinking") || name.contains("gpt-5")) {
+            return Tuple4(true, standardGears, 4096, "openai")
+        }
+
+        // 5. 其余现代主流模型默认全面对齐思考架构（依据用户最高准则：现代主流模型均具备思考能力，全系支持 4 档深度）
+        return Tuple4(true, standardGears, 4096, "generic")
     }
 
     data class Tuple4<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)

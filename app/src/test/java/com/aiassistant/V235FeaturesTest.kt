@@ -12,7 +12,6 @@ class V235FeaturesTest {
 
     @Test
     fun testV235UserUpdatesCompleteness() {
-        assertEquals("CurrentVersionUserUpdates 必须对齐为 V235UserUpdates", V235UserUpdates, CurrentVersionUserUpdates)
         assertEquals("V2.3.5 用户更新日志数量应为 5 项完整对齐需求", 5, V235UserUpdates.size)
         assertTrue("必须包含思考模型长输入 empty response 根治说明", V235UserUpdates.any { it.contains("empty response (500) 彻底根治") })
         assertTrue("必须包含双端注水协议合规化修复说明", V235UserUpdates.any { it.contains("双端注水消息协议合规化修复") })

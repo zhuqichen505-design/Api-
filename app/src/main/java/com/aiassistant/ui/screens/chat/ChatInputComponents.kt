@@ -783,109 +783,60 @@ internal fun ReasoningEffortPopupCard(
     onClose: () -> Unit
 ) {
     var showParamsExplanationDialog by remember { mutableStateOf(false) }
-    val cap = remember(modelName) {
-        if (modelName.isNotBlank()) com.aiassistant.domain.model.ModelCapabilityEngine.resolveCapabilities(modelName) else null
-    }
-    val isOpenAi = cap?.reasoningProviderType == "openai"
 
-    val levels = remember(isOpenAi) {
-        if (isOpenAi) {
-            listOf(
-                ThinkingEffortLevel(
-                    step = 0,
-                    key = "none",
-                    enabled = false,
-                    name = "关闭",
-                    subtitle = "极速直答 · 无思考",
-                    detail = "跳过深度思维链推演，以模型原生最高速度直接生成最终回复内容。",
-                    primaryColor = Color(0xFF64748B),
-                    gradientColors = listOf(Color(0xFF64748B), Color(0xFF94A3B8))
-                ),
-                ThinkingEffortLevel(
-                    step = 1,
-                    key = "low",
-                    enabled = true,
-                    name = "快速",
-                    subtitle = "快速思考 · 低延迟响应",
-                    detail = "分配精简思考预算进行关键逻辑检查，适合日常交流与常规问答。",
-                    primaryColor = Color(0xFF60A5FA),
-                    gradientColors = listOf(Color(0xFF93C5FD), Color(0xFF60A5FA))
-                ),
-                ThinkingEffortLevel(
-                    step = 2,
-                    key = "medium",
-                    enabled = true,
-                    name = "平衡",
-                    subtitle = "平衡思考 · 兼顾深度与速度",
-                    detail = "投入适度思考预算，严密推演逻辑与代码设计（推荐默认）。",
-                    primaryColor = Color(0xFF2563EB),
-                    gradientColors = listOf(Color(0xFF3B82F6), Color(0xFF1D4ED8))
-                ),
-                ThinkingEffortLevel(
-                    step = 3,
-                    key = "high",
-                    enabled = true,
-                    name = "深入",
-                    subtitle = "深入思考 · 严密严苛推导",
-                    detail = "投入最大上限思考预算进行多轮反思、边界穷举与高难论证。",
-                    primaryColor = Color(0xFF1D4ED8),
-                    gradientColors = listOf(Color(0xFF1D4ED8), Color(0xFF1E3A8A))
-                )
+    val levels = remember {
+        listOf(
+            ThinkingEffortLevel(
+                step = 0,
+                key = "none",
+                enabled = false,
+                name = "关闭思考",
+                subtitle = "关闭思考 · 极速直答",
+                detail = "跳过深度思维链推演，以模型最高速度直接生成最终回复（若模型强制要求思考则保持原生工作）。",
+                primaryColor = Color(0xFF64748B),
+                gradientColors = listOf(Color(0xFF64748B), Color(0xFF94A3B8))
+            ),
+            ThinkingEffortLevel(
+                step = 1,
+                key = "low",
+                enabled = true,
+                name = "low",
+                subtitle = "low · 基础轻度思考",
+                detail = "分配少量思考预算进行轻度推理，适合常规闲聊、基础问答与快速响应。",
+                primaryColor = Color(0xFF60A5FA),
+                gradientColors = listOf(Color(0xFF93C5FD), Color(0xFF60A5FA))
+            ),
+            ThinkingEffortLevel(
+                step = 2,
+                key = "medium",
+                enabled = true,
+                name = "medium",
+                subtitle = "medium · 均衡标准思考",
+                detail = "平衡逻辑严谨性与响应耗时，应对大多数日常工作、深度分析与创作场景（推荐）。",
+                primaryColor = Color(0xFF2563EB),
+                gradientColors = listOf(Color(0xFF3B82F6), Color(0xFF1D4ED8))
+            ),
+            ThinkingEffortLevel(
+                step = 3,
+                key = "high",
+                enabled = true,
+                name = "high",
+                subtitle = "high · 深度严密思考",
+                detail = "投入充足思考预算进行多步论证、边界检查与严密推演，适合复杂技术任务与代码分析。",
+                primaryColor = Color(0xFF1D4ED8),
+                gradientColors = listOf(Color(0xFF1D4ED8), Color(0xFF1E3A8A))
+            ),
+            ThinkingEffortLevel(
+                step = 4,
+                key = "max",
+                enabled = true,
+                name = "max",
+                subtitle = "max · 极限最大思考",
+                detail = "释放最大思考预算上限，全力攻坚高难度逻辑推演、数学证明与复杂长文思考。",
+                primaryColor = Color(0xFF4F46E5),
+                gradientColors = listOf(Color(0xFF6366F1), Color(0xFF4338CA))
             )
-        } else {
-            listOf(
-                ThinkingEffortLevel(
-                    step = 0,
-                    key = "none",
-                    enabled = false,
-                    name = "关闭",
-                    subtitle = "极速直答 · 无思考",
-                    detail = "跳过深度思维链推演，以模型原生最高速度直接生成最终回复内容。",
-                    primaryColor = Color(0xFF64748B),
-                    gradientColors = listOf(Color(0xFF64748B), Color(0xFF94A3B8))
-                ),
-                ThinkingEffortLevel(
-                    step = 1,
-                    key = "low",
-                    enabled = true,
-                    name = "快速",
-                    subtitle = "轻度思考 · 快速响应",
-                    detail = "分配少量思考预算进行简要推理，适合常规闲聊、翻译与基础问答。",
-                    primaryColor = Color(0xFF60A5FA),
-                    gradientColors = listOf(Color(0xFF93C5FD), Color(0xFF60A5FA))
-                ),
-                ThinkingEffortLevel(
-                    step = 2,
-                    key = "medium",
-                    enabled = true,
-                    name = "平衡",
-                    subtitle = "适中思考 · 兼顾速度与深度",
-                    detail = "兼顾逻辑严谨性与响应耗时，应对大多数日常工作、分析与创作场景（推荐）。",
-                    primaryColor = Color(0xFF2563EB),
-                    gradientColors = listOf(Color(0xFF3B82F6), Color(0xFF1D4ED8))
-                ),
-                ThinkingEffortLevel(
-                    step = 3,
-                    key = "high",
-                    enabled = true,
-                    name = "深入",
-                    subtitle = "深度思考 · 严密推演",
-                    detail = "投入大量思考预算进行多步论证、边界检查与代码架构推演，适合复杂技术任务。",
-                    primaryColor = Color(0xFF1D4ED8),
-                    gradientColors = listOf(Color(0xFF1D4ED8), Color(0xFF1E3A8A))
-                ),
-                ThinkingEffortLevel(
-                    step = 4,
-                    key = "ultra",
-                    enabled = true,
-                    name = "极高",
-                    subtitle = "极限思考 · 极致推理",
-                    detail = "释放最大思考预算上限，全力攻坚数学证明、高难度算法与复杂多维哲学推理。",
-                    primaryColor = Color(0xFF4F46E5),
-                    gradientColors = listOf(Color(0xFF6366F1), Color(0xFF4338CA))
-                )
-            )
-        }
+        )
     }
 
     val maxStep = levels.lastIndex
@@ -895,7 +846,7 @@ internal fun ReasoningEffortPopupCard(
             "low", "fast" -> 1
             "medium", "balanced" -> 2
             "high", "deep" -> 3
-            "ultra", "max" -> if (maxStep >= 4) 4 else 3
+            "ultra", "max" -> 4
             else -> 2
         }.coerceIn(0, maxStep)
     }
@@ -908,15 +859,6 @@ internal fun ReasoningEffortPopupCard(
     }
     val currentLevel = levels[sliderIndex.roundToInt().coerceIn(0, maxStep)]
     val glass = echoGlassPalette()
-
-    val badgeText = remember(cap) {
-        when {
-            cap?.reasoningProviderType == "openai" -> "OpenAI 原生推理 · 3档适配"
-            cap?.reasoningProviderType == "anthropic" -> "Claude 原生思考 · 4档适配"
-            cap?.reasoningProviderType == "deepseek_fixed" || cap?.supportsThinking == true -> "原生推理架构 · 深度思考档位适配"
-            else -> ""
-        }
-    }
 
     val popupShape = RoundedCornerShape(22.dp)
     Surface(
@@ -981,21 +923,6 @@ internal fun ReasoningEffortPopupCard(
                                     tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(16.dp)
                                 )
-                            }
-                            if (badgeText.isNotBlank()) {
-                                Surface(
-                                    shape = RoundedCornerShape(999.dp),
-                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
-                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.30f))
-                                ) {
-                                    Text(
-                                        text = badgeText,
-                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.5.sp),
-                                        color = MaterialTheme.colorScheme.primary,
-                                        fontWeight = FontWeight.Medium,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                    )
-                                }
                             }
                         }
                         Text(
@@ -1129,19 +1056,19 @@ internal fun ThinkingParamsExplanationDialog(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 ThinkingParamCard(
-                    title = "关闭 (none)",
+                    title = "关闭思考 (none)",
                     badge = "无思考预算",
                     badgeColor = Color(0xFF64748B),
-                    desc = "跳过思维链推演，以模型原生最高速度直接生成最终回复内容。",
+                    desc = "跳过思维链推演，以模型原生最高速度直接生成最终回复内容（强制思考模型保持原生工作）。",
                     params = listOf(
                         "OpenAI / o系列" to "不传 reasoning_effort",
                         "Claude / Anthropic" to "不启用 thinking 模块",
-                        "DeepSeek 官方" to "切换为 deepseek-chat"
+                        "DeepSeek 官方" to "切换为 deepseek-chat 或原生运行"
                     )
                 )
 
                 ThinkingParamCard(
-                    title = "快速 (low)",
+                    title = "low",
                     badge = "精简推演",
                     badgeColor = Color(0xFF60A5FA),
                     desc = "分配精简思考预算进行关键逻辑检查，低延迟极速响应。",
@@ -1153,37 +1080,37 @@ internal fun ThinkingParamsExplanationDialog(
                 )
 
                 ThinkingParamCard(
-                    title = "平衡 (medium)",
+                    title = "medium",
                     badge = "推荐默认",
                     badgeColor = Color(0xFF2563EB),
                     desc = "投入适度思考预算，严密推演逻辑与代码设计（日常最佳平衡点）。",
                     params = listOf(
                         "OpenAI / o系列" to "reasoning_effort = \"medium\"",
-                        "Claude / Anthropic" to "thinking.budget_tokens = 8192",
+                        "Claude / Anthropic" to "thinking.budget_tokens = 4096 / 8192",
                         "通用兼容 API" to "thinking_effort = \"medium\""
                     )
                 )
 
                 ThinkingParamCard(
-                    title = "深入 (high)",
+                    title = "high",
                     badge = "深度推理",
                     badgeColor = Color(0xFF1D4ED8),
                     desc = "投入大量思考预算进行多步论证、边界检查与复杂代码推演。",
                     params = listOf(
                         "OpenAI / o系列" to "reasoning_effort = \"high\"",
-                        "Claude / Anthropic" to "thinking.budget_tokens = 16384",
+                        "Claude / Anthropic" to "thinking.budget_tokens = 8192 / 16384",
                         "通用兼容 API" to "thinking_effort = \"high\""
                     )
                 )
 
                 ThinkingParamCard(
-                    title = "极高 (ultra)",
+                    title = "max",
                     badge = "极限预算",
                     badgeColor = Color(0xFF4F46E5),
                     desc = "释放最大思考预算上限，全力攻坚高难算法、数学定理与复杂多维哲学推理。",
                     params = listOf(
-                        "OpenAI / o系列" to "reasoning_effort = \"high\" (对齐上限)",
-                        "Claude / Anthropic" to "thinking.budget_tokens = 32768 (满额)",
+                        "OpenAI / o系列" to "reasoning_effort = \"high\" (严格兼容不报错)",
+                        "Claude / Anthropic" to "thinking.budget_tokens = 32768 / 64000 (满额)",
                         "通用兼容 API" to "thinking_effort = \"max\""
                     )
                 )

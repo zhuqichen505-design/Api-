@@ -2,6 +2,55 @@
 
 本文档按照工作流规范记录每次版本更新、需求变更与复核结果。
 
+## [2026-09-22] - v2.3.6：滚动摘要修复、时序与摘要去重、流式删消息防错位、正则普适化、思考强度五档重构与无截断全面核验
+
+### 1. 核心需求落实与技术重构详情
+1. **滚动摘要不完整被错误截断彻底修复（需求 1）**：
+   - **根本原因排查**：旧版 `generateRollingSummary` 限制 `max_tokens = 1200` 导致思考模型生成到一半因 Token 不足断裂，同时入库时调用 `compactTextToTokenBudget` 执行强行字符截断并追加破坏性 `\n...[summary truncated]` 字符串，导致摘要被硬生生破坏。
+   - **全面修复落地**：
+     - 将滚动摘要 `max_tokens` 提升至充裕的 4096~16384 Token，并同步传递 `max_completion_tokens = 4096`；
+     - 彻底移除 `compactTextToTokenBudget` 中添加 `\n...[summary truncated]` 的破坏性代码，完整保全提炼结果；
+     - 摘要历史转录消息单条字符限制从 1200 放宽至 10000 字符。
+2. **滚动摘要与时间线记忆协同工作与去重（需求 2）**：
+   - **机制与分工明确**：时间线记忆（`<session_timeline>`）专注于绝对时空演变、关键事件节点与时序防漂移；滚动摘要（`<session_summary>`）专注于前序对话核心脉络、达成的共识决策与当前未决议题。
+   - **协同去重落地**：在 `AdvancedMemoryEngine.buildStructuredSummaryPrompt` 中注入协同指导规范，明确引导模型侧重核心脉络与未完成待办事项，避免机械复读冗长的时间节点列表，形成紧密互补。
+3. **模型连接与流式输出期间删除消息防错位与防消失（需求 3）**：
+   - **根本原因排查**：在分支流式输出时设置了 `streamingBranchGroupId`，当用户删除正在生成的消息或关联项时，该项在 `displayMessages` 中消失导致原位气泡被销毁；而底部常规流式视图又因 `streamingBranchGroupId != null` 被跳过，导致视觉上生成气泡彻底凭空消失；同时删除消息弹窗无脑设置 `autoFollowOutput = false`，导致流式最新输出沉入视口下方不再跟随。
+   - **全面修复落地**：
+     - 在 `ChatScreen.kt` 中引入 `isBranchStreamingMounted` 动态校验：一旦分支宿主不在当前消息列表中，底部的通用流式气泡立即无缝承接渲染，100% 杜绝输出消失；
+     - 在删除弹窗中，若被删除项与当前流式任务关联，立即平滑解除分支绑定 `streamingBranchGroupId = null`；
+     - 移除无脑置 false 逻辑，维持用户原有的自动跟随状态，消除视口跳跃错位。
+4. **模型能力引擎普适化与狭隘正则清理（需求 4）**：
+   - 彻底废除以陈旧模型（如 Claude 3.7、OpenAI o1 等）为基准的狭隘硬编码正则；
+   - 确立现代大模型均为思考模型的普适架构：所有主流与现代模型默认支持思考能力与多档调节，默认上下文基准赋予 256K。
+5. **全场景过时短截断彻底扫除（防 500 empty response，需求 5）**：
+   - 全面复核所有后台与辅助调用场景：
+     - 自动标题生成（`generateOpenAITitle` / `generateAnthropicTitle`）：`max_tokens` 从 64 提升至 2048，并同步传递 `max_completion_tokens = 2048`；
+     - 记忆提炼（`generateOpenAIMemoryExtraction` / `generateAnthropicMemoryExtraction`）：`max_tokens` 从 1024 提升至 4096，并同步传递 `max_completion_tokens = 4096`；
+     - 流式补全（`executeStreamingCompletion`）：补充传递 `max_completion_tokens`；
+     - 彻底清除所有导致思考模型中途断裂或触发网关 empty response (500) 报错的过时硬编码。
+6. **深度思考强度 5 档具体赋值展示（需求 6）**：
+   - 统一滑块具体赋值：`关闭思考` (key: `"none"`), `low`, `medium`, `high`, `max`；
+   - 兼顾跨厂商兼容性：在 OpenAI 严格规范下将 `max` 安全映射为 `high` 避免 400 校验错误；在 Anthropic 与第三方高配网关下 `max` 对应 64000 充足思考预算；关闭思考时不传参，确保请求 100% 输出正常第一、强度递增第二。
+7. **删除思考强度弹窗多余适配角标文字（需求 7）**：
+   - 彻底移除 `ChatInputComponents.kt` 中“完成”按钮左侧的 `badgeText` 与“原生推理架构...适配”角标组件。
+8. **版本与规范化发布（需求 8）**：
+   - `versionCode = 141`, `versionName = "2.3.6"`；
+   - 增量输出唯一定名安装包 `Echo-v2.3.6.apk` 至 `D:\Agent\APP-烧\app\releases`；
+   - 永久保留该目录下所有 150 个历史版本，绝无 `-arm64-v8a` 后缀。
+
+### 2. 自动化测试与工程核验
+- **单元测试**：全量执行 `testDebugUnitTest`，共计 **362 项测试全部通过 (362 passed, 0 failed, BUILD SUCCESSFUL)**。
+- **构建输出**：
+  - 文件路径：`D:\Agent\APP-烧\app\releases\Echo-v2.3.6.apk`
+  - 文件大小：`16,320,509 字节 (~15.56 MB)`
+  - SHA256：`3D526B821AFB245A056294E676B04FD856BAD8C4C9E977AA8D218B79B4387595`
+  - 签名方案：`v2 scheme (APK Signature Scheme v2): true`
+  - 包名与版本：`package: name='com.aiassistant' versionCode='141' versionName='2.3.6'`
+  - 历史包策略：`D:\Agent\APP-烧\app\releases` 目录下所有历史版本（包含 `Echo-v2.3.5.apk` 等共 150 个文件）永久完整保留，本次仅增量输出 `Echo-v2.3.6.apk`，严格杜绝任何 `-arm64-v8a` 等架构后缀。
+
+---
+
 ## [2026-09-22] - v2.3.5：彻底根治思考模型长输入 empty response (500) 报错、双端注水协议合规化与主流思考模型通用适配
 
 ### 1. 核心需求落实与技术重构详情
