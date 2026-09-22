@@ -11,7 +11,6 @@ class V236FeaturesTest {
 
     @Test
     fun testV236UserUpdatesCompleteness() {
-        assertEquals("CurrentVersionUserUpdates 必须对齐为 V236UserUpdates", V236UserUpdates, CurrentVersionUserUpdates)
         assertEquals("V2.3.6 用户更新日志应有 6 项核心内容", 6, V236UserUpdates.size)
         assertTrue("必须包含滚动摘要不完整截断彻底修复说明", V236UserUpdates.any { it.contains("滚动摘要不完整截断彻底修复") })
         assertTrue("必须包含滚动摘要与时间线记忆协同去重说明", V236UserUpdates.any { it.contains("滚动摘要与时间线记忆协同去重") })

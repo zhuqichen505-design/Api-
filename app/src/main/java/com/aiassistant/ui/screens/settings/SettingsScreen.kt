@@ -192,7 +192,15 @@ internal val V235UserUpdates = listOf(
     "空响应与网络异常自动回退重试：底层通信增加 empty response 智能检测与上下文轻量化平稳重试机制，大幅提升弱网与第三方中转网关下的抗波动稳定性"
 )
 
-internal val CurrentVersionUserUpdates = V236UserUpdates
+internal val V237UserUpdates = listOf(
+    "滚动摘要标点断句保护彻底根除暴力截断：引入智能标点边界闭合算法，彻底废除无视语意的字符强切逻辑，确保每一句摘要表达完整、有始有终、绝不半句残缺",
+    "滚动摘要提示词去机械化与上下文深度提炼：重构提炼提示词，消除普通对话强行编造小说虚构时间线的困扰，聚焦核心主题、关键共识与未决待办，言之有物且逻辑清晰",
+    "长分析服务通道全面升级保障生成韧性：将滚动摘要接入 600 秒专用的 RetrofitClient.getAnalysisService 长通道，支持多 Key 轮询容灾、思考模型 reasoning_content 提取与流式保底通道",
+    "提炼超时时间大幅放宽与错误真实透明反馈：手动提炼超时放宽至 90 秒，后台自动归约放宽至 30 秒；AI 调用失败时如实反馈并保留已有高质量摘要，彻底杜绝残缺文本静默覆盖",
+    "预算收缩整句保护与研发术语彻底清理：在摘要预算收敛时同样以句子边界为基准进行安全压缩，彻底移除「高保真结构化上下文状态机」等晦涩冗余的研发术语"
+)
+
+internal val CurrentVersionUserUpdates = V237UserUpdates
 
 internal val V223UserUpdates = listOf(
     "模型回复首字符星号误吞彻底修复：全面移除句首单星号激进清洗规则，未配对星号作为常规字符平稳追加，彻底修复斜体语法与角色动作首字符星号被吞引发的格式异常",

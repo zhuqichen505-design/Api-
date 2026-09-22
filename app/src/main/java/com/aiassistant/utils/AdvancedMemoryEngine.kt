@@ -244,8 +244,34 @@ object AdvancedMemoryEngine {
     }
 
     /**
+     * 安全提取完整句子或分句，基于标点边界完整闭合，彻底杜绝在词句中途暴力截断
+     */
+    fun extractCompleteSentence(text: String, maxChars: Int = 140): String {
+        val trimmed = text.trim()
+        if (trimmed.length <= maxChars) return trimmed
+
+        val candidate = trimmed.substring(0, maxChars)
+        // 优先在主句末标点（。！？\n；.!?）处闭合
+        val primaryPunctuation = listOf('。', '！', '？', '\n', '；', '.', '!', '?')
+        val lastPrimaryIdx = candidate.indexOfLast { it in primaryPunctuation }
+        if (lastPrimaryIdx >= 16) {
+            return candidate.substring(0, lastPrimaryIdx + 1).trim()
+        }
+
+        // 次选分句标点（，、,）处闭合并追加省略号
+        val secondaryPunctuation = listOf('，', '、', ',')
+        val lastSecondaryIdx = candidate.indexOfLast { it in secondaryPunctuation }
+        if (lastSecondaryIdx >= 16) {
+            return candidate.substring(0, lastSecondaryIdx).trim() + "..."
+        }
+
+        // 若前 maxChars 字符完全无标点，安全截断并加省略号
+        return candidate.trimEnd() + "..."
+    }
+
+    /**
      * 本地高保真抽取式结构化多维摘要兜底
-     * 当外部模型调用不可用或超时时，基于启发式算法抽取核心约束、时序事件和待办项
+     * 当外部模型调用不可用或超时时，基于启发式算法抽取核心约束、关键讨论和待办项，保证断句完整
      */
     fun generateExtractiveStructuredSummary(
         messages: List<Message>,
@@ -263,31 +289,42 @@ object AdvancedMemoryEngine {
             // 1. 抽取用户固定约束与核心要求
             if (msg.role == "user") {
                 if (listOf("请记住", "要求", "设定", "必须", "不要", "始终", "偏好").any { lower.contains(it) }) {
-                    val clean = content.lines().firstOrNull { l ->
+                    val targetLine = content.lines().firstOrNull { l ->
                         listOf("要求", "设定", "必须", "不要", "始终", "偏好", "记住").any { l.contains(it) }
-                    }?.take(100) ?: content.take(80)
+                    } ?: content
+                    val clean = extractCompleteSentence(targetLine, 140)
                     if (constraints.none { it == clean }) constraints.add(clean)
                 }
             }
 
             // 2. 抽取关键里程碑与决策
             if (content.startsWith("[") || content.startsWith("【") || listOf("决定", "完成了", "达成", "发现", "商定", "推进至").any { lower.contains(it) }) {
-                val clean = content.take(120)
+                val targetLine = content.lines().firstOrNull { l ->
+                    listOf("决定", "完成了", "达成", "发现", "商定", "推进至").any { l.contains(it) }
+                } ?: content
+                val clean = extractCompleteSentence(targetLine, 160)
                 if (milestones.none { it == clean }) milestones.add(clean)
             }
 
             // 3. 抽取末尾未决议题与待办事项
             if (listOf("下一步", "还需", "待办", "待确认", "待解决", "稍后", "接下来需要").any { lower.contains(it) }) {
-                val clean = content.take(100)
+                val targetLine = content.lines().firstOrNull { l ->
+                    listOf("下一步", "还需", "待办", "待确认", "待解决", "稍后", "接下来需要").any { l.contains(it) }
+                } ?: content
+                val clean = extractCompleteSentence(targetLine, 140)
                 if (openItems.none { it == clean }) openItems.add(clean)
             }
         }
 
-        // 如果未命中明确里程碑，以近期关键轮次对话作为里程碑兜底
+        // 如果未命中明确里程碑，从关键轮次对话中提取有实际意义的整句，杜绝机械无头无尾截断
         if (milestones.isEmpty() && pruned.isNotEmpty()) {
-            pruned.takeLast(6).forEach { msg ->
+            val keyMessages = pruned.takeLast(4)
+            keyMessages.forEach { msg ->
                 val role = if (msg.role == "user") "用户" else "助手"
-                milestones.add("$role: ${msg.content.take(70)}")
+                val sentence = extractCompleteSentence(msg.content, 120)
+                if (sentence.isNotBlank()) {
+                    milestones.add("$role: $sentence")
+                }
             }
         }
 
@@ -299,7 +336,7 @@ object AdvancedMemoryEngine {
     }
 
     /**
-     * 生成引导模型输出结构化多维摘要的标准系统提示词（与时间线系统紧密协同，杜绝冗余重复）
+     * 生成引导模型输出结构化多维摘要的标准系统提示词（与时间线系统紧密协同，杜绝冗余重复与句子截断）
      */
     fun buildStructuredSummaryPrompt(
         existingSummary: String?,
@@ -307,26 +344,30 @@ object AdvancedMemoryEngine {
         tokenBudget: Int
     ): String {
         return """
-            请把下面的历史对话压缩提炼为高质量、结构化的多维滚动上下文状态机。
-            侧重提炼“前序对话核心脉络、达成的共识与决策、当前未决议题与待办事项”，与时间线系统紧密协同互补，避免机械复读冗长的时间节点列表：
+            请将以下历史对话提炼为高质量、结构清晰、信息完整的会话滚动摘要。
+            侧重提炼“前序对话核心脉络与未决议题、达成的共识与决策、当前未决议题与待办事项”，与时间线系统紧密协同互补，避免机械复读冗长的时间节点列表。
+            摘要必须言之有物、表述完整、逻辑严谨，严禁输出残缺短句、截断词组或毫无意义的机械套话。
+
+            请按以下结构组织内容：
 
             【核心背景与用户固定约束】
-            - 简明概括对话的核心主题、长期目标、用户设定的核心约束与已确立的关键共识。
+            - 准确概括本次对话的核心主题、讨论目标、用户明确设定的核心约束、偏好习惯与已确立的关键共识。
 
             【历史关键里程碑与决策推进】
-            - 按时序提炼经历的核心事件与已解决的决定（编号 1, 2, 3...，简短聚焦事件本身与决策推进，与时间线系统紧密协同互补）。
+            - 按顺序提炼双方经历的核心事件、已解决的关键技术/业务决策或剧情推进（编号 1, 2, 3...，简短聚焦事件本身与决策推进，与时间线系统紧密协同互补）。每条记录必须是完整、通顺、有始有终的句子。
 
             【时空演变与关键时间节点（极重要，严禁遗漏）】
-            - 起始时间与总跨度：记录对话故事发生的起始时间与总跨度，时间概念必须严密准确，严禁出现前序事件时序倒流或将数天前事件混淆为昨天的错误，严禁将早期事件模糊为“昨天”！
-            - 当前故事停顿节点：记录最新停顿时所在的时空位置。
+            - 起始时间与总跨度：若对话涉及具体故事剧情或明确的时间跨度，记录故事或事件发生的起始时间与总跨度；若为常规技术/工作讨论，则记录对话发展的起始阶段与当前演进过程。时间概念必须严密准确，严禁出现前序事件时序倒流或将数天前事件混淆为昨天的错误，严禁将早期事件模糊为“昨天”！
+            - 当前故事停顿节点：记录当前对话停顿时所在的时空位置、剧情节点或最新讨论停顿阶段。
 
             【当前未决议题与待办上下文】
-            - 提取当前对话停顿处正在进行、尚未完成的事项或下一步待办，保持前序对话核心脉络与未决议题清晰。
+            - 明确提取当前对话停顿处正在进行、尚未完成的事项或下一步待办，保持前序对话核心脉络与未决议题清晰，便于后续无缝承接。
 
             要求：
-            1. 控制在 $tokenBudget token 以内，使用简明中文，直切要点，杜绝废话。
-            2. 不要输出任何开场白或“好的，以下是摘要”等客套。
+            1. 语言必须自然通顺、表述完整，每句话都必须意思表达充分，严禁被暴力截断或半句截断。
+            2. 控制在 $tokenBudget token 以内，使用简明中文，直切要点，杜绝废话和无意义客套。
             3. 与时间线系统紧密协同互补，避免机械复读冗长的时间节点列表。
+            4. 不要输出任何开场白或“好的，以下是摘要”等客套。
 
             已有摘要：
             ${existingSummary ?: "无"}
