@@ -857,6 +857,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
             }
 
             try {
+                var currentUserMsgId: Long? = null
                 if (saveUserMessage) {
                     val userMessage = Message(
                         conversationId = conversationId,
@@ -867,26 +868,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                         variantIndex = userVariantIndex
                     )
                     val savedMsgId = repository.saveMessage(userMessage)
-
-                    // 智能记忆提取（异步执行，坚决不阻塞聊天生成主流程，彻底杜绝长输入因辅助调用阻塞或超时引发的连接中断与空回复）
-                    if (_uiState.value.roleplaySession == null && content.isNotBlank() && settings?.enableSessionMemory != false) {
-                        AiAssistantApp.instance.applicationScope.launch(Dispatchers.IO) {
-                            try {
-                                val candidate = repository.extractMemoryCandidate(
-                                    content = content,
-                                    conversationId = conversationId,
-                                    messageId = savedMsgId,
-                                    activeConfigId = selectedOption.apiConfigId,
-                                    activeModelName = selectedOption.modelName
-                                )
-                                if (candidate != null) {
-                                    _pendingMemoryCandidate.value = candidate
-                                }
-                            } catch (e: Exception) {
-                                Log.w("ChatViewModel", "异步提取记忆候选异常: ${e.message}")
-                            }
-                        }
-                    }
+                    currentUserMsgId = savedMsgId
                 }
 
                 val selectedConfig = repository.getDecryptedConfig(selectedOption.apiConfigId)
@@ -965,6 +947,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                             refreshContextUsage()
                             evaluateAutoCompression()
                             evaluateAutoTimelineUpdate(content, savedReply)
+                            evaluateMemoryCandidate(content, currentUserMsgId, selectedOption)
                             checkAndDispatchQueue()
                         },
                         onError = { errorMsg ->
@@ -1437,6 +1420,36 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                 }
             } catch (e: Exception) {
                 Log.w("ChatViewModel", "自动更新时间线后台任务异常: ${e.message}")
+            }
+        }
+    }
+
+    private fun evaluateMemoryCandidate(
+        content: String,
+        messageId: Long?,
+        selectedOption: ChatModelOption
+    ) {
+        val isMemoryEnabled = if (_useTempSettings.value) {
+            _tempSettings.value.enableSessionMemory
+        } else {
+            conversation?.enableSessionMemory ?: true
+        }
+        if (_uiState.value.roleplaySession == null && content.isNotBlank() && isMemoryEnabled) {
+            AiAssistantApp.instance.applicationScope.launch(Dispatchers.IO) {
+                try {
+                    val candidate = repository.extractMemoryCandidate(
+                        content = content,
+                        conversationId = conversationId,
+                        messageId = messageId,
+                        activeConfigId = selectedOption.apiConfigId,
+                        activeModelName = selectedOption.modelName
+                    )
+                    if (candidate != null) {
+                        _pendingMemoryCandidate.value = candidate
+                    }
+                } catch (e: Exception) {
+                    Log.w("ChatViewModel", "后台提取记忆候选异常: ${e.message}")
+                }
             }
         }
     }

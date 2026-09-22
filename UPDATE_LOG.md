@@ -2,6 +2,43 @@
 
 本文档按照工作流规范记录每次版本更新、需求变更与复核结果。
 
+## [2026-09-22] - v2.3.4：思考模型全面解耦、长输入流式防抢占彻底修复、记忆机制体验优化与辅助任务温度安全兼容
+
+### 1. 核心需求落实与技术重构详情
+1. **长输入流式请求报错 500 (empty response detected) 根因与彻底修复（核心痛点修复）**：
+   - **根本原因排查**：
+     - 在 `ChatViewModel.sendMessageInternal` 中，发送消息时前置在后台并发启动了 `extractMemoryCandidate` 辅助提炼请求；
+     - 当输入字数少（十几个字以内）时，辅助提示词触发模型判定规则立即返回 `IGNORE`（耗时 <200ms），信道瞬间释放，未与流式请求碰撞；
+     - 当输入字数较多（超过十几个字）时，辅助提炼任务耗时 2~8 秒，在单并发端点（如 AxonHub/中转/反代通道/本地代理）下抢占了连接通道，导致紧随其后发起的流式长连接被直接切断，抛出 `failed to stream request: empty response detected` 报错。
+   - **技术重构方案**：
+     - **时序彻底解耦**：将记忆提取调度移至 `onComplete`（回复流式接收完成并释放底层 HTTP 连接后）触发；
+     - 主对话流式请求独占完整信道，不论用户输入多少字，永远不会因辅助调用并发抢占而中断；
+     - 流式完成且回复入库后，后台优雅执行 `evaluateMemoryCandidate`，提取成功后赋值给 `_pendingMemoryCandidate`，界面自然弹出记忆确认卡片，点击即可确认保存或忽略。
+2. **思考模型全面解耦，取消按名称硬编码限制（用户硬性指令 1）**：
+   - **技术重构方案**：
+     - 顺应现代大模型主流思考化趋势，移除 `AiRepository` 中形如 `Regex("""(^|[-_/])(o[134]|gpt-5|r1|qwq)""")` 等针对思考模型名称的旧式硬编码判断；
+     - 在 `ModelCapabilityEngine.resolveThinkingCapabilities` 兜底分支中默认提供思考能力支持（`supportsThinking = true`）与通用思考档位（快速、平衡、深入、极高），不再将自定义模型或非白名单模型判定为不支持思考；
+     - 在 `requestTemperature` 中优化温度策略：当开启思考模式时，Anthropic 协议强制返回 `1.0f`，其他通用模型思考模式下返回 `null`（不传温度），彻底消除各类思考模型因温度参数引发的服务端 400/500 报错。
+3. **现有记忆功能 100% 完整保留与体验优化（用户硬性指令 2）**：
+   - 智能记忆提取机制、辅助模型提炼能力及本地规则兜底机制 100% 完整保留；
+   - 用户读完 AI 完整流式回复后刚好看到提取到的记忆确认卡片，交互体验更丝滑、符合人类直觉。
+4. **内部辅助任务温度安全兼容**：
+   - 对后台滚动摘要（`generateRollingSummary`）、时间线分析（`generateOpenAITimelineAnalysis`/`generateAnthropicTimelineAnalysis`）、自动命名（`generateOpenAITitle`/`generateAnthropicTitle`）、快速请求及备用流式等内部辅助任务统一配置安全兼容温度（置 null），彻底消除思考模型在执行内部辅助任务时的潜在参数冲突。
+5. **设置中“本次更新”同步更新**：
+   - 在 `SettingsScreen.kt` 中添加 `V234UserUpdates`，并同步更新 `CurrentVersionUserUpdates = V234UserUpdates`。
+
+### 2. 自动化测试与工程核验
+- **单元测试**：全量执行 `testDebugUnitTest`，共计 **350 项测试全部通过 (350 passed, 0 failed, BUILD SUCCESSFUL)**。
+- **构建输出**：
+  - 文件路径：`D:\Agent\APP-烧\app\releases\Echo-v2.3.4.apk`
+  - 文件大小：`16,320,509 字节 (~15.56 MB)`
+  - SHA256：`72C5999F6FA093B9A374D2B3CD8411A0FCF0567A5105841DE2454D1ACBCB7691`
+  - 签名方案：`v2 scheme (APK Signature Scheme v2): true`
+  - 包名与版本：`package: name='com.aiassistant' versionCode='139' versionName='2.3.4'`
+  - 历史包策略：`D:\Agent\APP-烧\app\releases` 目录下所有历史版本（包含 `Echo-v2.3.3.apk` 等共 150 个文件）永久完整保留，本次仅增量输出 `Echo-v2.3.4.apk`，严格杜绝任何 `-arm64-v8a` 等架构后缀。
+
+---
+
 ## [2026-09-22] - v2.3.3：时间线梳理断点水线记录与结合原有时间线智能深化、上下文更新摘要与主动压缩解耦防错位、设置本次更新同步
 
 ### 1. 核心需求落实与技术重构详情

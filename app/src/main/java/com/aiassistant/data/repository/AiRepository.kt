@@ -2640,17 +2640,10 @@ class AiRepository(
     private fun requestTemperature(config: ApiConfig, options: ChatRequestOptions): Float? {
         val identity = listOf(config.provider, config.baseUrl, config.modelName).joinToString(" ").lowercase()
         val isAnthropic = config.apiType == "anthropic" || config.provider.equals("anthropic", ignoreCase = true) || "anthropic" in identity || "claude" in identity
-        val isReasoning = Regex("""(^|[-_/])(o[134]|gpt-5|r1|qwq)""").containsMatchIn(config.modelName.lowercase())
-        if (isReasoning) {
-            return null
-        }
+        // 现代主流大模型已全面支持深度思考能力，无需根据名字硬编码判断。
+        // 开启思考模式时，Anthropic 协议规范要求 temperature 必须为 1.0f；其他思考模型普遍不接受自定义温度，统一置 null 避免服务端报错。
         if (options.enableThinking == true) {
-            if (isAnthropic) {
-                return 1.0f
-            }
-            if (isDeepSeekConfig(config) || isMiMoConfig(config)) {
-                return null
-            }
+            return if (isAnthropic) 1.0f else null
         }
         return options.temperature?.coerceIn(0f, temperatureMaxForConfig(config))
     }
@@ -3035,18 +3028,17 @@ class AiRepository(
                 model = modelName,
                 messages = listOf(AnthropicMessage(role = "user", content = prompt)),
                 max_tokens = tokenBudget.coerceIn(SUMMARY_COMPLETION_MIN_TOKENS, SUMMARY_COMPLETION_MAX_TOKENS),
-                temperature = 0.2f
+                temperature = null
             )
             val response = RetrofitClient.getService(config.baseUrl)
                 .anthropicMessages(apiKey = config.apiKey, request = request)
                 .execute()
             if (!response.isSuccessful) null else response.body()?.content?.firstOrNull()?.text
         } else {
-            val isReasoning = Regex("""(^|[-_/])(o[134]|gpt-5|r1|qwq)""").containsMatchIn(modelName.lowercase())
             val request = ChatCompletionRequest(
                 model = modelName,
                 messages = listOf(ChatMessage(role = "user", content = prompt)),
-                temperature = if (isReasoning) null else 0.2f,
+                temperature = null,
                 max_tokens = tokenBudget.coerceIn(SUMMARY_COMPLETION_MIN_TOKENS, SUMMARY_COMPLETION_MAX_TOKENS),
                 stream = false
             )
@@ -3420,11 +3412,10 @@ class AiRepository(
         var lastException: Exception? = null
         for (key in allKeys) {
             try {
-                val isReasoning = Regex("""(^|[-_/])(o[134]|gpt-5|r1|qwq)""").containsMatchIn(config.modelName.lowercase())
                 val request = ChatCompletionRequest(
                     model = config.modelName,
                     messages = listOf(ChatMessage(role = "user", content = prompt)),
-                    temperature = if (isReasoning) null else 0.1f,
+                    temperature = null,
                     max_tokens = 1024,
                     stream = false
                 )
@@ -3457,7 +3448,7 @@ class AiRepository(
                     model = config.modelName,
                     messages = listOf(AnthropicMessage(role = "user", content = prompt)),
                     max_tokens = 1024,
-                    temperature = 0.1f
+                    temperature = null
                 )
                 val response = RetrofitClient.getService(config.baseUrl)
                     .anthropicMessages(
@@ -4299,11 +4290,10 @@ class AiRepository(
 
     private suspend fun generateOpenAITimelineAnalysis(config: ApiConfig, prompt: String): String? {
         val normalizedUrl = normalizeApiBaseUrl(config.baseUrl, config.apiType)
-        val isReasoning = Regex("""(^|[-_/])(o[134]|gpt-5|r1)""", RegexOption.IGNORE_CASE).containsMatchIn(config.modelName)
         val request = ChatCompletionRequest(
             model = config.modelName,
             messages = listOf(ChatMessage(role = "user", content = prompt)),
-            temperature = if (isReasoning) null else 0.2f,
+            temperature = null,
             max_tokens = 8192,
             stream = false
         )
@@ -4348,7 +4338,7 @@ class AiRepository(
             model = config.modelName,
             messages = listOf(AnthropicMessage(role = "user", content = prompt)),
             max_tokens = 8192,
-            temperature = 0.2f
+            temperature = null
         )
         val allKeys = parseApiKeys(config.apiKey).ifEmpty { listOf(config.apiKey) }
         var lastException: Exception? = null
@@ -4955,7 +4945,7 @@ class AiRepository(
         val request = ChatCompletionRequest(
             model = config.modelName,
             messages = listOf(ChatMessage(role = "user", content = prompt)),
-            temperature = 0.2f,
+            temperature = null,
             max_tokens = 64,
             stream = false
         )
@@ -4971,7 +4961,7 @@ class AiRepository(
             model = config.modelName,
             messages = listOf(AnthropicMessage(role = "user", content = prompt)),
             max_tokens = 64,
-            temperature = 0.2f
+            temperature = null
         )
         val response = RetrofitClient.getService(config.baseUrl)
             .anthropicMessages(apiKey = config.apiKey, request = request)
@@ -4987,11 +4977,10 @@ class AiRepository(
         maxTokens: Int
     ): String? {
         return try {
-            val isReasoning = Regex("""(^|[-_/])(o[134]|gpt-5|r1)""", RegexOption.IGNORE_CASE).containsMatchIn(config.modelName)
             val request = ChatCompletionRequest(
                 model = config.modelName,
                 messages = listOf(ChatMessage(role = "user", content = prompt)),
-                temperature = if (isReasoning) null else 0.3f,
+                temperature = null,
                 max_tokens = maxTokens,
                 stream = true
             )
@@ -5044,8 +5033,6 @@ class AiRepository(
         }
         var lastException: Exception? = null
 
-        val isReasoning = Regex("""(^|[-_/])(o[134]|gpt-5|r1)""", RegexOption.IGNORE_CASE).containsMatchIn(config.modelName)
-
         for (key in allKeys) {
             val cleanKey = key.removePrefix("Bearer ").trim()
             for (attempt in 1..2) {
@@ -5055,7 +5042,7 @@ class AiRepository(
                             model = config.modelName,
                             messages = listOf(AnthropicMessage(role = "user", content = prompt)),
                             max_tokens = maxTokens,
-                            temperature = if (isReasoning) null else 0.3f
+                            temperature = null
                         )
                         val response = RetrofitClient.getAnalysisService(normalizedUrl)
                             .anthropicMessages(apiKey = cleanKey, request = request)
@@ -5074,7 +5061,7 @@ class AiRepository(
                         val request = ChatCompletionRequest(
                             model = config.modelName,
                             messages = listOf(ChatMessage(role = "user", content = prompt)),
-                            temperature = if (isReasoning) null else 0.3f,
+                            temperature = null,
                             max_tokens = maxTokens,
                             stream = false
                         )
