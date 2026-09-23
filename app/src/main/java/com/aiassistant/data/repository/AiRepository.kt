@@ -317,6 +317,53 @@ class AiRepository(
             return title.ifBlank { null }
         }
 
+        /**
+         * 滚动摘要生成文本清洗与尾部断句防腰斩安全闭合保护：
+         * 1. 彻底剔除思考模型遗留的 <think>...</think> 过程；
+         * 2. 检测模型因达到 max_tokens 截断（或网络中途终止）而在结尾遗留的残缺半句；
+         * 3. 若尾行缺失合法标点，安全修剪至上一处合法完整句子或补充句号闭合，杜绝残缺断句入库。
+         */
+        fun sanitizeSummaryCompletion(rawText: String?): String? {
+            if (rawText.isNullOrBlank()) return null
+            var text = rawText.trim()
+            if (text.contains("<think>")) {
+                text = text.substringAfterLast("</think>", text.substringBefore("<think>")).trim()
+            }
+            if (text.isBlank()) return null
+
+            val lines = text.lines().map { it.trimEnd() }.toMutableList()
+            while (lines.isNotEmpty() && lines.last().isBlank()) {
+                lines.removeAt(lines.lastIndex)
+            }
+            if (lines.isEmpty()) return null
+
+            val validEndPunctuation = setOf('。', '！', '？', '；', '”', '’', '"', '\'', '…', '.', '!', '?', ')')
+            val lastLine = lines.last().trim()
+            val lastChar = lastLine.lastOrNull()
+
+            if (lastChar != null && lastChar !in validEndPunctuation) {
+                // 最后一行未以正常结束标点结尾，说明在半句被截断
+                val lastSentenceEndIdx = lastLine.indexOfLast { it in validEndPunctuation }
+                if (lastSentenceEndIdx >= 0 && lastSentenceEndIdx >= lastLine.length / 3) {
+                    // 最后一行内部有完整句末标点，修剪掉尾部半截残句
+                    lines[lines.lastIndex] = lastLine.substring(0, lastSentenceEndIdx + 1).trim()
+                } else if (lines.size > 1) {
+                    // 若最后一行几乎全部是破碎残句且已有前序内容，直接剔除此残缺行
+                    lines.removeAt(lines.lastIndex)
+                    while (lines.isNotEmpty() && lines.last().isBlank()) {
+                        lines.removeAt(lines.lastIndex)
+                    }
+                } else {
+                    // 仅单行且无句尾标点，去除末尾可能残留的逗号等中顿标点并安全追加句号
+                    val cleanedSingle = lastLine.trimEnd('，', ',', '、', '-', ' ')
+                    lines[0] = cleanedSingle + "。"
+                }
+            }
+
+            val result = lines.joinToString("\n").trim()
+            return result.ifBlank { null }
+        }
+
         fun generateDuplicateTitle(originalTitle: String): String {
             val trimmed = originalTitle.trim()
             if (trimmed.isEmpty()) return "未命名对话 (副本)"
@@ -1429,6 +1476,7 @@ class AiRepository(
 
             val existingSummary = conversation.rollingSummary?.takeIf { it.isNotBlank() }
             val latestTimelineAnchor = resolveLatestTimelineAnchor(conversation.id)
+            val existingPreferencesAndConstraints = resolveExistingPreferencesAndConstraints(conversation.id)
             val generated = runCatching {
                 withTimeoutOrNull(90_000L) {
                     generateRollingSummary(
@@ -1437,10 +1485,11 @@ class AiRepository(
                         existingSummary = existingSummary,
                         pendingMessages = sourceMessages,
                         tokenBudget = tokenBudget,
-                        latestTimelineAnchor = latestTimelineAnchor
+                        latestTimelineAnchor = latestTimelineAnchor,
+                        existingPreferencesAndConstraints = existingPreferencesAndConstraints
                     )
                 }
-            }.getOrNull() ?: existingSummary ?: buildExtractiveConversationSummary(sourceMessages, tokenBudget)
+            }.getOrNull() ?: existingSummary ?: buildExtractiveConversationSummary(sourceMessages, tokenBudget, existingPreferencesAndConstraints)
 
             val finalSummary = generated?.takeIf { it.isNotBlank() }?.trim()
                 ?: throw IllegalStateException("未能提炼出有效摘要内容，请检查模型配置与网络连接")
@@ -2983,6 +3032,38 @@ class AiRepository(
         }
     }
 
+    private suspend fun resolveExistingPreferencesAndConstraints(conversationId: Long): List<String> {
+        val results = mutableListOf<String>()
+        val candidateMemories = runCatching { memoryDao.getCandidateMemories(conversationId) }.getOrNull().orEmpty()
+        for (m in candidateMemories) {
+            val trimmed = m.content.trim()
+            if (trimmed.isBlank()) continue
+            val lower = trimmed.lowercase(java.util.Locale.ROOT)
+            if (lower.contains("偏好") || lower.contains("约束") || lower.contains("准则") ||
+                lower.contains("习惯") || lower.contains("禁忌") || lower.contains("禁止") ||
+                lower.contains("必须") || lower.contains("不要") || lower.contains("规则") ||
+                m.scope == "user" || m.scope == "global"
+            ) {
+                results.add(trimmed)
+            }
+        }
+        val timelineNodes = timelineNodeDao?.let { runCatching { it.getTimelineNodes(conversationId) }.getOrNull() }.orEmpty()
+        for (node in timelineNodes) {
+            val category = TimelineCategory.fromKey(node.category)
+            if (category == TimelineCategory.RULE_CONSTRAINT ||
+                category == TimelineCategory.ATEMPORAL_SETTING ||
+                category == TimelineCategory.CHARACTER_SETTING ||
+                category == TimelineCategory.WORLD_SETTING
+            ) {
+                val content = node.eventContent.trim()
+                if (content.isNotBlank() && !results.contains(content)) {
+                    results.add(content)
+                }
+            }
+        }
+        return results.take(12)
+    }
+
     private suspend fun ensureRollingSummary(
         conversation: Conversation?,
         config: ApiConfig,
@@ -3010,9 +3091,18 @@ class AiRepository(
         }
 
         val latestTimelineAnchor = resolveLatestTimelineAnchor(conversation.id)
+        val existingPreferencesAndConstraints = resolveExistingPreferencesAndConstraints(conversation.id)
         val generated = runCatching {
             withTimeoutOrNull(30_000L) {
-                generateRollingSummary(config, modelName, existingSummary, pendingMessages, tokenBudget, latestTimelineAnchor)
+                generateRollingSummary(
+                    config = config,
+                    modelName = modelName,
+                    existingSummary = existingSummary,
+                    pendingMessages = pendingMessages,
+                    tokenBudget = tokenBudget,
+                    latestTimelineAnchor = latestTimelineAnchor,
+                    existingPreferencesAndConstraints = existingPreferencesAndConstraints
+                )
             }
         }.onFailure {
             Log.w(tag, "Rolling summary generation failed", it)
@@ -3021,7 +3111,7 @@ class AiRepository(
         val finalSummary = generated
             ?.takeIf { it.isNotBlank() }?.trim()
             ?: existingSummary
-            ?: buildExtractiveConversationSummary(olderMessages, tokenBudget)
+            ?: buildExtractiveConversationSummary(olderMessages, tokenBudget, existingPreferencesAndConstraints)
 
         if (!finalSummary.isNullOrBlank() && olderMessages.size >= MIN_SUMMARY_SOURCE_MESSAGES) {
             conversationDao.updateRollingSummary(
@@ -3040,16 +3130,20 @@ class AiRepository(
         existingSummary: String?,
         pendingMessages: List<Message>,
         tokenBudget: Int,
-        latestTimelineAnchor: String? = null
+        latestTimelineAnchor: String? = null,
+        existingPreferencesAndConstraints: List<String>? = null
     ): String? {
         val transcript = buildSummaryTranscript(pendingMessages, maxMessages = SUMMARY_TRANSCRIPT_MESSAGE_LIMIT)
         val prompt = AdvancedMemoryEngine.buildStructuredSummaryPrompt(
             existingSummary = existingSummary,
             transcript = transcript,
             tokenBudget = tokenBudget.coerceIn(SUMMARY_PROMPT_MIN_TOKENS, SUMMARY_PROMPT_MAX_TOKENS),
-            latestTimelineAnchor = latestTimelineAnchor
+            latestTimelineAnchor = latestTimelineAnchor,
+            existingPreferencesAndConstraints = existingPreferencesAndConstraints
         )
-        val completionTokens = maxOf(tokenBudget * 2, 4096).coerceIn(4096, 8192)
+        // 预留足够充裕的生成 Token（尤其对于 DeepSeek-R1、QwQ、Claude 3.7 Thinking 等思考模型，
+        // 内部思考过程 reasoning_content 动辄消耗 3000~6000 Token，必须留出至少 16,384 Token 确保正文生成不被截断）
+        val completionTokens = if (config.apiType == "anthropic") 8192 else 16384
 
         val normalizedUrl = normalizeApiBaseUrl(config.baseUrl, config.apiType)
         val allKeys = parseApiKeys(config.apiKey).ifEmpty { listOf(config.apiKey) }
@@ -3075,7 +3169,8 @@ class AiRepository(
                         }
                         val text = response.body()?.content?.firstOrNull { it.type == "text" }?.text
                             ?: response.body()?.content?.firstOrNull()?.text
-                        if (!text.isNullOrBlank()) return text.trim()
+                        val sanitized = sanitizeSummaryCompletion(text)
+                        if (!sanitized.isNullOrBlank()) return sanitized
                     } else {
                         // 优先尝试标准非流式请求
                         val request = ChatCompletionRequest(
@@ -3097,7 +3192,8 @@ class AiRepository(
                             val choice = body?.choices?.firstOrNull()
                             val text = choice?.message?.content?.ifBlank { null }
                                 ?: choice?.message?.reasoning_content?.ifBlank { null }
-                            if (!text.isNullOrBlank()) return text.trim()
+                            val sanitized = sanitizeSummaryCompletion(text)
+                            if (!sanitized.isNullOrBlank()) return sanitized
                         } else {
                             val errBody = response.errorBody()?.string()?.take(300).orEmpty()
                             Log.w(tag, "generateRollingSummary 非流式 HTTP ${response.code()}: $errBody，尝试流式通道备用")
@@ -3110,8 +3206,9 @@ class AiRepository(
                             prompt = prompt,
                             maxTokens = completionTokens
                         )
-                        if (!streamResult.isNullOrBlank()) {
-                            return streamResult.trim()
+                        val sanitized = sanitizeSummaryCompletion(streamResult)
+                        if (!sanitized.isNullOrBlank()) {
+                            return sanitized
                         }
                     }
                 } catch (e: Exception) {
@@ -3148,10 +3245,18 @@ class AiRepository(
         }
     }
 
-    private fun buildExtractiveConversationSummary(messages: List<Message>, tokenBudget: Int): String? {
+    private fun buildExtractiveConversationSummary(
+        messages: List<Message>,
+        tokenBudget: Int,
+        existingPreferencesAndConstraints: List<String>? = null
+    ): String? {
         if (messages.isEmpty()) return null
         val recentMessages = if (messages.size > 30) messages.takeLast(30) else messages
-        val structured = AdvancedMemoryEngine.generateExtractiveStructuredSummary(recentMessages, tokenBudget)
+        val structured = AdvancedMemoryEngine.generateExtractiveStructuredSummary(
+            recentMessages,
+            tokenBudget,
+            existingPreferencesAndConstraints
+        )
         val block = structured.toPromptBlock()
         if (block.isBlank()) return null
         return compactTextToTokenBudget(block, tokenBudget)

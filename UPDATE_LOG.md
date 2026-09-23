@@ -2,6 +2,33 @@
 
 本文档按照工作流规范记录每次版本更新、需求变更与复核结果。
 
+## [2026-09-23] - 滚动摘要文本中途截断彻底修复与记忆已有偏好约束去重优化
+
+### 1. 核心需求落实与技术重构详情
+1. **滚动摘要中途截断与显示不全彻底修复（核心痛点根治）**：
+   - **生成 Token 空间大幅提升至 16,384**：
+     - 排查发现对于 DeepSeek-R1、QwQ、Claude 3.7 Thinking 等主流思考模型，模型内部思维链推理过程动辄消耗 3000~6000 Token；原 `completionTokens` 仅配置 4096~8192，导致思考结束后剩余配额不足以容纳摘要正文，触发 `max_tokens`（`finish_reason == "length"`）而在正文中途中止；
+     - 将提炼生成上限提升至充裕的 16,384 Token（Anthropic 保持 8192 上限），为思考模型预留极其充裕的输出空间。
+   - **引入尾部断句防腰斩算法 `sanitizeSummaryCompletion`**：
+     - 在 `AiRepository.kt` 中实现 `sanitizeSummaryCompletion`，在入库与返回前自动检测文本尾行是否以合法标点（`。！？；”’）`等）闭合；若尾部因网络或模型中断残留无标点半句，自动修剪回退至上一处完整合法句子或安全闭合，彻底杜绝半截残句存入数据库。
+   - **弹窗 UI 滚动与高度自适应放宽**：
+     - 在 `ChatContextComponents.kt` 的 `RollingSummaryEditDialog` 中，为外层 `Column` 增加 `verticalScroll(rememberScrollState())`，并将输入框高度自适应放宽至 `min = 180.dp, max = 460.dp`，设置 `maxLines = 30`，彻底解决长文本在小屏及软键盘下的视觉截断与无法完整浏览问题。
+2. **滚动摘要提取方式优化：记忆已有偏好约束严格去重**：
+   - **记忆库与时间线已有偏好/约束动态提取**：
+     - 在 `AiRepository.kt` 中设计实现 `resolveExistingPreferencesAndConstraints(conversationId)`，自动从 `memoryDao.getCandidateMemories`（用户级/全局级记忆、含“偏好/约束/准则/习惯/禁忌/禁止/必须/不要/规则”等条目）及 `TimelineNodeDao`（`RULE_CONSTRAINT`、`ATEMPORAL_SETTING` 等）中提取已生效的固定约束与偏好设定。
+   - **提示词最高去重铁律下达**：
+     - 在 `AdvancedMemoryEngine.buildStructuredSummaryPrompt` 中注入 `【已有记忆与偏好约束（严禁在此重复提炼）】`，明确下达最高去重指令：“记忆库与约束系统已独立完整承载用户的偏好习惯（如称谓、语气偏好、技术栈偏好）、行为准则与固定约束，本摘要严禁总结或记录记忆中已存在的用户偏好约束与长期设定，必须将篇幅全力留给近期真实发生的事件推进与最新时空动态！”
+   - **本地抽取式兜底同步去重**：
+     - 在 `AdvancedMemoryEngine.generateExtractiveStructuredSummary` 中同样引入 `existingPreferencesAndConstraints`，避免本地提取时重复提取已在记忆中持久化的用户偏好约束。
+
+### 2. 自动化测试与工程核验
+- **单元测试**：全量执行 `testDebugUnitTest` 与 `RollingSummaryEnhancementTest`，全部测试用例通过 (BUILD SUCCESSFUL，0 failed)。
+  - `testSanitizeSummaryCompletion_trimsHalfSentenceAndClosesProperly PASSED`
+  - `testBuildStructuredSummaryPrompt_memoryDeduplicationDirectives PASSED`
+  - `testExtractiveStructuredSummary_deduplicatesKnownPreferences PASSED`
+
+---
+
 ## [2026-09-23] - v2.3.8：滚动摘要断层情节拼接彻底根除、时间线记忆职责彻底解耦与最新时间节点强锚定
 
 ### 1. 核心需求落实与技术重构详情

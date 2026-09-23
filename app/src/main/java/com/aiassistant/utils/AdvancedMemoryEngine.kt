@@ -275,7 +275,8 @@ object AdvancedMemoryEngine {
      */
     fun generateExtractiveStructuredSummary(
         messages: List<Message>,
-        maxTokens: Int = 1000
+        maxTokens: Int = 1000,
+        existingPreferencesAndConstraints: List<String>? = null
     ): StructuredStateSummary {
         // 聚焦近期对话轮次（最多最近 30 条），防止将全篇开场的陈旧消息与近期消息强行拼合
         val recentMessages = if (messages.size > 30) messages.takeLast(30) else messages
@@ -284,18 +285,23 @@ object AdvancedMemoryEngine {
         val milestones = mutableListOf<String>()
         val openItems = mutableListOf<String>()
 
+        val knownConstraints = existingPreferencesAndConstraints?.map { it.lowercase(Locale.ROOT) }.orEmpty()
+
         for (msg in pruned) {
             val content = msg.content.trim()
             val lower = content.lowercase(Locale.ROOT)
 
-            // 1. 抽取用户固定约束与核心要求
+            // 1. 抽取用户固定约束与核心要求（去重：若在已知记忆约束中已存在，则严禁重复提炼）
             if (msg.role == "user") {
                 if (listOf("请记住", "要求", "设定", "必须", "不要", "始终", "偏好").any { lower.contains(it) }) {
                     val targetLine = content.lines().firstOrNull { l ->
                         listOf("要求", "设定", "必须", "不要", "始终", "偏好", "记住").any { l.contains(it) }
                     } ?: content
                     val clean = extractCompleteSentence(targetLine, 140)
-                    if (constraints.none { it == clean }) constraints.add(clean)
+                    val isAlreadyKnown = knownConstraints.any { it.contains(clean.lowercase(Locale.ROOT)) || clean.lowercase(Locale.ROOT).contains(it) }
+                    if (!isAlreadyKnown && constraints.none { it == clean }) {
+                        constraints.add(clean)
+                    }
                 }
             }
 
@@ -342,13 +348,15 @@ object AdvancedMemoryEngine {
      * 架构原则：
      * 1. 整体的时间线通过记忆读取：全篇历史脉络与时间线独立承载，滚动摘要严禁从头编造或错误串联开场情节；
      * 2. 摘要只负责总结最近发生了什么：聚焦近期对话的核心进展与当前停顿状态；
-     * 3. 摘要总结的内容只能和时间线最新的时间节点关联上。
+     * 3. 摘要总结的内容只能和时间线最新的时间节点关联上；
+     * 4. 优化滚动摘要的提取方式：记忆库与约束系统已独立完整承载偏好习惯，严禁总结记忆中已经存在的内容（如用户偏好约束等）。
      */
     fun buildStructuredSummaryPrompt(
         existingSummary: String?,
         transcript: String,
         tokenBudget: Int,
-        latestTimelineAnchor: String? = null
+        latestTimelineAnchor: String? = null,
+        existingPreferencesAndConstraints: List<String>? = null
     ): String {
         val timelineAnchorDirective = if (!latestTimelineAnchor.isNullOrBlank()) {
             """
@@ -361,15 +369,27 @@ object AdvancedMemoryEngine {
             ""
         }
 
+        val existingConstraintsDirective = if (!existingPreferencesAndConstraints.isNullOrEmpty()) {
+            """
+
+            【已有记忆与偏好约束（严禁在此重复提炼）】：
+            ${existingPreferencesAndConstraints.joinToString("\n") { "- $it" }}
+            - 极重要去重铁律：以上用户偏好习惯、行为禁令与固定约束已由系统记忆全量保存，本摘要严禁总结或记录上述任何内容！
+            """.trimIndent()
+        } else {
+            ""
+        }
+
         return """
             请将以下历史对话提炼为高质量、结构清晰、信息完整的会话滚动摘要。
             【架构定位与分工】：整体的时间线通过记忆读取，滚动摘要只负责总结最近发生了什么。侧重提炼“前序对话核心脉络与未决议题、达成的共识与决策、当前未决议题与待办事项”，与时间线系统紧密协同互补，避免机械复读冗长的时间节点列表。
-            摘要必须言之有物、表述完整、逻辑严谨，严禁输出残缺短句、截断词组或毫无意义的机械套话。$timelineAnchorDirective
+            【极重要去重原则】：不要总结记忆中已经存在的内容（严禁总结用户偏好习惯、称谓要求、输出格式、行为准则等固定约束），避免冗余复读与挤占篇幅。
+            摘要必须言之有物、表述完整、逻辑严谨，每句话必须有始有终，结尾必须以完整标点符号（如句号）闭合，严禁输出残缺短句、截断词组或毫无意义的机械套话。$timelineAnchorDirective$existingConstraintsDirective
 
             请按以下结构组织内容：
 
             【核心背景与用户固定约束】
-            - 准确概括本次对话的核心主题、讨论目标、用户明确设定的核心约束、偏好习惯与已确立的关键共识。
+            - 准确概括本次对话的核心主题与当前讨论目标。【极重要去重原则】：严禁总结记忆中已经存在的内容！用户的偏好习惯（如称谓、语气风格、格式要求）、固定约束与行为准则已由系统记忆独立全量承载，本摘要严禁总结或重复记录任何用户偏好约束与长期设定，必须将宝贵篇幅全量留给近期真实发生的事件推进与最新时空动态。
 
             【历史关键里程碑与决策推进】
             - 按顺序提炼双方经历的核心事件、已解决的关键技术/业务决策或剧情推进（编号 1, 2, 3...，简短聚焦事件本身与决策推进，与时间线系统紧密协同互补）。每条记录必须是完整、通顺、有始有终的句子。严禁跨越中段剧情去错误连接开场相见与最新事件等断层情节。
@@ -382,11 +402,12 @@ object AdvancedMemoryEngine {
             - 明确提取当前对话停顿处正在进行、尚未完成的事项或下一步待办，保持前序对话核心脉络与未决议题清晰，便于后续无缝承接。
 
             要求：
-            1. 语言必须自然通顺、表述完整，每句话都必须意思表达充分，严禁被暴力截断或半句截断。
+            1. 语言必须自然通顺、表述完整，每句话都必须意思表达充分，结尾必须以完整标点闭合，严禁被暴力截断或半句截断。
             2. 控制在 $tokenBudget token 以内，使用简明中文，直切要点，杜绝废话和无意义客套。
             3. 与时间线系统紧密协同互补，避免机械复读冗长的时间节点列表。
             4. 整体的时间线通过记忆读取，摘要只负责总结最近发生了什么，摘要总结的内容只能和时间线最新的时间节点关联上。
-            5. 不要输出任何开场白或“好的，以下是摘要”等客套。
+            5. 极重要去重原则：不要总结记忆中已经存在的内容，严禁总结用户的偏好习惯、称谓禁忌、输出格式要求或行为准则等约束，全量聚焦近期对话的具体进展与最新时空节点。
+            6. 不要输出任何开场白或“好的，以下是摘要”等客套。
 
             已有摘要：
             ${existingSummary ?: "无"}

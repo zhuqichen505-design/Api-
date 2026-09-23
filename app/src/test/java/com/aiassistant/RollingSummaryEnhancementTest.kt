@@ -2,7 +2,9 @@ package com.aiassistant
 
 import com.aiassistant.domain.model.Message
 import com.aiassistant.utils.AdvancedMemoryEngine
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -155,5 +157,78 @@ class RollingSummaryEnhancementTest {
         assertTrue("必须包含滚动摘要标点断句保护彻底根除暴力截断说明", com.aiassistant.ui.screens.settings.V237UserUpdates.any { it.contains("滚动摘要标点断句保护彻底根除暴力截断") })
         assertTrue("必须包含滚动摘要提示词去机械化与上下文深度提炼说明", com.aiassistant.ui.screens.settings.V237UserUpdates.any { it.contains("滚动摘要提示词去机械化与上下文深度提炼") })
         assertTrue("必须包含长分析服务通道全面升级保障生成韧性说明", com.aiassistant.ui.screens.settings.V237UserUpdates.any { it.contains("长分析服务通道全面升级保障生成韧性") })
+    }
+
+    @Test
+    fun testSanitizeSummaryCompletion_trimsHalfSentenceAndClosesProperly() {
+        // 测试用例 1：带 <think> 标签的思考过程被剔除
+        val rawWithThink = "<think>思考中...\n分析时间线...</think>【核心背景与用户固定约束】\n讨论最新技术重构方案。"
+        val cleaned = com.aiassistant.data.repository.AiRepository.sanitizeSummaryCompletion(rawWithThink)
+        assertNotNull("清洗结果不应为空", cleaned)
+        assertFalse("不应残留 think 标签", cleaned!!.contains("<think>"))
+        assertTrue("应保留正文", cleaned.contains("【核心背景与用户固定约束】"))
+        assertTrue("应以合法标点结尾", cleaned.endsWith("。"))
+
+        // 测试用例 2：末尾出现中途截断的半截残句（例如模型 max_tokens 截断）
+        val truncatedRaw = """
+            【核心背景与用户固定约束】
+            讨论最新技术重构方案。
+
+            【历史关键里程碑与决策推进】
+            1. 确定采用 Kotlin 语言。
+            2. 双方正在商量接下来的界
+        """.trimIndent()
+        val sanitizedTruncated = com.aiassistant.data.repository.AiRepository.sanitizeSummaryCompletion(truncatedRaw)
+        assertNotNull(sanitizedTruncated)
+        assertFalse("截断的半句必须被安全剔除", sanitizedTruncated!!.contains("双方正在商量接下来的界"))
+        assertTrue("前面的完整句子必须完整保留", sanitizedTruncated.contains("1. 确定采用 Kotlin 语言。"))
+
+        // 测试用例 3：单行未以标点结尾，安全自动补全句号
+        val singleLineRaw = "两人在街角拉面馆就餐讨论方案"
+        val singleLineSanitized = com.aiassistant.data.repository.AiRepository.sanitizeSummaryCompletion(singleLineRaw)
+        assertEquals("单行无标点应安全闭合", "两人在街角拉面馆就餐讨论方案。", singleLineSanitized)
+    }
+
+    @Test
+    fun testBuildStructuredSummaryPrompt_memoryDeduplicationDirectives() {
+        val existingConstraints = listOf(
+            "用户偏好简洁中文回复，禁止使用英文术语",
+            "必须始终保持冷静理性的语气"
+        )
+        val prompt = AdvancedMemoryEngine.buildStructuredSummaryPrompt(
+            existingSummary = "已有早期设定",
+            transcript = "用户: 明天早上九点准时出发。\n助手: 好的，已确认行程。",
+            tokenBudget = 2000,
+            latestTimelineAnchor = "[第 2 天·清晨] 准备出发",
+            existingPreferencesAndConstraints = existingConstraints
+        )
+
+        // 验证提示词注入了去重指令
+        assertTrue("提示词必须明确声明不要总结记忆中已经存在的内容", prompt.contains("不要总结记忆中已经存在的内容"))
+        assertTrue("提示词必须严禁总结用户偏好习惯", prompt.contains("严禁总结用户偏好习惯"))
+        assertTrue("提示词必须包含已有记忆约束板块", prompt.contains("【已有记忆与偏好约束（严禁在此重复提炼）】："))
+        assertTrue("必须列出已知约束1", prompt.contains("用户偏好简洁中文回复，禁止使用英文术语"))
+        assertTrue("必须列出已知约束2", prompt.contains("必须始终保持冷静理性的语气"))
+        assertTrue("必须声明记忆去重铁律", prompt.contains("以上用户偏好习惯、行为禁令与固定约束已由系统记忆全量保存，本摘要严禁总结或记录上述任何内容！"))
+    }
+
+    @Test
+    fun testExtractiveStructuredSummary_deduplicatesKnownPreferences() {
+        val messages = listOf(
+            Message(id = 1, conversationId = 1, role = "user", content = "请记住：用户偏好简洁回复，严禁废话。"),
+            Message(id = 2, conversationId = 1, role = "assistant", content = "好的，已记录您的偏好。"),
+            Message(id = 3, conversationId = 1, role = "user", content = "我们决定明天早上九点去车站集合。"),
+            Message(id = 4, conversationId = 1, role = "assistant", content = "好的，明天见。")
+        )
+        val knownConstraints = listOf("用户偏好简洁回复，严禁废话")
+        val summary = AdvancedMemoryEngine.generateExtractiveStructuredSummary(
+            messages = messages,
+            maxTokens = 1000,
+            existingPreferencesAndConstraints = knownConstraints
+        )
+
+        // 已在记忆中的约束不应重复被提取进 coreConstraints
+        assertFalse("已在记忆库中的偏好不应重复提炼", summary.coreConstraints.any { it.contains("用户偏好简洁回复") })
+        assertTrue("有效事件必须被提取", summary.milestones.any { it.contains("车站集合") || it.contains("决定") })
     }
 }

@@ -908,7 +908,12 @@ internal fun RollingSummaryEditDialog(
             }
         },
         content = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 Text(
                     text = "滚动摘要由 AI 根据早期历史对话提炼，已自动注入到系统上下文中。您可以直接审阅或按需编辑修改：",
                     style = MaterialTheme.typography.bodySmall,
@@ -919,7 +924,8 @@ internal fun RollingSummaryEditDialog(
                     onValueChange = { text = it },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 160.dp, max = 340.dp),
+                        .heightIn(min = 180.dp, max = 460.dp),
+                    maxLines = 30,
                     placeholder = { Text("暂无滚动摘要内容...") },
                     textStyle = MaterialTheme.typography.bodyMedium
                 )
