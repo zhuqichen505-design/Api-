@@ -65,6 +65,39 @@ class RollingSummaryEnhancementTest {
     }
 
     @Test
+    fun testExtractiveStructuredSummary_onlyScansRecentWindow() {
+        val oldMessages = (1..35).map { idx ->
+            Message(
+                id = idx.toLong(),
+                conversationId = 1,
+                role = if (idx % 2 == 1) "user" else "assistant",
+                content = if (idx == 1) "【决定】：古代开篇决定在车站见面。" else "第 $idx 轮常规对话进展记录。"
+            )
+        }
+        val recentMessages = listOf(
+            Message(
+                id = 36,
+                conversationId = 1,
+                role = "assistant",
+                content = "【商定】：两人商定在商业街吃拉面。"
+            ),
+            Message(
+                id = 37,
+                conversationId = 1,
+                role = "user",
+                content = "接下来需要前往拉面馆就餐。"
+            )
+        )
+        val allMessages = oldMessages + recentMessages
+        val summary = AdvancedMemoryEngine.generateExtractiveStructuredSummary(allMessages)
+
+        // 验证：37 条消息中，前 7 条（包含第 1 条“古代开篇决定在车站见面”）被排除在最近 30 条窗口之外
+        assertFalse("兜底提取严禁包含远古第 1 条开篇事件", summary.milestones.any { it.contains("古代开篇决定在车站见面") })
+        assertTrue("兜底提取应正确包含近期商定事件", summary.milestones.any { it.contains("商业街吃拉面") })
+        assertTrue("兜底提取应包含最新下一步待办", summary.openItems.any { it.contains("前往拉面馆就餐") })
+    }
+
+    @Test
     fun testBuildStructuredSummaryPrompt_containsClarityAndCompletenessDirectives() {
         val prompt = AdvancedMemoryEngine.buildStructuredSummaryPrompt(
             existingSummary = "已有技术选型讨论",
@@ -84,11 +117,40 @@ class RollingSummaryEnhancementTest {
         assertTrue("提示词必须强调时间线系统紧密协同互补", prompt.contains("时间线系统紧密协同互补"))
         assertTrue("提示词必须强调避免机械复读冗长的时间节点列表", prompt.contains("避免机械复读冗长的时间节点列表"))
         assertTrue("提示词必须强调当前未决议题与待办事项", prompt.contains("当前未决议题与待办事项"))
+        assertTrue("提示词必须强调整体的时间线通过记忆读取", prompt.contains("整体的时间线通过记忆读取"))
+        assertTrue("提示词必须强调摘要只负责总结最近发生了什么", prompt.contains("摘要只负责总结最近发生了什么"))
+        assertTrue("提示词必须强调摘要总结的内容只能和时间线最新的时间节点关联上", prompt.contains("摘要总结的内容只能和时间线最新的时间节点关联上"))
+        assertTrue("提示词必须强调严禁跨越中段剧情去错误连接开场相见与最新事件等断层情节", prompt.contains("严禁跨越中段剧情去错误连接开场相见与最新事件等断层情节"))
+    }
+
+    @Test
+    fun testBuildStructuredSummaryPrompt_withLatestTimelineAnchor_enforcesStrictAnchoring() {
+        val prompt = AdvancedMemoryEngine.buildStructuredSummaryPrompt(
+            existingSummary = "第1天 两主角在车站初次相见并达成调查约定",
+            transcript = "用户: 晚上一块去吃拉面吧。\n助手: 好的，在街角那家店碰面。",
+            tokenBudget = 2000,
+            latestTimelineAnchor = "[第 3 天·傍晚] 调查告一段落，两人相约商业街"
+        )
+
+        assertTrue("提示词必须注入时间线最新节点", prompt.contains("【时间线最新时间节点（时序基准）】："))
+        assertTrue("提示词必须包含具体时间节点内容", prompt.contains("[第 3 天·傍晚] 调查告一段落，两人相约商业街"))
+        assertTrue("提示词必须包含时空锚定铁律", prompt.contains("整体时间线通过记忆读取，摘要只负责总结最近发生了什么，摘要总结的内容只能和时间线最新的时间节点关联上！"))
+        assertTrue("提示词必须严禁将更早开场情节与近期事件跨段因果连接", prompt.contains("严禁将更早开场情节（如初次相见）与近期事件跨段因果连接"))
+    }
+
+    @Test
+    fun testV238UserUpdatesCompleteness() {
+        org.junit.Assert.assertEquals("CurrentVersionUserUpdates 必须对齐为 V238UserUpdates", com.aiassistant.ui.screens.settings.V238UserUpdates, com.aiassistant.ui.screens.settings.CurrentVersionUserUpdates)
+        org.junit.Assert.assertEquals("V2.3.8 用户更新日志应有 5 项核心内容", 5, com.aiassistant.ui.screens.settings.V238UserUpdates.size)
+        assertTrue("必须包含滚动摘要断层情节拼接彻底根除说明", com.aiassistant.ui.screens.settings.V238UserUpdates.any { it.contains("滚动摘要断层情节拼接彻底根除") })
+        assertTrue("必须包含时间线记忆与滚动摘要职责彻底明晰说明", com.aiassistant.ui.screens.settings.V238UserUpdates.any { it.contains("时间线记忆与滚动摘要职责彻底明晰") })
+        assertTrue("必须包含摘要总结内容强制锚定最新时间节点说明", com.aiassistant.ui.screens.settings.V238UserUpdates.any { it.contains("摘要总结内容强制锚定最新时间节点") })
+        assertTrue("必须包含最新时间基准动态注入提炼引擎说明", com.aiassistant.ui.screens.settings.V238UserUpdates.any { it.contains("最新时间基准动态注入提炼引擎") })
+        assertTrue("必须包含本地抽取式兜底严格限制近期轮次说明", com.aiassistant.ui.screens.settings.V238UserUpdates.any { it.contains("本地抽取式兜底严格限制近期轮次") })
     }
 
     @Test
     fun testV237UserUpdatesCompleteness() {
-        org.junit.Assert.assertEquals("CurrentVersionUserUpdates 必须对齐为 V237UserUpdates", com.aiassistant.ui.screens.settings.V237UserUpdates, com.aiassistant.ui.screens.settings.CurrentVersionUserUpdates)
         org.junit.Assert.assertEquals("V2.3.7 用户更新日志应有 5 项核心内容", 5, com.aiassistant.ui.screens.settings.V237UserUpdates.size)
         assertTrue("必须包含滚动摘要标点断句保护彻底根除暴力截断说明", com.aiassistant.ui.screens.settings.V237UserUpdates.any { it.contains("滚动摘要标点断句保护彻底根除暴力截断") })
         assertTrue("必须包含滚动摘要提示词去机械化与上下文深度提炼说明", com.aiassistant.ui.screens.settings.V237UserUpdates.any { it.contains("滚动摘要提示词去机械化与上下文深度提炼") })

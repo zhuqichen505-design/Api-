@@ -95,7 +95,7 @@ class AiRepository(
         const val SUMMARY_COMPLETION_MIN_TOKENS = 512
         const val SUMMARY_COMPLETION_MAX_TOKENS = 4_096
         const val SUMMARY_TRANSCRIPT_MESSAGE_LIMIT = 80
-        const val SUMMARY_TRANSCRIPT_HEAD_COUNT = 20
+        const val SUMMARY_TRANSCRIPT_HEAD_COUNT = 0 // 彻底废弃头部跳跃切片，防止开场剧情与近期断层拼接
         const val SUMMARY_TRANSCRIPT_CHAR_LIMIT = 10_000
         const val EXTRACTIVE_SUMMARY_MESSAGE_LIMIT = 12
         const val EXTRACTIVE_SUMMARY_CHAR_LIMIT = 2_000
@@ -1428,6 +1428,7 @@ class AiRepository(
             val lastSourceMessageId = sourceMessages.last().id
 
             val existingSummary = conversation.rollingSummary?.takeIf { it.isNotBlank() }
+            val latestTimelineAnchor = resolveLatestTimelineAnchor(conversation.id)
             val generated = runCatching {
                 withTimeoutOrNull(90_000L) {
                     generateRollingSummary(
@@ -1435,7 +1436,8 @@ class AiRepository(
                         modelName = modelName,
                         existingSummary = existingSummary,
                         pendingMessages = sourceMessages,
-                        tokenBudget = tokenBudget
+                        tokenBudget = tokenBudget,
+                        latestTimelineAnchor = latestTimelineAnchor
                     )
                 }
             }.getOrNull() ?: existingSummary ?: buildExtractiveConversationSummary(sourceMessages, tokenBudget)
@@ -2956,6 +2958,31 @@ class AiRepository(
             .maxOrNull()
     }
 
+    private suspend fun resolveLatestTimelineAnchor(conversationId: Long): String? {
+        val conversation = conversationDao.getConversationById(conversationId) ?: return null
+        val timelineNodes = runCatching { timelineNodeDao?.getTimelineNodes(conversationId) }.getOrNull().orEmpty()
+        val sortedNodes = timelineNodes.sortedWith(compareBy<TimelineNode> { it.orderIndex }.thenBy { it.createdAt })
+        val latestNode = sortedNodes.lastOrNull()
+        val currentStoryTime = conversation.currentStoryTime?.takeIf { it.isNotBlank() && it != "未确定" && it != "未知" }
+
+        return when {
+            latestNode != null && !currentStoryTime.isNullOrBlank() -> {
+                "【$currentStoryTime】${if (latestNode.timeTag.isNotBlank()) "[${latestNode.timeTag}] " else ""}${latestNode.event}"
+            }
+            latestNode != null -> {
+                "${if (latestNode.timeTag.isNotBlank()) "[${latestNode.timeTag}] " else ""}${latestNode.event}"
+            }
+            !currentStoryTime.isNullOrBlank() -> {
+                "【$currentStoryTime】"
+            }
+            else -> {
+                val candidateMemories = runCatching { memoryDao.getCandidateMemories(conversationId) }.getOrNull().orEmpty()
+                candidateMemories.firstOrNull { it.content.trim().startsWith("【当前故事时间】：") || it.content.trim().startsWith("当前故事时间：") }
+                    ?.content?.substringAfter("：")?.trim()?.takeIf { it.isNotBlank() }
+            }
+        }
+    }
+
     private suspend fun ensureRollingSummary(
         conversation: Conversation?,
         config: ApiConfig,
@@ -2982,9 +3009,10 @@ class AiRepository(
             return existingSummary
         }
 
+        val latestTimelineAnchor = resolveLatestTimelineAnchor(conversation.id)
         val generated = runCatching {
             withTimeoutOrNull(30_000L) {
-                generateRollingSummary(config, modelName, existingSummary, pendingMessages, tokenBudget)
+                generateRollingSummary(config, modelName, existingSummary, pendingMessages, tokenBudget, latestTimelineAnchor)
             }
         }.onFailure {
             Log.w(tag, "Rolling summary generation failed", it)
@@ -3011,13 +3039,15 @@ class AiRepository(
         modelName: String,
         existingSummary: String?,
         pendingMessages: List<Message>,
-        tokenBudget: Int
+        tokenBudget: Int,
+        latestTimelineAnchor: String? = null
     ): String? {
         val transcript = buildSummaryTranscript(pendingMessages, maxMessages = SUMMARY_TRANSCRIPT_MESSAGE_LIMIT)
         val prompt = AdvancedMemoryEngine.buildStructuredSummaryPrompt(
             existingSummary = existingSummary,
             transcript = transcript,
-            tokenBudget = tokenBudget.coerceIn(SUMMARY_PROMPT_MIN_TOKENS, SUMMARY_PROMPT_MAX_TOKENS)
+            tokenBudget = tokenBudget.coerceIn(SUMMARY_PROMPT_MIN_TOKENS, SUMMARY_PROMPT_MAX_TOKENS),
+            latestTimelineAnchor = latestTimelineAnchor
         )
         val completionTokens = maxOf(tokenBudget * 2, 4096).coerceIn(4096, 8192)
 
@@ -3105,9 +3135,10 @@ class AiRepository(
         // 先进行智能信息密度提纯 (Loss-Aware Pre-pruning)，剥离无意义口语废话
         val pruned = AdvancedMemoryEngine.pruneLowInformationTurns(messages)
         val candidateMessages = if (pruned.isNotEmpty()) pruned else messages
+        // 彻底根除断层跳跃切片：严禁提取开场几条与末尾几条进行强行拼凑（防止模型将最初开场与最新事件错误因果连接）
+        // 严格提取单一连续的近期对话切片，保持因果与时间线连贯
         val selectedMessages = if (candidateMessages.size > maxMessages) {
-            candidateMessages.take(SUMMARY_TRANSCRIPT_HEAD_COUNT) +
-                candidateMessages.takeLast(maxMessages - SUMMARY_TRANSCRIPT_HEAD_COUNT)
+            candidateMessages.takeLast(maxMessages)
         } else {
             candidateMessages
         }
@@ -3119,7 +3150,8 @@ class AiRepository(
 
     private fun buildExtractiveConversationSummary(messages: List<Message>, tokenBudget: Int): String? {
         if (messages.isEmpty()) return null
-        val structured = AdvancedMemoryEngine.generateExtractiveStructuredSummary(messages, tokenBudget)
+        val recentMessages = if (messages.size > 30) messages.takeLast(30) else messages
+        val structured = AdvancedMemoryEngine.generateExtractiveStructuredSummary(recentMessages, tokenBudget)
         val block = structured.toPromptBlock()
         if (block.isBlank()) return null
         return compactTextToTokenBudget(block, tokenBudget)

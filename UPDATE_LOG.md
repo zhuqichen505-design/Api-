@@ -2,6 +2,42 @@
 
 本文档按照工作流规范记录每次版本更新、需求变更与复核结果。
 
+## [2026-09-23] - v2.3.8：滚动摘要断层情节拼接彻底根除、时间线记忆职责彻底解耦与最新时间节点强锚定
+
+### 1. 核心需求落实与技术重构详情
+1. **滚动摘要断层情节拼接彻底根除（核心痛点根治）**：
+   - **根本原因排查**：
+     - `AiRepository.kt` 的 `buildSummaryTranscript` 中硬编码 `SUMMARY_TRANSCRIPT_HEAD_COUNT = 20`，在长对话中跳跃截取开篇 20 条消息（最初开场两主角相见）和末尾最近消息（主角出门吃饭），强行剔除中间数十轮核心事件；
+     - 大模型在收到断层对话后，自然推导为“两主角相见后一起出门吃饭”，生成极具误导性的虚假因果摘要。
+   - **全面修复落地**：
+     - 将 `SUMMARY_TRANSCRIPT_HEAD_COUNT` 置为 0 并彻底废弃；
+     - 重构 `buildSummaryTranscript`，严格只提取单一连续的近期对话切片（`candidateMessages.takeLast(maxMessages)`），彻底消灭跳跃式断层拼接机制。
+2. **时间线记忆与滚动摘要职责彻底解耦明晰**：
+   - **职责定位明晰**：全篇整体时间线与历史脉络由记忆系统（`<session_timeline>`、`TimelineNodeDao` 及记忆库）完整读取与承载；
+   - **摘要定位纠偏**：滚动摘要不再试图从头复述或编造全篇历史，明确定位为**仅负责总结「最近发生了什么」**。
+3. **摘要总结内容强制锚定时间线最新时间节点**：
+   - 在 `AiRepository.kt` 中设计并实现 `resolveLatestTimelineAnchor(conversationId)`，自动获取当前会话时间线的最新节点（包含时空标签与事件，结合 `currentStoryTime`）；
+   - 在 `generateRollingSummaryNow` 与 `ensureRollingSummary` 中向提示词注入 `latestTimelineAnchor`；
+   - 深度重构 `AdvancedMemoryEngine.buildStructuredSummaryPrompt`，严格要求大模型“以时间线最新节点为时序基准展开，摘要内容必须且只能关联该最新时间节点，严禁将更早开场情节与近期事件跨段因果连接”。
+4. **本地抽取式兜底严格限制近期轮次**：
+   - 在 `AdvancedMemoryEngine.generateExtractiveStructuredSummary` 中，抽取范围严格收敛至最近 30 条对话以内，全链路杜绝开篇陈旧事实混入近期摘要。
+5. **版本递增与无后缀标准发布**：
+   - `versionCode = 143`, `versionName = "2.3.8"`；
+   - 增量输出唯一定名安装包 `Echo-v2.3.8.apk` 至 `D:\Agent\APP-烧\app\releases`；
+   - 严格杜绝任何 `-arm64-v8a` 等架构后缀命名，永久保留该目录下所有历史版本。
+
+### 2. 自动化测试与工程核验
+- **单元测试**：全量执行 `testDebugUnitTest`，全部测试用例通过 (BUILD SUCCESSFUL，0 failed)。
+- **构建输出**：
+  - 文件路径：`D:\Agent\APP-烧\app\releases\Echo-v2.3.8.apk`
+  - 文件大小：`16,320,509 字节 (~15.56 MB)`
+  - SHA256：`E77E4830D0E81B166E6CA7653BB64A28030DD2D608865A1C48531FB3F3E9E4C5`
+  - 签名方案：`v2 scheme (APK Signature Scheme v2): true`
+  - 包名与版本：`package: name='com.aiassistant' versionCode='143' versionName='2.3.8'`
+  - 历史包策略：`D:\Agent\APP-烧\app\releases` 目录下所有历史版本（包含 `Echo-v2.3.7.apk` 等共 153 个历史文件）永久完整保留，本次仅增量输出 `Echo-v2.3.8.apk`（当前目录总计 154 个文件），严格杜绝任何 `-arm64-v8a` 等架构后缀。
+
+---
+
 ## [2026-09-23] - v2.3.7：滚动摘要标点整句断句保护彻底根除暴力截断、提示词去机械化与长分析服务通道全面升级
 
 ### 1. 核心需求落实与技术重构详情
