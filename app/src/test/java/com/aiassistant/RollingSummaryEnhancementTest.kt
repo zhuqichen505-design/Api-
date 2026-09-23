@@ -123,6 +123,8 @@ class RollingSummaryEnhancementTest {
         assertTrue("提示词必须强调摘要只负责总结最近发生了什么", prompt.contains("摘要只负责总结最近发生了什么"))
         assertTrue("提示词必须强调摘要总结的内容只能和时间线最新的时间节点关联上", prompt.contains("摘要总结的内容只能和时间线最新的时间节点关联上"))
         assertTrue("提示词必须强调严禁跨越中段剧情去错误连接开场相见与最新事件等断层情节", prompt.contains("严禁跨越中段剧情去错误连接开场相见与最新事件等断层情节"))
+        assertTrue("提示词必须强调必须完整输出全部4个板块", prompt.contains("必须完整输出全部 4 个板块"))
+        assertTrue("提示词必须严禁只输出板块标题而不写实质内容", prompt.contains("绝对严禁只输出板块标题而不写实质内容"))
     }
 
     @Test
@@ -141,8 +143,18 @@ class RollingSummaryEnhancementTest {
     }
 
     @Test
+    fun testV240UserUpdatesCompleteness() {
+        org.junit.Assert.assertEquals("CurrentVersionUserUpdates 必须对齐为 V240UserUpdates", com.aiassistant.ui.screens.settings.V240UserUpdates, com.aiassistant.ui.screens.settings.CurrentVersionUserUpdates)
+        org.junit.Assert.assertEquals("V2.4.0 用户更新日志应有 5 项核心内容", 5, com.aiassistant.ui.screens.settings.V240UserUpdates.size)
+        assertTrue("必须包含滚动摘要末尾孤立空标题与残缺彻底根治说明", com.aiassistant.ui.screens.settings.V240UserUpdates.any { it.contains("滚动摘要末尾孤立空标题与残缺彻底根治") })
+        assertTrue("必须包含四大核心板块完整性校验与自愈回退说明", com.aiassistant.ui.screens.settings.V240UserUpdates.any { it.contains("四大核心板块完整性校验与自愈回退") })
+        assertTrue("必须包含提炼提示词四大板块全量输出铁律说明", com.aiassistant.ui.screens.settings.V240UserUpdates.any { it.contains("提炼提示词四大板块全量输出铁律") })
+        assertTrue("必须包含全网主流模型参数合规化说明", com.aiassistant.ui.screens.settings.V240UserUpdates.any { it.contains("全网主流模型参数合规化") })
+        assertTrue("必须包含提炼超时进一步放宽保障深度思考说明", com.aiassistant.ui.screens.settings.V240UserUpdates.any { it.contains("提炼超时进一步放宽保障深度思考") })
+    }
+
+    @Test
     fun testV239UserUpdatesCompleteness() {
-        org.junit.Assert.assertEquals("CurrentVersionUserUpdates 必须对齐为 V239UserUpdates", com.aiassistant.ui.screens.settings.V239UserUpdates, com.aiassistant.ui.screens.settings.CurrentVersionUserUpdates)
         org.junit.Assert.assertEquals("V2.3.9 用户更新日志应有 5 项核心内容", 5, com.aiassistant.ui.screens.settings.V239UserUpdates.size)
         assertTrue("必须包含滚动摘要思考模型截断彻底根治说明", com.aiassistant.ui.screens.settings.V239UserUpdates.any { it.contains("滚动摘要思考模型截断彻底根治") })
         assertTrue("必须包含尾部断句防腰斩安全闭合保护说明", com.aiassistant.ui.screens.settings.V239UserUpdates.any { it.contains("尾部断句防腰斩安全闭合保护") })
@@ -197,6 +209,56 @@ class RollingSummaryEnhancementTest {
         val singleLineRaw = "两人在街角拉面馆就餐讨论方案"
         val singleLineSanitized = com.aiassistant.data.repository.AiRepository.sanitizeSummaryCompletion(singleLineRaw)
         assertEquals("单行无标点应安全闭合", "两人在街角拉面馆就餐讨论方案。", singleLineSanitized)
+
+        // 测试用例 4：用户反馈的现场真实故障——末尾孤立的章节标题后无任何内容
+        val danglingHeaderRaw = """
+            【核心背景与用户固定约束】
+            - 核心主题：讨论系统高可用重构方案与服务端部署计划。
+
+            【历史关键里程碑与决策推进】
+        """.trimIndent()
+        val cleanedDangling = com.aiassistant.data.repository.AiRepository.sanitizeSummaryCompletion(danglingHeaderRaw)
+        assertNotNull(cleanedDangling)
+        assertFalse("末尾孤立的章节标题必须被彻底剔除", cleanedDangling!!.contains("【历史关键里程碑与决策推进】"))
+        assertTrue("前面的有效板块必须完整保留", cleanedDangling.contains("【核心背景与用户固定约束】"))
+        assertTrue("必须以合法标点闭合", cleanedDangling.endsWith("。"))
+    }
+
+    @Test
+    fun testIsSummarySubstantiallyComplete_validatesCompletenessCorrectly() {
+        // 空值或极短文本判定为不完整
+        assertFalse("空文本判定为不完整", com.aiassistant.data.repository.AiRepository.isSummarySubstantiallyComplete(""))
+        assertFalse("空白判定为不完整", com.aiassistant.data.repository.AiRepository.isSummarySubstantiallyComplete("   "))
+        assertFalse("过短文本判定为不完整", com.aiassistant.data.repository.AiRepository.isSummarySubstantiallyComplete("只有几个字。"))
+
+        // 末尾带有孤立章节标题的文本，判定为不完整
+        val withDanglingHeader = """
+            【核心背景与用户固定约束】
+            - 核心主题：讨论系统高可用重构方案。
+
+            【历史关键里程碑与决策推进】
+        """.trimIndent()
+        assertFalse("末尾悬空标题应判定为不完整", com.aiassistant.data.repository.AiRepository.isSummarySubstantiallyComplete(withDanglingHeader))
+
+        // 仅有单一板块的摘要，判定为不完整
+        val singleSection = """
+            【核心背景与用户固定约束】
+            - 核心主题：讨论系统高可用重构方案与服务端部署计划。
+        """.trimIndent()
+        assertFalse("只有单一板块应判定为实质不完整", com.aiassistant.data.repository.AiRepository.isSummarySubstantiallyComplete(singleSection))
+
+        // 包含两个以上板块且正常闭合的文本，判定为完整
+        val completeText = """
+            【核心背景与用户固定约束】
+            - 核心主题：讨论系统高可用重构方案。
+
+            【历史关键里程碑与决策推进】
+            1. 确定采用分层架构设计。
+
+            【当前未决议题与待办上下文】
+            - 待办：落实监控告警接入。
+        """.trimIndent()
+        assertTrue("多板块且闭合的内容应判定为实质完整", com.aiassistant.data.repository.AiRepository.isSummarySubstantiallyComplete(completeText))
     }
 
     @Test

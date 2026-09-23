@@ -320,8 +320,8 @@ class AiRepository(
         /**
          * 滚动摘要生成文本清洗与尾部断句防腰斩安全闭合保护：
          * 1. 彻底剔除思考模型遗留的 <think>...</think> 过程；
-         * 2. 检测模型因达到 max_tokens 截断（或网络中途终止）而在结尾遗留的残缺半句；
-         * 3. 若尾行缺失合法标点，安全修剪至上一处合法完整句子或补充句号闭合，杜绝残缺断句入库。
+         * 2. 循环检测并清除尾部因模型生成中断或截断遗留的孤立空章节标题（如仅残留【...】标题而其后无正文的行）与半句残词；
+         * 3. 若尾行缺失合法标点，安全修剪至上一处合法完整句子或安全闭合，彻底杜绝半截文字或孤立空标题入库。
          */
         fun sanitizeSummaryCompletion(rawText: String?): String? {
             if (rawText.isNullOrBlank()) return null
@@ -332,36 +332,88 @@ class AiRepository(
             if (text.isBlank()) return null
 
             val lines = text.lines().map { it.trimEnd() }.toMutableList()
-            while (lines.isNotEmpty() && lines.last().isBlank()) {
-                lines.removeAt(lines.lastIndex)
-            }
-            if (lines.isEmpty()) return null
-
             val validEndPunctuation = setOf('。', '！', '？', '；', '”', '’', '"', '\'', '…', '.', '!', '?', ')')
-            val lastLine = lines.last().trim()
-            val lastChar = lastLine.lastOrNull()
 
-            if (lastChar != null && lastChar !in validEndPunctuation) {
-                // 最后一行未以正常结束标点结尾，说明在半句被截断
-                val lastSentenceEndIdx = lastLine.indexOfLast { it in validEndPunctuation }
-                if (lastSentenceEndIdx >= 0 && lastSentenceEndIdx >= lastLine.length / 3) {
-                    // 最后一行内部有完整句末标点，修剪掉尾部半截残句
-                    lines[lines.lastIndex] = lastLine.substring(0, lastSentenceEndIdx + 1).trim()
-                } else if (lines.size > 1) {
-                    // 若最后一行几乎全部是破碎残句且已有前序内容，直接剔除此残缺行
+            fun isSectionHeaderOrDangling(line: String): Boolean {
+                val trimmed = line.trim()
+                if (trimmed.isEmpty()) return true
+                if (trimmed.startsWith("【") && trimmed.endsWith("】")) return true
+                if (trimmed.startsWith("#")) return true
+                if (trimmed.matches(Regex("""^【.+?】[：:]?\s*$"""))) return true
+                if (trimmed.matches(Regex("""^\d+[\.、\s]*$"""))) return true
+                if (trimmed.matches(Regex("""^[-*•][\s]*$"""))) return true
+                if (trimmed.endsWith("：") || (trimmed.endsWith(":") && !trimmed.contains("http"))) return true
+                return false
+            }
+
+            while (lines.isNotEmpty()) {
+                // 1. 移除末尾空白行
+                while (lines.isNotEmpty() && lines.last().isBlank()) {
                     lines.removeAt(lines.lastIndex)
-                    while (lines.isNotEmpty() && lines.last().isBlank()) {
+                }
+                if (lines.isEmpty()) return null
+
+                val lastLine = lines.last().trim()
+
+                // 2. 检测末尾是否为悬空的孤立章节标题或序号前缀（其后已无实质正文）
+                if (isSectionHeaderOrDangling(lastLine)) {
+                    if (lines.size > 1) {
                         lines.removeAt(lines.lastIndex)
+                        continue
+                    } else {
+                        return null
+                    }
+                }
+
+                val lastChar = lastLine.lastOrNull()
+                if (lastChar != null && lastChar !in validEndPunctuation) {
+                    // 最后一行未以正常结束标点结尾，说明在半句被截断
+                    val lastSentenceEndIdx = lastLine.indexOfLast { it in validEndPunctuation }
+                    if (lastSentenceEndIdx >= 0 && lastSentenceEndIdx >= lastLine.length / 3) {
+                        // 最后一行内部有完整句末标点，修剪掉尾部半截残句
+                        lines[lines.lastIndex] = lastLine.substring(0, lastSentenceEndIdx + 1).trim()
+                        continue
+                    } else if (lines.size > 1) {
+                        // 若最后一行几乎全部是破碎残句且已有前序内容，直接剔除此残缺行，并继续检验前一行
+                        lines.removeAt(lines.lastIndex)
+                        continue
+                    } else {
+                        // 仅单行且无句尾标点，去除末尾可能残留的逗号等中顿标点并安全追加句号
+                        val cleanedSingle = lastLine.trimEnd('，', ',', '、', '-', ' ', '：', ':')
+                        lines[0] = cleanedSingle + "。"
+                        break
                     }
                 } else {
-                    // 仅单行且无句尾标点，去除末尾可能残留的逗号等中顿标点并安全追加句号
-                    val cleanedSingle = lastLine.trimEnd('，', ',', '、', '-', ' ')
-                    lines[0] = cleanedSingle + "。"
+                    // 末尾具备合法结束标点且不是悬空标题，清洗完成
+                    break
                 }
             }
 
             val result = lines.joinToString("\n").trim()
             return result.ifBlank { null }
+        }
+
+        /**
+         * 判定滚动摘要是否实质完整：
+         * 1. 非空且长度满足基本描述（>= 35 字符）；
+         * 2. 末尾绝非悬空的孤立章节标题或冒号；
+         * 3. 必须以合法标点或有效字符闭合。
+         */
+        fun isSummarySubstantiallyComplete(summary: String?): Boolean {
+            if (summary.isNullOrBlank()) return false
+            val clean = summary.trim()
+            if (clean.length < 35) return false
+            val nonBlankLines = clean.lines().map { it.trim() }.filter { it.isNotBlank() }
+            if (nonBlankLines.isEmpty()) return false
+            val lastLine = nonBlankLines.last()
+            if (lastLine.startsWith("【") && lastLine.endsWith("】")) return false
+            if (lastLine.matches(Regex("""^【.+?】[：:]?\s*$"""))) return false
+            if (lastLine.endsWith("：") || lastLine.endsWith(":")) return false
+            if (lastLine.matches(Regex("""^\d+[\.、\s]*$"""))) return false
+            // 若包含结构化板块标识（【...】），则要求至少完整包含 2 个及以上有效核心板块，杜绝生成中途腰斩仅留单一板块
+            val bracketHeaderCount = Regex("""^【.+?】""", RegexOption.MULTILINE).findAll(clean).count()
+            if (clean.contains("【") && bracketHeaderCount < 2) return false
+            return true
         }
 
         fun generateDuplicateTitle(originalTitle: String): String {
@@ -1478,7 +1530,7 @@ class AiRepository(
             val latestTimelineAnchor = resolveLatestTimelineAnchor(conversation.id)
             val existingPreferencesAndConstraints = resolveExistingPreferencesAndConstraints(conversation.id)
             val generated = runCatching {
-                withTimeoutOrNull(90_000L) {
+                withTimeoutOrNull(150_000L) {
                     generateRollingSummary(
                         config = config.copy(modelName = modelName),
                         modelName = modelName,
@@ -1489,9 +1541,17 @@ class AiRepository(
                         existingPreferencesAndConstraints = existingPreferencesAndConstraints
                     )
                 }
-            }.getOrNull() ?: existingSummary ?: buildExtractiveConversationSummary(sourceMessages, tokenBudget, existingPreferencesAndConstraints)
+            }.getOrNull()
 
-            val finalSummary = generated?.takeIf { it.isNotBlank() }?.trim()
+            // 完整性自愈保护：优先采纳实质完整的新生成摘要；
+            // 若新生成失败且已有摘要本身残缺（如中断截断残留），绝不回退至残缺摘要，而是自动调用高质量本地多维结构化提炼进行自我修复
+            val finalSummary = if (isSummarySubstantiallyComplete(generated)) {
+                generated
+            } else if (isSummarySubstantiallyComplete(existingSummary)) {
+                existingSummary
+            } else {
+                buildExtractiveConversationSummary(sourceMessages, tokenBudget, existingPreferencesAndConstraints)
+            }?.takeIf { it.isNotBlank() }?.trim()
                 ?: throw IllegalStateException("未能提炼出有效摘要内容，请检查模型配置与网络连接")
 
             conversationDao.updateRollingSummary(
@@ -3093,7 +3153,7 @@ class AiRepository(
         val latestTimelineAnchor = resolveLatestTimelineAnchor(conversation.id)
         val existingPreferencesAndConstraints = resolveExistingPreferencesAndConstraints(conversation.id)
         val generated = runCatching {
-            withTimeoutOrNull(30_000L) {
+            withTimeoutOrNull(90_000L) {
                 generateRollingSummary(
                     config = config,
                     modelName = modelName,
@@ -3108,10 +3168,13 @@ class AiRepository(
             Log.w(tag, "Rolling summary generation failed", it)
         }.getOrNull()
 
-        val finalSummary = generated
-            ?.takeIf { it.isNotBlank() }?.trim()
-            ?: existingSummary
-            ?: buildExtractiveConversationSummary(olderMessages, tokenBudget, existingPreferencesAndConstraints)
+        val finalSummary = if (isSummarySubstantiallyComplete(generated)) {
+            generated
+        } else if (isSummarySubstantiallyComplete(existingSummary)) {
+            existingSummary
+        } else {
+            buildExtractiveConversationSummary(olderMessages, tokenBudget, existingPreferencesAndConstraints)
+        }?.takeIf { it.isNotBlank() }?.trim()
 
         if (!finalSummary.isNullOrBlank() && olderMessages.size >= MIN_SUMMARY_SOURCE_MESSAGES) {
             conversationDao.updateRollingSummary(
@@ -3141,13 +3204,19 @@ class AiRepository(
             latestTimelineAnchor = latestTimelineAnchor,
             existingPreferencesAndConstraints = existingPreferencesAndConstraints
         )
-        // 预留足够充裕的生成 Token（尤其对于 DeepSeek-R1、QwQ、Claude 3.7 Thinking 等思考模型，
-        // 内部思考过程 reasoning_content 动辄消耗 3000~6000 Token，必须留出至少 16,384 Token 确保正文生成不被截断）
-        val completionTokens = if (config.apiType == "anthropic") 8192 else 16384
+        // 预留合理充裕的生成 Token（兼顾思考模型与主流供应商限制）：
+        // DeepSeek 官方上限 8,192（>8192 报错 400），Anthropic 4096~8192，OpenAI 4096~8192。
+        // 设为 8,192（Haiku 为 4096）可完美包容思考过程同时绝不触发供应商 400 校验越界错误。
+        val isHaiku = modelName.contains("haiku", ignoreCase = true)
+        val completionTokens = when {
+            config.apiType == "anthropic" -> if (isHaiku) 4096 else 8192
+            else -> 8192
+        }
 
         val normalizedUrl = normalizeApiBaseUrl(config.baseUrl, config.apiType)
         val allKeys = parseApiKeys(config.apiKey).ifEmpty { listOf(config.apiKey) }
         var lastException: Exception? = null
+        val isO1OrO3 = modelName.startsWith("o1", ignoreCase = true) || modelName.startsWith("o3", ignoreCase = true)
 
         for (key in allKeys) {
             val cleanKey = key.removePrefix("Bearer ").trim()
@@ -3170,15 +3239,15 @@ class AiRepository(
                         val text = response.body()?.content?.firstOrNull { it.type == "text" }?.text
                             ?: response.body()?.content?.firstOrNull()?.text
                         val sanitized = sanitizeSummaryCompletion(text)
-                        if (!sanitized.isNullOrBlank()) return sanitized
+                        if (!sanitized.isNullOrBlank() && isSummarySubstantiallyComplete(sanitized)) return sanitized
                     } else {
                         // 优先尝试标准非流式请求
                         val request = ChatCompletionRequest(
                             model = modelName,
                             messages = listOf(ChatMessage(role = "user", content = prompt)),
                             temperature = null,
-                            max_tokens = completionTokens,
-                            max_completion_tokens = completionTokens,
+                            max_tokens = if (isO1OrO3) null else completionTokens,
+                            max_completion_tokens = if (isO1OrO3) completionTokens else null,
                             stream = false
                         )
                         val response = RetrofitClient.getAnalysisService(normalizedUrl)
@@ -3193,7 +3262,7 @@ class AiRepository(
                             val text = choice?.message?.content?.ifBlank { null }
                                 ?: choice?.message?.reasoning_content?.ifBlank { null }
                             val sanitized = sanitizeSummaryCompletion(text)
-                            if (!sanitized.isNullOrBlank()) return sanitized
+                            if (!sanitized.isNullOrBlank() && isSummarySubstantiallyComplete(sanitized)) return sanitized
                         } else {
                             val errBody = response.errorBody()?.string()?.take(300).orEmpty()
                             Log.w(tag, "generateRollingSummary 非流式 HTTP ${response.code()}: $errBody，尝试流式通道备用")
@@ -3207,7 +3276,7 @@ class AiRepository(
                             maxTokens = completionTokens
                         )
                         val sanitized = sanitizeSummaryCompletion(streamResult)
-                        if (!sanitized.isNullOrBlank()) {
+                        if (!sanitized.isNullOrBlank() && isSummarySubstantiallyComplete(sanitized)) {
                             return sanitized
                         }
                     }

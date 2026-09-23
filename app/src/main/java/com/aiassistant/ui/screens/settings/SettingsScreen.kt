@@ -208,7 +208,15 @@ internal val V238UserUpdates = listOf(
     "本地抽取式兜底严格限制近期轮次：兜底算法同步收敛至最近对话轮次，全链路杜绝跨时空陈旧情节的断层干扰"
 )
 
-internal val CurrentVersionUserUpdates = V239UserUpdates
+internal val V240UserUpdates = listOf(
+    "滚动摘要末尾孤立空标题与残缺彻底根治：重构清洗闭合算法，循环检查并剔除结尾悬空的孤立板块标题与未闭合半句，绝不留下空白标题",
+    "四大核心板块完整性校验与自愈回退：引入 isSummarySubstantiallyComplete 完整性判据，若模型输出短缺或残缺，自动触发本地高质量结构化提炼回退自愈，彻底杜绝残缺摘要入库",
+    "提炼提示词四大板块全量输出铁律：强化提示词约束，严禁模型只写章节标题而不写实质内容，起步阶段亦规范提炼即时互动概括，杜绝半途停滞",
+    "全网主流模型参数合规化（杜绝 400 报错与截断）：严格区分 OpenAI o-series 专用的 max_completion_tokens 与标准模型的 max_tokens，额度设定为通用高兼容的 8192 Token（Anthropic 4096），杜绝供应商网关报错与思考截断",
+    "提炼超时进一步放宽保障深度思考：手动生成超时放宽至 150 秒，后台维护放宽至 90 秒，为 DeepSeek-R1 / QwQ 等长思考链模型留足充裕的生成时间"
+)
+
+internal val CurrentVersionUserUpdates = V240UserUpdates
 
 internal val V237UserUpdates = listOf(
     "滚动摘要标点断句保护彻底根除暴力截断：引入智能标点边界闭合算法，彻底废除无视语意的字符强切逻辑，确保每一句摘要表达完整、有始有终、绝不半句残缺",

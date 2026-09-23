@@ -2,6 +2,51 @@
 
 本文档按照工作流规范记录每次版本更新、需求变更与复核结果。
 
+## [2026-09-23] - v2.4.0：滚动摘要末尾孤立空标题根除、多维完整性校验自愈回退与模型参数合规化
+
+### 1. 核心需求落实与技术重构详情
+1. **滚动摘要末尾孤立空标题与半途截断彻底根除（用户现场真实故障根治）**：
+   - **根本原因排查**：
+     - 用户现场生成摘要展示百余字，末尾卡在孤立的章节标题 `【历史关键里程碑与决策推进】`，无任何后续实质正文；
+     - 究其根因，旧版 `sanitizeSummaryCompletion` 仅对最后一行的残缺未闭合句子执行修剪，若模型因 Token/思考耗尽或被打断恰好停在章节标题之后，或者章节后第一句被修剪后，上一行的章节标题（如 `【历史关键里程碑与决策推进】`）就暴露为了末尾行，旧代码未能递归检查上一行是否也是空标题，导致孤立空标题直接存入数据库；
+     - 同时旧版提炼提示词未强制要求每个章节都必须输出实质内容，部分模型在起步阶段以为“暂无里程碑”便输出空标题后即停止。
+   - **全面修复落地**：
+     - 重构 `sanitizeSummaryCompletion`：引入多轮 `while` 循环清洗机制，并增加 `isSectionHeaderOrDangling` 判定。对所有板块标题（如 `【...】`、`#...`、以冒号结尾但无实质正文的行）以及中途截断的半句进行递归修剪，彻底消除末尾悬空的孤立空标题；
+     - 强化提炼提示词 `AdvancedMemoryEngine.buildStructuredSummaryPrompt`：下达最高铁律——必须完整输出全部 4 个板块，绝对严禁只输出板块标题而不写实质内容！若当前阶段尚未形成复杂里程碑或待办，明确要求提炼简明概括（例如“当前处于起步推进阶段，双方正聚焦即时互动”），杜绝空标题。
+2. **四大核心板块多维完整性校验与自愈回退机制**：
+   - 在 `AiRepository.kt` 中引入 `isSummarySubstantiallyComplete(summary: String?)` 完整性校验：
+     - 严格验证摘要字符长度（>= 35 字符）；
+     - 检查末尾是否残留悬空标题或未闭合标点；
+     - 核心板块覆盖度校验：统计文本中包含的合法核心板块数量（如【核心背景】、【历史关键里程碑】、【时空演变】、【当前未决议题】），要求至少完整包含 2 个以上有效板块。
+   - 重构 `generateRollingSummaryNow` 与 `ensureRollingSummary` 的回退逻辑：
+     - 若模型生成失败、超时，或生成的内容经清洗后未能通过 `isSummarySubstantiallyComplete` 校验，系统进一步检测已有摘要 `existingSummary`；
+     - 若 `existingSummary` 本身就是残缺的（例如已被之前旧版本毒化），系统**绝不回退至残缺摘要**，而是立即自动调用高质量本地结构化提炼算法 `buildExtractiveConversationSummary` 生成完整的兜底摘要，实现全自动自愈入库与展示！
+3. **全网主流模型参数合规化（杜绝 400 Bad Request 与思考截断）**：
+   - **参数合规化**：严格区分 OpenAI o-series 专用的 `max_completion_tokens` 与通用标准模型的 `max_tokens`（o1/o3/o4 系列下发 `max_completion_tokens`，其他标准模型统一使用通用标准的 `max_tokens`），杜绝因同时下发两个参数或参数不合规导致的 400 校验报错；
+   - **Token 配额高兼容适配**：将 `completionTokens` 设定为兼容各大供应商的 8192（Anthropic Haiku 4096），杜绝部分厂商（如 DeepSeek 8192 最大限制）因超额配置 16384 而拒绝请求；
+   - **提炼超时进一步放宽**：手动生成放宽至 150 秒，后台维护放宽至 90 秒，给 DeepSeek-R1 / QwQ 等长思考链模型留足充裕生成窗口。
+4. **版本递增与无后缀标准发布**：
+   - `versionCode = 145`, `versionName = "2.4.0"`；
+   - 增量输出唯一定名安装包 `Echo-v2.4.0.apk` 至 `D:\Agent\APP-烧\app\releases`；
+   - 严格杜绝任何 `-arm64-v8a` 等架构后缀命名，永久保留该目录下所有历史版本。
+
+### 2. 自动化测试与工程核验
+- **单元测试**：全量执行 `testDebugUnitTest`（包含 376 个用例），全部测试用例通过 (BUILD SUCCESSFUL，0 failed)。
+  - `testV240UserUpdatesCompleteness PASSED`
+  - `testSanitizeSummaryCompletion_removesDanglingSectionHeaderAndEmptySections PASSED`
+  - `testIsSummarySubstantiallyComplete_validatesCompletenessCorrectly PASSED`
+  - `testBuildStructuredSummaryPrompt_containsClarityAndCompletenessDirectives PASSED`
+- **构建输出**：
+  - 文件路径：`D:\Agent\APP-烧\app\releases\Echo-v2.4.0.apk`
+  - 文件大小：`16,336,893 字节 (~15.58 MB)`
+  - SHA256：`145D552DF437FBBC5A0CD736CE81ADF36C0FB5EAB74E161B9D83D6DB057457F7`
+  - 签名方案：`v2 scheme (APK Signature Scheme v2): true`
+  - 证书指纹：`939638F6D3E9AF7F8A980E62AF52D275FEE73381F2130CC4E20A0D349F98E21F`
+  - 包名与版本：`package: name='com.aiassistant' versionCode='145' versionName='2.4.0'`
+  - 历史包策略：`D:\Agent\APP-烧\app\releases` 目录下所有历史版本（包含早期版本至 `Echo-v2.3.9.apk` 等共 155 个历史文件）永久完整保留，本次仅增量输出 `Echo-v2.4.0.apk`（当前目录总计 156 个文件），严格杜绝任何 `-arm64-v8a` 等架构后缀。
+
+---
+
 ## [2026-09-23] - v2.3.9：滚动摘要思考模型截断彻底根治、尾部断句防腰斩安全闭合、记忆已有偏好约束去重与弹窗全量展示
 
 ### 1. 核心需求落实与技术重构详情
