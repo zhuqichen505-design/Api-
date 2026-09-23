@@ -216,6 +216,7 @@ internal fun StoryUnifiedSettingsDialog(
     var enableWebSearch by remember { mutableStateOf(tempSettings.enableWebSearch) }
     var enableExternalMemory by remember { mutableStateOf(session.enableExternalMemory) }
     var enableWorldBook by remember { mutableStateOf(session.enableWorldBook) }
+    var contextWindowTokens by remember { mutableStateOf(tempSettings.contextWindowTokens) }
     var promptTextFieldValue by rememberSaveable(currentPrompt, stateSaver = TextFieldValue.Saver) {
         mutableStateOf(
             TextFieldValue(
@@ -868,6 +869,82 @@ internal fun StoryUnifiedSettingsDialog(
                             }
 
                             item {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "当前会话上下文上限 (Context Window)",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            color = dialogContentColor
+                                        )
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = if (contextWindowTokens != null) MaterialTheme.colorScheme.tertiary.copy(alpha = 0.15f)
+                                                   else MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                        ) {
+                                            Text(
+                                                text = if (contextWindowTokens != null) "已自定义" else "跟随模型",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = if (contextWindowTokens != null) MaterialTheme.colorScheme.tertiary
+                                                       else MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+
+                                    val presets = listOf(
+                                        Pair("跟随模型", null),
+                                        Pair("32K", 32_768),
+                                        Pair("64K", 65_536),
+                                        Pair("128K", 131_072),
+                                        Pair("200K", 200_000),
+                                        Pair("1M", 1_000_000),
+                                        Pair("2M", 2_000_000)
+                                    )
+
+                                    LazyRow(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        items(presets) { (label, tokens) ->
+                                            val isSelected = contextWindowTokens == tokens
+                                            FilterChip(
+                                                selected = isSelected,
+                                                onClick = {
+                                                    contextWindowTokens = tokens
+                                                },
+                                                label = {
+                                                    Text(label, style = MaterialTheme.typography.labelSmall)
+                                                },
+                                                leadingIcon = if (isSelected) {
+                                                    { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(12.dp)) }
+                                                } else null
+                                            )
+                                        }
+                                    }
+
+                                    OutlinedTextField(
+                                        value = contextWindowTokens?.toString().orEmpty(),
+                                        onValueChange = { value ->
+                                            val digits = value.filter { it.isDigit() }.take(7)
+                                            contextWindowTokens = digits.toIntOrNull()
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        placeholder = { Text("自定义 Tokens，留空表示跟随模型默认") },
+                                        singleLine = true
+                                    )
+                                    Text(
+                                        "仅对当前对话生效，不影响该模型在其他会话的限制；超限自动降级保护也仅在此对话生效。",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = dialogSecondaryColor
+                                    )
+                                }
+                            }
+
+                            item {
                                 Column {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
@@ -1065,7 +1142,8 @@ internal fun StoryUnifiedSettingsDialog(
                             enableSessionMemory = tempSettings.enableSessionMemory,
                             enableExternalMemory = enableExternalMemory,
                             enableWorldBook = enableWorldBook,
-                            activeWorldBookIds = tempSettings.activeWorldBookIds
+                            activeWorldBookIds = tempSettings.activeWorldBookIds,
+                            contextWindowTokens = contextWindowTokens
                         )
                         val charListToDisplay = (allCharacters + characters).distinctBy { it.id }
                         val validCharIds = charListToDisplay.map { it.id }.toSet()

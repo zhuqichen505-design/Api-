@@ -80,7 +80,6 @@ class AiRepository(
     private val tag = "AiRepository"
     private val activeStreamingCalls = ConcurrentHashMap<Long, Call>()
     private val modelContextWindowCache = ConcurrentHashMap<String, Int>()
-    private val runtimeContextWindowLimitCache = ConcurrentHashMap<String, Int>()
 
     companion object {
         const val UNCOMPRESSED_RECENT_MESSAGE_COUNT = 16 // 最近十几次对话不做压缩，原汁原味无损保留（涵盖8~10轮对话）
@@ -637,6 +636,109 @@ class AiRepository(
                 "- 【${entry.name}】${entry.content.trim()}"
             }
             return "【世界书设定】\n" + lines.joinToString("\n")
+        }
+
+        fun compactMessageForHistory(content: String, limit: Int = Int.MAX_VALUE): String {
+            val normalized = content
+                .lineSequence()
+                .map { it.trimEnd() }
+                .joinToString("\n")
+                .trim()
+            return if (normalized.length <= limit) {
+                normalized
+            } else {
+                normalized.take(limit) + "\n...[内容过长，已截断]"
+            }
+        }
+
+        data class ActiveContextResolution(
+            val activeMessages: List<Message>,
+            val recentTokens: Int,
+            val uncompressedOlderCount: Int,
+            val canCompress: Boolean,
+            val lastOlderMessageId: Long?
+        )
+
+        fun resolveActiveContextMessages(
+            usableMessages: List<Message>,
+            compressedThrough: Long,
+            recentBudget: Int
+        ): ActiveContextResolution {
+            if (usableMessages.isEmpty()) {
+                return ActiveContextResolution(
+                    activeMessages = emptyList(),
+                    recentTokens = 0,
+                    uncompressedOlderCount = 0,
+                    canCompress = false,
+                    lastOlderMessageId = null
+                )
+            }
+
+            if (usableMessages.size <= UNCOMPRESSED_RECENT_MESSAGE_COUNT) {
+                var tokens = 0
+                for (msg in usableMessages) {
+                    tokens += estimateTokenCount(compactMessageForHistory(msg.content)) + 24
+                }
+                return ActiveContextResolution(
+                    activeMessages = usableMessages,
+                    recentTokens = tokens,
+                    uncompressedOlderCount = 0,
+                    canCompress = false,
+                    lastOlderMessageId = null
+                )
+            }
+
+            val olderMessages = usableMessages.dropLast(UNCOMPRESSED_RECENT_MESSAGE_COUNT)
+            val recentWindow = usableMessages.takeLast(UNCOMPRESSED_RECENT_MESSAGE_COUNT)
+            val recentWindowIds = recentWindow.map { it.id }.toSet()
+            val lastOlderMessageId = olderMessages.lastOrNull()?.id
+
+            // 尚未被压缩水线覆盖的较早历史消息
+            val uncompressedOlderMessages = if (compressedThrough <= 0L) {
+                olderMessages
+            } else {
+                olderMessages.filter { it.id > compressedThrough }
+            }
+            val uncompressedOlderCount = uncompressedOlderMessages.size
+
+            // 只要存在超出最近16条窗口且未被水线覆盖的早期消息，即支持压缩
+            val canCompress = uncompressedOlderCount > 0 && lastOlderMessageId != null &&
+                (compressedThrough <= 0L || compressedThrough < lastOlderMessageId)
+
+            // 活跃消息装填规则：
+            // 1. 最近16条消息（recentWindow）无条件无损保留；
+            // 2. 用户置顶消息（isPinned）无条件保留；
+            // 3. 尚未被压缩水线覆盖的早期历史消息（it.id > compressedThrough），在 recentBudget 预算内按时间倒序尽可能装填；
+            // 4. 已被压缩水线覆盖且未置顶的早期历史消息（it.id <= compressedThrough），已由 memoryBlock 承载，安全退休，不再计入原始上下文。
+            val candidateMessages = usableMessages.filter { msg ->
+                msg.isPinned || recentWindowIds.contains(msg.id) || (compressedThrough <= 0L || msg.id > compressedThrough)
+            }
+
+            var usedTokens = 0
+            val activeReversed = mutableListOf<Message>()
+
+            for (message in candidateMessages.asReversed()) {
+                val compact = compactMessageForHistory(message.content)
+                val cost = estimateTokenCount(compact) + 24
+
+                val isInRecentWindow = recentWindowIds.contains(message.id)
+                if (!isInRecentWindow && !message.isPinned && usedTokens + cost > recentBudget) {
+                    continue
+                }
+
+                activeReversed.add(message)
+                usedTokens += cost
+            }
+
+            val activeMessages = activeReversed.asReversed()
+
+            return ActiveContextResolution(
+                activeMessages = activeMessages,
+                recentTokens = usedTokens,
+                uncompressedOlderCount = uncompressedOlderCount,
+                canCompress = canCompress,
+                lastOlderMessageId = lastOlderMessageId
+            )
         }
     }
 
@@ -1205,6 +1307,10 @@ class AiRepository(
         conversationDao.updateConversation(conversation)
     }
 
+    suspend fun updateConversationContextWindowTokens(conversationId: Long, tokens: Int?) = withContext(Dispatchers.IO) {
+        conversationDao.updateContextWindowTokens(conversationId, tokens, System.currentTimeMillis())
+    }
+
     // ============ 模型长记忆相关 ============
 
     fun getAllMemories(): Flow<List<MemoryItem>> = memoryDao.getAllMemories()
@@ -1402,7 +1508,8 @@ class AiRepository(
     suspend fun getConversationContextUsage(
         conversationId: Long,
         modelNameOverride: String? = null,
-        maxOutputTokens: Int? = null
+        maxOutputTokens: Int? = null,
+        contextWindowOverrideTokens: Int? = null
     ): ConversationContextUsage = withContext(Dispatchers.IO) {
         val conversation = getConversationById(conversationId) ?: return@withContext ConversationContextUsage()
         val messages = getMessagesList(conversationId).collapseVariantsForHistory()
@@ -1414,14 +1521,16 @@ class AiRepository(
             conversation = conversation,
             messages = messages,
             modelName = modelName,
-            maxOutputTokens = maxOutputTokens
+            maxOutputTokens = maxOutputTokens,
+            contextWindowOverrideTokens = contextWindowOverrideTokens ?: conversation.contextWindowTokens
         )
     }
 
     suspend fun compressConversationContext(
         conversationId: Long,
         modelNameOverride: String? = null,
-        maxOutputTokens: Int? = null
+        maxOutputTokens: Int? = null,
+        contextWindowOverrideTokens: Int? = null
     ): Result<ConversationContextUsage> = withContext(Dispatchers.IO) {
         runCatching {
             val conversation = getConversationById(conversationId)
@@ -1437,7 +1546,8 @@ class AiRepository(
                 conversation = conversation,
                 messages = messages,
                 modelName = modelName,
-                maxOutputTokens = maxOutputTokens
+                maxOutputTokens = maxOutputTokens,
+                contextWindowOverrideTokens = contextWindowOverrideTokens ?: conversation.contextWindowTokens
             )
             val usableMessages = messages.filter { message ->
                 (message.role == "user" || message.role == "assistant") && message.content.isNotBlank() && !message.isExcluded
@@ -1447,21 +1557,8 @@ class AiRepository(
                 return@runCatching snapshot
             }
 
-            val recentBudget = (
-                snapshot.promptBudgetTokens - (snapshot.promptBudgetTokens * MEMORY_BUDGET_RATIO).toInt() - SYSTEM_PROMPT_TOKEN_RESERVE
-            ).coerceAtLeast(MIN_RECENT_CONTEXT_TOKENS)
-
-            var usedRecentTokens = 0
-            var keepRecentCount = 0
-            for ((index, message) in usableMessages.asReversed().withIndex()) {
-                val cost = estimateTokenCount(compactMessageForHistory(message.content)) + 24
-                if (index >= UNCOMPRESSED_RECENT_MESSAGE_COUNT && usedRecentTokens + cost > recentBudget && !message.isPinned) {
-                    break
-                }
-                usedRecentTokens += cost
-                keepRecentCount++
-            }
-            val olderMessages = usableMessages.dropLast(keepRecentCount)
+            // 超出最近 16 条无损保留窗口的较早历史对话，全部作为提炼压缩的目标
+            val olderMessages = usableMessages.dropLast(UNCOMPRESSED_RECENT_MESSAGE_COUNT)
 
             if (olderMessages.isNotEmpty()) {
                 // 1. 将较早对话梳理并沉淀为时间线节点 (作为时空演变压缩成果)
@@ -1533,7 +1630,8 @@ class AiRepository(
                 conversation = refreshedConversation,
                 messages = messages,
                 modelName = modelName,
-                maxOutputTokens = maxOutputTokens
+                maxOutputTokens = maxOutputTokens,
+                contextWindowOverrideTokens = contextWindowOverrideTokens ?: refreshedConversation.contextWindowTokens
             )
         }
     }
@@ -1544,10 +1642,17 @@ class AiRepository(
      */
     suspend fun generateRollingSummaryNow(
         conversationId: Long,
-        modelNameOverride: String? = null
+        modelNameOverride: String? = null,
+        maxOutputTokens: Int? = null,
+        contextWindowOverrideTokens: Int? = null
     ): Result<ConversationContextUsage> = withContext(Dispatchers.IO) {
         // 废除滚动摘要：主动整理统一委托至 compressConversationContext，执行时间线梳理与会话记忆沉淀，最近十几次对话无损保留
-        compressConversationContext(conversationId, modelNameOverride)
+        compressConversationContext(
+            conversationId = conversationId,
+            modelNameOverride = modelNameOverride,
+            maxOutputTokens = maxOutputTokens,
+            contextWindowOverrideTokens = contextWindowOverrideTokens
+        )
     }
 
     suspend fun updateRollingSummary(
@@ -1913,16 +2018,10 @@ class AiRepository(
             ?: CONTEXT_OVERFLOW_RETRY_WINDOW_TOKENS
         val effectiveOptions = resolveChatRequestOptions(config, options)
         val requestModel = resolveRequestModel(config, effectiveOptions)
-        runtimeContextWindowLimitCache[requestModel.lowercase()] = retryWindow
-        runtimeContextWindowLimitCache[config.modelName.lowercase()] = retryWindow
 
+        // 核心改造：降级仅对当前对话生效，绝对不写入全局缓存与 SelectedModel，杜绝污染全局及其他会话
         runCatching {
-            val models = selectedModelDao.getModelsByConfig(config.id).first()
-            models.firstOrNull { it.modelName.equals(requestModel, ignoreCase = true) }?.let { matched ->
-                if (matched.contextWindowTokens != retryWindow) {
-                    selectedModelDao.updateModel(matched.copy(contextWindowTokens = retryWindow))
-                }
-            }
+            conversationDao.updateContextWindowTokens(conversationId, retryWindow, System.currentTimeMillis())
         }
 
         val safeRetryOutput = maxOf(options?.maxTokens ?: 4096, 4096).coerceIn(4096, 16384)
@@ -1931,7 +2030,8 @@ class AiRepository(
             compressConversationContext(
                 conversationId = conversationId,
                 modelNameOverride = requestModel,
-                maxOutputTokens = safeRetryOutput
+                maxOutputTokens = safeRetryOutput,
+                contextWindowOverrideTokens = retryWindow
             )
         }.onFailure {
             Log.w(tag, "上下文超限后自动压缩失败，仍尝试缩小窗口重试", it)
@@ -2818,35 +2918,29 @@ class AiRepository(
             (message.role == "user" || message.role == "assistant") && message.content.isNotBlank() && !message.isExcluded
         }
 
-        val effectiveContextOverride = contextWindowOverrideTokens ?: runCatching {
-            selectedModelDao.getModelsByConfig(conversation.apiConfigId).first()
-                .firstOrNull { it.modelName.equals(modelName, ignoreCase = true) }
-                ?.contextWindowTokens
-        }.getOrNull()
+        val effectiveContextOverride = contextWindowOverrideTokens
+            ?: conversation.contextWindowTokens
+            ?: runCatching {
+                selectedModelDao.getModelsByConfig(conversation.apiConfigId).first()
+                    .firstOrNull { it.modelName.equals(modelName, ignoreCase = true) }
+                    ?.contextWindowTokens
+            }.getOrNull()
 
+        val modelDefaultTokens = estimateModelContextWindowTokens(modelName)
         val contextWindow = effectiveContextOverride
             ?.coerceIn(4_000, 2_000_000)
-            ?: estimateModelContextWindowTokens(modelName)
+            ?: modelDefaultTokens
         val promptBudget = estimatePromptBudgetTokens(modelName, maxOutputTokens, effectiveContextOverride)
         val memoryBudget = (promptBudget * MEMORY_BUDGET_RATIO).toInt().coerceIn(400, 2_400)
         val recentBudget = (
             promptBudget - memoryBudget - SYSTEM_PROMPT_TOKEN_RESERVE
         ).coerceAtLeast(MIN_RECENT_CONTEXT_TOKENS)
 
-        // 彻底废除截断点物理过滤：所有有效对话均为活跃候选
-        val compressedThrough = conversation.summaryUpdatedMessageId ?: 0L
-
-        var recentTokens = 0
-        var recentCount = 0
-        for ((index, message) in usableMessages.asReversed().withIndex()) {
-            val cost = estimateTokenCount(compactMessageForHistory(message.content)) + 24
-            if (index >= UNCOMPRESSED_RECENT_MESSAGE_COUNT && recentTokens + cost > recentBudget && !message.isPinned) break
-            recentTokens += cost
-            recentCount++
-        }
-
-        val olderCount = (usableMessages.size - recentCount).coerceAtLeast(0)
-        val lastOlderMessageId = if (olderCount > 0) usableMessages.dropLast(recentCount).lastOrNull()?.id else null
+        val resolution = resolveActiveContextMessages(
+            usableMessages = usableMessages,
+            compressedThrough = conversation.summaryUpdatedMessageId ?: 0L,
+            recentBudget = recentBudget
+        )
 
         val latestUserMessage = usableMessages.lastOrNull { it.role == "user" }?.content.orEmpty()
         val memoryBlock = buildRelevantMemoryBlock(conversation, latestUserMessage, memoryBudget)
@@ -2855,31 +2949,30 @@ class AiRepository(
 
         val estimatedInputTokens = (
             SYSTEM_PROMPT_TOKEN_RESERVE +
-                recentTokens +
+                resolution.recentTokens +
                 memoryTokens.coerceAtMost(memoryBudget)
         ).coerceAtLeast(0)
         val calculatedUsagePercent = (estimatedInputTokens / promptBudget.toFloat()).coerceIn(0f, 1f)
 
-        // 上下文压缩判定：当存在超出最近未压缩窗口 (olderCount > 0) 且未被归约的早期历史消息时支持压缩
-        val canCompress = olderCount > 0 && lastOlderMessageId != null && (compressedThrough == 0L || compressedThrough < lastOlderMessageId)
-
         return ConversationContextUsage(
             contextWindowTokens = contextWindow,
+            modelDefaultContextTokens = modelDefaultTokens,
             promptBudgetTokens = promptBudget,
             estimatedInputTokens = estimatedInputTokens,
             usagePercent = calculatedUsagePercent,
-            recentMessageCount = recentCount,
-            olderMessageCount = olderCount,
-            recentTokens = recentTokens,
+            recentMessageCount = resolution.activeMessages.size,
+            olderMessageCount = resolution.uncompressedOlderCount,
+            recentTokens = resolution.recentTokens,
             summaryTokens = 0,
             memoryTokens = memoryTokens,
             memoryItemCount = memoryItemCount,
             hasRollingSummary = false,
             summaryUpdatedAt = conversation.summaryUpdatedAt,
             compressedThroughMessageId = conversation.summaryUpdatedMessageId,
-            canCompress = canCompress
+            canCompress = resolution.canCompress
         )
     }
+
 
     private suspend fun buildContextBundle(
         conversation: Conversation?,
@@ -2895,13 +2988,15 @@ class AiRepository(
             (message.role == "user" || message.role == "assistant") && message.content.isNotBlank() && !message.isExcluded
         }
 
-        val effectiveContextOverride = contextWindowOverrideTokens ?: runCatching {
-            conversation?.let { conv ->
-                selectedModelDao.getModelsByConfig(conv.apiConfigId).first()
-                    .firstOrNull { it.modelName.equals(modelName, ignoreCase = true) }
-                    ?.contextWindowTokens
-            }
-        }.getOrNull()
+        val effectiveContextOverride = contextWindowOverrideTokens
+            ?: conversation?.contextWindowTokens
+            ?: runCatching {
+                conversation?.let { conv ->
+                    selectedModelDao.getModelsByConfig(conv.apiConfigId).first()
+                        .firstOrNull { it.modelName.equals(modelName, ignoreCase = true) }
+                        ?.contextWindowTokens
+                }
+            }.getOrNull()
 
         val promptBudget = estimatePromptBudgetTokens(
             modelName = modelName,
@@ -2918,31 +3013,17 @@ class AiRepository(
             buildRelevantMemoryBlock(it, currentUserMessage, memoryBudget, options)
         }
 
-        // 核心改造（彻底解除消息截断，保证最近十几次对话无损保留）：
-        // 1. 彻底废除按 summarizedThrough 物理截断候选消息的逻辑，所有有效消息皆作为候选；
-        // 2. 倒序装填最近消息，无条件保证最近十几次（>= 16 条）对话原汁原味完整包含；
-        // 3. 只有在超出 UNCOMPRESSED_RECENT_MESSAGE_COUNT (16 条) 且超出 recentBudget 时才截断较早历史。
-        val candidateMessages = usableMessages
-
-        var usedTokens = 0
-        val recentReversed = mutableListOf<Message>()
-        for ((index, message) in candidateMessages.asReversed().withIndex()) {
-            val compact = compactMessageForHistory(message.content)
-            val cost = estimateTokenCount(compact) + 24
-            if (index >= UNCOMPRESSED_RECENT_MESSAGE_COUNT && usedTokens + cost > recentBudget && !message.isPinned) {
-                break
-            }
-            recentReversed.add(message)
-            usedTokens += cost
-        }
-
-        val recentMessages = recentReversed.asReversed()
+        val resolution = resolveActiveContextMessages(
+            usableMessages = usableMessages,
+            compressedThrough = conversation?.summaryUpdatedMessageId ?: 0L,
+            recentBudget = recentBudget
+        )
 
         // 彻底废除滚动摘要：summary 始终为 null，不再调用 ensureRollingSummary，杜绝静态摘要锁死剧情
         return ContextBundle(
             summary = null,
             memoryBlock = memoryBlock,
-            recentMessages = recentMessages
+            recentMessages = resolution.activeMessages
         )
     }
 
@@ -2963,7 +3044,6 @@ class AiRepository(
 
     private fun estimateModelContextWindowTokens(modelName: String): Int {
         val name = modelName.lowercase()
-        runtimeContextWindowLimitCache[name]?.let { return it }
 
         val explicitLimit = parseContextWindowFromText(name)
         if (explicitLimit != null) {
@@ -3327,18 +3407,6 @@ class AiRepository(
         }
     }
 
-    private fun compactMessageForHistory(content: String, limit: Int = Int.MAX_VALUE): String {
-        val normalized = content
-            .lineSequence()
-            .map { it.trimEnd() }
-            .joinToString("\n")
-            .trim()
-        return if (normalized.length <= limit) {
-            normalized
-        } else {
-            normalized.take(limit) + "\n...[内容过长，已截断]"
-        }
-    }
 
     private fun compactTextToTokenBudget(text: String, tokenBudget: Int): String {
         val normalized = text.trim()
@@ -5476,6 +5544,7 @@ class AiRepository(
                 thinkingEffort = originalConv.thinkingEffort,
                 enableWebSearch = originalConv.enableWebSearch,
                 enableSessionMemory = originalConv.enableSessionMemory,
+                contextWindowTokens = originalConv.contextWindowTokens,
                 currentStoryTime = originalConv.currentStoryTime,
                 createdAt = System.currentTimeMillis(),
                 updatedAt = System.currentTimeMillis()

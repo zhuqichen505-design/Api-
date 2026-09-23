@@ -2,6 +2,111 @@
 
 本文档按照工作流规范记录每次版本更新、需求变更与复核结果。
 
+## [2026-09-24] - v2.5.1 降级至 32K 后支持随时手动调整/恢复、原生模型上限透传与 APK 正式发布
+
+### 1. 用户反馈与核心需求
+- **用户需求**：“降级到32k后也应该允许用户手动调整上下文。实现需求后构建apk”
+- **核心目标**：
+  1. 会话发生超限自动降级到 32K 后，用户依然可以在对话内随时手动调大上下文上限（例如选 64K、128K、1M 或自定义数值），或者点击“跟随模型”一键恢复模型原生上限；
+  2. 解决降级后 UI 状态（`_tempSettings`、`conversation` 实体、`modelDefaultContextTokens`）未即时同步导致用户无法识别降级状态或无法正确重置的问题；
+  3. 需求落实后，执行正式 APK 构建并输出至 `D:\Agent\APP-烧\app\releases`。
+
+### 2. 技术设计与解决方案落地
+1. **模型原生上限透传 (`modelDefaultContextTokens`)**：
+   - 在 `ConversationContextUsage` 中新增 `modelDefaultContextTokens: Int = 0` 字段，并在 `AiRepository.buildContextUsageSnapshot` 中将该模型实际配置/能力上限（例如 1,000,000）准确赋值给快照；
+   - 彻底解决弹窗把降级后的 32K 误当成模型默认、导致显示“跟随模型 (32K)”的问题，正确展示模型真实原生上限（例如 1M）。
+2. **异步降级后的会话状态与配置同步机制**：
+   - 在 `ChatViewModel.refreshContextUsage()` 协程中，主动从 Room 数据库重新加载 `latestConv`；
+   - 若数据库中 `contextWindowTokens` 发生降级或变动，即时同步至 `_tempSettings` 并在内存中保持最新，确保弹窗和页面状态与底层持久化绝对对齐；
+   - 在请求完成和错误回调中统一触发 `refreshContextUsage()`，移除悬空协程调用。
+3. **上下文管理面板 UI 体验焕新 (`ChatContextComponents.kt`)**：
+   - 自动识别降级状态：当 `currentCustomLimit == 32_768 && modelContextTokens > 32_768` 时，触发专属降级警示模式；
+   - `ContextUsageOverview` 顶部显示醒目的“已降级保护 (32K)”警示标签；
+   - `ContextLimitSettingsCard` 呈现警示横幅与完整原因提示，并提供显著的“恢复跟随模型默认 (1M)”按钮，支持一键脱离降级限制；
+   - 预设快捷芯片（跟随模型、32K、64K、128K、200K、1M、2M）与自定义输入框始终可用，用户可随时任意调大或手动微调。
+
+### 3. 测试与验证
+- `ConversationContextWindowIsolationTest`：新增 `testDegradedTo32kCanBeManuallyAdjustedOrReset`，涵盖降级状态识别、手动调大至 128K/1M、一键恢复跟随模型（重置为 null 并生效 1M）全链路，全部 6 项测试 PASSED；
+- `ContextCompressionAndBudgetTest`：全部 10 项测试 PASSED；
+- 代码编译退出码 0，检查 0 错误。
+
+---
+
+## [2026-09-23] - 历史对话上下文无法压缩根因修复（500K 上下文释放与双轨活跃消息解析统一）
+
+### 1. 用户反馈与问题精准定位
+- **用户反馈**：“点击重新压缩或者提炼记忆，按钮转一下圈后没有反应，提示‘当前最近十几次对话已处于无损保留状态，无需额外压缩’，显示当前使用了的上下文仍为 500k 没有变化；500k 就是对话内全部消息所占上下文，说明上下文没有正确压缩。”
+- **根因深度排查**：
+  1. **`compressConversationContext` 待压缩旧消息被错误判定为空**：
+     - 旧代码中依据 `usedRecentTokens + cost > recentBudget` 判定 `keepRecentCount`；当模型上限为 1M 时，`recentBudget` 约为 870K，500K 的消息总量永远无法超出 `recentBudget`，导致 `keepRecentCount == usableMessages.size`，`olderMessages` 永远计算为空列表，时间线和记忆提炼从未被执行，压缩水线 `summaryUpdatedMessageId` 从未更新；
+  2. **`buildContextUsageSnapshot` 误判 `canCompress = false`**：
+     - 同样由于 500K < 870K，快照将全部消息计为 `recentCount`，导致 `olderCount = 0`，`canCompress = false`；`ChatViewModel` 从而命中兜底文案展示“当前最近十几次对话已处于无损保留状态，无需额外压缩”；
+  3. **`buildContextBundle` 与快照忽略压缩水线导致 Token 永久无法释放**：
+     - 活跃消息候选直接粗暴取全量消息，已沉淀至时间线和记忆中的旧对话依然被全量装载发送给模型，导致上下文占用长期锁死在 500K。
+
+### 2. 技术重构与解决方案落地
+1. **统一活跃消息解析方法 `AiRepository.resolveActiveContextMessages`**：
+   - 将 `buildContextBundle` 与 `buildContextUsageSnapshot` 的核心逻辑收敛至单一静态函数，杜绝快照显示与实际发送模型内容不一致；
+   - **候选消息分层规则**：
+     - **最近 16 条活跃消息（`recentWindow`）**：无条件 100% 包含，原汁原味无损保留；
+     - **用户置顶消息（`isPinned`）**：无论新旧无条件 100% 保留；
+     - **未压缩的早期历史消息（`id > compressedThrough`）**：在 `recentBudget` 预算内按时间倒序尽可能装填；
+     - **已沉淀的早期历史消息（`id <= compressedThrough` 且未置顶）**：已由 `memoryBlock`（时间线节点与会话专属记忆）承载，**安全退休，不再计入原始上下文消息中，彻底释放原始 Token 占用**！
+2. **重构 `compressConversationContext` 目标范围**：
+   - 明确将超出最近 16 条无损窗口的较早历史对话（`usableMessages.dropLast(UNCOMPRESSED_RECENT_MESSAGE_COUNT)`）稳定作为梳理压缩目标；
+   - 提取时间线节点入库、提炼记忆事实入库，并将截断水线 `summaryUpdatedMessageId` 推进至 `olderMessages.last().id`；
+   - 压缩后重新计算快照，上下文占用即刻从 500K 骤降至最近 16 条的占用（如 40K 左右），释放约 90%+ 空间；
+3. **优化 `ChatViewModel` 与参数透传**：
+   - 优化 `compressContextNow` 完成文案：优先根据释放空间显示百分比与保留状态，杜绝存在较多历史消息时误报“无需额外压缩”；
+   - `generateRollingSummaryNow` 同步透传 `contextWindowOverrideTokens` 与 `maxOutputTokens`。
+
+### 3. 验证与测试
+- 在 `ContextCompressionAndBudgetTest.kt` 中新增 4 组测试：
+  - `testResolveActiveContextMessages_50MessagesBeforeAndAfterCompression`：验证 50 条消息（大预算场景）压缩前 `canCompress = true`、`olderCount = 34`，压缩后活跃消息精准收敛为最近 16 条，Token 显著释放；
+  - `testResolveActiveContextMessages_pinnedOlderMessageRetainedAfterCompression`：验证置顶旧消息在压缩水线覆盖后依然保留；
+  - `testResolveActiveContextMessages_shortConversationNeverCompressed`：验证 <= 16 条短对话保持无需压缩；
+  - `testResolveActiveContextMessages_budgetConstraintPacksRecent16Losslessly`：验证极端小预算下最近 16 条依然无条件无损保留；
+- 运行 `ContextCompressionAndBudgetTest`（10 项）+ `ConversationContextWindowIsolationTest`（5 项）全过；
+- 运行 `RollingSummaryEnhancementTest`（17 项）回归全过；
+- Kotlin 编译退出码 0，检查 0 错误。
+
+---
+
+## [2026-09-23] - 会话级上下文独立限制与降级污染彻底根除（单会话自定义与隔离全链路）
+
+### 1. 核心需求落实与技术重构详情
+1. **单会话上下文上限独立设置与降级隔离（用户核心需求 1）**：
+   - **历史遗留 32K 降级污染根治**：
+     - 根本原因：之前在 `retryWithCompressedContext` 中，发生上下文超限或重试降级时，直接将降级窗口（32768 tokens）写入了全局 `runtimeContextWindowLimitCache` 并持久化到全局 `selectedModelDao` 中，导致任何使用该模型的新老会话均被强制带上了 32K 紧箍咒，即便模型本身具备 1M 原生能力；
+     - 本次全面彻底根除：删除全局 `runtimeContextWindowLimitCache` 及其在 `estimateModelContextWindowTokens` 中的全局拦截逻辑；删除对 `selectedModelDao` 的降级更新；
+     - 降级操作收敛到单会话：发生降级时仅通过 `conversationDao.updateContextWindowTokens(conversationId, retryWindow)` 持久化到当前会话实体中，绝对不污染模型全局配置或其他任何会话！
+2. **Room 数据库版本平滑升级 (版本 28 -> 29)**：
+   - 在 `Conversation` 实体中新增 `contextWindowTokens: Int? = null` 字段（`null` 表示跟随模型默认，非空表示当前会话自定义上限或当前会话自适应降级上限）；
+   - 新增 `MIGRATION_28_29`：安全执行 `addColumnIfMissing(db, "conversations", "contextWindowTokens", "INTEGER")`，并在 `LEGACY_REPAIR_MIGRATIONS` 与 `repairTable` 中完成全套对齐，确保老用户无感平滑迁移且绝对不损坏已有数据；
+   - 在 `ConversationDao` 中新增 `updateContextWindowTokens(id, tokens, timestamp)` 原子更新方法。
+3. **上下文装配与预算计算优先级重构**：
+   - 上下文窗口解析严格遵循四大优先级梯队：
+     1. `contextWindowOverrideTokens`（显式临时请求覆盖）；
+     2. `conversation.contextWindowTokens`（本会话独立设定或本会话降级上限）；
+     3. `selectedModelDao.contextWindowTokens`（模型全局自定义参数）；
+     4. `ModelCapabilityEngine.evaluateModel(modelName).contextWindowTokens`（模型原生智能推断，如 Gemini 1.5/2.0/3.8 Flash 为 1M，Claude 3.5 为 200K 等）。
+   - 在 `AiRepository.buildContextUsageSnapshot`、`AiRepository.buildContextBundle`、`AiRepository.compressConversationContext`、`AiRepository.getConversationContextUsage` 以及分支创建 `createBranchConversation` 中全面落实该优先级。
+4. **全端 UI 交互支持**：
+   - **上下文用量弹窗 (`ChatContextComponents.kt`)**：
+     - `ContextUsageOverview`：动态标签直观区分【本会话自定义】与【跟随模型默认】；
+     - 新增 `ContextLimitSettingsCard`：提供预设快捷 Chip（`跟随模型 (重置)`、`32K`、`64K`、`128K`、`200K`、`1M`、`2M`）以及自定义数字输入框与“应用/重置”操作，点击立即可生效；
+   - **常规对话设置弹窗 (`ChatSettingsDialogs.kt`)**：
+     - 在“单次回复最大 Token 数”下方新增“当前会话上下文上限 (Context Window)”卡片，同样支持快捷预设与自定义输入；
+   - **故事与角色扮演统一设置弹窗 (`ChatStoryDialogs.kt`)**：
+     - 在高级参数区同步支持设置与重置，参数随 `newSettings` 完整保存；
+   - **会话分支创建 (`createBranchConversation`)**：
+     - 新创建的分支完整继承父会话设置的 `contextWindowTokens`。
+5. **单元测试与双向验证**：
+   - 编写 `ConversationContextWindowIsolationTest.kt`，100% 覆盖优先级判定、跟随模型重置、单会话降级隔离性、分支继承及临时设置状态流转；
+   - 回归测试 `ContextCompressionAndBudgetTest.kt`，全部用例秒级通过，编译与构建检查 0 错误。
+
+---
+
 ## [2026-09-23] - v2.5.0：滚动摘要彻底移除、时间线记忆全面承接历史压缩、最近十几次对话（16+ 条）无损保全与剧情推进根治
 
 ### 1. 核心需求落实与技术重构详情

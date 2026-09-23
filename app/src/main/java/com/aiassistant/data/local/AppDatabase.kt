@@ -30,7 +30,7 @@ import com.aiassistant.domain.model.*
         WorldBookEntry::class,
         TimelineNode::class
     ],
-    version = 28,
+    version = 29,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -523,6 +523,12 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_28_29 = object : Migration(28, 29) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                addColumnIfMissing(database, "conversations", "contextWindowTokens", "INTEGER")
+            }
+        }
+
         private val LEGACY_REPAIR_MIGRATIONS: Array<Migration> = ((1..22)
             .map { startVersion ->
                 object : Migration(startVersion, 23) {
@@ -530,7 +536,7 @@ abstract class AppDatabase : RoomDatabase() {
                         repairSchema(database)
                     }
                 }
-            } + MIGRATION_17_18 + MIGRATION_18_19 + MIGRATION_19_20 + MIGRATION_20_21 + MIGRATION_21_22 + MIGRATION_22_23 + MIGRATION_23_24 + MIGRATION_24_25 + MIGRATION_25_26 + MIGRATION_26_27 + MIGRATION_27_28)
+            } + MIGRATION_17_18 + MIGRATION_18_19 + MIGRATION_19_20 + MIGRATION_20_21 + MIGRATION_21_22 + MIGRATION_22_23 + MIGRATION_23_24 + MIGRATION_24_25 + MIGRATION_25_26 + MIGRATION_26_27 + MIGRATION_27_28 + MIGRATION_28_29)
             .toTypedArray()
 
         private fun repairSchema(database: SupportSQLiteDatabase) {
@@ -612,6 +618,7 @@ abstract class AppDatabase : RoomDatabase() {
                     ColumnSpec("activeWorldBookIds", "TEXT", "NULL", nullable = true),
                     ColumnSpec("modelAvatarUri", "TEXT", "NULL", nullable = true),
                     ColumnSpec("currentStoryTime", "TEXT", "NULL", nullable = true),
+                    ColumnSpec("contextWindowTokens", "INTEGER", "NULL", nullable = true),
                     ColumnSpec("createdAt", "INTEGER NOT NULL", "0"),
                     ColumnSpec("updatedAt", "INTEGER NOT NULL", "0")
                 ),

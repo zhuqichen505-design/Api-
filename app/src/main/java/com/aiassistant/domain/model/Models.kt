@@ -96,6 +96,7 @@ data class Conversation(
     val activeWorldBookIds: String? = null,
     val modelAvatarUri: String? = null,
     val currentStoryTime: String? = null,
+    val contextWindowTokens: Int? = null, // 会话级独立最大上下文上限（Tokens），null表示跟随模型
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 )
@@ -365,6 +366,7 @@ data class ChatRequestOptions(
 
 data class ConversationContextUsage(
     val contextWindowTokens: Int = 0,
+    val modelDefaultContextTokens: Int = 0,
     val promptBudgetTokens: Int = 0,
     val estimatedInputTokens: Int = 0,
     val usagePercent: Float = 0f,

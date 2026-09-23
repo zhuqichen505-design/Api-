@@ -331,6 +331,8 @@ internal fun ContextUsageRing(
 internal fun ContextUsageDialog(
     hazeState: dev.chrisbanes.haze.HazeState,
     state: ContextUsageUiState,
+    customContextLimit: Int? = null,
+    onUpdateContextLimit: ((Int?) -> Unit)? = null,
     onDismiss: () -> Unit,
     onRefresh: () -> Unit,
     onCompress: () -> Unit,
@@ -384,7 +386,18 @@ internal fun ContextUsageDialog(
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     item {
-                        ContextUsageOverview(usage = usage)
+                        ContextUsageOverview(usage = usage, customLimit = customContextLimit)
+                    }
+                    if (onUpdateContextLimit != null) {
+                        item {
+                            ContextLimitSettingsCard(
+                                currentCustomLimit = customContextLimit,
+                                modelContextTokens = usage.modelDefaultContextTokens.takeIf { it > 0 }
+                                    ?: usage.contextWindowTokens.takeIf { it > 0 }
+                                    ?: 256_000,
+                                onUpdateLimit = onUpdateContextLimit
+                            )
+                        }
                     }
                     item {
                         ContextOptimizationActions(
@@ -615,11 +628,15 @@ internal fun ContextOptimizationActions(
 }
 
 @Composable
-internal fun ContextUsageOverview(usage: ConversationContextUsage) {
+internal fun ContextUsageOverview(
+    usage: ConversationContextUsage,
+    customLimit: Int? = null
+) {
     val progress = usage.usagePercent.coerceIn(0f, 1f)
     val accent = contextUsageColor(progress)
     val percentText = "${(progress * 100).toInt().coerceIn(0, 100)}%"
     val contextLimit = usage.contextWindowTokens.takeIf { it > 0 } ?: usage.promptBudgetTokens
+    val isDegraded = customLimit == 32_768 && usage.modelDefaultContextTokens > 32_768
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
@@ -627,10 +644,38 @@ internal fun ContextUsageOverview(usage: ConversationContextUsage) {
             verticalAlignment = Alignment.Bottom
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "最大上下文限制",
-                    style = MaterialTheme.typography.titleSmall
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = "最大上下文限制",
+                        style = MaterialTheme.typography.titleSmall
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = when {
+                            isDegraded -> MaterialTheme.colorScheme.error.copy(alpha = 0.15f)
+                            customLimit != null -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.15f)
+                            else -> MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                        }
+                    ) {
+                        Text(
+                            text = when {
+                                isDegraded -> "已降级保护 (32K)"
+                                customLimit != null -> "本会话自定义"
+                                else -> "跟随模型默认"
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = when {
+                                isDegraded -> MaterialTheme.colorScheme.error
+                                customLimit != null -> MaterialTheme.colorScheme.tertiary
+                                else -> MaterialTheme.colorScheme.primary
+                            },
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
                 Text(
                     text = "${formatTokenCount(usage.estimatedInputTokens)} / ${formatTokenCount(contextLimit)} tokens",
                     style = MaterialTheme.typography.bodySmall,
@@ -652,6 +697,186 @@ internal fun ContextUsageOverview(usage: ConversationContextUsage) {
             color = accent,
             trackColor = MaterialTheme.colorScheme.surfaceVariant
         )
+    }
+}
+
+@Composable
+internal fun ContextLimitSettingsCard(
+    currentCustomLimit: Int?,
+    modelContextTokens: Int,
+    onUpdateLimit: (Int?) -> Unit
+) {
+    var customInput by remember(currentCustomLimit) {
+        mutableStateOf(currentCustomLimit?.toString() ?: "")
+    }
+
+    val isDegraded = currentCustomLimit == 32_768 && modelContextTokens > 32_768
+
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = if (isDegraded) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.12f)
+               else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+        border = BorderStroke(
+            1.dp,
+            if (isDegraded) MaterialTheme.colorScheme.error.copy(alpha = 0.45f)
+            else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+        ),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        if (isDegraded) Icons.Default.WarningAmber else Icons.Default.Tune,
+                        contentDescription = null,
+                        tint = if (isDegraded) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = if (isDegraded) "会话上下文已降级至 32K" else "本会话上下文上限限制",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (isDegraded) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+                    )
+                }
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = when {
+                        isDegraded -> MaterialTheme.colorScheme.error.copy(alpha = 0.15f)
+                        currentCustomLimit != null -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.15f)
+                        else -> MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                    }
+                ) {
+                    Text(
+                        text = when {
+                            isDegraded -> "已降级 (32K)"
+                            currentCustomLimit != null -> "已自定义: ${formatTokenCount(currentCustomLimit)}"
+                            else -> "跟随模型 (${formatTokenCount(modelContextTokens)})"
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = when {
+                            isDegraded -> MaterialTheme.colorScheme.error
+                            currentCustomLimit != null -> MaterialTheme.colorScheme.tertiary
+                            else -> MaterialTheme.colorScheme.primary
+                        },
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+            }
+
+            if (isDegraded) {
+                Text(
+                    text = "提示：由于先前请求超出模型窗口或遇到服务限制，系统已自动将本会话临时降级至 32K 保护以恢复生成。当前模型原生支持 ${formatTokenCount(modelContextTokens)}。您可以随时点击下方按钮一键恢复模型默认，或手动选择更高规格。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Button(
+                    onClick = {
+                        customInput = ""
+                        onUpdateLimit(null)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                ) {
+                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("恢复跟随模型默认 (${formatTokenCount(modelContextTokens)})")
+                }
+            } else {
+                Text(
+                    text = "允许在对话内独立限制上下文窗口，不影响模型在其他会话的配置；自动降级保护也仅对本会话生效。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            // 快捷芯片选择
+            val presets = listOf(
+                Pair("跟随模型", null),
+                Pair("32K", 32_768),
+                Pair("64K", 65_536),
+                Pair("128K", 131_072),
+                Pair("200K", 200_000),
+                Pair("1M", 1_000_000),
+                Pair("2M", 2_000_000)
+            )
+
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(presets) { (label, tokens) ->
+                    val isSelected = currentCustomLimit == tokens
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = {
+                            customInput = tokens?.toString() ?: ""
+                            onUpdateLimit(tokens)
+                        },
+                        label = {
+                            Text(label, style = MaterialTheme.typography.labelMedium)
+                        },
+                        leadingIcon = if (isSelected) {
+                            { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp)) }
+                        } else null
+                    )
+                }
+            }
+
+            // 自定义输入框
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedTextField(
+                    value = customInput,
+                    onValueChange = { customInput = it.filter { char -> char.isDigit() }.take(7) },
+                    modifier = Modifier.weight(1f),
+                    placeholder = { Text("自定义 Tokens，如 65536") },
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodyMedium,
+                    shape = RoundedCornerShape(10.dp)
+                )
+                Button(
+                    onClick = {
+                        val parsed = customInput.toIntOrNull()?.coerceIn(4_000, 2_000_000)
+                        if (parsed != null) {
+                            onUpdateLimit(parsed)
+                        } else {
+                            onUpdateLimit(null)
+                        }
+                    },
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text("应用")
+                }
+                if (currentCustomLimit != null) {
+                    TextButton(
+                        onClick = {
+                            customInput = ""
+                            onUpdateLimit(null)
+                        }
+                    ) {
+                        Text("重置")
+                    }
+                }
+            }
+        }
     }
 }
 

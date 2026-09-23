@@ -1866,6 +1866,8 @@ fun ChatScreen(
         ContextUsageDialog(
             hazeState = hazeState,
             state = contextUsage,
+            customContextLimit = tempSettings.contextWindowTokens,
+            onUpdateContextLimit = { limit -> viewModel.updateConversationContextLimit(limit) },
             onDismiss = { showContextUsageDialog = false },
             onRefresh = { viewModel.refreshContextUsage() },
             onCompress = { viewModel.compressContextNow() },

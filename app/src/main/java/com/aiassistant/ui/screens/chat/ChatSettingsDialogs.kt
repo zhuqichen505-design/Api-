@@ -2401,6 +2401,7 @@ fun ChatSettingsDialog(
     var enableSessionMemory by remember { mutableStateOf(tempSettings.enableSessionMemory) }
     var enableExternalMemory by remember { mutableStateOf(tempSettings.enableExternalMemory) }
     var enableWorldBook by remember { mutableStateOf(tempSettings.enableWorldBook) }
+    var contextWindowTokens by remember { mutableStateOf(tempSettings.contextWindowTokens) }
     var promptTextFieldValue by rememberSaveable(currentPrompt, stateSaver = TextFieldValue.Saver) {
         mutableStateOf(
             TextFieldValue(
@@ -2441,6 +2442,7 @@ fun ChatSettingsDialog(
         enableSessionMemory = tempSettings.enableSessionMemory
         enableExternalMemory = tempSettings.enableExternalMemory
         enableWorldBook = tempSettings.enableWorldBook
+        contextWindowTokens = tempSettings.contextWindowTokens
     }
 
     fun notifyTempSettingsChange() {
@@ -2454,7 +2456,8 @@ fun ChatSettingsDialog(
             enableSessionMemory = enableSessionMemory,
             enableExternalMemory = enableExternalMemory,
             enableWorldBook = enableWorldBook,
-            activeWorldBookIds = tempSettings.activeWorldBookIds
+            activeWorldBookIds = tempSettings.activeWorldBookIds,
+            contextWindowTokens = contextWindowTokens
         )
         onTempSettingsChange?.invoke(updated)
     }
@@ -2660,6 +2663,108 @@ fun ChatSettingsDialog(
                         }
                         Text(
                             "留空会使用模型或全局配置的默认值。",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = dialogSecondaryColor
+                        )
+                    }
+                }
+
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "当前会话上下文上限 (Context Window)",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = dialogContentColor
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = if (contextWindowTokens != null) MaterialTheme.colorScheme.tertiary.copy(alpha = 0.15f)
+                                       else MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                            ) {
+                                Text(
+                                    text = if (contextWindowTokens != null) "已自定义" else "跟随模型",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (contextWindowTokens != null) MaterialTheme.colorScheme.tertiary
+                                           else MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+
+                        val presets = listOf(
+                            Pair("跟随模型", null),
+                            Pair("32K", 32_768),
+                            Pair("64K", 65_536),
+                            Pair("128K", 131_072),
+                            Pair("200K", 200_000),
+                            Pair("1M", 1_000_000),
+                            Pair("2M", 2_000_000)
+                        )
+
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            items(presets) { (label, tokens) ->
+                                val isSelected = contextWindowTokens == tokens
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = {
+                                        contextWindowTokens = tokens
+                                        notifyTempSettingsChange()
+                                    },
+                                    label = {
+                                        Text(label, style = MaterialTheme.typography.labelSmall)
+                                    },
+                                    leadingIcon = if (isSelected) {
+                                        { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(12.dp)) }
+                                    } else null
+                                )
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = contextWindowTokens?.toString().orEmpty(),
+                                onValueChange = { value ->
+                                    val digits = value.filter { it.isDigit() }.take(7)
+                                    contextWindowTokens = digits.toIntOrNull()
+                                    notifyTempSettingsChange()
+                                },
+                                modifier = Modifier.weight(1f),
+                                placeholder = { Text("留空表示跟随模型默认") },
+                                singleLine = true,
+                                shape = RoundedCornerShape(14.dp),
+                                colors = glassTextFieldColors(dialogContentColor, dialogSecondaryColor, dialogContainerColor)
+                            )
+                            Surface(
+                                modifier = Modifier.height(54.dp),
+                                shape = RoundedCornerShape(14.dp),
+                                color = echoGlassPalette().control,
+                                contentColor = dialogSecondaryColor,
+                                border = BorderStroke(1.dp, echoGlassPalette().outline),
+                                tonalElevation = 0.dp,
+                                shadowElevation = 0.dp
+                            ) {
+                                Box(
+                                    modifier = Modifier.padding(horizontal = 14.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("tokens", style = MaterialTheme.typography.labelLarge)
+                                }
+                            }
+                        }
+                        Text(
+                            "仅对当前对话生效，不影响该模型在其他会话的限制；超限自动降级保护也仅在此对话生效。",
                             style = MaterialTheme.typography.labelSmall,
                             color = dialogSecondaryColor
                         )
@@ -2971,7 +3076,8 @@ fun ChatSettingsDialog(
                             enableSessionMemory = enableSessionMemory,
                             enableExternalMemory = enableExternalMemory,
                             enableWorldBook = enableWorldBook,
-                            activeWorldBookIds = tempSettings.activeWorldBookIds
+                            activeWorldBookIds = tempSettings.activeWorldBookIds,
+                            contextWindowTokens = contextWindowTokens
                         )
                         onSave(settings, promptTextFieldValue.text.ifBlank { null })
                     }

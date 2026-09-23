@@ -164,6 +164,13 @@ interface ConversationDao {
         avatarUri: String?,
         timestamp: Long = System.currentTimeMillis()
     )
+
+    @Query("UPDATE conversations SET contextWindowTokens = :tokens, updatedAt = :timestamp WHERE id = :id")
+    suspend fun updateContextWindowTokens(
+        id: Long,
+        tokens: Int?,
+        timestamp: Long = System.currentTimeMillis()
+    )
 }
 
 // ============ 消息 DAO ============

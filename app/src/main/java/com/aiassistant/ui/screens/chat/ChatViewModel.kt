@@ -237,7 +237,8 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                     enableSessionMemory = conv.enableSessionMemory ?: false,
                     enableExternalMemory = conv.enableExternalMemory ?: rpSessionForInit?.enableExternalMemory ?: false,
                     enableWorldBook = conv.enableWorldBook ?: rpSessionForInit?.enableWorldBook ?: false,
-                    activeWorldBookIds = conv.activeWorldBookIds ?: rpSessionForInit?.activeWorldBookIds
+                    activeWorldBookIds = conv.activeWorldBookIds ?: rpSessionForInit?.activeWorldBookIds,
+                    contextWindowTokens = conv.contextWindowTokens
                 )
                 // 如果对话有自定义配置，自动启用临时设置
                 _useTempSettings.value = true
@@ -395,7 +396,8 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                             enableSessionMemory = current.enableSessionMemory,
                             enableExternalMemory = current.enableExternalMemory,
                             enableWorldBook = current.enableWorldBook,
-                            activeWorldBookIds = current.activeWorldBookIds
+                            activeWorldBookIds = current.activeWorldBookIds,
+                            contextWindowTokens = current.contextWindowTokens
                         )
                     }
                 }
@@ -428,7 +430,8 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                             enableSessionMemory = current.enableSessionMemory,
                             enableExternalMemory = current.enableExternalMemory,
                             enableWorldBook = current.enableWorldBook,
-                            activeWorldBookIds = current.activeWorldBookIds
+                            activeWorldBookIds = current.activeWorldBookIds,
+                            contextWindowTokens = current.contextWindowTokens
                         )
                     }
                 }
@@ -470,18 +473,39 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
         refreshContextUsage()
     }
 
+    fun updateConversationContextLimit(tokens: Int?) {
+        val updated = _tempSettings.value.copy(contextWindowTokens = tokens)
+        _tempSettings.value = updated
+        _useTempSettings.value = true
+        saveConversationSettings(updated)
+        refreshContextUsage()
+    }
+
     fun refreshContextUsage() {
         viewModelScope.launch {
+            val latestConv = repository.getConversationById(conversationId)
+            if (latestConv != null) {
+                conversation = latestConv
+                val dbTokens = latestConv.contextWindowTokens
+                if (dbTokens != null && _tempSettings.value.contextWindowTokens != dbTokens) {
+                    _tempSettings.update { it.copy(contextWindowTokens = dbTokens) }
+                }
+            }
             val modelName = _currentModel.value ?: conversation?.modelName ?: _uiState.value.modelName
             val maxTokens = (_useTempSettings.value)
                 .takeIf { it }
                 ?.let { _tempSettings.value.maxTokens }
                 ?: conversation?.maxTokens
                 ?: apiConfig?.maxTokens
+            val contextOverride = (_useTempSettings.value)
+                .takeIf { it }
+                ?.let { _tempSettings.value.contextWindowTokens }
+                ?: conversation?.contextWindowTokens
             val usage = repository.getConversationContextUsage(
                 conversationId = conversationId,
                 modelNameOverride = modelName,
-                maxOutputTokens = maxTokens
+                maxOutputTokens = maxTokens,
+                contextWindowOverrideTokens = contextOverride
             )
             _contextUsage.update {
                 it.copy(
@@ -506,21 +530,24 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                 ?.let { _tempSettings.value.maxTokens }
                 ?: conversation?.maxTokens
                 ?: apiConfig?.maxTokens
+            val contextOverride = (_useTempSettings.value)
+                .takeIf { it }
+                ?.let { _tempSettings.value.contextWindowTokens }
+                ?: conversation?.contextWindowTokens
             repository.compressConversationContext(
                 conversationId = conversationId,
                 modelNameOverride = modelName,
-                maxOutputTokens = maxTokens
+                maxOutputTokens = maxTokens,
+                contextWindowOverrideTokens = contextOverride
             ).fold(
                 onSuccess = { usage ->
                     conversation = repository.getConversationById(conversationId) ?: conversation
                     val newPercent = usage.usagePercent * 100
                     val freed = (initialPercent - newPercent).coerceAtLeast(0f)
-                    val finishMsg = if (shouldCompress) {
-                        if (freed > 1f) {
-                            "✅ 较早历史已成功沉淀为时间线与会话记忆，释放约 ${freed.toInt()}% 空间，最近十几次对话完整保留"
-                        } else {
-                            "✅ 较早历史已梳理沉淀为时间线与会话记忆，最近十几次对话完整无损保留"
-                        }
+                    val finishMsg = if (freed > 1f) {
+                        "✅ 较早历史已成功沉淀为时间线与会话记忆，释放约 ${freed.toInt()}% 空间，最近十几次对话完整保留"
+                    } else if (shouldCompress || usage.compressedThroughMessageId != null) {
+                        "✅ 较早历史已梳理沉淀为时间线与会话记忆，最近十几次对话完整无损保留"
                     } else {
                         "当前最近十几次对话已处于无损保留状态，无需额外压缩"
                     }
@@ -553,9 +580,20 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
         viewModelScope.launch {
             _contextUsage.update { it.copy(isGeneratingSummary = true, statusMessage = "🔄 正在梳理较早历史时间线并沉淀会话记忆...") }
             val modelName = _currentModel.value ?: conversation?.modelName ?: _uiState.value.modelName
+            val maxTokens = (_useTempSettings.value)
+                .takeIf { it }
+                ?.let { _tempSettings.value.maxTokens }
+                ?: conversation?.maxTokens
+                ?: apiConfig?.maxTokens
+            val contextOverride = (_useTempSettings.value)
+                .takeIf { it }
+                ?.let { _tempSettings.value.contextWindowTokens }
+                ?: conversation?.contextWindowTokens
             repository.generateRollingSummaryNow(
                 conversationId = conversationId,
-                modelNameOverride = modelName
+                modelNameOverride = modelName,
+                maxOutputTokens = maxTokens,
+                contextWindowOverrideTokens = contextOverride
             ).fold(
                 onSuccess = { usage ->
                     conversation = repository.getConversationById(conversationId) ?: conversation
@@ -661,6 +699,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                 enableExternalMemory = settings?.enableExternalMemory ?: conv.enableExternalMemory ?: false,
                 enableWorldBook = settings?.enableWorldBook ?: conv.enableWorldBook ?: false,
                 activeWorldBookIds = settings?.activeWorldBookIds ?: conv.activeWorldBookIds,
+                contextWindowTokens = settings?.contextWindowTokens,
                 systemPrompt = normalizeSystemPrompt(systemPrompt)
             )
             conversation = updated
@@ -902,7 +941,8 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                     enableWorldBook = settings?.enableWorldBook ?: conversation?.enableWorldBook ?: false,
                     activeWorldBookIds = settings?.activeWorldBookIds ?: conversation?.activeWorldBookIds,
                     overrideSystemPrompt = true,
-                    systemPromptOverride = effectiveSystemPrompt
+                    systemPromptOverride = effectiveSystemPrompt,
+                    contextWindowOverrideTokens = settings?.contextWindowTokens ?: conversation?.contextWindowTokens
                 )
 
                 // 直接在主线程调用，通过withContext切换到IO线程
@@ -943,6 +983,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                             _currentThinking.value = ""
                             _reconnectStatus.value = null
                             autoNameIfNeeded()
+                            // 重新同步会话状态与上下文使用情况（后台降级自动同步）
                             refreshContextUsage()
                             evaluateAutoCompression()
                             evaluateAutoTimelineUpdate(content, savedReply)
@@ -952,6 +993,8 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                         onError = { errorMsg ->
                             slowTimeoutJob.cancel()
                             _reconnectStatus.value = null
+                            // 重新同步会话状态与上下文使用情况（后台降级自动同步）
+                            refreshContextUsage()
                             if (isUserStopping || errorMsg.contains("Socket closed", ignoreCase = true) || errorMsg.contains("Canceled", ignoreCase = true)) {
                                 _isGenerating.value = false
                                 _currentResponse.value = ""
@@ -2537,5 +2580,6 @@ data class TempChatSettings(
     val enableSessionMemory: Boolean = false,
     val enableExternalMemory: Boolean = false,
     val enableWorldBook: Boolean = false,
-    val activeWorldBookIds: String? = null
+    val activeWorldBookIds: String? = null,
+    val contextWindowTokens: Int? = null
 )
