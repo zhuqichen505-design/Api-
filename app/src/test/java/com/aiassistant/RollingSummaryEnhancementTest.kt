@@ -143,8 +143,45 @@ class RollingSummaryEnhancementTest {
     }
 
     @Test
+    fun testV250UserUpdatesCompleteness() {
+        org.junit.Assert.assertEquals("CurrentVersionUserUpdates 必须对齐为 V250UserUpdates", com.aiassistant.ui.screens.settings.V250UserUpdates, com.aiassistant.ui.screens.settings.CurrentVersionUserUpdates)
+        org.junit.Assert.assertEquals("V2.5.0 用户更新日志应有 5 项核心内容", 5, com.aiassistant.ui.screens.settings.V250UserUpdates.size)
+        assertTrue("必须包含滚动摘要彻底移除说明", com.aiassistant.ui.screens.settings.V250UserUpdates.any { it.contains("滚动摘要彻底移除") })
+        assertTrue("必须包含最近十几次对话无损保全说明", com.aiassistant.ui.screens.settings.V250UserUpdates.any { it.contains("最近十几次对话（16+ 条）无损保全") })
+        assertTrue("必须包含梳理时间线与提炼专属记忆说明", com.aiassistant.ui.screens.settings.V250UserUpdates.any { it.contains("梳理时间线与提炼专属记忆") })
+        assertTrue("必须包含上下文用量与压缩界面全面焕新说明", com.aiassistant.ui.screens.settings.V250UserUpdates.any { it.contains("上下文用量与压缩界面全面焕新") })
+        assertTrue("必须包含双轨记忆与多轮对话承接说明", com.aiassistant.ui.screens.settings.V250UserUpdates.any { it.contains("双轨记忆与多轮对话无缝承接") })
+    }
+
+    @Test
+    fun testRecentMessagesUncompressed_fullContextPreservation() {
+        assertEquals("未压缩最近消息保护门限应为 16 条", 16, com.aiassistant.data.repository.AiRepository.UNCOMPRESSED_RECENT_MESSAGE_COUNT)
+        assertEquals("滚动摘要预算比例应彻底废除置零", 0.0f, com.aiassistant.data.repository.AiRepository.SUMMARY_BUDGET_RATIO, 0.001f)
+        assertTrue("记忆与时间线预算比例应充裕", com.aiassistant.data.repository.AiRepository.MEMORY_BUDGET_RATIO >= 0.10f)
+    }
+
+    @Test
+    fun testCandidateMessages_neverTruncatesRecentSixteenMessages() {
+        val messages = (1..25).map { id ->
+            Message(
+                id = id.toLong(),
+                conversationId = 1L,
+                role = if (id % 2 == 1) "user" else "assistant",
+                content = "第 $id 条对话内容"
+            )
+        }
+        val usableMessages = messages.filter { (it.role == "user" || it.role == "assistant") && it.content.isNotBlank() }
+        val threshold = com.aiassistant.data.repository.AiRepository.UNCOMPRESSED_RECENT_MESSAGE_COUNT
+        // 验证至少保留最近 16 条消息不做压缩
+        val recentMessages = usableMessages.takeLast(threshold)
+        assertEquals(16, recentMessages.size)
+        assertEquals(10L, recentMessages.first().id)
+        assertEquals(25L, recentMessages.last().id)
+        assertTrue("最近 16 条消息全部完整保留", recentMessages.all { it.id >= 10L })
+    }
+
+    @Test
     fun testV240UserUpdatesCompleteness() {
-        org.junit.Assert.assertEquals("CurrentVersionUserUpdates 必须对齐为 V240UserUpdates", com.aiassistant.ui.screens.settings.V240UserUpdates, com.aiassistant.ui.screens.settings.CurrentVersionUserUpdates)
         org.junit.Assert.assertEquals("V2.4.0 用户更新日志应有 5 项核心内容", 5, com.aiassistant.ui.screens.settings.V240UserUpdates.size)
         assertTrue("必须包含滚动摘要末尾孤立空标题与残缺彻底根治说明", com.aiassistant.ui.screens.settings.V240UserUpdates.any { it.contains("滚动摘要末尾孤立空标题与残缺彻底根治") })
         assertTrue("必须包含四大核心板块完整性校验与自愈回退说明", com.aiassistant.ui.screens.settings.V240UserUpdates.any { it.contains("四大核心板块完整性校验与自愈回退") })

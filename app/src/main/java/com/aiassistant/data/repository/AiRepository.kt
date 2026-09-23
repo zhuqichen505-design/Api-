@@ -83,8 +83,9 @@ class AiRepository(
     private val runtimeContextWindowLimitCache = ConcurrentHashMap<String, Int>()
 
     companion object {
-        const val SUMMARY_BUDGET_RATIO = 0.14f
-        const val MEMORY_BUDGET_RATIO = 0.08f
+        const val UNCOMPRESSED_RECENT_MESSAGE_COUNT = 16 // 最近十几次对话不做压缩，原汁原味无损保留（涵盖8~10轮对话）
+        const val SUMMARY_BUDGET_RATIO = 0.0f // 彻底废除滚动摘要预算占用
+        const val MEMORY_BUDGET_RATIO = 0.12f // 充裕预算分配给会话记忆与时间线系统
         const val SYSTEM_PROMPT_TOKEN_RESERVE = 900
         const val MIN_RECENT_CONTEXT_TOKENS = 16_000
 
@@ -1441,25 +1442,20 @@ class AiRepository(
             val usableMessages = messages.filter { message ->
                 (message.role == "user" || message.role == "assistant") && message.content.isNotBlank() && !message.isExcluded
             }
-            if (usableMessages.size < 4) {
+            if (usableMessages.size <= UNCOMPRESSED_RECENT_MESSAGE_COUNT) {
+                // 当前对话处于最近十几次（16条）未压缩无损保留窗口，无需压缩
                 return@runCatching snapshot
             }
 
-            val tokenBudget = (snapshot.promptBudgetTokens * SUMMARY_BUDGET_RATIO)
-                .toInt()
-                .coerceIn(600, 1_800)
-
-            // ConversationSummaryBufferMemory 规范：
-            // 根据 promptBudget 动态决定活跃保留数量（优先保证活跃消息总 Token 不挤爆输入预算，至少保留最近 2 条活跃对话）
             val recentBudget = (
-                snapshot.promptBudgetTokens - tokenBudget - (snapshot.promptBudgetTokens * MEMORY_BUDGET_RATIO).toInt() - SYSTEM_PROMPT_TOKEN_RESERVE
+                snapshot.promptBudgetTokens - (snapshot.promptBudgetTokens * MEMORY_BUDGET_RATIO).toInt() - SYSTEM_PROMPT_TOKEN_RESERVE
             ).coerceAtLeast(MIN_RECENT_CONTEXT_TOKENS)
 
             var usedRecentTokens = 0
             var keepRecentCount = 0
-            for (message in usableMessages.asReversed()) {
+            for ((index, message) in usableMessages.asReversed().withIndex()) {
                 val cost = estimateTokenCount(compactMessageForHistory(message.content)) + 24
-                if (keepRecentCount >= 2 && (usedRecentTokens + cost > recentBudget || keepRecentCount >= 16)) {
+                if (index >= UNCOMPRESSED_RECENT_MESSAGE_COUNT && usedRecentTokens + cost > recentBudget && !message.isPinned) {
                     break
                 }
                 usedRecentTokens += cost
@@ -1468,12 +1464,67 @@ class AiRepository(
             val olderMessages = usableMessages.dropLast(keepRecentCount)
 
             if (olderMessages.isNotEmpty()) {
-                ensureRollingSummary(
-                    conversation = conversation,
-                    config = config.copy(modelName = modelName),
-                    modelName = modelName,
-                    olderMessages = olderMessages,
-                    tokenBudget = tokenBudget
+                // 1. 将较早对话梳理并沉淀为时间线节点 (作为时空演变压缩成果)
+                try {
+                    val localResult = fallbackLocalTimelineScan(olderMessages)
+                    if (localResult.events.isNotEmpty()) {
+                        val currentNodes = timelineNodeDao?.getTimelineNodes(conversationId).orEmpty()
+                        val newNodes = localResult.events.mapIndexedNotNull { idx, item ->
+                            val cleanEvent = item.content.trim()
+                            if (cleanEvent.isBlank() || currentNodes.any { it.event == cleanEvent }) null
+                            else {
+                                TimelineNode(
+                                    conversationId = conversationId,
+                                    timeTag = item.timeTag.ifBlank { "早期剧情" },
+                                    event = cleanEvent,
+                                    category = item.category.name,
+                                    orderIndex = currentNodes.size + idx
+                                )
+                            }
+                        }
+                        if (newNodes.isNotEmpty()) {
+                            timelineNodeDao?.insertTimelineNodes(newNodes)
+                        }
+                    }
+                    if (localResult.currentStoryTime.isNotBlank() && localResult.currentStoryTime != "未确定") {
+                        if (conversation.currentStoryTime.isNullOrBlank() || conversation.currentStoryTime == "未确定") {
+                            conversationDao.updateConversation(conversation.copy(currentStoryTime = localResult.currentStoryTime))
+                        }
+                    }
+                } catch (e: Throwable) {
+                    Log.w(tag, "Failed to persist timeline nodes during context compression: ${e.message}")
+                }
+
+                // 2. 将较早对话的核心事实提炼为会话专属记忆 (作为设定事实压缩成果)
+                try {
+                    val extractive = AdvancedMemoryEngine.generateExtractiveStructuredSummary(olderMessages)
+                    val candidateFacts = (extractive.coreConstraints + extractive.openItems).map { it.trim() }.filter { it.isNotBlank() }
+                    val existingMemories = memoryDao.getCandidateMemories(conversationId).map { it.content.trim() }.toSet()
+                    val memoriesToInsert: List<MemoryItem> = candidateFacts.filter { fact: String ->
+                        !existingMemories.contains(fact)
+                    }.take(8).map { fact: String ->
+                        MemoryItem(
+                            conversationId = conversationId,
+                            content = fact,
+                            scope = "conversation",
+                            confidence = 0.85f,
+                            isEnabled = true
+                        )
+                    }
+                    for (item: MemoryItem in memoriesToInsert) {
+                        memoryDao.insertMemory(item)
+                    }
+                } catch (e: Throwable) {
+                    Log.w(tag, "Failed to persist memory items during context compression: ${e.message}")
+                }
+
+                // 3. 记录压缩截断水线，并彻底清空旧的 rollingSummary (置为 null)，杜绝陈旧摘要锁死时间点
+                val lastOlderMessageId = olderMessages.last().id
+                conversationDao.updateRollingSummary(
+                    conversationId = conversationId,
+                    summary = null,
+                    messageId = lastOlderMessageId,
+                    timestamp = System.currentTimeMillis()
                 )
             }
 
@@ -1495,78 +1546,8 @@ class AiRepository(
         conversationId: Long,
         modelNameOverride: String? = null
     ): Result<ConversationContextUsage> = withContext(Dispatchers.IO) {
-        runCatching {
-            val conversation = getConversationById(conversationId)
-                ?: throw IllegalStateException("对话不存在")
-            val config = getDecryptedConfig(conversation.apiConfigId)
-                ?: throw IllegalStateException("API配置不存在")
-            val messages = getMessagesList(conversationId).collapseVariantsForHistory()
-            val usableMessages = messages.filter { message ->
-                (message.role == "user" || message.role == "assistant") && message.content.isNotBlank() && !message.isExcluded
-            }
-            if (usableMessages.size < 2) {
-                throw IllegalStateException("当前对话消息过少（至少需 2 条），无需生成滚动摘要")
-            }
-
-            val modelName = modelNameOverride
-                ?.takeIf { it.isNotBlank() }
-                ?: resolveRequestModel(config.copy(modelName = conversation.modelName), resolveChatRequestOptions(config, null))
-
-            val snapshot = buildContextUsageSnapshot(
-                conversation = conversation,
-                messages = messages,
-                modelName = modelName
-            )
-            val tokenBudget = (snapshot.promptBudgetTokens * SUMMARY_BUDGET_RATIO)
-                .toInt()
-                .coerceIn(1200, 4_000)
-
-            // 用户主动请求生成滚动摘要：
-            // 保留最近 2 条作为活跃最新消息，其余全部作为摘要源；若总共只有 2 条，则以全部 2 条为源提炼核心背景
-            val sourceMessages = if (usableMessages.size > 2) usableMessages.dropLast(2) else usableMessages
-            val lastSourceMessageId = sourceMessages.last().id
-
-            val existingSummary = conversation.rollingSummary?.takeIf { it.isNotBlank() }
-            val latestTimelineAnchor = resolveLatestTimelineAnchor(conversation.id)
-            val existingPreferencesAndConstraints = resolveExistingPreferencesAndConstraints(conversation.id)
-            val generated = runCatching {
-                withTimeoutOrNull(150_000L) {
-                    generateRollingSummary(
-                        config = config.copy(modelName = modelName),
-                        modelName = modelName,
-                        existingSummary = existingSummary,
-                        pendingMessages = sourceMessages,
-                        tokenBudget = tokenBudget,
-                        latestTimelineAnchor = latestTimelineAnchor,
-                        existingPreferencesAndConstraints = existingPreferencesAndConstraints
-                    )
-                }
-            }.getOrNull()
-
-            // 完整性自愈保护：优先采纳实质完整的新生成摘要；
-            // 若新生成失败且已有摘要本身残缺（如中断截断残留），绝不回退至残缺摘要，而是自动调用高质量本地多维结构化提炼进行自我修复
-            val finalSummary = if (isSummarySubstantiallyComplete(generated)) {
-                generated
-            } else if (isSummarySubstantiallyComplete(existingSummary)) {
-                existingSummary
-            } else {
-                buildExtractiveConversationSummary(sourceMessages, tokenBudget, existingPreferencesAndConstraints)
-            }?.takeIf { it.isNotBlank() }?.trim()
-                ?: throw IllegalStateException("未能提炼出有效摘要内容，请检查模型配置与网络连接")
-
-            conversationDao.updateRollingSummary(
-                conversationId = conversation.id,
-                summary = finalSummary,
-                messageId = lastSourceMessageId
-            )
-
-            val refreshed = getConversationById(conversationId) ?: conversation
-            buildContextUsageSnapshot(
-                conversation = refreshed,
-                messages = messages,
-                modelName = modelName
-            )
-        }
+        // 废除滚动摘要：主动整理统一委托至 compressConversationContext，执行时间线梳理与会话记忆沉淀，最近十几次对话无损保留
+        compressConversationContext(conversationId, modelNameOverride)
     }
 
     suspend fun updateRollingSummary(
@@ -2847,41 +2828,25 @@ class AiRepository(
             ?.coerceIn(4_000, 2_000_000)
             ?: estimateModelContextWindowTokens(modelName)
         val promptBudget = estimatePromptBudgetTokens(modelName, maxOutputTokens, effectiveContextOverride)
-        val summaryBudget = (promptBudget * SUMMARY_BUDGET_RATIO).toInt().coerceIn(600, 1_800)
-        val memoryBudget = (promptBudget * MEMORY_BUDGET_RATIO).toInt().coerceIn(300, 1_200)
+        val memoryBudget = (promptBudget * MEMORY_BUDGET_RATIO).toInt().coerceIn(400, 2_400)
         val recentBudget = (
-            promptBudget - summaryBudget - memoryBudget - SYSTEM_PROMPT_TOKEN_RESERVE
+            promptBudget - memoryBudget - SYSTEM_PROMPT_TOKEN_RESERVE
         ).coerceAtLeast(MIN_RECENT_CONTEXT_TOKENS)
 
-        val hasRollingSummary = !conversation.rollingSummary.isNullOrBlank()
-        val summarizedThrough = conversation.summaryUpdatedMessageId ?: 0L
-
-        // 开源规范（ConversationSummaryBufferMemory 机制）：
-        // 若存在滚动摘要且记录了截断点，活跃上下文仅包含截断点之后的新消息与显式钉住 (isPinned) 的消息；
-        // 早期历史消息已被归约为滚动摘要，不再作为原文消耗上下文输入预算。
-        val activeCandidateMessages = if (hasRollingSummary && summarizedThrough > 0L) {
-            usableMessages.filter { it.id > summarizedThrough || it.isPinned }
-        } else {
-            usableMessages
-        }
+        // 彻底废除截断点物理过滤：所有有效对话均为活跃候选
+        val compressedThrough = conversation.summaryUpdatedMessageId ?: 0L
 
         var recentTokens = 0
         var recentCount = 0
-        for (message in activeCandidateMessages.asReversed()) {
+        for ((index, message) in usableMessages.asReversed().withIndex()) {
             val cost = estimateTokenCount(compactMessageForHistory(message.content)) + 24
-            if (recentCount > 0 && recentTokens + cost > recentBudget && !message.isPinned) break
+            if (index >= UNCOMPRESSED_RECENT_MESSAGE_COUNT && recentTokens + cost > recentBudget && !message.isPinned) break
             recentTokens += cost
             recentCount++
         }
 
         val olderCount = (usableMessages.size - recentCount).coerceAtLeast(0)
-        val lastOlderMessageId = if (usableMessages.size >= 4) {
-            usableMessages.dropLast(2).lastOrNull()?.id
-        } else null
-
-        val summaryTokens = if (hasRollingSummary && (olderCount > 0 || summarizedThrough > 0L)) {
-            conversation.rollingSummary?.let { estimateTokenCount(compactTextToTokenBudget(it, summaryBudget)) } ?: 0
-        } else 0
+        val lastOlderMessageId = if (olderCount > 0) usableMessages.dropLast(recentCount).lastOrNull()?.id else null
 
         val latestUserMessage = usableMessages.lastOrNull { it.role == "user" }?.content.orEmpty()
         val memoryBlock = buildRelevantMemoryBlock(conversation, latestUserMessage, memoryBudget)
@@ -2891,19 +2856,12 @@ class AiRepository(
         val estimatedInputTokens = (
             SYSTEM_PROMPT_TOKEN_RESERVE +
                 recentTokens +
-                summaryTokens.coerceAtMost(summaryBudget) +
                 memoryTokens.coerceAtMost(memoryBudget)
         ).coerceAtLeast(0)
         val calculatedUsagePercent = (estimatedInputTokens / promptBudget.toFloat()).coerceIn(0f, 1f)
 
-        // 需求 6：修复始终提示“有较早信息尚未进入摘要”
-        // 判定准则（符合 ConversationSummaryBufferMemory 规范）：
-        // 1. 只有当存在真正溢出活跃预算的较早历史消息（olderCount > 0 且其中包含未归约的消息）；
-        // 2. 或当前活跃上下文占用率达到中高负载水位（>= 50% 且存在可压缩消息）时，才激活可压缩预警状态；
-        // 3. 当处于健康短对话或历史完全包含在活跃窗口内时，不激活可压缩（杜绝无意义红点与误报提示）。
-        val hasPendingOlderOverflow = olderCount > 0 && lastOlderMessageId != null && (summarizedThrough == 0L || summarizedThrough < lastOlderMessageId)
-        val isHighContextPressure = calculatedUsagePercent >= 0.50f && usableMessages.size >= 6 && lastOlderMessageId != null && (summarizedThrough == 0L || summarizedThrough < lastOlderMessageId)
-        val canCompress = hasPendingOlderOverflow || isHighContextPressure
+        // 上下文压缩判定：当存在超出最近未压缩窗口 (olderCount > 0) 且未被归约的早期历史消息时支持压缩
+        val canCompress = olderCount > 0 && lastOlderMessageId != null && (compressedThrough == 0L || compressedThrough < lastOlderMessageId)
 
         return ConversationContextUsage(
             contextWindowTokens = contextWindow,
@@ -2913,10 +2871,10 @@ class AiRepository(
             recentMessageCount = recentCount,
             olderMessageCount = olderCount,
             recentTokens = recentTokens,
-            summaryTokens = summaryTokens,
+            summaryTokens = 0,
             memoryTokens = memoryTokens,
             memoryItemCount = memoryItemCount,
-            hasRollingSummary = hasRollingSummary,
+            hasRollingSummary = false,
             summaryUpdatedAt = conversation.summaryUpdatedAt,
             compressedThroughMessageId = conversation.summaryUpdatedMessageId,
             canCompress = canCompress
@@ -2950,35 +2908,28 @@ class AiRepository(
             maxOutputTokens = maxOutputTokens,
             contextWindowOverrideTokens = effectiveContextOverride
         )
-        val summaryBudget = (promptBudget * SUMMARY_BUDGET_RATIO).toInt().coerceIn(600, 1_800)
-        val memoryBudget = (promptBudget * MEMORY_BUDGET_RATIO).toInt().coerceIn(300, 1_200)
+        val memoryBudget = (promptBudget * MEMORY_BUDGET_RATIO).toInt().coerceIn(400, 2_400)
         val recentBudget = (
-            promptBudget - summaryBudget - memoryBudget - SYSTEM_PROMPT_TOKEN_RESERVE
+            promptBudget - memoryBudget - SYSTEM_PROMPT_TOKEN_RESERVE
         ).coerceAtLeast(MIN_RECENT_CONTEXT_TOKENS)
 
-        // 上下文按固定优先级组装：长期记忆和滚动摘要先占预算，剩余预算留给最近原文。
+        // 上下文组装：过往历史压缩成果由会话专属记忆与独立时间线系统 (memoryBlock) 完整承载
         val memoryBlock = conversation?.let {
             buildRelevantMemoryBlock(it, currentUserMessage, memoryBudget, options)
         }
 
-        val hasRollingSummary = !conversation?.rollingSummary.isNullOrBlank()
-        val summarizedThrough = conversation?.summaryUpdatedMessageId ?: 0L
-
-        // ConversationSummaryBufferMemory 原则：
-        // 1. 若已有滚动摘要，候选活跃消息仅从截断点之后提取（外加用户明确置顶 isPinned 的消息）
-        // 2. 从候选活跃消息倒序向前装填，严格控制在 recentBudget 预算内
-        val candidateMessages = if (hasRollingSummary && summarizedThrough > 0L) {
-            usableMessages.filter { it.id > summarizedThrough || it.isPinned }
-        } else {
-            usableMessages
-        }
+        // 核心改造（彻底解除消息截断，保证最近十几次对话无损保留）：
+        // 1. 彻底废除按 summarizedThrough 物理截断候选消息的逻辑，所有有效消息皆作为候选；
+        // 2. 倒序装填最近消息，无条件保证最近十几次（>= 16 条）对话原汁原味完整包含；
+        // 3. 只有在超出 UNCOMPRESSED_RECENT_MESSAGE_COUNT (16 条) 且超出 recentBudget 时才截断较早历史。
+        val candidateMessages = usableMessages
 
         var usedTokens = 0
         val recentReversed = mutableListOf<Message>()
-        for (message in candidateMessages.asReversed()) {
+        for ((index, message) in candidateMessages.asReversed().withIndex()) {
             val compact = compactMessageForHistory(message.content)
             val cost = estimateTokenCount(compact) + 24
-            if (recentReversed.isNotEmpty() && usedTokens + cost > recentBudget && !message.isPinned) {
+            if (index >= UNCOMPRESSED_RECENT_MESSAGE_COUNT && usedTokens + cost > recentBudget && !message.isPinned) {
                 break
             }
             recentReversed.add(message)
@@ -2986,24 +2937,10 @@ class AiRepository(
         }
 
         val recentMessages = recentReversed.asReversed()
-        val unincludedMessages = usableMessages.filterNot { recentMessages.contains(it) }
-        val summary = if (unincludedMessages.isEmpty() && (!hasRollingSummary || summarizedThrough == 0L)) {
-            // 如果历史对话极短且全部完整包含在活跃上下文中，且从未生成过摘要，无需注入摘要
-            null
-        } else if (hasRollingSummary && (summarizedThrough >= (unincludedMessages.lastOrNull()?.id ?: 0L) || unincludedMessages.isEmpty())) {
-            conversation?.rollingSummary
-        } else {
-            ensureRollingSummary(
-                conversation = conversation,
-                config = config,
-                modelName = modelName,
-                olderMessages = unincludedMessages,
-                tokenBudget = summaryBudget
-            )
-        }
 
+        // 彻底废除滚动摘要：summary 始终为 null，不再调用 ensureRollingSummary，杜绝静态摘要锁死剧情
         return ContextBundle(
-            summary = summary,
+            summary = null,
             memoryBlock = memoryBlock,
             recentMessages = recentMessages
         )
@@ -3131,60 +3068,8 @@ class AiRepository(
         olderMessages: List<Message>,
         tokenBudget: Int
     ): String? {
-        if (conversation == null || olderMessages.isEmpty()) return null
-
-        val lastOlderMessageId = olderMessages.lastOrNull()?.id ?: return null
-        val existingSummary = conversation.rollingSummary?.takeIf { it.isNotBlank() }
-        val summarizedThrough = conversation.summaryUpdatedMessageId ?: 0L
-        if (existingSummary != null && summarizedThrough >= lastOlderMessageId) {
-            return compactTextToTokenBudget(existingSummary, tokenBudget)
-        }
-
-        // 只有旧消息足够多时才额外发起摘要请求，避免短对话产生无意义的二次调用或过早归约。
-        val pendingMessages = olderMessages.filter { it.id > summarizedThrough }
-            .ifEmpty { olderMessages }
-        if (
-            pendingMessages.size < MIN_SUMMARY_SOURCE_MESSAGES &&
-            pendingMessages.sumOf { estimateTokenCount(it.content) } < MIN_SUMMARY_SOURCE_TOKENS
-        ) {
-            return existingSummary
-        }
-
-        val latestTimelineAnchor = resolveLatestTimelineAnchor(conversation.id)
-        val existingPreferencesAndConstraints = resolveExistingPreferencesAndConstraints(conversation.id)
-        val generated = runCatching {
-            withTimeoutOrNull(90_000L) {
-                generateRollingSummary(
-                    config = config,
-                    modelName = modelName,
-                    existingSummary = existingSummary,
-                    pendingMessages = pendingMessages,
-                    tokenBudget = tokenBudget,
-                    latestTimelineAnchor = latestTimelineAnchor,
-                    existingPreferencesAndConstraints = existingPreferencesAndConstraints
-                )
-            }
-        }.onFailure {
-            Log.w(tag, "Rolling summary generation failed", it)
-        }.getOrNull()
-
-        val finalSummary = if (isSummarySubstantiallyComplete(generated)) {
-            generated
-        } else if (isSummarySubstantiallyComplete(existingSummary)) {
-            existingSummary
-        } else {
-            buildExtractiveConversationSummary(olderMessages, tokenBudget, existingPreferencesAndConstraints)
-        }?.takeIf { it.isNotBlank() }?.trim()
-
-        if (!finalSummary.isNullOrBlank() && olderMessages.size >= MIN_SUMMARY_SOURCE_MESSAGES) {
-            conversationDao.updateRollingSummary(
-                conversationId = conversation.id,
-                summary = finalSummary,
-                messageId = lastOlderMessageId
-            )
-        }
-
-        return finalSummary
+        // 彻底废除滚动摘要：过往历史由时间线梳理与会话记忆承载，不再生成长文本滚动摘要
+        return null
     }
 
     private suspend fun generateRollingSummary(
@@ -3341,12 +3226,8 @@ class AiRepository(
         worldBookBlock: String? = null
     ): String? {
         if (isRoleplay) {
-            // 角色与故事创作严格隔离：只使用角色卡与场景组装的上下文，若存在滚动摘要且尚未包含在剧情提示中，追加前情提要
-            return if (!olderSummary.isNullOrBlank() && (customPrompt == null || !customPrompt.contains(olderSummary))) {
-                listOfNotNull(customPrompt, "【前序剧情滚动摘要 (历史对话总结)】\n$olderSummary").joinToString("\n\n")
-            } else {
-                customPrompt
-            }
+            // 角色与故事创作严格隔离：只使用角色卡与场景组装的上下文；废除滚动摘要注入，杜绝陈旧剧情停顿点锁死未来剧情
+            return customPrompt
         }
 
         val basePrompt = """
@@ -3370,18 +3251,16 @@ class AiRepository(
             }
         }
 
-        val summaryBlock = olderSummary?.takeIf { it.isNotBlank() }?.let {
-            "<session_summary>\n【前序历史对话滚动摘要 (脉络与未决议题)】\n${it.trim()}\n</session_summary>"
-        }
-
+        // 彻底废除滚动摘要 (summaryBlock) 注入：
+        // 过往历史压缩成果由 memoryBlock（会话专属记忆与独立时间线系统）承载，
+        // 彻底根除静态陈旧摘要导致模型在过去时间点原地踏步的痛点。
         return listOfNotNull(
             basePrompt,
             personalizationPart,
             buildRuntimeFeaturePrompt(options),
             promptPart,
             memoryBlock,
-            worldBookBlock,
-            summaryBlock
+            worldBookBlock
         ).joinToString("\n\n").ifBlank { null }
     }
 

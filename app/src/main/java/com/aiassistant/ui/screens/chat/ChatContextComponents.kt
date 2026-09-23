@@ -359,7 +359,7 @@ internal fun ContextUsageDialog(
                 Column(modifier = Modifier.weight(1f)) {
                     Text("上下文使用情况", style = MaterialTheme.typography.titleLarge)
                     Text(
-                        text = "模型窗口预算、滚动摘要与上下文压缩管理",
+                        text = "模型窗口预算、时间线梳理与上下文压缩管理",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -445,7 +445,7 @@ internal fun ContextOptimizationActions(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // 卡片 1：滚动摘要管理
+        // 卡片 1：时间线梳理与记忆沉淀
         Surface(
             shape = RoundedCornerShape(14.dp),
             color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
@@ -472,29 +472,27 @@ internal fun ContextOptimizationActions(
                             modifier = Modifier.size(16.dp)
                         )
                         Text(
-                            text = "滚动摘要 (Rolling Summary)",
+                            text = "时间线与会话记忆 (Timeline & Memory)",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary
                         )
                     }
-                    if (usage.hasRollingSummary) {
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                        ) {
-                            Text(
-                                text = "已提炼 · ${formatTokenCount(usage.summaryTokens)} tokens",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
-                        }
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                    ) {
+                        Text(
+                            text = "已沉淀 · ${usage.memoryItemCount} 条记忆",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
                     }
                 }
 
                 Text(
-                    text = "提炼全篇历史剧情梗概并置入 System Prompt（前情提要），【不裁剪、不丢弃任何消息原文】，保留全部对话细节同时让大模型精准掌握全局长文走向。",
+                    text = "过往超出最近未压缩窗口的历史对话，已自动梳理沉淀为时间线节点与会话专属记忆。最近十几次对话（16+ 条）无条件无损保留，剧情自然向前推移，绝不在陈旧过去时间点原地踏步。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -504,19 +502,6 @@ internal fun ContextOptimizationActions(
                     horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    if (usage.hasRollingSummary && onEditRollingSummary != null) {
-                        OutlinedButton(
-                            onClick = onEditRollingSummary,
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(13.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("查看 / 编辑", style = MaterialTheme.typography.labelSmall)
-                        }
-                        Spacer(modifier = Modifier.width(8.dp))
-                    }
-
                     Button(
                         onClick = onGenerateRollingSummary,
                         enabled = !state.isGeneratingSummary,
@@ -530,11 +515,11 @@ internal fun ContextOptimizationActions(
                                 color = MaterialTheme.colorScheme.onPrimary
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("提炼中...", style = MaterialTheme.typography.labelSmall)
+                            Text("梳理中...", style = MaterialTheme.typography.labelSmall)
                         } else {
                             Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(13.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text(if (usage.hasRollingSummary) "更新滚动摘要" else "立即提炼摘要", style = MaterialTheme.typography.labelSmall)
+                            Text("梳理时间线与提炼记忆", style = MaterialTheme.typography.labelSmall)
                         }
                     }
                 }
@@ -589,7 +574,7 @@ internal fun ContextOptimizationActions(
                 }
 
                 Text(
-                    text = "【强力释放 Token 预算】！基于核心摘要与记忆，物理裁剪早期历史对话原文（标记裁剪水线），仅发送近期活跃消息，释放 50%~80% 窗口空间，防止超长对话报错断连。",
+                    text = "【释放 Token 空间】基于时间线梳理与会话专属记忆，将早期历史对话沉淀归档，无条件完整保留最近十几次活跃对话（16+ 条），释放窗口空间同时确保剧情连贯推动。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -693,67 +678,19 @@ internal fun ContextUsageDetails(
                 value = "${usage.recentMessageCount} 条 · ${formatTokenCount(usage.recentTokens)} tokens"
             )
             ContextUsageRow(
-                label = "较早消息",
+                label = "较早历史消息",
                 value = "${usage.olderMessageCount} 条"
             )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "滚动摘要",
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                if (usage.hasRollingSummary) {
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .clickable(enabled = onEditRollingSummary != null) { onEditRollingSummary?.invoke() }
-                            .padding(horizontal = 4.dp, vertical = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Text(
-                            text = "${formatTokenCount(usage.summaryTokens)} tokens",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Icon(
-                            Icons.Default.Edit,
-                            contentDescription = "查看或微调滚动摘要",
-                            modifier = Modifier.size(13.dp),
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                } else {
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .clickable(enabled = onGenerateRollingSummary != null) { onGenerateRollingSummary?.invoke() }
-                            .padding(horizontal = 4.dp, vertical = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Text(
-                            text = "尚未生成 (点击生成)",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.tertiary
-                        )
-                    }
-                }
-            }
             ContextUsageRow(
-                label = "长期记忆",
-                value = "${usage.memoryItemCount} 条 · ${formatTokenCount(usage.memoryTokens)} tokens"
+                label = "时间线/记忆成果",
+                value = "${usage.memoryItemCount} 条记忆 · ${formatTokenCount(usage.memoryTokens)} tokens"
             )
             ContextUsageRow(
-                label = "已压缩至",
-                value = usage.compressedThroughMessageId?.let { "#$it" } ?: "尚未压缩"
+                label = "压缩沉淀水线",
+                value = usage.compressedThroughMessageId?.let { "已沉淀至 #$it" } ?: "未触发压缩"
             )
             ContextUsageRow(
-                label = "摘要时间",
+                label = "沉淀梳理时间",
                 value = usage.summaryUpdatedAt?.let(::formatContextTimestamp) ?: "暂无"
             )
         }
@@ -767,11 +704,11 @@ internal fun ContextUsageStatus(
 ) {
     val isHighPressure = usage.usagePercent >= 0.60f
     val message = statusMessage ?: if (usage.canCompress && isHighPressure) {
-        "上下文负载较高，可主动生成滚动摘要以释放容量。"
+        "上下文负载较高，可主动梳理时间线与提炼记忆以释放容量。"
     } else if (usage.canCompress) {
-        "检测到较多早期历史对话，可按需生成滚动摘要。"
+        "检测到较多早期历史对话，可按需梳理时间线与提炼记忆。"
     } else {
-        "当前上下文容量充裕，历史对话完整保留。"
+        "当前上下文容量充裕，最近十几次历史对话完整保留。"
     }
     val icon = if (isHighPressure) Icons.Default.Warning else Icons.Default.CheckCircle
     val color = if (isHighPressure) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary
@@ -904,7 +841,7 @@ internal fun RollingSummaryEditDialog(
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(20.dp)
                 )
-                Text("会话滚动摘要", style = MaterialTheme.typography.titleLarge)
+                Text("会话历史梳理与记忆", style = MaterialTheme.typography.titleLarge)
             }
         },
         content = {
@@ -915,7 +852,7 @@ internal fun RollingSummaryEditDialog(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    text = "滚动摘要由 AI 根据早期历史对话提炼，已自动注入到系统上下文中。您可以直接审阅或按需编辑修改：",
+                    text = "过往历史对话已梳理沉淀为时间线节点与会话专属记忆。您可以直接审阅或按需微调修改：",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -926,7 +863,7 @@ internal fun RollingSummaryEditDialog(
                         .fillMaxWidth()
                         .heightIn(min = 180.dp, max = 460.dp),
                     maxLines = 30,
-                    placeholder = { Text("暂无滚动摘要内容...") },
+                    placeholder = { Text("暂无历史梳理内容...") },
                     textStyle = MaterialTheme.typography.bodyMedium
                 )
             }

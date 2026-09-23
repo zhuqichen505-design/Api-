@@ -517,12 +517,12 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                     val freed = (initialPercent - newPercent).coerceAtLeast(0f)
                     val finishMsg = if (shouldCompress) {
                         if (freed > 1f) {
-                            "✅ 上下文已成功压缩，释放约 ${freed.toInt()}% 空间，当前占用 ${newPercent.toInt()}%"
+                            "✅ 较早历史已成功沉淀为时间线与会话记忆，释放约 ${freed.toInt()}% 空间，最近十几次对话完整保留"
                         } else {
-                            "✅ 上下文已完成压缩，保留核心摘要与最新对话"
+                            "✅ 较早历史已梳理沉淀为时间线与会话记忆，最近十几次对话完整无损保留"
                         }
                     } else {
-                        "当前上下文已处于最优压缩状态"
+                        "当前最近十几次对话已处于无损保留状态，无需额外压缩"
                     }
                     _contextUsage.update {
                         it.copy(
@@ -551,7 +551,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
     fun generateRollingSummaryNow() {
         if (_contextUsage.value.isGeneratingSummary) return
         viewModelScope.launch {
-            _contextUsage.update { it.copy(isGeneratingSummary = true, statusMessage = "🔄 正在提炼滚动摘要...") }
+            _contextUsage.update { it.copy(isGeneratingSummary = true, statusMessage = "🔄 正在梳理较早历史时间线并沉淀会话记忆...") }
             val modelName = _currentModel.value ?: conversation?.modelName ?: _uiState.value.modelName
             repository.generateRollingSummaryNow(
                 conversationId = conversationId,
@@ -559,8 +559,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
             ).fold(
                 onSuccess = { usage ->
                     conversation = repository.getConversationById(conversationId) ?: conversation
-                    val summaryTokenCount = usage.summaryTokens
-                    val msg = "✅ 滚动摘要提炼成功（当前摘要约 $summaryTokenCount tokens），已自动融入上下文"
+                    val msg = "✅ 较早历史已成功沉淀为时间线与会话记忆，最近十几次对话完整无损保留"
                     _contextUsage.update {
                         it.copy(
                             usage = usage,
@@ -573,7 +572,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                     _contextUsage.update {
                         it.copy(
                             isGeneratingSummary = false,
-                            statusMessage = error.message ?: "生成滚动摘要失败"
+                            statusMessage = error.message ?: "提炼时间线与记忆失败"
                         )
                     }
                 }
