@@ -2,7 +2,7 @@
 
 本文档按照工作流规范记录每次版本更新、需求变更与复核结果。
 
-## [2026-09-23] - 滚动摘要文本中途截断彻底修复与记忆已有偏好约束去重优化
+## [2026-09-23] - v2.3.9：滚动摘要思考模型截断彻底根治、尾部断句防腰斩安全闭合、记忆已有偏好约束去重与弹窗全量展示
 
 ### 1. 核心需求落实与技术重构详情
 1. **滚动摘要中途截断与显示不全彻底修复（核心痛点根治）**：
@@ -26,6 +26,14 @@
   - `testSanitizeSummaryCompletion_trimsHalfSentenceAndClosesProperly PASSED`
   - `testBuildStructuredSummaryPrompt_memoryDeduplicationDirectives PASSED`
   - `testExtractiveStructuredSummary_deduplicatesKnownPreferences PASSED`
+- **构建输出**：
+  - 文件路径：`D:\Agent\APP-烧\app\releases\Echo-v2.3.9.apk`
+  - 文件大小：`16,336,893 字节 (~15.58 MB)`
+  - SHA256：`60E592C4F42463F06E7367991272F0EAAC97BF6ED1B647B9240E18B4B6D69D6D`
+  - 签名方案：`v2 scheme (APK Signature Scheme v2): true`
+  - 证书指纹：`939638F6D3E9AF7F8A980E62AF52D275FEE73381F2130CC4E20A0D349F98E21F`
+  - 包名与版本：`package: name='com.aiassistant' versionCode='144' versionName='2.3.9'`
+  - 历史包策略：`D:\Agent\APP-烧\app\releases` 目录下所有历史版本（从早期版本至 `Echo-v2.3.8.apk` 等共 153 个历史文件）永久完整保留，本次仅增量输出 `Echo-v2.3.9.apk`（当前目录总计 154 个文件），严格杜绝任何 `-arm64-v8a` 等架构后缀。
 
 ---
 

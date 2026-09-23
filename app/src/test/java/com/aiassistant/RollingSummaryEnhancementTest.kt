@@ -141,8 +141,18 @@ class RollingSummaryEnhancementTest {
     }
 
     @Test
+    fun testV239UserUpdatesCompleteness() {
+        org.junit.Assert.assertEquals("CurrentVersionUserUpdates 必须对齐为 V239UserUpdates", com.aiassistant.ui.screens.settings.V239UserUpdates, com.aiassistant.ui.screens.settings.CurrentVersionUserUpdates)
+        org.junit.Assert.assertEquals("V2.3.9 用户更新日志应有 5 项核心内容", 5, com.aiassistant.ui.screens.settings.V239UserUpdates.size)
+        assertTrue("必须包含滚动摘要思考模型截断彻底根治说明", com.aiassistant.ui.screens.settings.V239UserUpdates.any { it.contains("滚动摘要思考模型截断彻底根治") })
+        assertTrue("必须包含尾部断句防腰斩安全闭合保护说明", com.aiassistant.ui.screens.settings.V239UserUpdates.any { it.contains("尾部断句防腰斩安全闭合保护") })
+        assertTrue("必须包含记忆已有偏好约束严格去重说明", com.aiassistant.ui.screens.settings.V239UserUpdates.any { it.contains("记忆已有偏好约束严格去重") })
+        assertTrue("必须包含本地抽取式兜底同步去重说明", com.aiassistant.ui.screens.settings.V239UserUpdates.any { it.contains("本地抽取式兜底同步去重") })
+        assertTrue("必须包含查看编辑弹窗全屏平滑滚动说明", com.aiassistant.ui.screens.settings.V239UserUpdates.any { it.contains("查看编辑弹窗全屏平滑滚动") })
+    }
+
+    @Test
     fun testV238UserUpdatesCompleteness() {
-        org.junit.Assert.assertEquals("CurrentVersionUserUpdates 必须对齐为 V238UserUpdates", com.aiassistant.ui.screens.settings.V238UserUpdates, com.aiassistant.ui.screens.settings.CurrentVersionUserUpdates)
         org.junit.Assert.assertEquals("V2.3.8 用户更新日志应有 5 项核心内容", 5, com.aiassistant.ui.screens.settings.V238UserUpdates.size)
         assertTrue("必须包含滚动摘要断层情节拼接彻底根除说明", com.aiassistant.ui.screens.settings.V238UserUpdates.any { it.contains("滚动摘要断层情节拼接彻底根除") })
         assertTrue("必须包含时间线记忆与滚动摘要职责彻底明晰说明", com.aiassistant.ui.screens.settings.V238UserUpdates.any { it.contains("时间线记忆与滚动摘要职责彻底明晰") })
