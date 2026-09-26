@@ -216,6 +216,14 @@ internal val V240UserUpdates = listOf(
     "提炼超时进一步放宽保障深度思考：手动生成超时放宽至 150 秒，后台维护放宽至 90 秒，为 DeepSeek-R1 / QwQ 等长思考链模型留足充裕的生成时间"
 )
 
+internal val V252UserUpdates = listOf(
+    "根治会话持续报错 (empty response detected 500)：全面阻断错误占位信息注入上下文，历史中出现的请求失败与错误提示不再作为助手回复传入后续上下文，彻底自愈被错误污染的异常会话",
+    "严格遵循模型与网关角色交替规范 (Role Alternation)：请求上下文自动剔除孤立助手消息、合并连续同角色消息，确保首尾符合规范，杜绝第三方网关拒收或空回复",
+    "精准适配模型参数 (max_tokens 与 max_completion_tokens)：严格区分 OpenAI o-series 专用的 max_completion_tokens 与标准模型的 max_tokens，并规避不支持的温度与惩罚参数，避免请求冲突",
+    "重新生成智能清理与体验优化：遇到失败提示点击重新生成时，自动清理历史残留的失败占位记录，保持多分支结构整洁，错误原因增加清晰指引",
+    "流式请求与网络容错全链路强化：优化流式接收异常中断与超时重置机制，防止异常状态闭锁，全方位保障多轮对话流式生成的稳定可靠"
+)
+
 internal val V250UserUpdates = listOf(
     "滚动摘要彻底移除，根治停留在过去时间点原地踏步：全面废除系统提示词对静态滚动摘要的拼接注入与陈旧时间点锁死，模型不再受陈旧摘要束缚，恢复自然动态推进剧情",
     "最近十几次对话（16+ 条）无损保全：彻底废除按摘要标记物理切断对话的机制，强制完整保留最近活跃对话原文，模型完整掌握前序剧情与互动细节，绝不产生情节断层",
@@ -224,7 +232,7 @@ internal val V250UserUpdates = listOf(
     "双轨记忆与多轮对话无缝承接：历史时间线节点与会话专属记忆协同注入，既为模型提供长期世界观与关系支撑，又保障近期对话连贯推进"
 )
 
-internal val CurrentVersionUserUpdates = V250UserUpdates
+internal val CurrentVersionUserUpdates = V252UserUpdates
 
 internal val V237UserUpdates = listOf(
     "滚动摘要标点断句保护彻底根除暴力截断：引入智能标点边界闭合算法，彻底废除无视语意的字符强切逻辑，确保每一句摘要表达完整、有始有终、绝不半句残缺",

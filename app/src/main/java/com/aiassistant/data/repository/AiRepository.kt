@@ -651,6 +651,62 @@ class AiRepository(
             }
         }
 
+        fun isErrorPlaceholderMessage(content: String?): Boolean {
+            if (content.isNullOrBlank()) return false
+            val trimmed = content.trim()
+            return trimmed.startsWith("请求失败\n\n") ||
+                trimmed.startsWith("请求失败\n") ||
+                trimmed.startsWith("[输出已被中断:") ||
+                trimmed.contains("[输出已被中断:") ||
+                trimmed.contains("failed to stream request: empty response detected", ignoreCase = true)
+        }
+
+        fun normalizeChatMessagesRoleAlternation(rawMessages: List<ChatMessage>): List<ChatMessage> {
+            if (rawMessages.isEmpty()) return emptyList()
+
+            val result = mutableListOf<ChatMessage>()
+            var index = 0
+            // 1. 保留开头的 system 消息（若有）
+            while (index < rawMessages.size && rawMessages[index].role == "system") {
+                val sysContent = rawMessages[index].content.toString().trim()
+                if (sysContent.isNotBlank()) {
+                    result.add(ChatMessage(role = "system", content = sysContent))
+                }
+                index++
+            }
+
+            // 2. 严格以 user 角色作为非 system 首位：丢弃后续紧跟的孤立 assistant 消息
+            while (index < rawMessages.size && rawMessages[index].role == "assistant") {
+                index++
+            }
+
+            // 3. 严格交替装填，若相邻角色相同则安全合并 content
+            for (i in index until rawMessages.size) {
+                val current = rawMessages[i]
+                if (current.content is String && (current.content as String).isBlank()) {
+                    continue
+                }
+
+                val last = result.lastOrNull()
+                if (last != null && last.role != "system" && last.role == current.role) {
+                    if (last.content is String && current.content is String) {
+                        result[result.lastIndex] = last.copy(content = "${last.content}\n\n${current.content}")
+                    } else {
+                        result[result.lastIndex] = current
+                    }
+                } else {
+                    result.add(current)
+                }
+            }
+
+            // 4. 确保最后一条消息是 user 角色（若末尾残留孤立 assistant，安全移除）
+            while (result.size > 1 && result.last().role == "assistant") {
+                result.removeAt(result.lastIndex)
+            }
+
+            return result
+        }
+
         data class ActiveContextResolution(
             val activeMessages: List<Message>,
             val recentTokens: Int,
@@ -1550,7 +1606,10 @@ class AiRepository(
                 contextWindowOverrideTokens = contextWindowOverrideTokens ?: conversation.contextWindowTokens
             )
             val usableMessages = messages.filter { message ->
-                (message.role == "user" || message.role == "assistant") && message.content.isNotBlank() && !message.isExcluded
+                (message.role == "user" || message.role == "assistant") &&
+                    message.content.isNotBlank() &&
+                    !message.isExcluded &&
+                    !isErrorPlaceholderMessage(message.content)
             }
             if (usableMessages.size <= UNCOMPRESSED_RECENT_MESSAGE_COUNT) {
                 // 当前对话处于最近十几次（16条）未压缩无损保留窗口，无需压缩
@@ -2119,7 +2178,7 @@ class AiRepository(
         }
 
         contextBundle.recentMessages.forEach { msg ->
-            if (msg.role == "user" || msg.role == "assistant") {
+            if ((msg.role == "user" || msg.role == "assistant") && !isErrorPlaceholderMessage(msg.content)) {
                 chatMessages.add(ChatMessage(role = msg.role, content = compactMessageForHistory(msg.content)))
             }
         }
@@ -2140,6 +2199,8 @@ class AiRepository(
         val userContent = buildUserMessage(finalEnrichedUserMessage, attachments)
         chatMessages.add(ChatMessage(role = "user", content = userContent))
 
+        val normalizedChatMessages = normalizeChatMessagesRoleAlternation(chatMessages)
+
         // 创建请求 - OpenAI格式不发送top_k
         val searchIsReady = echoToolHub?.let {
             when (it.getSearchEngine()) {
@@ -2157,18 +2218,24 @@ class AiRepository(
         // 思考模型充足预算保底：主流模型皆为思考模型（Reasoning Model），思考链消耗巨大（通常数百至数千 Token）。
         // 严禁因 headroom 挤压将 max_tokens 降至 256/512 等过小数值，否则思考链未完毕即触发 length 截断导致正文为空并被网关判定为 empty response (500)
         val safeMaxTokens = maxOf(configuredMax, 4096).coerceIn(4096, 64000)
+        val isO1OrO3 = requestModel.startsWith("o1", ignoreCase = true) ||
+            requestModel.startsWith("o3", ignoreCase = true) ||
+            requestModel.startsWith("o4", ignoreCase = true) ||
+            requestModel.contains("/o1", ignoreCase = true) ||
+            requestModel.contains("/o3", ignoreCase = true) ||
+            requestModel.contains("/o4", ignoreCase = true)
 
         val request = ChatCompletionRequest(
             model = requestModel,
-            messages = chatMessages,
-            temperature = requestTemperature(config, effectiveOptions),
-            max_tokens = safeMaxTokens,
-            max_completion_tokens = safeMaxTokens,
+            messages = normalizedChatMessages,
+            temperature = if (isO1OrO3) null else requestTemperature(config, effectiveOptions),
+            max_tokens = if (isO1OrO3) null else safeMaxTokens,
+            max_completion_tokens = if (isO1OrO3) safeMaxTokens else null,
             top_p = effectiveOptions.topP,
             top_k = if (providerToggles.includeTopK) config.topK else null,
             stream = true,
-            frequency_penalty = config.frequencyPenalty.takeIf { it != 0.0f },
-            presence_penalty = config.presencePenalty.takeIf { it != 0.0f },
+            frequency_penalty = if (isO1OrO3) null else config.frequencyPenalty.takeIf { it != 0.0f },
+            presence_penalty = if (isO1OrO3) null else config.presencePenalty.takeIf { it != 0.0f },
             stop = parseStopSequences(config.stopSequences),
             seed = config.seed,
             response_format = config.responseFormat?.let { ResponseFormat(it) },
@@ -2501,9 +2568,11 @@ class AiRepository(
 
         // 添加历史消息
         contextBundle.recentMessages.dropWhile { it.role == "assistant" }.forEach { msg ->
-            when (msg.role) {
-                "user" -> addAnthropicHistoryMessage(anthropicMessages, "user", compactMessageForHistory(msg.content))
-                "assistant" -> addAnthropicHistoryMessage(anthropicMessages, "assistant", compactMessageForHistory(msg.content))
+            if (!isErrorPlaceholderMessage(msg.content)) {
+                when (msg.role) {
+                    "user" -> addAnthropicHistoryMessage(anthropicMessages, "user", compactMessageForHistory(msg.content))
+                    "assistant" -> addAnthropicHistoryMessage(anthropicMessages, "assistant", compactMessageForHistory(msg.content))
+                }
             }
         }
 
@@ -2848,7 +2917,7 @@ class AiRepository(
         if (errorBody.isNullOrBlank()) return "未知错误"
         return runCatching {
             val json = JsonParser.parseString(errorBody).asJsonObject
-            when {
+            val rawMsg = when {
                 json.has("error") -> {
                     val errorElem = json.get("error")
                     when {
@@ -2869,6 +2938,11 @@ class AiRepository(
                 }
                 json.has("msg") -> json.get("msg").asString
                 else -> errorBody
+            }
+            if (rawMsg.contains("empty response detected", ignoreCase = true)) {
+                "$rawMsg (上游模型未返回有效流式内容，通常由敏感词拦截、思考预算耗尽截断或网关格式校验引起)"
+            } else {
+                rawMsg
             }
         }.getOrDefault(errorBody)
     }
@@ -2915,7 +2989,10 @@ class AiRepository(
         contextWindowOverrideTokens: Int? = null
     ): ConversationContextUsage {
         val usableMessages = messages.filter { message ->
-            (message.role == "user" || message.role == "assistant") && message.content.isNotBlank() && !message.isExcluded
+            (message.role == "user" || message.role == "assistant") &&
+                message.content.isNotBlank() &&
+                !message.isExcluded &&
+                !isErrorPlaceholderMessage(message.content)
         }
 
         val effectiveContextOverride = contextWindowOverrideTokens
@@ -2985,7 +3062,10 @@ class AiRepository(
         options: ChatRequestOptions? = null
     ): ContextBundle {
         val usableMessages = messages.filter { message ->
-            (message.role == "user" || message.role == "assistant") && message.content.isNotBlank() && !message.isExcluded
+            (message.role == "user" || message.role == "assistant") &&
+                message.content.isNotBlank() &&
+                !message.isExcluded &&
+                !isErrorPlaceholderMessage(message.content)
         }
 
         val effectiveContextOverride = contextWindowOverrideTokens

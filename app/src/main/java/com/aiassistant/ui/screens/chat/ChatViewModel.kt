@@ -13,6 +13,7 @@ import com.aiassistant.utils.AtemporalSettingItem
 import com.aiassistant.utils.TimelineDraftManager
 import com.aiassistant.utils.TimelineReconcileDraft
 import com.aiassistant.utils.TimelineReconcileCheckpoint
+import com.aiassistant.data.repository.AiRepository
 import com.aiassistant.data.repository.AutoTimelineUpdateResult
 import com.google.gson.Gson
 import android.util.Log
@@ -1179,17 +1180,28 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
             if (lastAssistantIndex < 0) return@launch
 
             val lastAssistantMessage = messages[lastAssistantIndex]
+            val isError = AiRepository.isErrorPlaceholderMessage(lastAssistantMessage.content)
+            if (isError) {
+                // 如果最后一条是错误占位消息，重新生成时直接删除该错误消息，避免污染会话记录与多分支
+                repository.deleteMessage(lastAssistantMessage)
+            }
             val lastUserMessage = messages.lastOrNull { it.role == "user" && it.createdAt < lastAssistantMessage.createdAt }
             if (lastUserMessage != null) {
-                val groupId = lastAssistantMessage.variantGroupId ?: "reply_${lastAssistantMessage.id}"
-                if (lastAssistantMessage.variantGroupId == null) {
+                val groupId = if (isError) {
+                    lastAssistantMessage.variantGroupId
+                } else {
+                    lastAssistantMessage.variantGroupId ?: "reply_${lastAssistantMessage.id}"
+                }
+                if (!isError && lastAssistantMessage.variantGroupId == null) {
                     AiAssistantApp.instance.database.messageDao().updateMessage(
                         lastAssistantMessage.copy(variantGroupId = groupId, variantIndex = 1)
                     )
                 }
-                val nextIndex = (messages
-                    .filter { it.variantGroupId == groupId }
-                    .maxOfOrNull { it.variantIndex } ?: 1) + 1
+                val nextIndex = if (groupId != null) {
+                    (messages
+                        .filter { it.variantGroupId == groupId && it.id != lastAssistantMessage.id }
+                        .maxOfOrNull { it.variantIndex } ?: 0) + 1
+                } else 1
 
                 sendMessageInternal(
                     content = lastUserMessage.content,
