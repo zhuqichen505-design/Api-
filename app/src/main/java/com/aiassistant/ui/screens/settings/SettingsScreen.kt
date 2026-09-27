@@ -216,6 +216,14 @@ internal val V240UserUpdates = listOf(
     "提炼超时进一步放宽保障深度思考：手动生成超时放宽至 150 秒，后台维护放宽至 90 秒，为 DeepSeek-R1 / QwQ 等长思考链模型留足充裕的生成时间"
 )
 
+internal val V253UserUpdates = listOf(
+    "彻底根除第4次回复精准报错 (empty response detected 500)：全面废除在用户消息头部注水注入 [System Override Directive / 核心指令强化声明] 的旧机制，消除 Google Gemini 等模型将用户提问误判为越狱/指令攻击的安全拦截，多轮对话持久顺畅",
+    "角色与剧情扮演模式智能识别：会话提示词包含角色定义或剧情设定时自动识别为角色扮演环境，严格隔绝通用 AI 助手模板干扰，输出人设纯正自然",
+    "历史报错占位全链路阻断与自愈：历史因网络或安全拦截产生的错误记录不会渗入上下文，重新生成自动物理清理错误记录",
+    "模型请求参数严格合规与分流：严格遵循 OpenAI o 系列与标准模型的参数规范，避免参数冲突与网关拒收",
+    "流式请求与网络容错全链路强化：优化流式接收异常中断与超时重置机制，防止异常状态闭锁，全方位保障多轮对话流式生成的稳定可靠"
+)
+
 internal val V252UserUpdates = listOf(
     "根治会话持续报错 (empty response detected 500)：全面阻断错误占位信息注入上下文，历史中出现的请求失败与错误提示不再作为助手回复传入后续上下文，彻底自愈被错误污染的异常会话",
     "严格遵循模型与网关角色交替规范 (Role Alternation)：请求上下文自动剔除孤立助手消息、合并连续同角色消息，确保首尾符合规范，杜绝第三方网关拒收或空回复",
@@ -232,7 +240,7 @@ internal val V250UserUpdates = listOf(
     "双轨记忆与多轮对话无缝承接：历史时间线节点与会话专属记忆协同注入，既为模型提供长期世界观与关系支撑，又保障近期对话连贯推进"
 )
 
-internal val CurrentVersionUserUpdates = V252UserUpdates
+internal val CurrentVersionUserUpdates = V253UserUpdates
 
 internal val V237UserUpdates = listOf(
     "滚动摘要标点断句保护彻底根除暴力截断：引入智能标点边界闭合算法，彻底废除无视语意的字符强切逻辑，确保每一句摘要表达完整、有始有终、绝不半句残缺",

@@ -661,6 +661,22 @@ class AiRepository(
                 trimmed.contains("failed to stream request: empty response detected", ignoreCase = true)
         }
 
+        fun isRoleplayConversation(conversation: Conversation?): Boolean {
+            if (conversation == null) return false
+            return hasConversationTag(conversation, "roleplay") ||
+                hasConversationTag(conversation, "story") ||
+                conversation.systemPrompt?.contains("Role Definition", ignoreCase = true) == true ||
+                conversation.systemPrompt?.contains("角色扮演", ignoreCase = true) == true ||
+                conversation.systemPrompt?.contains("剧情扮演", ignoreCase = true) == true
+        }
+
+        fun hasConversationTag(conversation: Conversation?, tag: String): Boolean {
+            return conversation?.tags
+                ?.split(',', ';', '|', ' ')
+                ?.map { it.trim() }
+                ?.any { it.equals(tag, ignoreCase = true) } == true
+        }
+
         fun normalizeChatMessagesRoleAlternation(rawMessages: List<ChatMessage>): List<ChatMessage> {
             if (rawMessages.isEmpty()) return emptyList()
 
@@ -1324,12 +1340,11 @@ class AiRepository(
         conversationIds.forEach { setConversationHidden(it, hidden) }
     }
 
-    fun hasConversationTag(conversation: Conversation?, tag: String): Boolean {
-        return conversation?.tags
-            ?.split(',', ';', '|', ' ')
-            ?.map { it.trim() }
-            ?.any { it.equals(tag, ignoreCase = true) } == true
-    }
+    fun isRoleplayConversation(conversation: Conversation?): Boolean =
+        Companion.isRoleplayConversation(conversation)
+
+    fun hasConversationTag(conversation: Conversation?, tag: String): Boolean =
+        Companion.hasConversationTag(conversation, tag)
 
     fun updateTag(rawTags: String?, tag: String, enabled: Boolean): String? {
         val tags = rawTags
@@ -2154,7 +2169,7 @@ class AiRepository(
         val toolCallsJson = if (toolCalls.isNotEmpty()) gson.toJson(toolCalls) else null
         val chatMessages = mutableListOf<ChatMessage>()
 
-        val isRoleplayConv = conversation != null && (hasConversationTag(conversation, "roleplay") || hasConversationTag(conversation, "story"))
+        val isRoleplayConv = isRoleplayConversation(conversation)
         val promptResolution = resolveSystemPromptWithPriority(conversation, effectiveOptions, isRoleplayConv)
 
         val worldBookBlock = if (!isRoleplayConv && effectiveOptions.enableWorldBook == true && userMessage.isNotBlank()) {
@@ -2183,20 +2198,9 @@ class AiRepository(
             }
         }
 
-        // 双端注水机制 (Dual-Anchor Prompting)：安全合并至最终用户消息头部，严禁在消息列表中段或尾部插入非首位 role="system"（各大模型如 DeepSeek、Claude 等严格禁止非首位 system 消息，否则导致网关或大模型报错/空回复）
-        val customPrompt = promptResolution.first
-        val finalEnrichedUserMessage = if (!isRoleplayConv && !customPrompt.isNullOrBlank() && (contextBundle.recentMessages.size >= 6 || contextBundle.summary != null)) {
-            val tailOverride = "[System Override Directive / 核心指令强化声明]\n" +
-                "请注意：用户已对当前对话设定了最新的行为规范与提示词要求。\n" +
-                "无论前序历史对话风格如何，你必须立即完全遵循以下最新指令，放弃先前的惯性回复模式：\n" +
-                customPrompt.trim()
-            "$tailOverride\n\n$enrichedUserMessage"
-        } else {
-            enrichedUserMessage
-        }
-
-        // 构建当前用户消息（支持多模态）
-        val userContent = buildUserMessage(finalEnrichedUserMessage, attachments)
+        // 构建当前用户消息（支持多模态）：彻底废除将系统提示词伪装为 [System Override Directive] 注入用户消息的旧机制，
+        // 彻底根除由此引发的 Gemini/OpenAI 提示注入/越狱安全检测拦截导致的 500 empty response
+        val userContent = buildUserMessage(enrichedUserMessage, attachments)
         chatMessages.add(ChatMessage(role = "user", content = userContent))
 
         val normalizedChatMessages = normalizeChatMessagesRoleAlternation(chatMessages)
@@ -2544,7 +2548,7 @@ class AiRepository(
             currentUserMessage = userMessage,
             options = effectiveOptions
         )
-        val isRoleplayConv = conversation != null && (hasConversationTag(conversation, "roleplay") || hasConversationTag(conversation, "story"))
+        val isRoleplayConv = isRoleplayConversation(conversation)
         val promptResolution = resolveSystemPromptWithPriority(conversation, effectiveOptions, isRoleplayConv)
 
         val worldBookBlock = if (!isRoleplayConv && effectiveOptions.enableWorldBook == true && userMessage.isNotBlank()) {
@@ -2840,7 +2844,7 @@ class AiRepository(
     fun resolveSystemPromptWithPriority(
         conversation: Conversation?,
         options: ChatRequestOptions,
-        isRoleplay: Boolean = conversation != null && (hasConversationTag(conversation, "roleplay") || hasConversationTag(conversation, "story"))
+        isRoleplay: Boolean = isRoleplayConversation(conversation)
     ): Pair<String?, Boolean> {
         if (options.overrideSystemPrompt && !options.systemPromptOverride.isNullOrBlank()) {
             return Pair(options.systemPromptOverride, true)
@@ -4843,7 +4847,7 @@ class AiRepository(
         tokenBudget: Int,
         options: ChatRequestOptions? = null
     ): String? {
-        val isRoleplay = hasConversationTag(conversation, "roleplay") || hasConversationTag(conversation, "story")
+        val isRoleplay = isRoleplayConversation(conversation)
         // 角色扮演会话中严格隔离跨会话全局长期记忆，防止外部工作/代码等日常偏好污染小说剧情
         val extMemoryEnabled = if (isRoleplay) false else (options?.enableExternalMemory ?: conversation.enableExternalMemory ?: false)
 
