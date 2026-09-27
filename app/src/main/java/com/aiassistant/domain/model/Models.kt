@@ -36,7 +36,7 @@ data class ApiConfig(
     val apiType: String = "openai",
     val modelName: String,
     val availableModels: String? = null,
-    val maxTokens: Int = 50000,
+    val maxTokens: Int = 4096,
     val temperature: Float = 0.95f,
     val topP: Float = 1.0f,
     val topK: Int = 50,

@@ -2584,7 +2584,7 @@ data class ContextUsageUiState(
 // 临时聊天设置（仅当前对话有效）
 data class TempChatSettings(
     val temperature: Float = 0.95f,
-    val maxTokens: Int = 50000,
+    val maxTokens: Int = 4096,
     val topP: Float = 1.0f,
     val enableThinking: Boolean = true,
     val thinkingEffort: String = "high",

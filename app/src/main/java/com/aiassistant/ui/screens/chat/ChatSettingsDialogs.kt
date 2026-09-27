@@ -2412,6 +2412,7 @@ fun ChatSettingsDialog(
     }
     var showTemplates by remember { mutableStateOf(false) }
     var showSaveDialog by remember { mutableStateOf(false) }
+    var showAdvancedOptions by remember { mutableStateOf(false) }
     var avatarRevision by remember { mutableIntStateOf(0) }
     val dialogListState = rememberLazyListState()
     val modelOptions = remember(currentOption, fallbackModel, availableOptions) {
@@ -2448,7 +2449,7 @@ fun ChatSettingsDialog(
     fun notifyTempSettingsChange() {
         val updated = TempChatSettings(
             temperature = temperature.coerceIn(0f, tuningProfile.temperatureMax),
-            maxTokens = maxTokens.toIntOrNull() ?: 8192,
+            maxTokens = maxTokens.toIntOrNull() ?: 4096,
             topP = topP,
             enableThinking = enableThinking,
             thinkingEffort = thinkingEffort,
@@ -2567,234 +2568,6 @@ fun ChatSettingsDialog(
                     )
                 }
 
-
-                // 温度
-                item {
-                    Column {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = if (tuningProfile.temperatureEnabled) {
-                                    "温度: ${String.format("%.2f", temperature)}"
-                                } else {
-                                    "温度: 思考模式下不可调"
-                                },
-                                style = MaterialTheme.typography.titleSmall,
-                                color = dialogContentColor
-                            )
-                            Text(
-                                text = "越低严谨，越高富有想象力",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = dialogSecondaryColor
-                            )
-                        }
-                        Slider(
-                            value = temperature,
-                            onValueChange = { newValue ->
-                                // 精度为0.05
-                                temperature = (newValue * 20).toInt() / 20f
-                            },
-                            valueRange = 0f..tuningProfile.temperatureMax,
-                            steps = (tuningProfile.temperatureMax * 20).toInt().coerceAtLeast(1) - 1,
-                            enabled = tuningProfile.temperatureEnabled
-                        )
-                        if (!tuningProfile.temperatureEnabled) {
-                            Text(
-                                text = "${tuningProfile.modelLabel} 的思考模式不支持调整温度，发送请求时会自动省略 temperature。",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = dialogSecondaryColor
-                            )
-                        }
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text("精确", style = MaterialTheme.typography.labelSmall, color = dialogSecondaryColor)
-                            Text("平衡", style = MaterialTheme.typography.labelSmall, color = dialogSecondaryColor)
-                            Text("发散", style = MaterialTheme.typography.labelSmall, color = dialogSecondaryColor)
-                        }
-                    }
-                }
-
-                // 最大Token
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("最大 Token 数", style = MaterialTheme.typography.titleSmall, color = dialogContentColor)
-                            Text("限制单次回复的最大生成长度", style = MaterialTheme.typography.labelSmall, color = dialogSecondaryColor)
-                        }
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            OutlinedTextField(
-                                value = maxTokens,
-                                onValueChange = { value -> maxTokens = value.filter { it.isDigit() }.take(6) },
-                                modifier = Modifier.weight(1f),
-                                placeholder = { Text("例如 4096 或 8192") },
-                                singleLine = true,
-                                shape = RoundedCornerShape(14.dp),
-                                colors = glassTextFieldColors(dialogContentColor, dialogSecondaryColor, dialogContainerColor)
-                            )
-                            Surface(
-                                modifier = Modifier.height(54.dp),
-                                shape = RoundedCornerShape(14.dp),
-                                color = echoGlassPalette().control,
-                                contentColor = dialogSecondaryColor,
-                                border = BorderStroke(1.dp, echoGlassPalette().outline),
-                                tonalElevation = 0.dp,
-                                shadowElevation = 0.dp
-                            ) {
-                                Box(
-                                    modifier = Modifier.padding(horizontal = 14.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text("tokens", style = MaterialTheme.typography.labelLarge)
-                                }
-                            }
-                        }
-                        Text(
-                            "留空会使用模型或全局配置的默认值。",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = dialogSecondaryColor
-                        )
-                    }
-                }
-
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "当前会话上下文上限 (Context Window)",
-                                style = MaterialTheme.typography.titleSmall,
-                                color = dialogContentColor
-                            )
-                            Surface(
-                                shape = RoundedCornerShape(4.dp),
-                                color = if (contextWindowTokens != null) MaterialTheme.colorScheme.tertiary.copy(alpha = 0.15f)
-                                       else MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                            ) {
-                                Text(
-                                    text = if (contextWindowTokens != null) "已自定义" else "跟随模型",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = if (contextWindowTokens != null) MaterialTheme.colorScheme.tertiary
-                                           else MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                )
-                            }
-                        }
-
-                        val presets = listOf(
-                            Pair("跟随模型", null),
-                            Pair("32K", 32_768),
-                            Pair("64K", 65_536),
-                            Pair("128K", 131_072),
-                            Pair("200K", 200_000),
-                            Pair("1M", 1_000_000),
-                            Pair("2M", 2_000_000)
-                        )
-
-                        LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            items(presets) { (label, tokens) ->
-                                val isSelected = contextWindowTokens == tokens
-                                FilterChip(
-                                    selected = isSelected,
-                                    onClick = {
-                                        contextWindowTokens = tokens
-                                        notifyTempSettingsChange()
-                                    },
-                                    label = {
-                                        Text(label, style = MaterialTheme.typography.labelSmall)
-                                    },
-                                    leadingIcon = if (isSelected) {
-                                        { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(12.dp)) }
-                                    } else null
-                                )
-                            }
-                        }
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            OutlinedTextField(
-                                value = contextWindowTokens?.toString().orEmpty(),
-                                onValueChange = { value ->
-                                    val digits = value.filter { it.isDigit() }.take(7)
-                                    contextWindowTokens = digits.toIntOrNull()
-                                    notifyTempSettingsChange()
-                                },
-                                modifier = Modifier.weight(1f),
-                                placeholder = { Text("留空表示跟随模型默认") },
-                                singleLine = true,
-                                shape = RoundedCornerShape(14.dp),
-                                colors = glassTextFieldColors(dialogContentColor, dialogSecondaryColor, dialogContainerColor)
-                            )
-                            Surface(
-                                modifier = Modifier.height(54.dp),
-                                shape = RoundedCornerShape(14.dp),
-                                color = echoGlassPalette().control,
-                                contentColor = dialogSecondaryColor,
-                                border = BorderStroke(1.dp, echoGlassPalette().outline),
-                                tonalElevation = 0.dp,
-                                shadowElevation = 0.dp
-                            ) {
-                                Box(
-                                    modifier = Modifier.padding(horizontal = 14.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text("tokens", style = MaterialTheme.typography.labelLarge)
-                                }
-                            }
-                        }
-                        Text(
-                            "仅对当前对话生效，不影响该模型在其他会话的限制；超限自动降级保护也仅在此对话生效。",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = dialogSecondaryColor
-                        )
-                    }
-                }
-
-                item {
-                    Column {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Top P: ${String.format("%.2f", topP)}",
-                                style = MaterialTheme.typography.titleSmall,
-                                color = dialogContentColor
-                            )
-                            Text("核采样概率阈值，控制用词发散程度", style = MaterialTheme.typography.labelSmall, color = dialogSecondaryColor)
-                        }
-                        Slider(
-                            value = topP,
-                            onValueChange = { newValue ->
-                                topP = (newValue * 20).toInt() / 20f
-                            },
-                            valueRange = 0f..1f,
-                            steps = 19
-                        )
-                    }
-                }
 
                 // 思考模式
                 item {
@@ -3030,26 +2803,307 @@ fun ChatSettingsDialog(
                     }
                 }
 
+                // 更多高级选项 (折叠区域)
                 item {
                     EchoGlassCard(
-                        onClick = onConvertToRoleplay,
+                        onClick = { showAdvancedOptions = !showAdvancedOptions },
                         modifier = Modifier.fillMaxWidth(),
                         shape = EchoTokens.Radius.shapeMd,
-                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                        containerColor = echoGlassPalette().control.copy(alpha = 0.65f)
                     ) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(10.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Icon(Icons.Default.AutoStories, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("转为角色扮演 / 故事创作", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall, color = dialogContentColor)
-                                Text("平滑升级为故事会话，解锁角色卡、世界观与剧情推进指令", style = MaterialTheme.typography.bodySmall, color = dialogSecondaryColor)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Tune,
+                                    contentDescription = null,
+                                    tint = dialogContentColor,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Column {
+                                    Text(
+                                        text = "更多高级选项",
+                                        fontWeight = FontWeight.SemiBold,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = dialogContentColor
+                                    )
+                                    Text(
+                                        text = if (showAdvancedOptions) "点击收起参数调节与扩展功能" else "温度、最大Token、上下文上限、TopP、角色扮演",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = dialogSecondaryColor
+                                    )
+                                }
                             }
-                            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = dialogSecondaryColor)
+                            Icon(
+                                imageVector = if (showAdvancedOptions) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                contentDescription = if (showAdvancedOptions) "收起" else "展开",
+                                tint = dialogSecondaryColor
+                            )
+                        }
+                    }
+                }
+
+                if (showAdvancedOptions) {
+                    // 温度
+                    item {
+                        Column {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = if (tuningProfile.temperatureEnabled) {
+                                        "温度: ${String.format("%.2f", temperature)}"
+                                    } else {
+                                        "温度: 思考模式下不可调"
+                                    },
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = dialogContentColor
+                                )
+                                Text(
+                                    text = "越低严谨，越高富有想象力",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = dialogSecondaryColor
+                                )
+                            }
+                            Slider(
+                                value = temperature,
+                                onValueChange = { newValue ->
+                                    // 精度为0.05
+                                    temperature = (newValue * 20).toInt() / 20f
+                                },
+                                valueRange = 0f..tuningProfile.temperatureMax,
+                                steps = (tuningProfile.temperatureMax * 20).toInt().coerceAtLeast(1) - 1,
+                                enabled = tuningProfile.temperatureEnabled
+                            )
+                            if (!tuningProfile.temperatureEnabled) {
+                                Text(
+                                    text = "${tuningProfile.modelLabel} 的思考模式不支持调整温度，发送请求时会自动省略 temperature。",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = dialogSecondaryColor
+                                )
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("精确", style = MaterialTheme.typography.labelSmall, color = dialogSecondaryColor)
+                                Text("平衡", style = MaterialTheme.typography.labelSmall, color = dialogSecondaryColor)
+                                Text("发散", style = MaterialTheme.typography.labelSmall, color = dialogSecondaryColor)
+                            }
+                        }
+                    }
+
+                    // 最大Token
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("最大 Token 数", style = MaterialTheme.typography.titleSmall, color = dialogContentColor)
+                                Text("限制单次回复的最大生成长度", style = MaterialTheme.typography.labelSmall, color = dialogSecondaryColor)
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = maxTokens,
+                                    onValueChange = { value -> maxTokens = value.filter { it.isDigit() }.take(6) },
+                                    modifier = Modifier.weight(1f),
+                                    placeholder = { Text("默认 4096") },
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(14.dp),
+                                    colors = glassTextFieldColors(dialogContentColor, dialogSecondaryColor, dialogContainerColor)
+                                )
+                                Surface(
+                                    modifier = Modifier.height(54.dp),
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = echoGlassPalette().control,
+                                    contentColor = dialogSecondaryColor,
+                                    border = BorderStroke(1.dp, echoGlassPalette().outline),
+                                    tonalElevation = 0.dp,
+                                    shadowElevation = 0.dp
+                                ) {
+                                    Box(
+                                        modifier = Modifier.padding(horizontal = 14.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text("tokens", style = MaterialTheme.typography.labelLarge)
+                                    }
+                                }
+                            }
+                            Text(
+                                "默认 4096 tokens。留空会使用模型或全局配置的默认值。",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = dialogSecondaryColor
+                            )
+                        }
+                    }
+
+                    // 上下文上限
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "当前会话上下文上限 (Context Window)",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = dialogContentColor
+                                )
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = if (contextWindowTokens != null) MaterialTheme.colorScheme.tertiary.copy(alpha = 0.15f)
+                                           else MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                ) {
+                                    Text(
+                                        text = if (contextWindowTokens != null) "已自定义" else "跟随模型",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (contextWindowTokens != null) MaterialTheme.colorScheme.tertiary
+                                               else MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+
+                            val presets = listOf(
+                                Pair("跟随模型", null),
+                                Pair("32K", 32_768),
+                                Pair("64K", 65_536),
+                                Pair("128K", 131_072),
+                                Pair("200K", 200_000),
+                                Pair("1M", 1_000_000),
+                                Pair("2M", 2_000_000)
+                            )
+
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                items(presets) { (label, tokens) ->
+                                    val isSelected = contextWindowTokens == tokens
+                                    FilterChip(
+                                        selected = isSelected,
+                                        onClick = {
+                                            contextWindowTokens = tokens
+                                            notifyTempSettingsChange()
+                                        },
+                                        label = {
+                                            Text(label, style = MaterialTheme.typography.labelSmall)
+                                        },
+                                        leadingIcon = if (isSelected) {
+                                            { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(12.dp)) }
+                                        } else null
+                                    )
+                                }
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = contextWindowTokens?.toString().orEmpty(),
+                                    onValueChange = { value ->
+                                        val digits = value.filter { it.isDigit() }.take(7)
+                                        contextWindowTokens = digits.toIntOrNull()
+                                        notifyTempSettingsChange()
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    placeholder = { Text("留空表示跟随模型默认") },
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(14.dp),
+                                    colors = glassTextFieldColors(dialogContentColor, dialogSecondaryColor, dialogContainerColor)
+                                )
+                                Surface(
+                                    modifier = Modifier.height(54.dp),
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = echoGlassPalette().control,
+                                    contentColor = dialogSecondaryColor,
+                                    border = BorderStroke(1.dp, echoGlassPalette().outline),
+                                    tonalElevation = 0.dp,
+                                    shadowElevation = 0.dp
+                                ) {
+                                    Box(
+                                        modifier = Modifier.padding(horizontal = 14.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text("tokens", style = MaterialTheme.typography.labelLarge)
+                                    }
+                                }
+                            }
+                            Text(
+                                "仅对当前对话生效，不影响该模型在其他会话的限制；超限自动降级保护也仅在此对话生效。",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = dialogSecondaryColor
+                            )
+                        }
+                    }
+
+                    // Top P
+                    item {
+                        Column {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Top P: ${String.format("%.2f", topP)}",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = dialogContentColor
+                                )
+                                Text("核采样概率阈值，控制用词发散程度", style = MaterialTheme.typography.labelSmall, color = dialogSecondaryColor)
+                            }
+                            Slider(
+                                value = topP,
+                                onValueChange = { newValue ->
+                                    topP = (newValue * 20).toInt() / 20f
+                                },
+                                valueRange = 0f..1f,
+                                steps = 19
+                            )
+                        }
+                    }
+
+                    // 转为角色扮演
+                    item {
+                        EchoGlassCard(
+                            onClick = onConvertToRoleplay,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = EchoTokens.Radius.shapeMd,
+                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.AutoStories, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("转为角色扮演 / 故事创作", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall, color = dialogContentColor)
+                                    Text("平滑升级为故事会话，解锁角色卡、世界观与剧情推进指令", style = MaterialTheme.typography.bodySmall, color = dialogSecondaryColor)
+                                }
+                                Icon(Icons.Default.ChevronRight, contentDescription = null, tint = dialogSecondaryColor)
+                            }
                         }
                     }
                 }
@@ -3068,7 +3122,7 @@ fun ChatSettingsDialog(
                     onClick = {
                         val settings = TempChatSettings(
                             temperature = temperature.coerceIn(0f, tuningProfile.temperatureMax),
-                            maxTokens = maxTokens.toIntOrNull() ?: 8192,
+                            maxTokens = maxTokens.toIntOrNull() ?: 4096,
                             topP = topP,
                             enableThinking = enableThinking,
                             thinkingEffort = thinkingEffort,

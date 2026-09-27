@@ -36,12 +36,12 @@ class V1924FeaturesTest {
             apiKey = "sk-test",
             modelName = "gpt-4o"
         )
-        assertEquals(50000, apiConfig.maxTokens)
+        assertEquals(4096, apiConfig.maxTokens)
         assertTrue(apiConfig.enableThinking)
 
         // TempChatSettings defaults
         val tempSettings = TempChatSettings()
-        assertEquals(50000, tempSettings.maxTokens)
+        assertEquals(4096, tempSettings.maxTokens)
         assertTrue(tempSettings.enableThinking)
         assertFalse(tempSettings.enableSessionMemory)
 

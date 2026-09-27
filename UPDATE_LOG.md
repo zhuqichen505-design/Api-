@@ -2,6 +2,45 @@
 
 本文档按照工作流规范记录每次版本更新、需求变更与复核结果。
 
+## [2026-09-27] - v2.5.4：根治大模型超限空回复 (500 empty response detected)、请求降级保护放宽至 200k、对话高级参数优雅折叠、默认 Token 调整为 4096
+
+### 1. 核心问题定位与深度机理剖析
+1. **部分会话聊几句后持续报错 (empty response detected 500) 的深层根因**：
+   - **全局默认 `maxTokens` 过大 (50000)**：在 `Models.kt` (`ApiConfig.maxTokens`) 与 `ChatViewModel.kt` (`TempChatSettings.maxTokens`) 中，旧代码将默认最大输出 token 设置为了 `50000`。然而，当前主流通用模型（包括 Google Gemini 全系列、Anthropic Claude、DeepSeek-V3 等）的单次最大输出（max completion tokens）硬件/官方规范上限通常为 8,192 tokens（Gemini 为 8192，Claude 为 4096~8192，DeepSeek 为 8192）。当应用将 `max_tokens: 50000` 直接发送给服务商或上游聚合中转网关（如 OneAPI / NewAPI）时，Gemini 官方端点或网关参数校验器会直接拒绝超出范围的请求，或在流式建连阶段因参数溢出导致流被立即斩断（EOF），网关检测到没有收到任何数据块即抛出 HTTP 500 `failed to stream request: empty response detected`；
+   - **报错后强制将上下文锁死为 32k 导致长文截断**：旧版代码在 `retryWithCompressedContext` 中发生降级重试时，会强制执行 `conversation.copy(contextWindowTokens = 32_000)`，永久将该会话的上下文截断至仅 32k tokens，使得后续稍微多聊几轮就再次遇到上下文溢出与压缩冲突；
+   - **非 o 系列模型被误发送 `reasoning_effort`**：OpenAI 官方规范中，`reasoning_effort` 仅支持 o1 / o3 系列模型，对 Gemini、Claude、GPT-4o、DeepSeek 等模型发送此参数会引发上游严格网关的 400 Bad Request 或流式报错；
+   - **角色扮演模式下世界书与故事记忆丢失**：旧版 `AiRepository.kt` 在判断 `isRoleplay` 为 true 时，仅返回了 `customPrompt`，直接遗漏了 `memoryBlock`（故事时间线与专属记忆）和 `worldBookBlock`，导致故事世界观与长记忆无法正常注入。
+
+### 2. 技术重构与全面落地
+1. **全局默认 `maxTokens` 调整为通用的 4096 并建立安全范围钳位**：
+   - 在 `ApiConfig`、`TempChatSettings`、`createConversation` 中将默认 `maxTokens` 统一调整为 `4096`；
+   - 在 `sendOpenAIMessage` 中建立安全钳位防护机制：若历史配置为残留的 50000，自动纠偏为 4096；对于非 o1/o3 模型，将 `maxTokens` 智能钳位在 `1024..16384` 的安全区间内，彻底消除超出模型极限引发的网关断流；
+2. **上下文降级保护全面放宽至 200k (200,000 tokens)**：
+   - 将 `CONTEXT_OVERFLOW_RETRY_WINDOW_TOKENS` 从 32k 放宽至 200k (`200_000` tokens)；
+   - 在上下文预算计算与快照构建中，自动将历史被误降级为 32k (`32_000` 或 `32_768`) 的会话无缝恢复升级为 200k，消除长文截断隐患；
+   - 同步更新上下文管理卡片中的降级状态提示与徽章，动态准确显示 200K 降级保护；
+3. **对话设置窗口高级参数统一折叠至底部**：
+   - 在 `ChatSettingsDialog` 中，将「温度 (Temperature)」「最大 Token 数 (Max Tokens)」「当前会话上下文上限 (Context Window)」「Top P」「转为角色扮演 (Convert to Roleplay)」统一折叠到对话设置窗口最底部；
+   - 增加精致的「更多高级选项」液态玻璃折叠卡片，点击即可一键展开/收起，默认对话设置界面聚焦核心模型选择、提示词与功能开关，清爽紧凑；
+4. **非 o 系列思考参数智能兼容**：
+   - 严格限定仅在模型为 o1/o3 且供应商设置开启时才携带 `reasoning_effort`，针对 Gemini、Claude、GPT-4o、DeepSeek 自动规避，杜绝参数冲突；
+5. **角色扮演模式记忆与世界书协同注入**：
+   - 完善 `buildEffectiveSystemPrompt`，在角色扮演模式下同时注入角色人设设定、故事时间线、会话专属记忆与世界书内容，保障剧情创作设定连贯。
+
+### 3. 改动与新增文件清单
+- `app/src/main/java/com/aiassistant/domain/model/Models.kt`：`ApiConfig.maxTokens` 默认值调整为 4096；
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatViewModel.kt`：`TempChatSettings.maxTokens` 默认值调整为 4096；
+- `app/src/main/java/com/aiassistant/data/repository/AiRepository.kt`：`CONTEXT_OVERFLOW_RETRY_WINDOW_TOKENS = 200_000`；新建会话 maxTokens 默认 4096；`sendOpenAIMessage` 钳位 maxTokens 并过滤非 o1 的 reasoning_effort；自动升级历史 32k 会话至 200k；角色扮演保留 memoryBlock 与 worldBookBlock；
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatSettingsDialogs.kt`：将温度、最大Token、上下文上限、TopP、转为角色扮演折叠至底部「更多高级选项」卡片中；默认与保存 maxTokens 为 4096；
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatContextComponents.kt`：适配 200k 降级保护显示与动态 Token 格式化；
+- `app/src/main/java/com/aiassistant/ui/screens/settings/SettingsScreen.kt`：新增 `V254UserUpdates`，将 `CurrentVersionUserUpdates` 指向 V254；
+- `app/src/test/java/com/aiassistant/V254FeaturesTest.kt`：新增 V2.5.4 专项单测；
+- `app/src/test/java/com/aiassistant/V253FeaturesTest.kt`：适配单测；
+- `app/build.gradle.kts`：版本号递增至 `versionCode = 150`，`versionName = "2.5.4"`；
+- `UPDATE_LOG.md`：记录 v2.5.4 更新日志。
+
+---
+
 ## [2026-09-27] - v2.5.3：彻底根治第4次回复精准报错 (empty response detected 500)、杜绝用户消息越狱词注入 (System Override Directive)、角色与剧情扮演模式智能识别
 
 ### 1. 核心问题定位与深度机理剖析

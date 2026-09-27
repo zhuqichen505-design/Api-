@@ -54,7 +54,7 @@ class V1925FeaturesTest {
     @Test
     fun testNewConversationDefaults() {
         val tempSettings = TempChatSettings()
-        assertEquals("默认 maxTokens 必须为 50000", 50000, tempSettings.maxTokens)
+        assertEquals("默认 maxTokens 必须为 4096", 4096, tempSettings.maxTokens)
         assertTrue("默认思考模式必须开启", tempSettings.enableThinking)
         assertFalse("默认联网搜索必须关闭", tempSettings.enableWebSearch)
         assertFalse("默认会话专属记忆必须关闭", tempSettings.enableSessionMemory)

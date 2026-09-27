@@ -216,6 +216,16 @@ internal val V240UserUpdates = listOf(
     "提炼超时进一步放宽保障深度思考：手动生成超时放宽至 150 秒，后台维护放宽至 90 秒，为 DeepSeek-R1 / QwQ 等长思考链模型留足充裕的生成时间"
 )
 
+internal val V254UserUpdates = listOf(
+    "根治大模型超限空回复 (500 empty response detected)：排查并根治全局默认最大 Token 数过大 (50000) 超出 Gemini、Claude、DeepSeek 等主流模型单次输出上限导致的网关断流，单次生成长度默认调整为通用的 4096 tokens，彻底消除多轮对话异常报错",
+    "上下文降级保护全面放宽至 200k：请求超限或遇到服务限制时不再强制限制为 32k 上下文，全面调整为 200k (200,000 tokens) 宽裕预算，并自动为历史被误降级为 32k 的会话解禁恢复至 200k 保护",
+    "对话设置高级参数优雅折叠：在对话设置窗口中，将「温度」「最大 Token 数」「上下文上限」「Top P」「转为角色扮演」统一折叠至底部「更多高级选项」，点击即可展开调节，默认界面极致精炼清爽",
+    "非 o 系列思考参数智能兼容：针对 Gemini、Claude、GPT-4o、DeepSeek 等模型，自动规避仅 o1/o3 专用的 reasoning_effort 参数，彻底杜绝参数冲突导致的 400 报错与网关空回复",
+    "角色扮演记忆与世界书协同注入：角色扮演模式下完整保留会话专属记忆、故事时间线与世界书背景，保障长篇剧情创作的设定连贯与深度代入"
+)
+
+internal val CurrentVersionUserUpdates = V254UserUpdates
+
 internal val V253UserUpdates = listOf(
     "彻底根除第4次回复精准报错 (empty response detected 500)：全面废除在用户消息头部注水注入 [System Override Directive / 核心指令强化声明] 的旧机制，消除 Google Gemini 等模型将用户提问误判为越狱/指令攻击的安全拦截，多轮对话持久顺畅",
     "角色与剧情扮演模式智能识别：会话提示词包含角色定义或剧情设定时自动识别为角色扮演环境，严格隔绝通用 AI 助手模板干扰，输出人设纯正自然",
@@ -239,8 +249,6 @@ internal val V250UserUpdates = listOf(
     "上下文用量与压缩界面全面焕新：管理面板全面升级为时间线梳理与记忆沉淀展示，状态与指示文案精准透明，操作响应清晰直观",
     "双轨记忆与多轮对话无缝承接：历史时间线节点与会话专属记忆协同注入，既为模型提供长期世界观与关系支撑，又保障近期对话连贯推进"
 )
-
-internal val CurrentVersionUserUpdates = V253UserUpdates
 
 internal val V237UserUpdates = listOf(
     "滚动摘要标点断句保护彻底根除暴力截断：引入智能标点边界闭合算法，彻底废除无视语意的字符强切逻辑，确保每一句摘要表达完整、有始有终、绝不半句残缺",

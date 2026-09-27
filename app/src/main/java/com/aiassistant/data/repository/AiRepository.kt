@@ -110,7 +110,7 @@ class AiRepository(
         const val MEMORY_RECENCY_WEIGHT = 0.12f
         const val MEMORY_RECENCY_WINDOW_MS = 14f * 24f * 60f * 60f * 1000f
         const val DEFAULT_UNKNOWN_CONTEXT_WINDOW_TOKENS = 256_000
-        const val CONTEXT_OVERFLOW_RETRY_WINDOW_TOKENS = 32_000
+        const val CONTEXT_OVERFLOW_RETRY_WINDOW_TOKENS = 200_000
 
         /**
          * 解析具名或纯文本 API Key 列表（支持 [名称] sk-xxx 与 名称:::sk-xxx 格式，以及 [已禁用] 状态标签）
@@ -670,6 +670,18 @@ class AiRepository(
                 conversation.systemPrompt?.contains("剧情扮演", ignoreCase = true) == true
         }
 
+        fun formatRoleplaySystemPrompt(
+            customPrompt: String?,
+            memoryBlock: String? = null,
+            worldBookBlock: String? = null
+        ): String? {
+            return listOfNotNull(
+                customPrompt?.takeIf { it.isNotBlank() },
+                memoryBlock,
+                worldBookBlock
+            ).joinToString("\n\n").ifBlank { null }
+        }
+
         fun hasConversationTag(conversation: Conversation?, tag: String): Boolean {
             return conversation?.tags
                 ?.split(',', ';', '|', ' ')
@@ -682,13 +694,17 @@ class AiRepository(
 
             val result = mutableListOf<ChatMessage>()
             var index = 0
-            // 1. 保留开头的 system 消息（若有）
+            // 1. 保留开头的 system 消息（若有），合并为唯一个规范的首位 system 消息
+            val systemContents = mutableListOf<String>()
             while (index < rawMessages.size && rawMessages[index].role == "system") {
                 val sysContent = rawMessages[index].content.toString().trim()
                 if (sysContent.isNotBlank()) {
-                    result.add(ChatMessage(role = "system", content = sysContent))
+                    systemContents.add(sysContent)
                 }
                 index++
+            }
+            if (systemContents.isNotEmpty()) {
+                result.add(ChatMessage(role = "system", content = systemContents.joinToString("\n\n")))
             }
 
             // 2. 严格以 user 角色作为非 system 首位：丢弃后续紧跟的孤立 assistant 消息
@@ -1294,7 +1310,7 @@ class AiRepository(
             apiConfigId = apiConfigId,
             modelName = modelName,
             temperature = config?.temperature ?: 0.95f,
-            maxTokens = config?.maxTokens ?: 50000,
+            maxTokens = config?.maxTokens?.takeIf { it != 50000 } ?: 4096,
             topP = config?.topP ?: 1.0f,
             enableThinking = true,
             thinkingEffort = config?.thinkingEffort ?: "high",
@@ -2172,7 +2188,7 @@ class AiRepository(
         val isRoleplayConv = isRoleplayConversation(conversation)
         val promptResolution = resolveSystemPromptWithPriority(conversation, effectiveOptions, isRoleplayConv)
 
-        val worldBookBlock = if (!isRoleplayConv && effectiveOptions.enableWorldBook == true && userMessage.isNotBlank()) {
+        val worldBookBlock = if (effectiveOptions.enableWorldBook == true && userMessage.isNotBlank()) {
             val bookIds = effectiveOptions.activeWorldBookIds?.split(",")?.mapNotNull { it.trim().toLongOrNull() }
             val matchedEntries = matchWorldBookEntries(userMessage, bookIds)
             if (matchedEntries.isNotEmpty()) {
@@ -2218,16 +2234,24 @@ class AiRepository(
             options = effectiveOptions,
             allowNativeWebSearch = !searchIsReady
         )
-        val configuredMax = effectiveOptions.maxTokens ?: config.maxTokens
-        // 思考模型充足预算保底：主流模型皆为思考模型（Reasoning Model），思考链消耗巨大（通常数百至数千 Token）。
-        // 严禁因 headroom 挤压将 max_tokens 降至 256/512 等过小数值，否则思考链未完毕即触发 length 截断导致正文为空并被网关判定为 empty response (500)
-        val safeMaxTokens = maxOf(configuredMax, 4096).coerceIn(4096, 64000)
         val isO1OrO3 = requestModel.startsWith("o1", ignoreCase = true) ||
             requestModel.startsWith("o3", ignoreCase = true) ||
             requestModel.startsWith("o4", ignoreCase = true) ||
             requestModel.contains("/o1", ignoreCase = true) ||
             requestModel.contains("/o3", ignoreCase = true) ||
             requestModel.contains("/o4", ignoreCase = true)
+
+        val rawConfiguredMax = effectiveOptions.maxTokens ?: config.maxTokens
+        // 兼容历史遗留 50000 默认值：自动纠偏降级为 4096，杜绝上游网关报错
+        val configuredMax = if (rawConfiguredMax == 50000) 4096 else rawConfiguredMax
+        // 输出Token安全预算：
+        // - 对 OpenAI o系列思考模型支持较大预算 (4096..64000)；
+        // - 对通用模型（Gemini、Claude、DeepSeek、GPT-4o 等）：绝大多数单次输出上限为 4096 或 8192，强制收敛至安全区间 (1024..16384)，严禁发送 50000 导致上游拒收 (400) 或断流 (500 empty response)
+        val safeMaxTokens = if (isO1OrO3) {
+            maxOf(configuredMax, 4096).coerceIn(4096, 64000)
+        } else {
+            configuredMax.coerceIn(1024, 16384)
+        }
 
         val request = ChatCompletionRequest(
             model = requestModel,
@@ -2253,7 +2277,7 @@ class AiRepository(
             enable_thinking = if (providerToggles.includeEnableThinking) true else null,
             thinking_budget = if (providerToggles.includeThinkingBudget) thinkingBudgetForEffort(effectiveOptions.thinkingEffort, config.thinkingBudget) else null,
             thinking_effort = if (providerToggles.includeThinkingEffort) effectiveOptions.thinkingEffort else null,
-            reasoning_effort = if (providerToggles.includeReasoningEffort) effectiveOptions.thinkingEffort else null
+            reasoning_effort = if (providerToggles.includeReasoningEffort && isO1OrO3) effectiveOptions.thinkingEffort else null
         )
 
         val auth = RetrofitClient.formatApiKey(config.apiKey)
@@ -2551,7 +2575,7 @@ class AiRepository(
         val isRoleplayConv = isRoleplayConversation(conversation)
         val promptResolution = resolveSystemPromptWithPriority(conversation, effectiveOptions, isRoleplayConv)
 
-        val worldBookBlock = if (!isRoleplayConv && effectiveOptions.enableWorldBook == true && userMessage.isNotBlank()) {
+        val worldBookBlock = if (effectiveOptions.enableWorldBook == true && userMessage.isNotBlank()) {
             val bookIds = effectiveOptions.activeWorldBookIds?.split(",")?.mapNotNull { it.trim().toLongOrNull() }
             val matchedEntries = matchWorldBookEntries(userMessage, bookIds)
             if (matchedEntries.isNotEmpty()) {
@@ -2595,7 +2619,8 @@ class AiRepository(
         val thinkingBudget = if (effectiveOptions.enableThinking == true) {
             thinkingBudgetForEffort(effectiveOptions.thinkingEffort, config.thinkingBudget)
         } else null
-        val configuredMaxTokens = effectiveOptions.maxTokens ?: config.maxTokens
+        val rawConfiguredMaxTokens = effectiveOptions.maxTokens ?: config.maxTokens
+        val configuredMaxTokens = if (rawConfiguredMaxTokens == 50000) 4096 else rawConfiguredMaxTokens
         // Anthropic 协议要求 max_tokens 必须大于 budget_tokens，且保留充裕正文额度
         val safeRequestMaxTokens = maxOf(configuredMaxTokens, (thinkingBudget ?: 0) + 4096).coerceIn(4096, 64000)
 
@@ -3000,7 +3025,9 @@ class AiRepository(
         }
 
         val effectiveContextOverride = contextWindowOverrideTokens
-            ?: conversation.contextWindowTokens
+            ?: conversation.contextWindowTokens?.let {
+                if (it == 32_000 || it == 32_768) 200_000 else it
+            }
             ?: runCatching {
                 selectedModelDao.getModelsByConfig(conversation.apiConfigId).first()
                     .firstOrNull { it.modelName.equals(modelName, ignoreCase = true) }
@@ -3073,7 +3100,9 @@ class AiRepository(
         }
 
         val effectiveContextOverride = contextWindowOverrideTokens
-            ?: conversation?.contextWindowTokens
+            ?: conversation?.contextWindowTokens?.let {
+                if (it == 32_000 || it == 32_768) 200_000 else it
+            }
             ?: runCatching {
                 conversation?.let { conv ->
                     selectedModelDao.getModelsByConfig(conv.apiConfigId).first()
@@ -3390,8 +3419,8 @@ class AiRepository(
         worldBookBlock: String? = null
     ): String? {
         if (isRoleplay) {
-            // 角色与故事创作严格隔离：只使用角色卡与场景组装的上下文；废除滚动摘要注入，杜绝陈旧剧情停顿点锁死未来剧情
-            return customPrompt
+            // 角色扮演/剧情创作：以角色设定与场景为核心，隔绝通用 AI 助手套话，同时有机装载会话记忆、时间线与世界书
+            return formatRoleplaySystemPrompt(customPrompt, memoryBlock, worldBookBlock)
         }
 
         val basePrompt = """

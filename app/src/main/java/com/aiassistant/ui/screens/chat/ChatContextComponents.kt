@@ -636,7 +636,7 @@ internal fun ContextUsageOverview(
     val accent = contextUsageColor(progress)
     val percentText = "${(progress * 100).toInt().coerceIn(0, 100)}%"
     val contextLimit = usage.contextWindowTokens.takeIf { it > 0 } ?: usage.promptBudgetTokens
-    val isDegraded = customLimit == 32_768 && usage.modelDefaultContextTokens > 32_768
+    val isDegraded = (customLimit in listOf(32_000, 32_768, 200_000)) && usage.modelDefaultContextTokens > (customLimit ?: 0)
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
@@ -662,7 +662,7 @@ internal fun ContextUsageOverview(
                     ) {
                         Text(
                             text = when {
-                                isDegraded -> "已降级保护 (32K)"
+                                isDegraded -> "已降级保护 (${formatTokenCount(customLimit ?: 200_000)})"
                                 customLimit != null -> "本会话自定义"
                                 else -> "跟随模型默认"
                             },
@@ -710,7 +710,7 @@ internal fun ContextLimitSettingsCard(
         mutableStateOf(currentCustomLimit?.toString() ?: "")
     }
 
-    val isDegraded = currentCustomLimit == 32_768 && modelContextTokens > 32_768
+    val isDegraded = (currentCustomLimit in listOf(32_000, 32_768, 200_000)) && modelContextTokens > (currentCustomLimit ?: 0)
 
     Surface(
         shape = RoundedCornerShape(14.dp),
@@ -743,7 +743,7 @@ internal fun ContextLimitSettingsCard(
                         modifier = Modifier.size(16.dp)
                     )
                     Text(
-                        text = if (isDegraded) "会话上下文已降级至 32K" else "本会话上下文上限限制",
+                        text = if (isDegraded) "会话上下文已降级保护 (${formatTokenCount(currentCustomLimit ?: 200_000)})" else "本会话上下文上限限制",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
                         color = if (isDegraded) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
@@ -759,7 +759,7 @@ internal fun ContextLimitSettingsCard(
                 ) {
                     Text(
                         text = when {
-                            isDegraded -> "已降级 (32K)"
+                            isDegraded -> "已降级 (${formatTokenCount(currentCustomLimit ?: 200_000)})"
                             currentCustomLimit != null -> "已自定义: ${formatTokenCount(currentCustomLimit)}"
                             else -> "跟随模型 (${formatTokenCount(modelContextTokens)})"
                         },
@@ -776,7 +776,7 @@ internal fun ContextLimitSettingsCard(
 
             if (isDegraded) {
                 Text(
-                    text = "提示：由于先前请求超出模型窗口或遇到服务限制，系统已自动将本会话临时降级至 32K 保护以恢复生成。当前模型原生支持 ${formatTokenCount(modelContextTokens)}。您可以随时点击下方按钮一键恢复模型默认，或手动选择更高规格。",
+                    text = "提示：由于先前请求超出模型窗口或遇到服务限制，系统已自动将本会话临时降级至 ${formatTokenCount(currentCustomLimit ?: 200_000)} 保护以恢复生成。当前模型原生支持 ${formatTokenCount(modelContextTokens)}。您可以随时点击下方按钮一键恢复模型默认，或手动选择更高规格。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
