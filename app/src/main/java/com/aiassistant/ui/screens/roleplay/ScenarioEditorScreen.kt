@@ -97,6 +97,7 @@ fun ScenarioEditorScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
+                .imePadding()
                 .verticalScroll(scrollState)
         ) {
             // 顶部一键读取提示条
@@ -614,13 +615,17 @@ private fun BasicSettingSection(
             style = MaterialTheme.typography.titleMedium
         )
 
+        var nameTouched by remember { mutableStateOf(false) }
         OutlinedTextField(
             value = name,
-            onValueChange = onNameChange,
+            onValueChange = {
+                nameTouched = true
+                onNameChange(it)
+            },
             label = { Text("场景名称 *") },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
-            isError = name.isBlank()
+            isError = nameTouched && name.isBlank()
         )
 
         OutlinedTextField(

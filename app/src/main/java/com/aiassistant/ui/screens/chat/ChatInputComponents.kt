@@ -562,7 +562,7 @@ fun ChatInputBar(
                     val canSend = !isProcessingAttachments && (inputText.isNotBlank() || attachments.isNotEmpty() || !quotedText.isNullOrBlank())
                     if (isGenerating) {
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Surface(

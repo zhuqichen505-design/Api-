@@ -114,7 +114,7 @@ class RoleplayViewModel(application: Application) : AndroidViewModel(application
         _characterTags.value = emptyList()
     }
 
-    fun saveCharacter(character: CharacterProfile) {
+    fun saveCharacter(character: CharacterProfile, onResult: ((Boolean, String?) -> Unit)? = null) {
         viewModelScope.launch {
             try {
                 _uiState.value = RoleplayUiState.Saving
@@ -124,8 +124,10 @@ class RoleplayViewModel(application: Application) : AndroidViewModel(application
                     repository.updateCharacter(character)
                 }
                 _uiState.value = RoleplayUiState.SaveSuccess("角色保存成功")
+                onResult?.invoke(true, null)
             } catch (e: Exception) {
                 _uiState.value = RoleplayUiState.Error("保存角色失败: ${e.message}")
+                onResult?.invoke(false, e.message)
             }
         }
     }
@@ -220,7 +222,7 @@ class RoleplayViewModel(application: Application) : AndroidViewModel(application
         _selectedScenario.value = null
     }
 
-    fun saveScenario(scenario: RoleplayScenario) {
+    fun saveScenario(scenario: RoleplayScenario, onResult: ((Boolean, String?) -> Unit)? = null) {
         viewModelScope.launch {
             try {
                 _uiState.value = RoleplayUiState.Saving
@@ -230,8 +232,10 @@ class RoleplayViewModel(application: Application) : AndroidViewModel(application
                     repository.updateScenario(scenario)
                 }
                 _uiState.value = RoleplayUiState.SaveSuccess("场景保存成功")
+                onResult?.invoke(true, null)
             } catch (e: Exception) {
                 _uiState.value = RoleplayUiState.Error("保存场景失败: ${e.message}")
+                onResult?.invoke(false, e.message)
             }
         }
     }

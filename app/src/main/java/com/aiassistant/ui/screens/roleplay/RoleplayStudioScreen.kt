@@ -179,7 +179,8 @@ fun RoleplayStudioScreen(
                     onCreateClick = { onNavigateToCharacterEditor(null) },
                     onFavoriteClick = { id, isFavorite -> viewModel.setCharacterFavorite(id, isFavorite) },
                     onDeleteMultiple = { viewModel.deleteCharacters(it) },
-                    onSmartAnalyze = { showSmartAnalyzeDialog = true }
+                    onSmartAnalyze = { showSmartAnalyzeDialog = true },
+                    onSearch = { viewModel.searchCharacters(it) }
                 )
                 2 -> ScenariosTab(
                     scenarios = scenarios,
@@ -187,7 +188,8 @@ fun RoleplayStudioScreen(
                     onCreateClick = { onNavigateToScenarioEditor(null) },
                     onFavoriteClick = { id, isFavorite -> viewModel.setScenarioFavorite(id, isFavorite) },
                     onDeleteMultiple = { viewModel.deleteScenarios(it) },
-                    onSmartAnalyze = { showSmartAnalyzeDialog = true }
+                    onSmartAnalyze = { showSmartAnalyzeDialog = true },
+                    onSearch = { viewModel.searchScenarios(it) }
                 )
             }
         }
@@ -833,11 +835,13 @@ private fun CharactersTab(
     onCreateClick: () -> Unit,
     onFavoriteClick: (Long, Boolean) -> Unit,
     onDeleteMultiple: (List<Long>) -> Unit,
-    onSmartAnalyze: () -> Unit
+    onSmartAnalyze: () -> Unit,
+    onSearch: (String) -> Unit = {}
 ) {
     var isSelectionMode by remember { mutableStateOf(false) }
     var selectedIds by remember { mutableStateOf(setOf<Long>()) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
 
     Column(modifier = Modifier.fillMaxSize()) {
         if (isSelectionMode) {
@@ -889,10 +893,34 @@ private fun CharactersTab(
                 }
             }
         } else {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = {
+                    searchQuery = it
+                    onSearch(it)
+                },
+                placeholder = { Text("搜索角色名称、职业或性格...", style = MaterialTheme.typography.bodyMedium) },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = {
+                            searchQuery = ""
+                            onSearch("")
+                        }) {
+                            Icon(Icons.Default.Close, contentDescription = "清除搜索", modifier = Modifier.size(16.dp))
+                        }
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = EchoTokens.Spacing.screenHorizontal, vertical = 4.dp),
+                shape = EchoTokens.Radius.shapeMd,
+                singleLine = true
+            )
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = EchoTokens.Spacing.screenHorizontal, vertical = 8.dp),
+                    .padding(horizontal = EchoTokens.Spacing.screenHorizontal, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 EchoPrimaryButton(
@@ -1075,11 +1103,13 @@ private fun ScenariosTab(
     onCreateClick: () -> Unit,
     onFavoriteClick: (Long, Boolean) -> Unit,
     onDeleteMultiple: (List<Long>) -> Unit,
-    onSmartAnalyze: () -> Unit
+    onSmartAnalyze: () -> Unit,
+    onSearch: (String) -> Unit = {}
 ) {
     var isSelectionMode by remember { mutableStateOf(false) }
     var selectedIds by remember { mutableStateOf(setOf<Long>()) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
 
     Column(modifier = Modifier.fillMaxSize()) {
         if (isSelectionMode) {
@@ -1131,10 +1161,34 @@ private fun ScenariosTab(
                 }
             }
         } else {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = {
+                    searchQuery = it
+                    onSearch(it)
+                },
+                placeholder = { Text("搜索世界观、背景或设定...", style = MaterialTheme.typography.bodyMedium) },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = {
+                            searchQuery = ""
+                            onSearch("")
+                        }) {
+                            Icon(Icons.Default.Close, contentDescription = "清除搜索", modifier = Modifier.size(16.dp))
+                        }
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = EchoTokens.Spacing.screenHorizontal, vertical = 4.dp),
+                shape = EchoTokens.Radius.shapeMd,
+                singleLine = true
+            )
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = EchoTokens.Spacing.screenHorizontal, vertical = 8.dp),
+                    .padding(horizontal = EchoTokens.Spacing.screenHorizontal, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 EchoPrimaryButton(

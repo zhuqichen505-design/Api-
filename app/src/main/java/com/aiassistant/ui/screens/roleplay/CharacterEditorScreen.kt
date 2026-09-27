@@ -110,6 +110,7 @@ fun CharacterEditorScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
+                .imePadding()
                 .verticalScroll(scrollState)
         ) {
             // 顶部一键读取提示条
@@ -721,13 +722,17 @@ private fun BasicInfoSection(
             }
         }
 
+        var nameTouched by remember { mutableStateOf(false) }
         OutlinedTextField(
             value = name,
-            onValueChange = onNameChange,
+            onValueChange = {
+                nameTouched = true
+                onNameChange(it)
+            },
             label = { Text("角色名称 *") },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
-            isError = name.isBlank()
+            isError = nameTouched && name.isBlank()
         )
 
         OutlinedTextField(

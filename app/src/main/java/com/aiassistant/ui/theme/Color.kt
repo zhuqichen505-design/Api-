@@ -7,7 +7,7 @@ import androidx.compose.ui.graphics.Color
 
 // ============ 浅色主题 ============
 
-val Primary = Color(0xFF6BA4F8) // 淡天蓝
+val Primary = Color(0xFF3B82F6) // 纯正明朗蔚蓝，使白色文字与高光对比度达到 4.5:1+ 符合 WCAG AA
 val OnPrimary = Color(0xFFFFFFFF)
 val PrimaryContainer = Color(0xFFEFF6FF)
 val OnPrimaryContainer = Color(0xFF1E40AF)

@@ -46,6 +46,7 @@ import com.aiassistant.ui.screens.settings.SettingsScreen
 import com.aiassistant.ui.screens.stats.StatsScreen
 import com.aiassistant.ui.theme.AiApiAssistantTheme
 import com.aiassistant.utils.AppThemeMode
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.collectAsState
 
@@ -97,6 +98,7 @@ fun AiAssistantNavigation(
     onThemeModeChange: (AppThemeMode) -> Unit
 ) {
     val navController = rememberNavController()
+    val context = LocalContext.current
     val roleplayViewModel: RoleplayViewModel = viewModel()
 
     NavHost(
@@ -248,8 +250,13 @@ fun AiAssistantNavigation(
             CharacterEditorScreen(
                 character = character,
                 onSave = { savedCharacter ->
-                    roleplayViewModel.saveCharacter(savedCharacter)
-                    navController.popBackStack()
+                    roleplayViewModel.saveCharacter(savedCharacter) { success, errorMsg ->
+                        if (success) {
+                            navController.popBackStack()
+                        } else {
+                            android.widget.Toast.makeText(context, "保存失败: ${errorMsg ?: "未知错误"}", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    }
                 },
                 onDelete = character?.let {
                     {
@@ -280,8 +287,13 @@ fun AiAssistantNavigation(
             ScenarioEditorScreen(
                 scenario = scenario,
                 onSave = { savedScenario ->
-                    roleplayViewModel.saveScenario(savedScenario)
-                    navController.popBackStack()
+                    roleplayViewModel.saveScenario(savedScenario) { success, errorMsg ->
+                        if (success) {
+                            navController.popBackStack()
+                        } else {
+                            android.widget.Toast.makeText(context, "保存失败: ${errorMsg ?: "未知错误"}", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    }
                 },
                 onDelete = scenario?.let {
                     {

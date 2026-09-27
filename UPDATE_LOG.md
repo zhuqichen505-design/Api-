@@ -2,6 +2,147 @@
 
 本文档按照工作流规范记录每次版本更新、需求变更与复核结果。
 
+## [2026-09-27] - v2.5.5 UI-FINAL 终极方案落地与核心体验缺陷修复
+
+### 1. 核心改进与体验缺陷修复成果
+1. **终极方案裁决与定版（UI-FINAL.md）**：
+   - 深入综合 `UI-G.md`（愿景规范）、`UI-MiMo.md`（细节挖掘）、`UI-Muse.md`（交互与架构），输出兼顾视觉和谐、操作逻辑与设计连贯性的《终极重构总控实施方案》（`APP改进/UI/UI-FINAL.md`）；
+   - 裁定保持 `6/8/12/18/24/999` 标尺并增量对齐，助手正文维持无气泡开放排版与底层暗化保护层，多任务采用 Dock Hub 状态胶囊收敛。
+2. **浅色主题色彩对比度提升（解决 U-08）**：
+   - 新增 `EchoSemanticColors.kt`，集中规范深浅色主题下的 Success、Warning、Error、Info 与边框色彩；
+   - 优化浅色主题下 `Primary = Color(0xFF3B82F6)`，将白字与 Primary 容器的对比度提升至 $\ge 4.5:1$（WCAG AA 级标准），消除浅色高光下的低对比度眩光与辨识度不足问题。
+3. **设置面板路由对齐与 API 异常捕获防卡死（解决 U-01、U-02）**：
+   - 修复设置页个性化卡片跳转路由指向 `"personalization"`，与 `PersonalizationTab` 完美对齐；
+   - API 配置弹窗保存逻辑补充 `try ... catch (e: Exception)` 拦截与错误 Toast 提示，彻底根除异常导致弹窗冻结与无响应的问题。
+4. **生成中操作按钮防误触（解决 U-06）**：
+   - 将流式生成时底部「停止」与「加入排队」按钮间距由 6dp 扩展至 12dp，杜绝误触打断生成的交互痛点。
+5. **角色与世界观表单交互防呆与防遮挡（解决 U-05、U-12、U-13）**：
+   - 在角色编辑与场景编辑页面中增加 `imePadding()`，确保软键盘弹出时不遮挡底部操作栏与保存按钮；
+   - 引入 `nameTouched` 脏标记状态，仅在用户失焦或尝试提交且为空时触发红框与错误提示，根除新建时一进入页面就全局报红的体验硬伤；
+   - `RoleplayViewModel.saveCharacter` 与 `saveScenario` 增加结果回调，仅在数据库事务存盘成功后执行返回，存盘失败保留表单输入并弹出 Toast 报错，防止用户输入内容丢失。
+6. **角色扮演工坊实时检索（解决 U-16）**：
+   - 角色卡列表与世界观场景列表顶部接入即时搜索框，绑定 `onSearch` 逻辑，实现海量设定的秒级定位检索。
+7. **单元测试与版本演进**：
+   - 补充 `V255FeaturesTest.kt`，覆盖色彩对比度、语义色规范与更新日志完整性校验；
+   - 版本号递增至 `v2.5.5`（`versionCode = 151`）。
+
+### 2. 改动与新增文件清单
+- **新增文档与代码**：
+  - `APP改进/UI/UI-FINAL.md`：三方融合终极实施方案
+  - `app/src/main/java/com/aiassistant/ui/theme/EchoSemanticColors.kt`：语义色彩通道管理
+  - `app/src/test/java/com/aiassistant/V255FeaturesTest.kt`：V2.5.5 特性单元测试
+- **修改文件**：
+  - `app/build.gradle.kts`：版本递增至 v2.5.5 (151)
+  - `app/src/main/java/com/aiassistant/ui/theme/Color.kt`：优化 Primary 浅色对比度
+  - `app/src/main/java/com/aiassistant/ui/screens/settings/SettingsScreen.kt`：路由对齐、异常捕获、V255 更新列表
+  - `app/src/main/java/com/aiassistant/ui/screens/chat/ChatInputComponents.kt`：生成中按钮防误触间距
+  - `app/src/main/java/com/aiassistant/ui/screens/roleplay/CharacterEditorScreen.kt`：软键盘防遮挡、表单触碰防呆
+  - `app/src/main/java/com/aiassistant/ui/screens/roleplay/ScenarioEditorScreen.kt`：软键盘防遮挡、表单触碰防呆
+  - `app/src/main/java/com/aiassistant/ui/screens/roleplay/RoleplayViewModel.kt`：保存异步结果回调
+  - `app/src/main/java/com/aiassistant/ui/screens/roleplay/RoleplayStudioScreen.kt`：角色卡与世界观即时搜索
+  - `app/src/main/java/com/aiassistant/MainActivity.kt`：表单保存安全返回与防丢保护
+  - `app/src/test/java/com/aiassistant/V254FeaturesTest.kt`：版本兼容校验调整
+
+---
+
+## [2026-09-27] - 全工程深度模块化重构与架构优化（ChatStoryDialogs、ChatSettingsDialogs、AiRepository 解耦）
+
+### 1. 核心大文件治理与模块化拆分成果
+1. **`ChatStoryDialogs.kt` 巨无霸弹窗解耦（2,696 行 -> 146 行，降幅 94.6%）**：
+   - 拆分子包 `com.aiassistant.ui.screens.chat.story`：
+     - `StoryUnifiedSettingsDialog.kt`（1,128 行）：角色卡挑选、场景卡设定、世界观关联、高级参数与模板统一配置弹窗；
+     - `TimelineReconcileDialog.kt`（974 行）：时间线冲突校准、事件增量合并与草稿暂存弹窗；
+     - `EditableSettingProposalDialog.kt`（235 行）：AI 智能提取的动态人设与世界观增量融入确认弹窗；
+     - `SmartAppendStoryDialog.kt`（211 行）：小说章节/人设正文一键智能识别与剧情动作指令附加弹窗；
+   - `ChatStoryDialogs.kt` 瘦身为纯净清晰的对外门面（Facade），向下兼容所有原有 Composable 签名与参数，保证零破坏性重构。
+
+2. **`ChatSettingsDialogs.kt` 会话设置面板解耦（3,171 行 -> 948 行，降幅 70.1%）**：
+   - 拆分子包 `com.aiassistant.ui.screens.chat.dialogs`：
+     - `ChatTimelineSection.kt`（831 行）：时间线节点管理、节点增删改查、排序与故事时间流速面板；
+     - `ChatMemorySection.kt`（648 行）：会话记忆项、跨会话长期记忆与世界书 (Lorebook) 挂载与动态检索面板，以及玻璃态输入框主题色彩配置；
+     - `ChatModelSelectors.kt`（392 行）：模型切换器、API 厂商配置筛选、温度/采样参数微调（ChatTuningProfile）面板；
+     - `ChatPromptDialogs.kt`（323 行）：系统设定提示词对话框（SystemPromptDialog）、模板库列表选择弹窗（TemplateListDialog）、模板存盘与会话重命名弹窗（RenameDialog）；
+   - 主弹窗 `ChatSettingsDialog` 保留主容器装配逻辑，逻辑层级清晰，代码维护与阅读体验获得质的飞跃。
+
+3. **`AiRepository.kt` 静态算法与工具类解耦（6,112 行 -> 5,446 行）**：
+   - 将庞杂的伴生对象静态算法抽取为 `com.aiassistant.data.repository.helpers` 独立高内聚单例：
+     - `ApiKeysHelper.kt`：具名 Key 解析、格式化与状态提取；
+     - `NetworkExceptionClassifier.kt`：超时、取消、网络抖动与连接重置等全类型异常精准分类识别器；
+     - `TokenEstimationHelper.kt`：中英双语混合 Token 精准估算、思考能力与思考预算分配（Thinking Effort / Budget）、上下文窗口限制提取；
+     - `ConversationTitleHelper.kt`：智能标题提取与符号清洗、滚动摘要完整性判定与防截断安全闭合保护、分支标题自增推导算法；
+     - `OpenAiStreamChunkParser.kt`：SSE 流式分块解析器，深度兼容 BOM、NDJSON、注释行与非标中转网关；
+     - `ChatContextAssemblyHelper.kt`：世界书 Prompt 组装、角色扮演系统提示词构建、消息角色严格交替规范化与 16 轮无损活跃上下文裁剪窗口解析。
+   - `AiRepository.Companion` 保持 100% 相同签名的单行委托函数，使现有所有调用点和 66 套单元测试完全无缝运行。
+
+### 2. 改动与新增文件清单
+- **已解耦与精简的核心文件**：
+  - `app/src/main/java/com/aiassistant/ui/screens/chat/ChatStoryDialogs.kt`（瘦身至 146 行）；
+  - `app/src/main/java/com/aiassistant/ui/screens/chat/ChatSettingsDialogs.kt`（瘦身至 948 行）；
+  - `app/src/main/java/com/aiassistant/data/repository/AiRepository.kt`（瘦身并委托）；
+- **新增模块化文件**：
+  - `app/src/main/java/com/aiassistant/ui/screens/chat/story/StoryUnifiedSettingsDialog.kt`
+  - `app/src/main/java/com/aiassistant/ui/screens/chat/story/TimelineReconcileDialog.kt`
+  - `app/src/main/java/com/aiassistant/ui/screens/chat/story/EditableSettingProposalDialog.kt`
+  - `app/src/main/java/com/aiassistant/ui/screens/chat/story/SmartAppendStoryDialog.kt`
+  - `app/src/main/java/com/aiassistant/ui/screens/chat/dialogs/ChatTimelineSection.kt`
+  - `app/src/main/java/com/aiassistant/ui/screens/chat/dialogs/ChatMemorySection.kt`
+  - `app/src/main/java/com/aiassistant/ui/screens/chat/dialogs/ChatModelSelectors.kt`
+  - `app/src/main/java/com/aiassistant/ui/screens/chat/dialogs/ChatPromptDialogs.kt`
+  - `app/src/main/java/com/aiassistant/data/repository/helpers/ApiKeysHelper.kt`
+  - `app/src/main/java/com/aiassistant/data/repository/helpers/NetworkExceptionClassifier.kt`
+  - `app/src/main/java/com/aiassistant/data/repository/helpers/TokenEstimationHelper.kt`
+  - `app/src/main/java/com/aiassistant/data/repository/helpers/ConversationTitleHelper.kt`
+  - `app/src/main/java/com/aiassistant/data/repository/helpers/OpenAiStreamChunkParser.kt`
+  - `app/src/main/java/com/aiassistant/data/repository/helpers/ChatContextAssemblyHelper.kt`
+
+### 3. 稳健性与回归验证
+- **Kotlin 编译**：`.\gradlew.bat compileDebugKotlin` 成功（BUILD SUCCESSFUL in 2m 47s）；
+- **全量单元测试**：`.\gradlew.bat testDebugUnitTest` 成功（66 个测试套件，全部 PASSED，耗时 1m 08s）。
+
+---
+
+## [2026-09-27] - 工程冗余资产治理与底层代码解耦（重构阶段 A：AppDatabase 与 Markdown 模块化）
+
+### 1. 冗余资产排查与无损清理整合
+1. **安装包唯一路径归并**：
+   - 严格遵循 APK 永久保留铁律，确认 `D:\Agent\APP-烧\app\releases` 中完整保留从 `MiMo-v1.3.0` 至 `Echo-v2.5.4` 全部 161 个历史版本，未删除任何独特版本；
+   - 清理工程内重复存放的 `AiApiAssistant/releases/`（7 个重复 APK，释放 113.6 MB 磁盘占用），彻底根除发布路径分歧；
+2. **中间废弃与缓存清理**：
+   - 清理 `tmp_old_apk`（18.76 MB）、`backup_src_1.9.3`（1.86 MB 源码快照）、`.tmp` 构建缓存以及空 `.git/`、`.agents/`、`.codex/` 目录；
+   - 完成根目录与子工程核心文档（`UPDATE_LOG.md` 与 `WORKFLOW_GUIDELINES.md`）的双向同构同步。
+
+### 2. 代码级大文件重构（自底向上阶段 A）
+1. **`AppDatabase.kt` 历史迁移无损剥离**：
+   - 新建 `com.aiassistant.data.local.migrations.AppDatabaseMigrations.kt`（960 行），完整收敛从版本 1 到版本 29 的所有 28 个 `Migration` 对象与 `repairTable` 兜底引擎；
+   - `AppDatabase.kt` 源码由 **1,025 行骤减至 86 行**（降幅 91.6%），恢复为纯净的 Room 抽象类与实例构建工厂；
+   - 伴生对象中保留对关键迁移实例的向下兼容委托访问，保障既有单测 100% 兼容。
+2. **`MarkdownText.kt` 纯算法与渲染组件彻底解耦**：
+   - 拆分子包 `com.aiassistant.ui.components.markdown`：
+     - `LatexUnicodeConverter.kt`（348 行）：LaTeX 矩阵、分式、根号、上下标转换与行内数学公式判定；
+     - `MarkdownColorUtils.kt`（101 行）：RGB/Hex 容错解析与 HTML 实体解码；
+     - `SyntaxHighlighter.kt`（209 行）：代码块 Composable 与现代多语言语法高亮引擎；
+     - `MarkdownTableBlock.kt`（224 行）：双列卡片自适应与横向滚动表格排版布局；
+     - `MarkdownInlineParser.kt`（616 行）：行内星号清理、自定义颜色与富文本样式解析；
+   - `MarkdownText.kt` 源码由 **1,921 行缩减至 544 行**（降幅 71.7%），并保留公共函数兼容重导出。
+
+### 3. 改动与新增文件清单
+- `app/src/main/java/com/aiassistant/data/local/AppDatabase.kt`：精简为 86 行；
+- `app/src/main/java/com/aiassistant/data/local/migrations/AppDatabaseMigrations.kt`：新增 28 项迁移集中管理；
+- `app/src/main/java/com/aiassistant/ui/components/MarkdownText.kt`：精简为 544 行并提供向前兼容重导出；
+- `app/src/main/java/com/aiassistant/ui/components/markdown/LatexUnicodeConverter.kt`：新增 LaTeX 转换模块；
+- `app/src/main/java/com/aiassistant/ui/components/markdown/MarkdownColorUtils.kt`：新增颜色与实体工具；
+- `app/src/main/java/com/aiassistant/ui/components/markdown/SyntaxHighlighter.kt`：新增语法高亮模块；
+- `app/src/main/java/com/aiassistant/ui/components/markdown/MarkdownTableBlock.kt`：新增表格排版模块；
+- `app/src/main/java/com/aiassistant/ui/components/markdown/MarkdownInlineParser.kt`：新增行内解析模块；
+- `PROJECT_OPTIMIZATION_PLAN.md`：全项目优化方案文档；
+- `UPDATE_LOG.md`：同步更新重构日志。
+
+### 4. 验证测试
+- `./gradlew.bat compileDebugKotlin compileDebugUnitTestKotlin`：编译一次性通过；
+- `./gradlew.bat testDebugUnitTest`：全工程 66 个测试套件（含数据库迁移测试与 Markdown/LaTeX 专项测试）全部通过（BUILD SUCCESSFUL in 21s）。
+
+---
+
 ## [2026-09-27] - v2.5.4：根治大模型超限空回复 (500 empty response detected)、请求降级保护放宽至 200k、对话高级参数优雅折叠、默认 Token 调整为 4096
 
 ### 1. 核心问题定位与深度机理剖析

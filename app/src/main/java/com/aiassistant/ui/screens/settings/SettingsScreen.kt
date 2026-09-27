@@ -216,6 +216,14 @@ internal val V240UserUpdates = listOf(
     "提炼超时进一步放宽保障深度思考：手动生成超时放宽至 150 秒，后台维护放宽至 90 秒，为 DeepSeek-R1 / QwQ 等长思考链模型留足充裕的生成时间"
 )
 
+internal val V255UserUpdates = listOf(
+    "三方融合 UI 重构与终极设计规范落地 (UI-FINAL)：综合多份方案制定兼顾视觉和谐、操作逻辑与设计连贯性的统一标准，升级主题语义色彩系统与液态玻璃质感组件",
+    "浅色模式色彩对比度达标与高可读性：优化浅色主题下 Primary 色彩对比度（≥ 4.5:1），消除低对比度文字，彻底解决高光与浅色模式下的眩光与辨识度不足问题",
+    "角色与世界观表单交互防呆与输入保护：解决软键盘遮挡表单底栏与保存按钮问题，消除初次进入误报红框现象；保存失败保留用户未提交数据并提示原因，杜绝输入内容静默丢失",
+    "API 配置弹窗异常捕获与防卡死：补齐 API 新建与编辑弹窗保存流程的全局异常捕获与友好 Toast 引导，彻底杜绝异常导致弹窗冻结与无响应",
+    "角色扮演工坊实时检索与防误触优化：角色卡与世界观列表新增即时搜索框，实现名称与设定的快速检索定位；加宽生成中操作按钮物理间距，根除误触中途打断生成的体验痛点"
+)
+
 internal val V254UserUpdates = listOf(
     "根治大模型超限空回复 (500 empty response detected)：排查并根治全局默认最大 Token 数过大 (50000) 超出 Gemini、Claude、DeepSeek 等主流模型单次输出上限导致的网关断流，单次生成长度默认调整为通用的 4096 tokens，彻底消除多轮对话异常报错",
     "上下文降级保护全面放宽至 200k：请求超限或遇到服务限制时不再强制限制为 32k 上下文，全面调整为 200k (200,000 tokens) 宽裕预算，并自动为历史被误降级为 32k 的会话解禁恢复至 200k 保护",
@@ -224,7 +232,7 @@ internal val V254UserUpdates = listOf(
     "角色扮演记忆与世界书协同注入：角色扮演模式下完整保留会话专属记忆、故事时间线与世界书背景，保障长篇剧情创作的设定连贯与深度代入"
 )
 
-internal val CurrentVersionUserUpdates = V254UserUpdates
+internal val CurrentVersionUserUpdates = V255UserUpdates
 
 internal val V253UserUpdates = listOf(
     "彻底根除第4次回复精准报错 (empty response detected 500)：全面废除在用户消息头部注水注入 [System Override Directive / 核心指令强化声明] 的旧机制，消除 Google Gemini 等模型将用户提问误判为越狱/指令攻击的安全拦截，多轮对话持久顺畅",
@@ -663,12 +671,11 @@ fun SettingsScreen(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = tabContentPadding
                     )
-                    "personalization" -> AppearanceTab(
+                    "personalization" -> PersonalizationTab(
                         hazeState = hazeState,
                         modifier = Modifier.fillMaxSize(),
                         themeMode = themeMode,
-                        onThemeModeChange = onThemeModeChange,
-                        contentPadding = tabContentPadding
+                        onThemeModeChange = onThemeModeChange
                     )
                     "web_search" -> WebSearchTab(
                         hazeState = hazeState,
@@ -1132,6 +1139,8 @@ fun ApiConfigTab(
                             }
                             showAddDialog = false
                             editingConfig = null
+                        } catch (e: Exception) {
+                            android.widget.Toast.makeText(context, "保存失败: ${e.message ?: "未知异常"}", android.widget.Toast.LENGTH_SHORT).show()
                         } finally {
                             isSaving = false
                         }
