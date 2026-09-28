@@ -258,7 +258,16 @@ internal fun buildDisplayMessages(
         }
         if (!consumedGroups.add(groupId)) return@forEach
 
-        val variants = groups[groupId].orEmpty().sortedBy { it.variantIndex }
+        val rawVariants = groups[groupId].orEmpty()
+        val distinctIndices = rawVariants.map { it.variantIndex }.distinct()
+        val variants = if (rawVariants.size > 1 && distinctIndices.size < rawVariants.size) {
+            rawVariants.sortedWith(compareBy<Message> { it.variantIndex }.thenBy { it.createdAt }.thenBy { it.id })
+                .mapIndexed { idx, msg ->
+                    if (msg.variantIndex != idx + 1) msg.copy(variantIndex = idx + 1) else msg
+                }
+        } else {
+            rawVariants.sortedBy { it.variantIndex }
+        }
         val indices = variants.map { it.variantIndex }.distinct().sorted()
         val selectedIndex = selections[groupId]
             ?.takeIf { it in indices }
@@ -1349,7 +1358,7 @@ internal fun VariantSwitcher(
                 Icons.Default.ChevronLeft,
                 contentDescription = "上一版",
                 modifier = Modifier.size(20.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                tint = if (canGoPrevious) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
             )
         }
         Text(
@@ -1368,7 +1377,7 @@ internal fun VariantSwitcher(
                 Icons.Default.ChevronRight,
                 contentDescription = "下一版",
                 modifier = Modifier.size(20.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                tint = if (canGoNext) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
             )
         }
     }

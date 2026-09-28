@@ -276,6 +276,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
 
             repository.getMessages(conversationId).collect { messageList ->
                 _messages.value = messageList
+                repairDuplicateVariantIndices(messageList)
                 refreshContextUsage()
                 updateMessageModelMap(messageList)
             }
@@ -1167,25 +1168,46 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
         _error.value = null
     }
 
-    // 重新生成最后一条AI消息
-    fun regenerateLastMessage() {
+    // 自动校准并修复数据库中历史可能存在的重复分支序号
+    private fun repairDuplicateVariantIndices(messageList: List<Message>) {
+        val grouped = messageList.filter { !it.variantGroupId.isNullOrBlank() }.groupBy { it.variantGroupId!! }
+        grouped.forEach { (_, groupMsgs) ->
+            if (groupMsgs.size > 1 && groupMsgs.map { it.variantIndex }.distinct().size < groupMsgs.size) {
+                val sorted = groupMsgs.sortedWith(compareBy<Message> { it.variantIndex }.thenBy { it.createdAt }.thenBy { it.id })
+                viewModelScope.launch(Dispatchers.IO) {
+                    sorted.forEachIndexed { idx, msg ->
+                        val expected = idx + 1
+                        if (msg.variantIndex != expected) {
+                            AiAssistantApp.instance.database.messageDao().updateMessage(
+                                msg.copy(variantIndex = expected)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 重新生成AI回复（支持传入指定目标消息或自动定位最后一条回复）
+    fun regenerateLastMessage(targetAssistant: Message? = null) {
         if (_isGenerating.value) return
 
         viewModelScope.launch {
             val messages = repository.getMessagesList(conversationId)
             if (messages.isEmpty()) return@launch
 
-            // 找到最后一条AI消息和它之前的用户消息
-            val lastAssistantIndex = messages.indexOfLast { it.role == "assistant" }
-            if (lastAssistantIndex < 0) return@launch
+            // 优先使用传入的目标消息，或者找到最后一条有效AI消息
+            val lastAssistantMessage = targetAssistant?.let { target ->
+                messages.firstOrNull { it.id == target.id } ?: target
+            } ?: messages.lastOrNull { it.role == "assistant" } ?: return@launch
 
-            val lastAssistantMessage = messages[lastAssistantIndex]
             val isError = AiRepository.isErrorPlaceholderMessage(lastAssistantMessage.content)
             if (isError) {
                 // 如果最后一条是错误占位消息，重新生成时直接删除该错误消息，避免污染会话记录与多分支
                 repository.deleteMessage(lastAssistantMessage)
             }
             val lastUserMessage = messages.lastOrNull { it.role == "user" && it.createdAt < lastAssistantMessage.createdAt }
+                ?: messages.lastOrNull { it.role == "user" }
             if (lastUserMessage != null) {
                 val groupId = if (isError) {
                     lastAssistantMessage.variantGroupId
@@ -1197,10 +1219,16 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                         lastAssistantMessage.copy(variantGroupId = groupId, variantIndex = 1)
                     )
                 }
+
+                // 计算下一个 variantIndex：必须严格自增，杜绝序号冲突
                 val nextIndex = if (groupId != null) {
-                    (messages
-                        .filter { it.variantGroupId == groupId && it.id != lastAssistantMessage.id }
-                        .maxOfOrNull { it.variantIndex } ?: 0) + 1
+                    if (isError) {
+                        lastAssistantMessage.variantIndex.coerceAtLeast(1)
+                    } else {
+                        val groupVariants = messages.filter { it.variantGroupId == groupId || it.id == lastAssistantMessage.id }
+                        val maxExistingIndex = groupVariants.maxOfOrNull { it.variantIndex } ?: 1
+                        maxOf(groupVariants.size, maxExistingIndex) + 1
+                    }
                 } else 1
 
                 sendMessageInternal(

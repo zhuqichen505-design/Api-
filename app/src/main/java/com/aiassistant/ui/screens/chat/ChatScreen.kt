@@ -1029,6 +1029,8 @@ fun ChatScreen(
                                 } else {
                                     displayItem.variantInfo
                                 }
+                                val isLastAssistantTurn = !isGenerating && message.role == "assistant" &&
+                                    displayItem == displayMessages.lastOrNull { it.message.role == "assistant" }
                                 MessageBubble(
                                     message = message,
                                     hazeState = hazeState,
@@ -1075,12 +1077,15 @@ fun ChatScreen(
                                             }
                                         }
                                     } else null,
-                                    onRegenerate = if (message.role == "assistant" && message == messages.lastOrNull { it.role == "assistant" }) {
+                                    onRegenerate = if (isLastAssistantTurn) {
                                         {
                                             preserveScrollForBranchGeneration = true
                                             autoFollowOutput = false
-                                            streamingBranchGroupId = message.variantGroupId ?: "reply_${message.id}"
-                                            viewModel.regenerateLastMessage()
+                                            val targetGroupId = displayItem.groupId ?: message.variantGroupId ?: "reply_${message.id}"
+                                            streamingBranchGroupId = targetGroupId
+                                            variantSelections.remove(targetGroupId)
+                                            pairedVariantGroupId(targetGroupId)?.let { variantSelections.remove(it) }
+                                            viewModel.regenerateLastMessage(message)
                                         }
                                     } else null,
                                     onEdit = {

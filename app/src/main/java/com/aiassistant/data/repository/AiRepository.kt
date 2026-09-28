@@ -1499,7 +1499,11 @@ class AiRepository(
         onThinkingToken: (String) -> Unit,
         onComplete: (String, String?, Any?) -> Unit
     ) {
-        val contextMessages = historyMessages.dropLastCurrentUserMessage(userMessage)
+        val contextMessages = historyMessages
+            .filter { msg ->
+                assistantVariantGroupId.isNullOrBlank() || msg.variantGroupId != assistantVariantGroupId
+            }
+            .dropLastCurrentUserMessage(userMessage)
         val conversation = getConversationById(conversationId)
         val effectiveOptions = resolveChatRequestOptions(config, options)
         val requestModel = resolveRequestModel(config, effectiveOptions)
@@ -1890,7 +1894,11 @@ class AiRepository(
         onThinkingToken: (String) -> Unit,
         onComplete: (String, String?, Any?) -> Unit
     ) {
-        val contextMessages = historyMessages.dropLastCurrentUserMessage(userMessage)
+        val contextMessages = historyMessages
+            .filter { msg ->
+                assistantVariantGroupId.isNullOrBlank() || msg.variantGroupId != assistantVariantGroupId
+            }
+            .dropLastCurrentUserMessage(userMessage)
 
         // 获取系统提示
         val conversation = getConversationById(conversationId)
