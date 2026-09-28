@@ -90,6 +90,7 @@ import com.aiassistant.ui.components.rememberEchoHazeState
 import com.aiassistant.ui.components.rememberSmoothReorderState
 import com.aiassistant.ui.components.reorderItem
 import com.aiassistant.ui.components.reorderDragHandle
+import com.aiassistant.ui.theme.EchoTokens
 import com.aiassistant.utils.AvatarManager
 import com.aiassistant.utils.BackgroundImageManager
 import com.aiassistant.utils.BackupManager
@@ -140,7 +141,7 @@ fun HiddenConversationsTab(
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = contentPadding,
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(EchoTokens.Spacing.cardGap)
     ) {
         item {
             SettingsGlassCard(hazeState = hazeState) {
@@ -609,7 +610,7 @@ fun BackupTab(
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = contentPadding,
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(EchoTokens.Spacing.cardGap)
     ) {
         item {
             Surface(
@@ -927,7 +928,7 @@ fun AboutTab(
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = contentPadding,
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(EchoTokens.Spacing.cardGap)
     ) {
         // 应用信息
         item {

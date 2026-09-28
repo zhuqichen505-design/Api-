@@ -90,6 +90,7 @@ import com.aiassistant.ui.components.rememberEchoHazeState
 import com.aiassistant.ui.components.rememberSmoothReorderState
 import com.aiassistant.ui.components.reorderItem
 import com.aiassistant.ui.components.reorderDragHandle
+import com.aiassistant.ui.theme.EchoTokens
 import com.aiassistant.utils.AvatarManager
 import com.aiassistant.utils.BackgroundImageManager
 import com.aiassistant.utils.BackupManager
@@ -232,7 +233,7 @@ fun ModelFeaturesTab(
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = contentPadding,
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        verticalArrangement = Arrangement.spacedBy(EchoTokens.Spacing.cardGap)
     ) {
         // 1. 对话智能自动命名模型 (自由选择所有模型)
         item {

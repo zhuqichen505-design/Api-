@@ -90,6 +90,7 @@ import com.aiassistant.ui.components.rememberEchoHazeState
 import com.aiassistant.ui.components.rememberSmoothReorderState
 import com.aiassistant.ui.components.reorderItem
 import com.aiassistant.ui.components.reorderDragHandle
+import com.aiassistant.ui.theme.EchoTokens
 import com.aiassistant.utils.AvatarManager
 import com.aiassistant.utils.BackgroundImageManager
 import com.aiassistant.utils.BackupManager
@@ -177,7 +178,7 @@ fun AppearanceTab(
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = contentPadding,
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        verticalArrangement = Arrangement.spacedBy(EchoTokens.Spacing.cardGap)
     ) {
         // 0. 用户头像设置
         item {
