@@ -172,6 +172,7 @@ object BackupManager {
                 } ?: emptyList()
 
                 val timelineNodes = database.timelineNodeDao().getTimelineNodes(conversationId)
+                val sessionMemories = database.memoryDao().getConversationMemories(conversationId)
 
                 val bundle = SingleConversationExport(
                     formatVersion = 1,
@@ -184,7 +185,8 @@ object BackupManager {
                     characterProfile = characterProfile,
                     roleplayScenario = roleplayScenario,
                     roleplayMemories = roleplayMemories,
-                    timelineNodes = timelineNodes
+                    timelineNodes = timelineNodes,
+                    sessionMemories = sessionMemories
                 )
 
                 val json = GsonBuilder().setPrettyPrinting().create().toJson(bundle)
@@ -307,6 +309,7 @@ object BackupManager {
             var targetRpScenario: RoleplayScenario? = null
             var targetRpMemories: List<RoleplayMemory> = emptyList()
             var targetTimelineNodes: List<TimelineNode> = emptyList()
+            var targetSessionMemories: List<MemoryItem> = emptyList()
 
             try {
                 val bundle = gson.fromJson(cleanJson, SingleConversationExport::class.java)
@@ -318,6 +321,7 @@ object BackupManager {
                     targetRpScenario = bundle.roleplayScenario
                     targetRpMemories = bundle.roleplayMemories.orEmpty()
                     targetTimelineNodes = bundle.timelineNodes.orEmpty()
+                    targetSessionMemories = bundle.sessionMemories.orEmpty()
                 }
             } catch (e: Exception) {
                 Log.w("BackupManager", "Direct SingleConversationExport parsing fallback to JsonObject", e)
@@ -361,6 +365,22 @@ object BackupManager {
                             try { gson.fromJson(it, TimelineNode::class.java) } catch (ex: Exception) { null }
                         }
                     }
+                    if (rootObj.has("sessionMemories") && rootObj.get("sessionMemories").isJsonArray) {
+                        val memArray = rootObj.getAsJsonArray("sessionMemories")
+                        targetSessionMemories = memArray.mapNotNull {
+                            try { gson.fromJson(it, MemoryItem::class.java) } catch (ex: Exception) { null }
+                        }
+                    } else if (rootObj.has("sessionSettings") && rootObj.get("sessionSettings").isJsonArray) {
+                        val memArray = rootObj.getAsJsonArray("sessionSettings")
+                        targetSessionMemories = memArray.mapNotNull {
+                            try { gson.fromJson(it, MemoryItem::class.java) } catch (ex: Exception) { null }
+                        }
+                    } else if (rootObj.has("conversationMemories") && rootObj.get("conversationMemories").isJsonArray) {
+                        val memArray = rootObj.getAsJsonArray("conversationMemories")
+                        targetSessionMemories = memArray.mapNotNull {
+                            try { gson.fromJson(it, MemoryItem::class.java) } catch (ex: Exception) { null }
+                        }
+                    }
                 } catch (jsonEx: Exception) {
                     Log.e("BackupManager", "JsonObject fallback parsing failed", jsonEx)
                 }
@@ -390,10 +410,15 @@ object BackupManager {
                         if (database.folderDao().getFolderById(fid) != null) fid else null
                     }
 
+                    // 如果包含会话专属设定且未显式配置，确保 enableSessionMemory 处于开启状态
+                    val effectiveEnableSessionMemory = conversation.enableSessionMemory
+                        ?: if (targetSessionMemories.isNotEmpty()) true else null
+
                     val convToInsert = conversation.copy(
                         id = 0L,
                         apiConfigId = effectiveConfigId,
                         folderId = effectiveFolderId,
+                        enableSessionMemory = effectiveEnableSessionMemory,
                         createdAt = if (conversation.createdAt > 0) conversation.createdAt else now,
                         updatedAt = now
                     )
@@ -481,6 +506,20 @@ object BackupManager {
                             )
                         }
                         database.timelineNodeDao().insertTimelineNodes(nodesToInsert)
+                    }
+
+                    if (targetSessionMemories.isNotEmpty()) {
+                        targetSessionMemories.forEach { mem ->
+                            database.memoryDao().insertMemory(
+                                mem.copy(
+                                    id = 0L,
+                                    conversationId = targetConvId,
+                                    scope = "conversation",
+                                    createdAt = if (mem.createdAt > 0) mem.createdAt else now,
+                                    updatedAt = now
+                                )
+                            )
+                        }
                     }
                 }
             }
@@ -941,7 +980,9 @@ object BackupManager {
         @SerializedName("characterProfile") val characterProfile: CharacterProfile? = null,
         @SerializedName("roleplayScenario") val roleplayScenario: RoleplayScenario? = null,
         @SerializedName("roleplayMemories") val roleplayMemories: List<RoleplayMemory>? = emptyList(),
-        @SerializedName("timelineNodes") val timelineNodes: List<TimelineNode>? = emptyList()
+        @SerializedName("timelineNodes") val timelineNodes: List<TimelineNode>? = emptyList(),
+        @SerializedName("sessionMemories", alternate = ["sessionSettings", "conversationMemories", "conversationSettings"])
+        val sessionMemories: List<MemoryItem>? = emptyList()
     )
 
     @Keep

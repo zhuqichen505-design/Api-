@@ -2,15 +2,19 @@ package com.aiassistant.utils
 
 import com.aiassistant.data.local.CharacterProfileDao
 import com.aiassistant.data.local.ConversationDao
+import com.aiassistant.data.local.MemoryDao
 import com.aiassistant.data.local.MessageDao
 import com.aiassistant.data.local.RoleplayScenarioDao
 import com.aiassistant.data.local.RoleplaySessionDao
+import com.aiassistant.data.local.TimelineNodeDao
 import com.aiassistant.domain.model.CharacterProfile
 import com.aiassistant.domain.model.Conversation
+import com.aiassistant.domain.model.MemoryItem
 import com.aiassistant.domain.model.Message
 import com.aiassistant.domain.model.NarrativeMode
 import com.aiassistant.domain.model.RoleplayScenario
 import com.aiassistant.domain.model.RoleplaySession
+import com.aiassistant.domain.model.TimelineNode
 import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -23,7 +27,9 @@ data class ConversationExportBundle(
     val isRoleplay: Boolean = false,
     val roleplaySession: RoleplaySession? = null,
     val character: CharacterProfile? = null,
-    val scenario: RoleplayScenario? = null
+    val scenario: RoleplayScenario? = null,
+    val sessionMemories: List<MemoryItem> = emptyList(),
+    val timelineNodes: List<TimelineNode> = emptyList()
 )
 
 class ConversationConverter(
@@ -32,6 +38,8 @@ class ConversationConverter(
     private val roleplaySessionDao: RoleplaySessionDao,
     private val characterProfileDao: CharacterProfileDao,
     private val roleplayScenarioDao: RoleplayScenarioDao,
+    private val memoryDao: MemoryDao? = null,
+    private val timelineNodeDao: TimelineNodeDao? = null,
     private val gson: Gson = Gson()
 ) {
 
@@ -174,6 +182,8 @@ class ConversationConverter(
         val session = roleplaySessionDao.getSessionByConversationId(conversationId)
         val char = session?.characterId?.let { characterProfileDao.getCharacterById(it) }
         val sc = session?.scenarioId?.let { roleplayScenarioDao.getScenarioById(it) }
+        val sessionMems = memoryDao?.getConversationMemories(conversationId).orEmpty()
+        val nodes = timelineNodeDao?.getTimelineNodes(conversationId).orEmpty()
 
         val bundle = ConversationExportBundle(
             conversation = conv,
@@ -181,7 +191,9 @@ class ConversationConverter(
             isRoleplay = session != null,
             roleplaySession = session,
             character = char,
-            scenario = sc
+            scenario = sc,
+            sessionMemories = sessionMems,
+            timelineNodes = nodes
         )
         gson.toJson(bundle)
     }
@@ -325,6 +337,34 @@ class ConversationConverter(
                     conversationId = newConvId
                 )
             )
+        }
+
+        memoryDao?.let { mDao ->
+            bundle.sessionMemories.forEach { mem ->
+                mDao.insertMemory(
+                    mem.copy(
+                        id = 0,
+                        conversationId = newConvId,
+                        scope = "conversation",
+                        createdAt = if (mem.createdAt > 0) mem.createdAt else now,
+                        updatedAt = now
+                    )
+                )
+            }
+        }
+
+        timelineNodeDao?.let { tDao ->
+            if (bundle.timelineNodes.isNotEmpty()) {
+                val nodesToInsert = bundle.timelineNodes.map { node ->
+                    node.copy(
+                        id = 0,
+                        conversationId = newConvId,
+                        createdAt = if (node.createdAt > 0) node.createdAt else now,
+                        updatedAt = now
+                    )
+                }
+                tDao.insertTimelineNodes(nodesToInsert)
+            }
         }
 
         newConvId

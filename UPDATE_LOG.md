@@ -2,6 +2,34 @@
 
 本文档按照工作流规范记录每次版本更新、需求变更与复核结果。
 
+## [2026-09-28] - v2.5.6 对话专属设定备份打通、时间线双轨恢复与单对话导入增强
+
+### 1. 核心改进与缺陷修复
+1. **痛点背景**：
+   - 此前单对话独立导出（`createSingleConversationBackup`）导出了消息流、角色卡、场景世界观、角色扮演记忆以及时间线节点（`timelineNodes`），但遗漏了会话维度的“会话专属设定与规则”（`sessionMemories`，存储于 `memory_items` 表，`scope = 'conversation'`）；
+   - 导致用户导出单对话备份并在其他设备或重装后恢复时，时间线节点恢复完好，但用户配置的角色特征、世界观规则与行为约束全部丢失，需要重新手动录入。
+2. **修复落地**：
+   - **导出打通**：在 `BackupManager.createSingleConversationBackup` 中，查询当前会话的专属设定 `database.memoryDao().getConversationMemories(conversationId)`，序列化存入 `SingleConversationExport.sessionMemories`；
+   - **向后兼容与别名容错**：`SingleConversationExport` 中增加 `@SerializedName("sessionMemories", alternate = ["sessionSettings", "conversationMemories", "conversationSettings"])`，支持空安全默认值并向下兼容第三方或手动编辑 JSON 中的常用别名字段；
+   - **恢复入库与开关保障**：在 `restoreSingleConversationFromJson` 中完成反序列化及 JsonObject 容错解析，在事务中将专属设定重映射到新会话 ID 并写入 `memoryDao`（锁定 `scope = "conversation"`），且在存在专属设定时自动确保 `enableSessionMemory = true`，使导入后的对话立即可用；
+   - **`ConversationConverter` 同步完善**：在 `ConversationExportBundle` 及 `exportBundle` / `importBundle` 中同步接入 `sessionMemories` 与 `timelineNodes`，保持全应用导出契约统一；
+   - **单元测试核验**：在 `V205FeaturesTest.kt` 中新增单对话全量导出（含时间线与专属设定）及多别名反序列化单元测试，全量单元测试执行验证 100% 通过（`BUILD SUCCESSFUL`）。
+3. **版本迭代**：
+   - 版本号递增至 `v2.5.6`，`versionCode = 152`；
+   - 增量发布 Release 安装包 `Echo-v2.5.6.apk` 至 `D:\Agent\APP-烧\app\releases`。
+
+### 2. 改动文件清单
+- `app/src/main/java/com/aiassistant/utils/BackupManager.kt`：导出与恢复双向接入 `sessionMemories`，支持多别名与开关保障
+- `app/src/main/java/com/aiassistant/utils/ConversationConverter.kt`：Bundle 契约同步扩展 `sessionMemories` 与 `timelineNodes`
+- `app/src/test/java/com/aiassistant/V205FeaturesTest.kt`：增加序列化/反序列化及别名解析自动化测试
+- `app/build.gradle.kts`：版本递增至 v2.5.6 (152)
+- `CHANGELOG.md`：记录 v2.5.6 发布日志
+- `PROJECT.md`：同步最新架构与版本号
+- `README.md`：同步最新版本状态
+- `UPDATE_LOG.md`：记录更新日志
+
+---
+
 ## [2026-09-27] - v2.5.5 UI-FINAL 终极方案落地与核心体验缺陷修复
 
 ### 1. 核心改进与体验缺陷修复成果

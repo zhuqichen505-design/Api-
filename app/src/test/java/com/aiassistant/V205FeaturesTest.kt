@@ -256,4 +256,119 @@ class V205FeaturesTest {
         assertTrue("必须说明隐藏对话同步实现", updates.any { it.contains("隐藏对话") })
         assertTrue("必须说明单对话备份", updates.any { it.contains("单对话备份") })
     }
+
+    @Test
+    fun testSingleConversationBackupIncludesSessionMemoriesAndTimelineNodes() {
+        val now = System.currentTimeMillis()
+        val conv = Conversation(
+            id = 601L,
+            title = "异界机甲战纪",
+            apiConfigId = 1L,
+            modelName = "deepseek-chat",
+            enableSessionMemory = true,
+            createdAt = now,
+            updatedAt = now
+        )
+
+        val timelineNodes = listOf(
+            TimelineNode(
+                id = 11L,
+                conversationId = 601L,
+                timeTag = "星历2045年·春",
+                event = "主角初次同步第四代神经机甲",
+                category = "turning_point",
+                orderIndex = 0
+            ),
+            TimelineNode(
+                id = 12L,
+                conversationId = 601L,
+                timeTag = "星历2045年·冬",
+                event = "要塞遭遇未知机械生物袭击",
+                category = "crisis",
+                orderIndex = 1
+            )
+        )
+
+        val sessionMemories = listOf(
+            MemoryItem(
+                id = 81L,
+                scope = "conversation",
+                conversationId = 601L,
+                content = "【角色核心特质】右臂为抗热合金义肢，对低温极为敏感",
+                confidence = 0.95f,
+                isEnabled = true
+            ),
+            MemoryItem(
+                id = 82L,
+                scope = "conversation",
+                conversationId = 601L,
+                content = "【世界规则】夜间中子辐射加剧，机体散热系统功率需提升30%",
+                confidence = 0.9f,
+                isEnabled = true
+            )
+        )
+
+        val bundle = BackupManager.SingleConversationExport(
+            formatVersion = 1,
+            type = "single_conversation",
+            exportedAt = now,
+            appVersion = "2.3.3",
+            conversation = conv,
+            messages = emptyList(),
+            timelineNodes = timelineNodes,
+            sessionMemories = sessionMemories
+        )
+
+        val json = GsonBuilder().setPrettyPrinting().create().toJson(bundle)
+        assertNotNull(json)
+        assertTrue("备份JSON必须包含会话专属设定 sessionMemories", json.contains("\"sessionMemories\""))
+        assertTrue("备份JSON必须包含时间线节点 timelineNodes", json.contains("\"timelineNodes\""))
+        assertTrue(json.contains("右臂为抗热合金义肢"))
+        assertTrue(json.contains("夜间中子辐射加剧"))
+        assertTrue(json.contains("主角初次同步第四代神经机甲"))
+
+        // 反序列化校验
+        val parsed = Gson().fromJson(json, BackupManager.SingleConversationExport::class.java)
+        assertNotNull(parsed)
+        assertEquals(601L, parsed.conversation?.id)
+        assertEquals(true, parsed.conversation?.enableSessionMemory)
+        assertEquals(2, parsed.timelineNodes?.size)
+        assertEquals(2, parsed.sessionMemories?.size)
+        assertEquals("【角色核心特质】右臂为抗热合金义肢，对低温极为敏感", parsed.sessionMemories?.first()?.content)
+        assertEquals("【世界规则】夜间中子辐射加剧，机体散热系统功率需提升30%", parsed.sessionMemories?.last()?.content)
+        assertEquals("星历2045年·春", parsed.timelineNodes?.first()?.timeTag)
+    }
+
+    @Test
+    fun testSingleConversationBackupSessionSettingsAliasDeserialization() {
+        // 模拟外部或老版本/别名 JSON (使用 sessionSettings / conversationMemories)
+        val jsonWithAlias = """
+            {
+                "formatVersion": 1,
+                "type": "single_conversation",
+                "exportedAt": 1790576557245,
+                "appVersion": "2.3.2",
+                "conversation": {
+                    "id": 999,
+                    "title": "别名解析测试",
+                    "apiConfigId": 1,
+                    "modelName": "gpt-4o"
+                },
+                "timelineNodes": [
+                    { "id": 1, "timeTag": "第一天", "event": "开启新篇章" }
+                ],
+                "sessionSettings": [
+                    { "id": 10, "content": "【专属约束】所有对话以克制口吻叙述", "scope": "conversation", "isEnabled": true }
+                ]
+            }
+        """.trimIndent()
+
+        val parsed = Gson().fromJson(jsonWithAlias, BackupManager.SingleConversationExport::class.java)
+        assertNotNull(parsed)
+        assertEquals("别名解析测试", parsed.conversation?.title)
+        assertEquals(1, parsed.timelineNodes?.size)
+        assertNotNull(parsed.sessionMemories)
+        assertEquals(1, parsed.sessionMemories?.size)
+        assertEquals("【专属约束】所有对话以克制口吻叙述", parsed.sessionMemories?.first()?.content)
+    }
 }
