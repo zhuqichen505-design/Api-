@@ -77,6 +77,7 @@ import com.aiassistant.domain.model.PromptTemplate
 import com.aiassistant.ui.components.EchoGlassCard
 import com.aiassistant.ui.components.EchoGlassDialog
 import com.aiassistant.ui.components.EchoGlassDropdownMenu
+import com.aiassistant.ui.components.EchoSwitch
 import com.aiassistant.ui.components.readableTextColorFor
 import com.aiassistant.ui.components.rememberReadableBackdropColors
 import com.aiassistant.ui.components.echoFilterChipBorder
@@ -326,10 +327,9 @@ fun ApiConfigDialog(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        Switch(
+                        EchoSwitch(
                             checked = isConfigEnabled,
-                            onCheckedChange = { isConfigEnabled = it },
-                            modifier = Modifier.scale(0.85f)
+                            onCheckedChange = { isConfigEnabled = it }
                         )
                     }
                 }
@@ -543,15 +543,14 @@ fun ApiConfigDialog(
                                             modifier = Modifier.weight(1f)
                                         )
 
-                                        Switch(
+                                        EchoSwitch(
                                             checked = isKeyEnabled,
                                             onCheckedChange = { checked ->
                                                 val updated = namedKeyList.toMutableList()
                                                 updated[index] = currentKey.copy(isEnabled = checked)
                                                 namedKeyList = updated
                                                 apiKey = AiRepository.formatNamedApiKeys(updated)
-                                            },
-                                            modifier = Modifier.scale(0.7f)
+                                            }
                                         )
 
                                         if (namedKeyList.size > 1) {

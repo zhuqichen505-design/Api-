@@ -144,6 +144,7 @@ import com.aiassistant.domain.model.RoleplaySession
 import com.aiassistant.ui.components.EchoGlassCard
 import com.aiassistant.ui.components.EchoPrimaryButton
 import com.aiassistant.ui.components.EchoGlassButton
+import com.aiassistant.ui.components.EchoSwitch
 import com.aiassistant.ui.screens.roleplay.ConflictAction
 import com.aiassistant.ui.theme.EchoTokens
 
@@ -345,13 +346,9 @@ fun ChatSettingsSessionMemorySection(
                         )
                     }
                 }
-                Switch(
+                EchoSwitch(
                     checked = enableSessionMemory,
-                    onCheckedChange = onEnableSessionMemoryChange,
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = primaryColor,
-                        checkedTrackColor = primaryColor.copy(alpha = 0.5f)
-                    )
+                    onCheckedChange = onEnableSessionMemoryChange
                 )
             }
 
@@ -499,11 +496,10 @@ fun ChatSettingsSessionMemorySection(
                                         verticalArrangement = Arrangement.spacedBy(2.dp),
                                         modifier = Modifier.padding(start = 2.dp)
                                     ) {
-                                        Switch(
+                                        EchoSwitch(
                                             checked = memory.isEnabled && enableSessionMemory,
                                             onCheckedChange = { onToggleMemory(memory.id, it) },
-                                            enabled = enableSessionMemory,
-                                            modifier = Modifier.scale(0.78f)
+                                            enabled = enableSessionMemory
                                         )
                                         Row(
                                             horizontalArrangement = Arrangement.spacedBy(2.dp),
@@ -740,10 +736,9 @@ internal fun ChatSettingsWorldBookAndExternalMemorySection(
                         color = secondaryColor
                     )
                 }
-                Switch(
+                EchoSwitch(
                     checked = enableExternalMemory,
-                    onCheckedChange = onEnableExternalMemoryChange,
-                    modifier = Modifier.scale(0.85f)
+                    onCheckedChange = onEnableExternalMemoryChange
                 )
             }
 
@@ -766,10 +761,9 @@ internal fun ChatSettingsWorldBookAndExternalMemorySection(
                         color = secondaryColor
                     )
                 }
-                Switch(
+                EchoSwitch(
                     checked = enableWorldBook,
-                    onCheckedChange = onEnableWorldBookChange,
-                    modifier = Modifier.scale(0.85f)
+                    onCheckedChange = onEnableWorldBookChange
                 )
             }
         }

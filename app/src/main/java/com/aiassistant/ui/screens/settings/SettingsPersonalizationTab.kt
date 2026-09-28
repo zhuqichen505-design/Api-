@@ -75,6 +75,7 @@ import com.aiassistant.domain.model.PromptTemplate
 import com.aiassistant.ui.components.EchoGlassCard
 import com.aiassistant.ui.components.EchoGlassDialog
 import com.aiassistant.ui.components.EchoGlassDropdownMenu
+import com.aiassistant.ui.components.EchoSwitch
 import com.aiassistant.ui.components.readableTextColorFor
 import com.aiassistant.ui.components.rememberReadableBackdropColors
 import com.aiassistant.ui.components.echoFilterChipBorder
@@ -200,10 +201,9 @@ fun MemoryItemCard(
                 }
 
                 Spacer(modifier = Modifier.width(4.dp))
-                Switch(
+                EchoSwitch(
                     checked = memory.isEnabled,
-                    onCheckedChange = onToggleEnabled,
-                    modifier = Modifier.scale(0.8f)
+                    onCheckedChange = onToggleEnabled
                 )
             }
 
@@ -282,10 +282,9 @@ fun WorldBookCardItem(
                         Icon(Icons.Default.Delete, contentDescription = "删除", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error)
                     }
                     Spacer(modifier = Modifier.width(4.dp))
-                    Switch(
+                    EchoSwitch(
                         checked = book.isEnabled,
-                        onCheckedChange = onToggleEnabled,
-                        modifier = Modifier.scale(0.8f)
+                        onCheckedChange = onToggleEnabled
                     )
                 }
             }
@@ -503,14 +502,13 @@ fun WorldBookEntriesManageDialog(
                                             IconButton(onClick = { onDeleteEntry(entry) }, modifier = Modifier.size(26.dp)) {
                                                 Icon(Icons.Default.Delete, contentDescription = "删除", modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.error)
                                             }
-                                            Switch(
+                                            EchoSwitch(
                                                 checked = entry.isEnabled,
                                                 onCheckedChange = { en ->
                                                     coroutineScope.launch {
                                                         repository.setWorldBookEntryEnabled(entry.id, en)
                                                     }
-                                                },
-                                                modifier = Modifier.scale(0.75f)
+                                                }
                                             )
                                         }
                                     }
@@ -620,7 +618,7 @@ fun WorldBookEntryEditDialog(
                         Text("常驻词条设定", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
                         Text("开启后无需命中关键词，也会默认注入会话上下文", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Switch(checked = isConstant, onCheckedChange = { isConstant = it })
+                    EchoSwitch(checked = isConstant, onCheckedChange = { isConstant = it })
                 }
 
                 Row(

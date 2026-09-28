@@ -71,6 +71,7 @@ import com.aiassistant.domain.model.PromptTemplate
 import com.aiassistant.ui.components.EchoGlassCard
 import com.aiassistant.ui.components.EchoGlassDialog
 import com.aiassistant.ui.components.EchoGlassDropdownMenu
+import com.aiassistant.ui.components.EchoSwitch
 import com.aiassistant.ui.components.readableTextColorFor
 import com.aiassistant.ui.components.rememberReadableBackdropColors
 import com.aiassistant.ui.components.echoFilterChipBorder
@@ -1257,10 +1258,9 @@ fun ApiConfigCard(
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Switch(
+                    EchoSwitch(
                         checked = config.isEnabled,
-                        onCheckedChange = onToggleEnabled,
-                        modifier = Modifier.scale(0.8f).padding(end = 2.dp)
+                        onCheckedChange = onToggleEnabled
                     )
                     IconButton(onClick = { onEdit(config) }) {
                         Icon(Icons.Default.Edit, contentDescription = "编辑")
