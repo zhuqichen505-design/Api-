@@ -752,7 +752,6 @@ fun SettingsScreen(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier
                                 .weight(1f)
-                                .horizontalScroll(rememberScrollState())
                                 .padding(horizontal = 8.dp)
                         )
                     }
