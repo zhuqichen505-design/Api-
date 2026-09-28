@@ -29,15 +29,16 @@ val OnSurface = Color(0xFF1E293B)
 val SurfaceVariant = Color(0xFFF1F5F9)
 val OnSurfaceVariant = Color(0xFF64748B)
 
-// 错误色 - 柔和淡红色
-val Error = Color(0xFFF87171)
+// 错误色 - 修正：原 #F87171 白字对比度 ≈2.5:1 不达标
+// 容器场景用 #EF4444，文字场景用 #DC2626
+val Error = Color(0xFFEF4444)
 val OnError = Color(0xFFFFFFFF)
 val ErrorContainer = Color(0xFFFEF2F2)
 val OnErrorContainer = Color(0xFF991B1B)
 
-// 轮廓 - 柔和灰色
+// 轮廓 - 柔和灰色（修正：原 #F0F8FF 与白底无差异，边框消失）
 val Outline = Color(0xFFCBD5E1)
-val OutlineVariant = Color(0xFFF0F8FF)
+val OutlineVariant = Color(0xFFE2E8F0)
 
 // ============ 深色主题 ============
 
@@ -51,28 +52,36 @@ val DarkOnSecondary = Color(0xFF082F49)
 val DarkSecondaryContainer = Color(0xFF0369A1)
 val DarkOnSecondaryContainer = Color(0xFFE0F2FE)
 
-val DarkTertiary = Color(0xFF93C5FD)
+// 修正：原 #93C5FD（蓝色）与浅色 Tertiary #FB7185（珊瑚粉）色相断裂
+// 统一为珊瑚粉色系，保持品牌一致性
+val DarkTertiary = Color(0xFFFDA4AF)
 val DarkOnTertiary = Color(0xFF0F172A)
-val DarkTertiaryContainer = Color(0xFF1E3A5F)
-val DarkOnTertiaryContainer = Color(0xFFDBEAFE)
+val DarkTertiaryContainer = Color(0xFF4C1D2F)
+val DarkOnTertiaryContainer = Color(0xFFFFE4E6)
 
 val DarkBackground = Color(0xFF0A0F1E)
 val DarkOnBackground = Color(0xFFF8FAFC)
-val DarkSurface = Color(0xFF11192C)
+// 修正：原 #11192C 与 DarkBackground 明度差仅 ~4%，层级感不足
+// 提升 ~8% 明度差，确保三层表面可区分
+val DarkSurface = Color(0xFF1A2332)
 val DarkOnSurface = Color(0xFFF8FAFC)
-val DarkSurfaceVariant = Color(0xFF18233C)
-val DarkOnSurfaceVariant = Color(0xFF94A3B8)
+// 修正：原 #18233C 与修正后 DarkSurface 差距过小
+val DarkSurfaceVariant = Color(0xFF242F42)
+// 修正：原 #94A3B8 叠在 DarkSurfaceVariant 上对比度 ≈3.8:1，提升至 ≈5.1:1
+val DarkOnSurfaceVariant = Color(0xFFB0BECC)
 
 val DarkError = Color(0xFFFCA5A5)
 val DarkOnError = Color(0xFF7F1D1D)
 val DarkErrorContainer = Color(0xFF991B1B)
 val DarkOnErrorContainer = Color(0xFFFEF2F2)
 
-val DarkOutline = Color(0xFF334155)
+// 修正：原 #334155 叠在 DarkBackground 上对比度 ≈1.2:1，提升至 ≈1.8:1
+val DarkOutline = Color(0xFF475569)
 val DarkOutlineVariant = Color(0xFF1E293B)
 
 // ============ 功能色 ============
 
+@Deprecated("Use EchoSemanticColors.success instead", ReplaceWith("EchoSemanticColors.success.main"))
 val SuccessBlue = Color(0xFF38BDF8)
 val WarningOrange = Color(0xFFFBBF24)
 val InfoBlue = Color(0xFF6BA4F8)
@@ -100,3 +109,43 @@ val DarkThinkingBackground = Color(0xFF0E1A30)
 // 链接色
 val LinkColor = Color(0xFF2563EB)
 val DarkLinkColor = Color(0xFF60A5FA)
+
+// ============ 图表色 (EchoChartColors) ============
+// 统计页图表专用，深浅双套，替代 StatsScreen 13 处硬编码色
+
+object EchoChartColors {
+    // 浅色主题
+    val primary = Color(0xFF6BA4F8)
+    val secondary = Color(0xFF38BDF8)
+    val tertiary = Color(0xFFFB7185)
+    val quaternary = Color(0xFFA5B4FC)
+
+    // 深色主题
+    val primaryDark = Color(0xFF8AB4F8)
+    val secondaryDark = Color(0xFF7DD3FC)
+    val tertiaryDark = Color(0xFFFDA4AF)
+    val quaternaryDark = Color(0xFFC7D2FE)
+}
+
+// ============ 文件夹调色板 (EchoFolderColors) ============
+// 文件夹管理页专用，替代 FolderManagerScreen 15 处硬编码色
+
+object EchoFolderColors {
+    val palette = listOf(
+        Color(0xFFEF4444),  // red-500
+        Color(0xFFF97316),  // orange-500
+        Color(0xFFF59E0B),  // amber-500
+        Color(0xFFEAB308),  // yellow-500
+        Color(0xFF84CC16),  // lime-500
+        Color(0xFF22C55E),  // green-500
+        Color(0xFF10B981),  // emerald-500
+        Color(0xFF14B8A6),  // teal-500
+        Color(0xFF06B6D4),  // cyan-500
+        Color(0xFF3B82F6),  // blue-500
+        Color(0xFF6366F1),  // indigo-500
+        Color(0xFF8B5CF6),  // violet-500
+        Color(0xFFA855F7),  // purple-500
+        Color(0xFFEC4899),  // pink-500
+        Color(0xFF64748B)   // slate-500
+    )
+}

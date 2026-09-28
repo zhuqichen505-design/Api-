@@ -79,12 +79,12 @@ fun echoGlassPalette(): EchoGlassPalette {
     val colors = MaterialTheme.colorScheme
     val isDark = colors.background.luminance() < 0.5f
 
-    // 提升适度不透明度（略微降低透明度），兼顾通透毛玻璃质感与极佳的可读性
-    val panelAlpha = if (isDark) 0.85f else 0.88f
-    val strongAlpha = if (isDark) 0.92f else 0.94f
-    val softAlpha = if (isDark) 0.68f else 0.72f
-    val controlAlpha = if (isDark) 0.76f else 0.80f
-    val inputAlpha = if (isDark) 0.90f else 0.93f
+    // 统一消费 EchoTokens.Glass 令牌，消灭双轨（原硬编码值已回写令牌）
+    val panelAlpha = if (isDark) EchoTokens.Glass.panelAlphaDark else EchoTokens.Glass.panelAlphaLight
+    val strongAlpha = if (isDark) EchoTokens.Glass.strongAlphaDark else EchoTokens.Glass.strongAlphaLight
+    val softAlpha = if (isDark) EchoTokens.Glass.softAlphaDark else EchoTokens.Glass.softAlphaLight
+    val controlAlpha = if (isDark) EchoTokens.Glass.controlAlphaDark else EchoTokens.Glass.controlAlphaLight
+    val inputAlpha = if (isDark) EchoTokens.Glass.inputAlphaDark else EchoTokens.Glass.inputAlphaLight
     val selectedAlpha = if (isDark) 0.88f else 0.90f
 
     return EchoGlassPalette(

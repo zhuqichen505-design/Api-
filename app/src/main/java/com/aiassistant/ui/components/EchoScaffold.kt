@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -28,6 +29,7 @@ fun EchoScaffold(
     actions: @Composable RowScope.() -> Unit = {},
     bottomBar: @Composable () -> Unit = {},
     floatingActionButton: @Composable () -> Unit = {},
+    snackbarHostState: SnackbarHostState = remember { SnackbarHostState() },
     content: @Composable (PaddingValues) -> Unit
 ) {
     EchoWallpaperBackground(
@@ -49,6 +51,7 @@ fun EchoScaffold(
             },
             bottomBar = bottomBar,
             floatingActionButton = floatingActionButton,
+            snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
             content = { paddingValues ->
                 content(paddingValues)
             }

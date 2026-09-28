@@ -6,6 +6,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
@@ -34,7 +35,13 @@ private val LightColorScheme = lightColorScheme(
     errorContainer = ErrorContainer,
     onErrorContainer = OnErrorContainer,
     outline = Outline,
-    outlineVariant = OutlineVariant
+    outlineVariant = OutlineVariant,
+    surfaceTint = Primary,
+    surfaceContainerLowest = Color(0xFFFFFFFF),
+    surfaceContainerLow = Color(0xFFF8FAFC),
+    surfaceContainer = Color(0xFFF1F5F9),
+    surfaceContainerHigh = Color(0xFFE8EEF5),
+    surfaceContainerHighest = Color(0xFFE2E8F0)
 )
 
 private val DarkColorScheme = darkColorScheme(
@@ -61,7 +68,13 @@ private val DarkColorScheme = darkColorScheme(
     errorContainer = DarkErrorContainer,
     onErrorContainer = DarkOnErrorContainer,
     outline = DarkOutline,
-    outlineVariant = DarkOutlineVariant
+    outlineVariant = DarkOutlineVariant,
+    surfaceTint = DarkPrimary,
+    surfaceContainerLowest = Color(0xFF0A0F1E),
+    surfaceContainerLow = Color(0xFF0E1526),
+    surfaceContainer = Color(0xFF11192C),
+    surfaceContainerHigh = Color(0xFF18233C),
+    surfaceContainerHighest = Color(0xFF1E293B)
 )
 
 @Composable
