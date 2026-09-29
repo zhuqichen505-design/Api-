@@ -11,7 +11,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.ripple.rememberRipple
+import androidx.compose.material.ripple.rememberRipple // 工具链约束：BOM 2024.06（foundation 1.6.x）尚无 ripple() 新 API（需 1.7+），保留弃用 API 仅警告
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
@@ -154,6 +154,7 @@ private fun EchoCompactSwitchTrack(
         } else {
             Box(
                 modifier = Modifier
+                    .align(Alignment.CenterStart) // 垂直居中于 26dp 轨道（缺省会贴顶，底部悬空 6dp）
                     .offset(x = thumbOffset)
                     .size(thumbSize)
                     .clip(CircleShape)
@@ -182,16 +183,16 @@ fun echoSwitchColors(): SwitchColors {
 
         // 关闭状态
         uncheckedThumbColor = colorScheme.onSurfaceVariant,
-        uncheckedTrackColor = colorScheme.surfaceVariant,
+        uncheckedTrackColor = colorScheme.surfaceContainerHighest, // §4.1：比 surfaceVariant 深一档，玻璃卡上可见（S-3）
         uncheckedBorderColor = colorScheme.outline,
-        uncheckedIconColor = colorScheme.surfaceVariant,
+        uncheckedIconColor = colorScheme.surfaceContainerHighest,
 
         // 禁用状态
         disabledCheckedThumbColor = colorScheme.onSurface.copy(alpha = 0.38f),
         disabledCheckedTrackColor = colorScheme.onSurface.copy(alpha = 0.12f),
         disabledCheckedBorderColor = Color.Transparent,
         disabledUncheckedThumbColor = colorScheme.onSurface.copy(alpha = 0.38f),
-        disabledUncheckedTrackColor = colorScheme.surfaceVariant.copy(alpha = 0.38f),
+        disabledUncheckedTrackColor = colorScheme.surfaceContainerHighest.copy(alpha = 0.38f),
         disabledUncheckedBorderColor = colorScheme.outline.copy(alpha = 0.12f)
     )
 }

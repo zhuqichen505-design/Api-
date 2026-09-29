@@ -698,24 +698,8 @@ fun BackupTab(
             }
         }
 
-        showMessage?.let { message ->
-            item {
-                Card(
-                    shape = SettingsPanelShape,
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (message.contains("成功") || message.contains("已导出") || message.contains("已保存"))
-                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.82f)
-                        else
-                            MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.82f)
-                    )
-                ) {
-                    Text(
-                        text = message,
-                        modifier = Modifier.padding(16.dp)
-                    )
-                }
-            }
-        }
+        // T-8：保存/备份反馈统一走 Snackbar（showMessage → LaunchedEffect → showSnackbar），
+        // 不再使用列表内联卡片，避免与 Snackbar 双反馈并存
 
         if (backups.isNotEmpty()) {
             item {

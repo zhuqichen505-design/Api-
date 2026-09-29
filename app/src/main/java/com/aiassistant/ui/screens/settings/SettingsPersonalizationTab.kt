@@ -108,21 +108,9 @@ import com.aiassistant.tools.cloud.OpenMeteoWeatherEngine
 import java.text.SimpleDateFormat
 import java.util.*
 
-@Composable
-fun PersonalizationTab(
-    hazeState: dev.chrisbanes.haze.HazeState,
-    modifier: Modifier = Modifier,
-    themeMode: AppThemeMode,
-    onThemeModeChange: (AppThemeMode) -> Unit
-) {
-    AppearanceTab(
-        hazeState = hazeState,
-        modifier = modifier,
-        themeMode = themeMode,
-        onThemeModeChange = onThemeModeChange
-    )
-}
-
+// 说明：本文件是设置模块的共享组件库（MemoryItemCard/WorldBook*/PromptTemplate*/BackgroundPickerRow 等），
+// 被 SettingsPromptsMemoryTab / SettingsAppearanceTab / SettingsModelFeaturesTab 复用。
+// 原 PersonalizationTab 包装函数已随 personalization 死路由一并删除（T-6）。
 
 @Composable
 fun MemoryItemCard(

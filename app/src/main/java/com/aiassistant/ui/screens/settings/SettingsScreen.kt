@@ -74,6 +74,7 @@ import com.aiassistant.ui.components.EchoBadgeType
 import com.aiassistant.ui.components.EchoGlassCard
 import com.aiassistant.ui.components.EchoGlassDialog
 import com.aiassistant.ui.components.EchoGlassDropdownMenu
+import com.aiassistant.ui.components.EchoIconButton
 import com.aiassistant.ui.components.EchoSectionHeader
 import com.aiassistant.ui.components.EchoSettingRow
 import com.aiassistant.ui.components.EchoSwitch
@@ -770,7 +771,7 @@ fun SettingsMenu(
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = contentPadding,
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement = Arrangement.spacedBy(EchoTokens.Spacing.cardGap) // T-1：主菜单与各 Tab 统一 12dp
     ) {
         item { EchoSectionHeader(title = "核心") }
         item {
@@ -1162,7 +1163,7 @@ fun ApiConfigCard(
 
     SettingsGlassCard(hazeState = hazeState) {
         Column(modifier = Modifier.fillMaxWidth()) {
-            // 第一行：名称 + 标签 + 操作按钮
+            // 第一行：名称 + 状态徽章 + EchoSwitch（§5.1：消除单行 4 控件挤压，S-4）
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -1190,33 +1191,15 @@ fun ApiConfigCard(
                     }
                 }
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    EchoSwitch(
-                        checked = config.isEnabled,
-                        onCheckedChange = onToggleEnabled
-                    )
-                    IconButton(onClick = { onEdit(config) }) {
-                        Icon(Icons.Default.Edit, contentDescription = "编辑", modifier = Modifier.size(20.dp))
-                    }
-                    if (!config.isDefault) {
-                        IconButton(onClick = onSetDefault) {
-                            Icon(Icons.Default.StarBorder, contentDescription = "设为默认", modifier = Modifier.size(20.dp))
-                        }
-                    }
-                    IconButton(onClick = { showDeleteDialog = true }) {
-                        Icon(
-                            Icons.Default.Delete,
-                            contentDescription = "删除",
-                            tint = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                }
+                EchoSwitch(
+                    checked = config.isEnabled,
+                    onCheckedChange = onToggleEnabled
+                )
             }
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // 第二行：提供商 + 模型 + API类型
+            // 第二行：提供商 + 模型 + API类型 + 操作按钮（EchoIconButton compact 右对齐，§5.1）
             Row(
                 modifier = Modifier.fillMaxWidth().alpha(contentAlpha),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1239,7 +1222,7 @@ fun ApiConfigCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false)
+                    modifier = Modifier.weight(1f)
                 )
                 Text(
                     text = config.apiType.uppercase(),
@@ -1247,6 +1230,36 @@ fun ApiConfigCard(
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Bold
                 )
+
+                // 操作行：编辑 / 设默认 / 删除（36dp compact，右对齐）
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    EchoIconButton(
+                        icon = Icons.Default.Edit,
+                        contentDescription = "编辑",
+                        onClick = { onEdit(config) },
+                        compact = true
+                    )
+                    if (!config.isDefault) {
+                        EchoIconButton(
+                            icon = Icons.Default.StarBorder,
+                            contentDescription = "设为默认",
+                            onClick = onSetDefault,
+                            compact = true
+                        )
+                    }
+                    EchoIconButton(
+                        icon = Icons.Default.Delete,
+                        contentDescription = "删除",
+                        onClick = { showDeleteDialog = true },
+                        compact = true,
+                        colors = IconButtonDefaults.iconButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error
+                        )
+                    )
+                }
             }
 
             // 第三行：密钥信息（如果有）

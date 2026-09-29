@@ -1,6 +1,9 @@
 package com.aiassistant.ui.theme
 
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 
 // ============ 清爽淡色系主题配色体系 ============
 // 采用柔和的淡色系（Pastel Colors）：淡天蓝、淡青、淡粉红与淡雅莫兰迪中性色
@@ -125,6 +128,40 @@ object EchoChartColors {
     val secondaryDark = Color(0xFF7DD3FC)
     val tertiaryDark = Color(0xFFFDA4AF)
     val quaternaryDark = Color(0xFFC7D2FE)
+}
+
+/**
+ * 图表色板四元组：按主题明暗从 EchoChartColors 选择浅/深套
+ */
+data class EchoChartPalette(
+    val primary: Color,
+    val secondary: Color,
+    val tertiary: Color,
+    val quaternary: Color
+)
+
+/**
+ * 图表色消费统一入口（C-7：深色主题必须使用 *Dark 变体，避免深底上浅色图表刺眼）。
+ * 页面端只允许消费本函数，禁止直接引用 EchoChartColors 的单一色值。
+ */
+@Composable
+fun rememberEchoChartColors(): EchoChartPalette {
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    return if (isDark) {
+        EchoChartPalette(
+            primary = EchoChartColors.primaryDark,
+            secondary = EchoChartColors.secondaryDark,
+            tertiary = EchoChartColors.tertiaryDark,
+            quaternary = EchoChartColors.quaternaryDark
+        )
+    } else {
+        EchoChartPalette(
+            primary = EchoChartColors.primary,
+            secondary = EchoChartColors.secondary,
+            tertiary = EchoChartColors.tertiary,
+            quaternary = EchoChartColors.quaternary
+        )
+    }
 }
 
 // ============ 文件夹调色板 (EchoFolderColors) ============

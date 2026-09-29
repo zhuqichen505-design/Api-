@@ -118,7 +118,7 @@ fun CharacterEditorScreen(
                         .navigationBarsPadding()
                         .padding(horizontal = 16.dp, vertical = 10.dp)
                 ) {
-                // 保存按钮
+                // 保存按钮（水平内边距由外层 Row 统一提供，不再叠加）
                 Button(
                     onClick = {
                         if (name.isNotBlank()) {
@@ -146,9 +146,7 @@ fun CharacterEditorScreen(
                             onSave(newCharacter)
                         }
                     },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
+                    modifier = Modifier.fillMaxWidth(),
                     enabled = name.isNotBlank()
                 ) {
                     Icon(Icons.Default.Save, contentDescription = null)

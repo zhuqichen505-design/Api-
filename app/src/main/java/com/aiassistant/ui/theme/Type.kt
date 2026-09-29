@@ -91,12 +91,12 @@ val Typography = Typography(
         lineHeight = 24.sp,
         letterSpacing = 0.5.sp
     ),
-    // 中正文 - 用于普通文本
+    // 中正文 - 用于普通文本（§3.4：行高 20→21sp，1.5 倍，长文阅读更松）
     bodyMedium = TextStyle(
         fontFamily = DefaultFontFamily,
         fontWeight = FontWeight.Normal,
         fontSize = 14.sp,
-        lineHeight = 20.sp,
+        lineHeight = 21.sp,
         letterSpacing = 0.25.sp
     ),
     // 小正文 - 用于辅助信息

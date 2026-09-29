@@ -78,6 +78,7 @@ import com.aiassistant.ui.components.EchoGlassCard
 import com.aiassistant.ui.components.EchoGlassDialog
 import com.aiassistant.ui.components.EchoGlassDropdownMenu
 import com.aiassistant.ui.components.EchoSwitch
+import com.aiassistant.ui.components.EchoSwitchSize
 import com.aiassistant.ui.components.readableTextColorFor
 import com.aiassistant.ui.components.rememberReadableBackdropColors
 import com.aiassistant.ui.components.echoFilterChipBorder
@@ -329,7 +330,8 @@ fun ApiConfigDialog(
                         }
                         EchoSwitch(
                             checked = isConfigEnabled,
-                            onCheckedChange = { isConfigEnabled = it }
+                            onCheckedChange = { isConfigEnabled = it },
+                            size = EchoSwitchSize.Standard // §4.1 迁移表：弹窗主开关用标准尺寸
                         )
                     }
                 }

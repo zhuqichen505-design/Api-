@@ -36,7 +36,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.aiassistant.ui.theme.EchoChartColors
+import com.aiassistant.ui.theme.rememberEchoChartColors
 import com.aiassistant.ui.components.EchoGlassPagePanelShape
 import com.aiassistant.ui.components.EchoWallpaperBackground
 import com.aiassistant.ui.components.echoFilterChipBorder
@@ -575,14 +575,15 @@ private fun ChartCard(
 
             content(contentColor)
 
+            val chartColors = rememberEchoChartColors()
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                LegendDot("输入 Token", EchoChartColors.primary, contentColor.copy(alpha = 0.85f))
-                LegendDot("输出 Token", EchoChartColors.secondary, contentColor.copy(alpha = 0.85f))
-                LegendDot("思考 Token", EchoChartColors.tertiary, contentColor.copy(alpha = 0.85f))
+                LegendDot("输入 Token", chartColors.primary, contentColor.copy(alpha = 0.85f))
+                LegendDot("输出 Token", chartColors.secondary, contentColor.copy(alpha = 0.85f))
+                LegendDot("思考 Token", chartColors.tertiary, contentColor.copy(alpha = 0.85f))
             }
         }
     }
@@ -604,10 +605,11 @@ private fun LegendDot(text: String, color: Color, textColor: Color) {
 
 @Composable
 private fun ModernTokenBars(buckets: List<Bucket>, maxToken: Int, labelColor: Color) {
-    val inputColor = EchoChartColors.primary // 淡天蓝
-    val outputColor = EchoChartColors.secondary // 淡青蓝
-    val thinkingColor = EchoChartColors.tertiary // 淡珊瑚粉
-    val otherColor = EchoChartColors.quaternary // 淡紫
+    val chartColors = rememberEchoChartColors() // C-7：深浅双套，深色模式不再刺眼
+    val inputColor = chartColors.primary // 淡天蓝
+    val outputColor = chartColors.secondary // 淡青蓝
+    val thinkingColor = chartColors.tertiary // 淡珊瑚粉
+    val otherColor = chartColors.quaternary // 淡紫
     val gridColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
     val plotBackground = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
     val emptyBarColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.20f)
@@ -710,7 +712,7 @@ private fun ModernTrendChart(
     buckets: List<Bucket>,
     labelColor: Color = MaterialTheme.colorScheme.onSurfaceVariant
 ) {
-    val successColor = EchoChartColors.secondary // 淡青蓝
+    val successColor = rememberEchoChartColors().secondary // 淡青蓝（深色自动切 *Dark 变体）
     val gridColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
     val plotBackground = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
     val haloColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
@@ -942,6 +944,7 @@ private fun ModernModelStatsTable(
             }
 
             // 极简精致模型列表卡片
+            val chartColors = rememberEchoChartColors() // C-7：深浅双套
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 sortedRows.forEach { row ->
                     val rowShape = RoundedCornerShape(14.dp)
@@ -1016,7 +1019,7 @@ private fun ModernModelStatsTable(
                                             modifier = Modifier
                                                 .weight(inputRatio)
                                                 .fillMaxHeight()
-                                                .background(EchoChartColors.primary)
+                                                .background(chartColors.primary)
                                         )
                                     }
                                     if (outputRatio > 0f) {
@@ -1024,7 +1027,7 @@ private fun ModernModelStatsTable(
                                             modifier = Modifier
                                                 .weight(outputRatio)
                                                 .fillMaxHeight()
-                                                .background(EchoChartColors.secondary)
+                                                .background(chartColors.secondary)
                                         )
                                     }
                                     if (thinkingRatio > 0f) {
@@ -1032,7 +1035,7 @@ private fun ModernModelStatsTable(
                                             modifier = Modifier
                                                 .weight(thinkingRatio)
                                                 .fillMaxHeight()
-                                                .background(EchoChartColors.tertiary)
+                                                .background(chartColors.tertiary)
                                         )
                                     }
                                 }
@@ -1052,7 +1055,7 @@ private fun ModernModelStatsTable(
                                 MiniStatsChip(
                                     icon = Icons.Default.CheckCircle,
                                     label = "成功率 ${formatPercent(row.successRate)}",
-                                    tint = EchoChartColors.secondary
+                                    tint = chartColors.secondary
                                 )
                                 if (row.avgResponseTime > 0) {
                                     MiniStatsChip(
@@ -1065,7 +1068,7 @@ private fun ModernModelStatsTable(
                                     MiniStatsChip(
                                         icon = Icons.Default.Psychology,
                                         label = "思考 ${formatNumber(row.thinkingTokens)}",
-                                        tint = EchoChartColors.tertiary
+                                        tint = chartColors.tertiary
                                     )
                                 }
                             }

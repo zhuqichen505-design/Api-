@@ -107,7 +107,8 @@ fun echoGlassPalette(): EchoGlassPalette {
         outlineSelected = colors.primary.copy(alpha = if (isDark) 0.65f else 0.55f),
         textPrimary = colors.onSurface,
         textSecondary = colors.onSurfaceVariant,
-        textMuted = colors.onSurfaceVariant.copy(alpha = if (isDark) 0.75f else 0.65f),
+        // §3.4：浅色 alpha 0.65→0.75（对比度 2.9:1→约 3.6:1）；仅限装饰性辅助信息使用，功能性文字禁用
+        textMuted = colors.onSurfaceVariant.copy(alpha = 0.75f),
         iconPrimary = colors.primary,
         iconSecondary = colors.onSurfaceVariant.copy(alpha = if (isDark) 0.82f else 0.72f)
     )
@@ -424,7 +425,8 @@ fun EchoGlassDialog(
             ) {
                 dismissButton?.invoke(this)
                 if (dismissButton != null) {
-                    Spacer(modifier = Modifier.width(8.dp))
+                    // §5.7：弹窗按钮间距统一 12dp（调用方不再各自叠加间距）
+                    Spacer(modifier = Modifier.width(EchoTokens.Spacing.md))
                 }
                 confirmButton()
             }
