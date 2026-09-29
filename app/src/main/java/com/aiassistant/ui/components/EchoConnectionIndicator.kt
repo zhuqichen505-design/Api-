@@ -32,16 +32,22 @@ fun EchoPulseRing(
     strokeWidth: Dp = 1.8.dp
 ) {
     val reduced = rememberReducedMotion()
-    val transition = rememberInfiniteTransition(label = "echoPulseRing")
-    val pulse by transition.animateFloat(
-        initialValue = 0.6f,
-        targetValue = 1f,
-        animationSpec = EchoMotion.reverseCycleSpec<Float>(EchoMotion.Cycle.pulse),
-        label = "pulseScale"
-    )
+    // 检查报告 P3-2：reduced motion 下条件创建 InfiniteTransition，避免帧回调空转（微功耗）
+    val pulse: Float = if (reduced) {
+        0.8f
+    } else {
+        val transition = rememberInfiniteTransition(label = "echoPulseRing")
+        val v by transition.animateFloat(
+            initialValue = 0.6f,
+            targetValue = 1f,
+            animationSpec = EchoMotion.reverseCycleSpec<Float>(EchoMotion.Cycle.pulse),
+            label = "pulseScale"
+        )
+        v
+    }
     Canvas(modifier) {
         val radius = ringSize.toPx() / 2f - strokeWidth.toPx() / 2f
-        val scale = if (reduced) 0.8f else pulse
+        val scale = pulse
         val alpha = if (reduced) 0.85f else pulse
         drawCircle(
             color = color.copy(alpha = alpha),
@@ -65,17 +71,23 @@ fun EchoDoubleArcRing(
     strokeWidth: Dp = 1.8.dp
 ) {
     val reduced = rememberReducedMotion()
-    val transition = rememberInfiniteTransition(label = "echoDoubleArc")
-    val rotation by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = EchoMotion.linearCycleSpec(EchoMotion.Cycle.reconnectArc),
-        label = "arcRotation"
-    )
+    // 检查报告 P3-2：reduced motion 下条件创建（静态 0° 单弧）
+    val rotation: Float = if (reduced) {
+        0f
+    } else {
+        val transition = rememberInfiniteTransition(label = "echoDoubleArc")
+        val v by transition.animateFloat(
+            initialValue = 0f,
+            targetValue = 360f,
+            animationSpec = EchoMotion.linearCycleSpec(EchoMotion.Cycle.reconnectArc),
+            label = "arcRotation"
+        )
+        v
+    }
     Canvas(modifier) {
         val radius = ringSize.toPx() / 2f - strokeWidth.toPx() / 2f
         val sweep = 100f
-        val baseRotation = if (reduced) 0f else rotation
+        val baseRotation = rotation
         val center = Offset(size.width / 2f, size.height / 2f)
         // 双弧追逐：主弧 100° + 次弧 60°，相位差 180°
         drawArc(
@@ -112,13 +124,19 @@ fun EchoWaveDots(
     lift: Dp = 3.dp
 ) {
     val reduced = rememberReducedMotion()
-    val transition = rememberInfiniteTransition(label = "echoWaveDots")
-    val t by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = EchoMotion.linearCycleSpec(EchoMotion.Cycle.typingDots),
-        label = "dotPhase"
-    )
+    // 检查报告 P3-2：reduced motion 下条件创建（t 固定 0.5f → 三点静止居中）
+    val t: Float = if (reduced) {
+        0.5f
+    } else {
+        val transition = rememberInfiniteTransition(label = "echoWaveDots")
+        val v by transition.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = EchoMotion.linearCycleSpec(EchoMotion.Cycle.typingDots),
+            label = "dotPhase"
+        )
+        v
+    }
     Canvas(modifier) {
         val r = dotRadius.toPx()
         val liftPx = lift.toPx()
@@ -127,7 +145,7 @@ fun EchoWaveDots(
         val centerY = size.height / 2f
         repeat(3) { i ->
             val x = size.width / 2f - totalWidth / 2f + i * gap
-            val phase = if (reduced) 0.5f else (t - i * 0.18f).mod(1f)
+            val phase = (t - i * 0.18f).mod(1f)
             // cos(2π·phase)：1→0→1，取反得 0→1→0 平滑上浮回落
             val wave = 1f - (0.5f - 0.5f * cos((phase * 2.0 * PI).toFloat()))
             val dotY = centerY - wave * liftPx

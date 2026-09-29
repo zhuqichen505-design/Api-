@@ -73,8 +73,10 @@ fun MarkdownText(
         // 新段仅在完成时解析一次；未稳定尾部每帧重解析（O(尾部长)）；流式结束走上方全文路径定稿
         Column(modifier = modifier) {
             val segmentation = remember(content) { computeStableSegments(content) }
-            segmentation.segments.forEach { segment ->
-                key(segment) {
+            segmentation.segments.forEachIndexed { segmentIndex, segment ->
+                // 检查报告 P2-1：key 纳入位置信息——长回复中完全相同的段落（重复句式/模板化列表）
+                // 会产生相同段文本，纯文本 key 存在组合身份歧义隐患，index+文本彻底消除
+                key(segmentIndex to segment) {
                     MarkdownContent(
                         content = segment,
                         color = color,
@@ -102,12 +104,34 @@ fun MarkdownText(
                         )
                     }
                     if (fenceBody.isNotEmpty()) {
-                        Text(
-                            text = fenceBody,
-                            style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                            color = color,
-                            modifier = Modifier.padding(vertical = 2.dp)
-                        )
+                        // 检查报告 P3-4：代码围栏流式期间补静态光标（恒亮不呼吸），
+                        // 与正文光标同定位方案（onTextLayout 覆盖层，零测量干扰）
+                        val fenceLayoutState = remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
+                        Box {
+                            Text(
+                                text = fenceBody,
+                                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                                color = color,
+                                onTextLayout = { fenceLayoutState.value = it },
+                                modifier = Modifier.padding(vertical = 2.dp)
+                            )
+                            if (cursor != null) {
+                                EchoStreamingCursor(
+                                    color = cursor,
+                                    breathing = false,
+                                    modifier = Modifier.graphicsLayer {
+                                        val layout: androidx.compose.ui.text.TextLayoutResult? = fenceLayoutState.value
+                                        if (layout != null && layout.lineCount > 0) {
+                                            val lastLine = layout.lineCount - 1
+                                            translationX = layout.getLineRight(lastLine) - 1.dp.toPx()
+                                            translationY = layout.getLineTop(lastLine)
+                                        } else {
+                                            alpha = 0f
+                                        }
+                                    }
+                                )
+                            }
+                        }
                     }
                 } else {
                     MarkdownContent(
@@ -753,26 +777,35 @@ fun CodeBlock(code: String, language: String = "", modifier: Modifier = Modifier
 internal fun EchoStreamingCursor(
     color: Color,
     modifier: Modifier = Modifier,
-    fading: Boolean = false
+    fading: Boolean = false,
+    breathing: Boolean = true
 ) {
     val reduced = rememberReducedMotion()
-    val transition = rememberInfiniteTransition(label = "echoCursor")
-    val breathe by transition.animateFloat(
-        initialValue = 1f,
-        targetValue = 0.25f,
-        animationSpec = EchoMotion.reverseCycleSpec<Float>(EchoMotion.Typewriter.cursorBlinkMs),
-        label = "cursorBreathe"
-    )
+    // 检查报告 P3-2：reduced motion / 静态光标（breathing=false）下条件创建 InfiniteTransition，
+    // 避免帧回调空转（微功耗）
+    val breathe: Float = if (reduced || !breathing) {
+        1f
+    } else {
+        val transition = rememberInfiniteTransition(label = "echoCursor")
+        val v by transition.animateFloat(
+            initialValue = 1f,
+            targetValue = 0.25f,
+            animationSpec = EchoMotion.reverseCycleSpec<Float>(EchoMotion.Typewriter.cursorBlinkMs),
+            label = "cursorBreathe"
+        )
+        v
+    }
     val fade by animateFloatAsState(
         targetValue = if (fading) 0f else 1f,
         animationSpec = EchoMotion.tweenSpec<Float>(EchoMotion.Typewriter.cursorFadeMs),
         label = "cursorFade"
     )
     Canvas(modifier.size(width = 2.dp, height = 18.dp)) {
-        // fading（落定）：停止呼吸、只做静态淡出；正常流式：呼吸；reduced：静态
+        // fading（落定）：停止呼吸、只做静态淡出；正常流式：呼吸；breathing=false：恒亮静态；reduced：静态
         val alpha = when {
             reduced -> fade
             fading -> fade
+            !breathing -> 1f * fade
             else -> breathe * fade
         }
         if (alpha > 0.01f) {

@@ -15,7 +15,6 @@ import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.tween
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.graphics.graphicsLayer
 import com.aiassistant.ui.theme.EchoMotion
@@ -33,7 +32,8 @@ private fun rememberPressScale(pressed: Boolean): androidx.compose.animation.cor
     LaunchedEffect(pressed) {
         if (reducedMotion) return@LaunchedEffect
         if (pressed) {
-            scale.animateTo(0.97f, tween(durationMillis = EchoMotion.Duration.instant, easing = EchoMotion.Easing.standard))
+            // 检查报告 P3-1：tween 构造归口 EchoMotion.tweenSpec（禁止绕过令牌构造入口直接调 tween）
+            scale.animateTo(0.97f, EchoMotion.tweenSpec<Float>(EchoMotion.Duration.instant, EchoMotion.Easing.standard))
         } else {
             scale.animateTo(1f, EchoMotion.Spring.snappy())
         }
