@@ -4,6 +4,7 @@ package com.aiassistant.ui.screens.chat
 
 import android.net.Uri
 import android.graphics.BitmapFactory
+import com.aiassistant.ui.theme.rememberEchoSemanticColors
 import com.aiassistant.ui.components.ImageCropEditDialog
 import com.aiassistant.ui.components.CropShapeMode
 import androidx.activity.compose.BackHandler
@@ -247,6 +248,15 @@ fun ChatScreen(
 
     BackHandler {
         when {
+            // N-1：子弹窗优先关闭，避免弹窗未关时返回键直接退出会话
+            showRenameDialog -> showRenameDialog = false
+            showSettingsDialog -> showSettingsDialog = false
+            showConvertToRoleplayDialog -> showConvertToRoleplayDialog = false
+            showContextUsageDialog -> showContextUsageDialog = false
+            showRollingSummaryDialog -> showRollingSummaryDialog = false
+            showStoryManagerDialog -> showStoryManagerDialog = false
+            showStorySmartAnalyzeDialog -> showStorySmartAnalyzeDialog = false
+            showPlotActionDialog -> showPlotActionDialog = false
             isBarsHidden -> {
                 isBarsHidden = false
             }
@@ -479,7 +489,7 @@ fun ChatScreen(
                                     }
                                     IconButton(
                                         onClick = { viewModel.dismissPendingMemory() },
-                                        modifier = Modifier.size(24.dp)
+                                        modifier = Modifier.size(36.dp)
                                     ) {
                                         Icon(
                                             Icons.Default.Close,
@@ -636,7 +646,7 @@ fun ChatScreen(
                                     }
                                     IconButton(
                                         onClick = { viewModel.dismissTimelineProposal() },
-                                        modifier = Modifier.size(24.dp)
+                                        modifier = Modifier.size(36.dp)
                                     ) {
                                         Icon(
                                             Icons.Default.Close,
@@ -768,7 +778,7 @@ fun ChatScreen(
                                     }
                                     IconButton(
                                         onClick = { viewModel.dismissTimelineUpdateNotice() },
-                                        modifier = Modifier.size(24.dp)
+                                        modifier = Modifier.size(36.dp)
                                     ) {
                                         Icon(
                                             Icons.Default.Close,
@@ -901,6 +911,8 @@ fun ChatScreen(
         Box(
             modifier = Modifier.fillMaxSize()
         ) {
+            // N-2：消息列表底部与悬浮跳转按钮共用同一底部偏移派生值
+            val bottomBarOverlay = paddingValues.calculateBottomPadding() + EchoTokens.Spacing.lg
             val statusBarTopPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
             val topFloatingBarHeight = 68.dp + (if (error != null) 60.dp else 0.dp)
 
@@ -916,7 +928,7 @@ fun ChatScreen(
                         start = 14.dp,
                         end = 14.dp,
                         top = statusBarTopPadding + topFloatingBarHeight,
-                        bottom = paddingValues.calculateBottomPadding() + 18.dp
+                        bottom = bottomBarOverlay
                     ),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
@@ -1264,7 +1276,7 @@ fun ChatScreen(
                                 color = glass.control,
                                 contentColor = MaterialTheme.colorScheme.primary,
                                 border = BorderStroke(1.2.dp, glass.outlineSelected),
-                                modifier = Modifier.size(34.dp)
+                                modifier = Modifier.size(40.dp)
                             ) {
                                 Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                                     Icon(
@@ -1361,9 +1373,10 @@ fun ChatScreen(
                     ) {
                         val errorShape = RoundedCornerShape(22.dp)
                         val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-                        val errorTint = if (isDark) Color(0xFF3F1D23).copy(alpha = 0.88f) else Color(0xFFFFF1F2).copy(alpha = 0.92f)
-                        val errorBorder = if (isDark) Color(0xFFF43F5E).copy(alpha = 0.35f) else Color(0xFFFDA4AF).copy(alpha = 0.65f)
-                        val errorContentColor = if (isDark) Color(0xFFFFE4E6) else Color(0xFF9F1239)
+                        val errorSemantic = rememberEchoSemanticColors().error
+                        val errorTint = errorSemantic.container.copy(alpha = if (isDark) 0.88f else 0.92f)
+                        val errorBorder = errorSemantic.border.copy(alpha = if (isDark) 0.35f else 0.65f)
+                        val errorContentColor = errorSemantic.onContainer
 
                         Surface(
                             modifier = Modifier
@@ -1389,7 +1402,7 @@ fun ChatScreen(
                                 Icon(
                                     Icons.Default.ErrorOutline,
                                     contentDescription = null,
-                                    tint = if (isDark) Color(0xFFFB7185) else Color(0xFFE11D48),
+                                    tint = errorSemantic.main,
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(10.dp))
@@ -1401,7 +1414,7 @@ fun ChatScreen(
                                 )
                                 IconButton(
                                     onClick = { viewModel.clearError() },
-                                    modifier = Modifier.size(28.dp)
+                                    modifier = Modifier.size(36.dp)
                                 ) {
                                     Icon(
                                         Icons.Default.Close,
@@ -1426,21 +1439,15 @@ fun ChatScreen(
                         val isSuccess = statusMsg.startsWith("✅")
                         val infoShape = RoundedCornerShape(22.dp)
                         val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-                        val tintColor = when {
-                            isWarning -> if (isDark) Color(0xFF422006).copy(alpha = 0.90f) else Color(0xFFFEFCE8).copy(alpha = 0.92f)
-                            isSuccess -> if (isDark) Color(0xFF064E3B).copy(alpha = 0.88f) else Color(0xFFECFDF5).copy(alpha = 0.92f)
-                            else -> if (isDark) Color(0xFF1E293B).copy(alpha = 0.88f) else Color(0xFFF1F5F9).copy(alpha = 0.92f)
+                        val semantic = rememberEchoSemanticColors()
+                        val statusGroup = when {
+                            isWarning -> semantic.warning
+                            isSuccess -> semantic.success
+                            else -> semantic.info
                         }
-                        val borderColor = when {
-                            isWarning -> if (isDark) Color(0xFFF59E0B).copy(alpha = 0.40f) else Color(0xFFFCD34D).copy(alpha = 0.70f)
-                            isSuccess -> if (isDark) Color(0xFF10B981).copy(alpha = 0.40f) else Color(0xFF6EE7B7).copy(alpha = 0.70f)
-                            else -> if (isDark) Color(0xFF38BDF8).copy(alpha = 0.35f) else Color(0xFFBAE6FD).copy(alpha = 0.65f)
-                        }
-                        val bannerContentColor = when {
-                            isWarning -> if (isDark) Color(0xFFFEF08A) else Color(0xFF854D0E)
-                            isSuccess -> if (isDark) Color(0xFFA7F3D0) else Color(0xFF065F46)
-                            else -> if (isDark) Color(0xFFE0F2FE) else Color(0xFF0369A1)
-                        }
+                        val tintColor = statusGroup.container.copy(alpha = if (isDark) 0.89f else 0.92f)
+                        val borderColor = statusGroup.border.copy(alpha = if (isDark) 0.40f else 0.70f)
+                        val bannerContentColor = statusGroup.onContainer
 
                         Surface(
                             modifier = Modifier
@@ -1486,7 +1493,7 @@ fun ChatScreen(
                                 )
                                 IconButton(
                                     onClick = { viewModel.clearContextStatusMessage() },
-                                    modifier = Modifier.size(28.dp)
+                                    modifier = Modifier.size(36.dp)
                                 ) {
                                     Icon(
                                         Icons.Default.Close,
@@ -1570,7 +1577,7 @@ fun ChatScreen(
                     .align(Alignment.BottomEnd)
                     .padding(
                         end = 18.dp,
-                        bottom = paddingValues.calculateBottomPadding() + 18.dp
+                        bottom = bottomBarOverlay
                     )
             )
 

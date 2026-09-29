@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.BasicTextField
 import android.net.Uri
 import androidx.compose.ui.platform.LocalContext
+import com.aiassistant.ui.theme.rememberEchoSemanticColors
 import com.aiassistant.domain.model.ChatModelOption
 import com.aiassistant.ui.components.ImageCropEditDialog
 import com.aiassistant.ui.components.CropShapeMode
@@ -523,16 +524,16 @@ fun WebSearchTab(
                                 }
                                 Surface(
                                     shape = RoundedCornerShape(999.dp),
-                                    color = if (isHealthInstalled) Color(0xFF2ECC71).copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant,
+                                    color = if (isHealthInstalled) rememberEchoSemanticColors().success.container else MaterialTheme.colorScheme.surfaceVariant,
                                     border = BorderStroke(
                                         1.dp,
-                                        if (isHealthInstalled) Color(0xFF2ECC71).copy(alpha = 0.6f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+                                        if (isHealthInstalled) rememberEchoSemanticColors().success.border else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
                                     )
                                 ) {
                                     Text(
                                         text = if (isHealthInstalled) "已安装 $healthAppName" else "未检测到健康App",
                                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.5.sp),
-                                        color = if (isHealthInstalled) Color(0xFF27AE60) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        color = if (isHealthInstalled) rememberEchoSemanticColors().success.main else MaterialTheme.colorScheme.onSurfaceVariant,
                                         fontWeight = FontWeight.Medium,
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                                     )
@@ -572,8 +573,8 @@ fun WebSearchTab(
                                 Surface(
                                     modifier = Modifier.weight(1f),
                                     shape = RoundedCornerShape(12.dp),
-                                    color = Color(0xFFE74C3C).copy(alpha = 0.08f),
-                                    border = BorderStroke(1.dp, Color(0xFFE74C3C).copy(alpha = 0.22f))
+                                    color = rememberEchoSemanticColors().error.container.copy(alpha = 0.35f),
+                                    border = BorderStroke(1.dp, rememberEchoSemanticColors().error.border.copy(alpha = 0.3f))
                                 ) {
                                     Column(
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
@@ -585,7 +586,7 @@ fun WebSearchTab(
                                             if (hrVal > 0) "$hrVal" else "--",
                                             style = MaterialTheme.typography.titleMedium.copy(fontSize = 17.sp),
                                             fontWeight = FontWeight.Bold,
-                                            color = if (hrVal > 0) Color(0xFFE74C3C) else MaterialTheme.colorScheme.onSurfaceVariant
+                                            color = if (hrVal > 0) rememberEchoSemanticColors().error.main else MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                         Text(if (hrVal > 0) "bpm" else "未录入", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
@@ -596,8 +597,8 @@ fun WebSearchTab(
                                 Surface(
                                     modifier = Modifier.weight(1f),
                                     shape = RoundedCornerShape(12.dp),
-                                    color = Color(0xFF9B59B6).copy(alpha = 0.08f),
-                                    border = BorderStroke(1.dp, Color(0xFF9B59B6).copy(alpha = 0.22f))
+                                    color = rememberEchoSemanticColors().info.container.copy(alpha = 0.35f),
+                                    border = BorderStroke(1.dp, rememberEchoSemanticColors().info.border.copy(alpha = 0.3f))
                                 ) {
                                     Column(
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
@@ -609,7 +610,7 @@ fun WebSearchTab(
                                             if (sleepMins > 0) "${sleepMins / 60}h${sleepMins % 60}m" else "--",
                                             style = MaterialTheme.typography.titleMedium.copy(fontSize = 15.sp),
                                             fontWeight = FontWeight.Bold,
-                                            color = if (sleepMins > 0) Color(0xFF9B59B6) else MaterialTheme.colorScheme.onSurfaceVariant
+                                            color = if (sleepMins > 0) rememberEchoSemanticColors().info.main else MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                         Text(if (sleepMins > 0 && currentHealthSummary.sleepScore > 0) "评分 ${currentHealthSummary.sleepScore}" else if (sleepMins > 0) "已记录" else "未录入", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }

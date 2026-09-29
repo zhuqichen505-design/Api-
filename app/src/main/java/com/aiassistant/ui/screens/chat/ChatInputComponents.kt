@@ -4,6 +4,7 @@ package com.aiassistant.ui.screens.chat
 
 import android.net.Uri
 import android.graphics.BitmapFactory
+import com.aiassistant.ui.theme.EchoThinkingColors
 import com.aiassistant.ui.components.ImageCropEditDialog
 import com.aiassistant.ui.components.CropShapeMode
 import androidx.activity.compose.BackHandler
@@ -275,7 +276,7 @@ fun ChatInputBar(
                             color = if (isGenerating) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                             contentColor = Color.White,
                             border = BorderStroke(1.2.dp, bottomSurfaceBorderColor),
-                            modifier = Modifier.size(34.dp)
+                            modifier = Modifier.size(40.dp)
                         ) {
                             Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                                 Icon(
@@ -398,11 +399,11 @@ fun ChatInputBar(
                                 }
                                 val effortAccentColor = when {
                                     !enableThinking -> glass.outline
-                                    thinkingEffort.equals("low", true) || thinkingEffort.equals("fast", true) -> Color(0xFF60A5FA) // 柔和纯正天蓝
-                                    thinkingEffort.equals("medium", true) || thinkingEffort.equals("balanced", true) -> Color(0xFF2563EB) // 蔚蓝
-                                    thinkingEffort.equals("high", true) || thinkingEffort.equals("deep", true) -> Color(0xFF1D4ED8) // 深海蓝
-                                    thinkingEffort.equals("ultra", true) || thinkingEffort.equals("max", true) -> Color(0xFF4338CA) // 靛青紫蓝
-                                    else -> Color(0xFF2563EB)
+                                    thinkingEffort.equals("low", true) || thinkingEffort.equals("fast", true) -> EchoThinkingColors.low // 柔和纯正天蓝
+                                    thinkingEffort.equals("medium", true) || thinkingEffort.equals("balanced", true) -> EchoThinkingColors.medium // 蔚蓝
+                                    thinkingEffort.equals("high", true) || thinkingEffort.equals("deep", true) -> EchoThinkingColors.high // 深海蓝
+                                    thinkingEffort.equals("ultra", true) || thinkingEffort.equals("max", true) -> EchoThinkingColors.maxAccent // 靛青紫蓝
+                                    else -> EchoThinkingColors.medium
                                 }
                                 InputPillButton(
                                     text = effortText,
@@ -503,7 +504,7 @@ fun ChatInputBar(
                             contentColor = MaterialTheme.colorScheme.primary,
                             border = BorderStroke(1.2.dp, glass.outlineSelected),
                             modifier = Modifier
-                                .size(34.dp)
+                                .size(36.dp)
                                 .echoShapeClick(CircleShape, enabled = !isProcessingAttachments, onClick = { showToolMenu = true })
                         ) {
                             Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
@@ -571,7 +572,7 @@ fun ChatInputBar(
                                 contentColor = MaterialTheme.colorScheme.onError,
                                 border = BorderStroke(1.2.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.85f)),
                                 modifier = Modifier
-                                    .size(34.dp)
+                                    .size(36.dp)
                                     .echoShapeClick(CircleShape, onClick = onStopGeneration)
                             ) {
                                 Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
@@ -586,7 +587,7 @@ fun ChatInputBar(
                                     contentColor = MaterialTheme.colorScheme.onPrimary,
                                     border = BorderStroke(1.2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)),
                                     modifier = Modifier
-                                        .size(34.dp)
+                                        .size(36.dp)
                                         .echoShapeClick(CircleShape, enabled = true, onClick = onSend)
                                 ) {
                                     Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
@@ -607,7 +608,7 @@ fun ChatInputBar(
                             contentColor = if (canSend) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary.copy(alpha = 0.45f),
                             border = BorderStroke(1.2.dp, sendBorderColor),
                             modifier = Modifier
-                                .size(34.dp)
+                                .size(36.dp)
                                 .echoShapeClick(CircleShape, enabled = canSend, onClick = onSend)
                         ) {
                             Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
@@ -748,7 +749,7 @@ internal fun QuotedTextPreviewCard(
             }
             IconButton(
                 onClick = onClear,
-                modifier = Modifier.size(24.dp)
+                modifier = Modifier.size(36.dp)
             ) {
                 Icon(
                     Icons.Default.Close,
@@ -793,8 +794,8 @@ internal fun ReasoningEffortPopupCard(
                 name = "关闭思考",
                 subtitle = "关闭思考 · 极速直答",
                 detail = "跳过深度思维链推演，以模型最高速度直接生成最终回复（若模型强制要求思考则保持原生工作）。",
-                primaryColor = Color(0xFF64748B),
-                gradientColors = listOf(Color(0xFF64748B), Color(0xFF94A3B8))
+                primaryColor = EchoThinkingColors.none,
+                gradientColors = EchoThinkingColors.noneGradient
             ),
             ThinkingEffortLevel(
                 step = 1,
@@ -803,8 +804,8 @@ internal fun ReasoningEffortPopupCard(
                 name = "low",
                 subtitle = "low · 基础轻度思考",
                 detail = "分配少量思考预算进行轻度推理，适合常规闲聊、基础问答与快速响应。",
-                primaryColor = Color(0xFF60A5FA),
-                gradientColors = listOf(Color(0xFF93C5FD), Color(0xFF60A5FA))
+                primaryColor = EchoThinkingColors.low,
+                gradientColors = EchoThinkingColors.lowGradient
             ),
             ThinkingEffortLevel(
                 step = 2,
@@ -813,8 +814,8 @@ internal fun ReasoningEffortPopupCard(
                 name = "medium",
                 subtitle = "medium · 均衡标准思考",
                 detail = "平衡逻辑严谨性与响应耗时，应对大多数日常工作、深度分析与创作场景（推荐）。",
-                primaryColor = Color(0xFF2563EB),
-                gradientColors = listOf(Color(0xFF3B82F6), Color(0xFF1D4ED8))
+                primaryColor = EchoThinkingColors.medium,
+                gradientColors = EchoThinkingColors.mediumGradient
             ),
             ThinkingEffortLevel(
                 step = 3,
@@ -823,8 +824,8 @@ internal fun ReasoningEffortPopupCard(
                 name = "high",
                 subtitle = "high · 深度严密思考",
                 detail = "投入充足思考预算进行多步论证、边界检查与严密推演，适合复杂技术任务与代码分析。",
-                primaryColor = Color(0xFF1D4ED8),
-                gradientColors = listOf(Color(0xFF1D4ED8), Color(0xFF1E3A8A))
+                primaryColor = EchoThinkingColors.high,
+                gradientColors = EchoThinkingColors.highGradient
             ),
             ThinkingEffortLevel(
                 step = 4,
@@ -833,8 +834,8 @@ internal fun ReasoningEffortPopupCard(
                 name = "max",
                 subtitle = "max · 极限最大思考",
                 detail = "释放最大思考预算上限，全力攻坚高难度逻辑推演、数学证明与复杂长文思考。",
-                primaryColor = Color(0xFF4F46E5),
-                gradientColors = listOf(Color(0xFF6366F1), Color(0xFF4338CA))
+                primaryColor = EchoThinkingColors.max,
+                gradientColors = EchoThinkingColors.maxGradient
             )
         )
     }
@@ -1058,7 +1059,7 @@ internal fun ThinkingParamsExplanationDialog(
                 ThinkingParamCard(
                     title = "关闭思考 (none)",
                     badge = "无思考预算",
-                    badgeColor = Color(0xFF64748B),
+                    badgeColor = EchoThinkingColors.none,
                     desc = "跳过思维链推演，以模型原生最高速度直接生成最终回复内容（强制思考模型保持原生工作）。",
                     params = listOf(
                         "OpenAI / o系列" to "不传 reasoning_effort",
@@ -1070,7 +1071,7 @@ internal fun ThinkingParamsExplanationDialog(
                 ThinkingParamCard(
                     title = "low",
                     badge = "精简推演",
-                    badgeColor = Color(0xFF60A5FA),
+                    badgeColor = EchoThinkingColors.low,
                     desc = "分配精简思考预算进行关键逻辑检查，低延迟极速响应。",
                     params = listOf(
                         "OpenAI / o系列" to "reasoning_effort = \"low\"",
@@ -1082,7 +1083,7 @@ internal fun ThinkingParamsExplanationDialog(
                 ThinkingParamCard(
                     title = "medium",
                     badge = "推荐默认",
-                    badgeColor = Color(0xFF2563EB),
+                    badgeColor = EchoThinkingColors.medium,
                     desc = "投入适度思考预算，严密推演逻辑与代码设计（日常最佳平衡点）。",
                     params = listOf(
                         "OpenAI / o系列" to "reasoning_effort = \"medium\"",
@@ -1094,7 +1095,7 @@ internal fun ThinkingParamsExplanationDialog(
                 ThinkingParamCard(
                     title = "high",
                     badge = "深度推理",
-                    badgeColor = Color(0xFF1D4ED8),
+                    badgeColor = EchoThinkingColors.high,
                     desc = "投入大量思考预算进行多步论证、边界检查与复杂代码推演。",
                     params = listOf(
                         "OpenAI / o系列" to "reasoning_effort = \"high\"",
@@ -1106,7 +1107,7 @@ internal fun ThinkingParamsExplanationDialog(
                 ThinkingParamCard(
                     title = "max",
                     badge = "极限预算",
-                    badgeColor = Color(0xFF4F46E5),
+                    badgeColor = EchoThinkingColors.max,
                     desc = "释放最大思考预算上限，全力攻坚高难算法、数学定理与复杂多维哲学推理。",
                     params = listOf(
                         "OpenAI / o系列" to "reasoning_effort = \"high\" (严格兼容不报错)",

@@ -974,7 +974,7 @@ internal fun MessageBubble(
                                     )
                                     IconButton(
                                         onClick = { showErrorDetails = !showErrorDetails },
-                                        modifier = Modifier.size(28.dp)
+                                        modifier = Modifier.size(36.dp)
                                     ) {
                                         Icon(
                                             imageVector = if (showErrorDetails) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
@@ -1321,7 +1321,7 @@ internal fun FooterIconButton(
 ) {
     IconButton(
         onClick = onClick,
-        modifier = Modifier.size(28.dp)
+        modifier = Modifier.size(36.dp)
     ) {
         Icon(
             imageVector = icon,
@@ -1352,7 +1352,7 @@ internal fun VariantSwitcher(
                 if (canGoPrevious) onSelect(info.availableIndices[currentPosition - 1])
             },
             enabled = canGoPrevious,
-            modifier = Modifier.size(28.dp)
+            modifier = Modifier.size(36.dp)
         ) {
             Icon(
                 Icons.Default.ChevronLeft,
@@ -1371,7 +1371,7 @@ internal fun VariantSwitcher(
                 if (canGoNext) onSelect(info.availableIndices[currentPosition + 1])
             },
             enabled = canGoNext,
-            modifier = Modifier.size(28.dp)
+            modifier = Modifier.size(36.dp)
         ) {
             Icon(
                 Icons.Default.ChevronRight,
@@ -1481,7 +1481,7 @@ fun TypingIndicator(
 
     Text(
         text = "●".repeat(dotCount) + "○".repeat(3 - dotCount),
-        color = Color(0xFF93C5FD),
+        color = Color(0xFF93C5FD), // 打字指示点专属浅蓝（与思考等级 low 色一致，场景特殊保留）
         style = MaterialTheme.typography.bodyLarge,
         letterSpacing = 2.sp
     )
@@ -2062,7 +2062,7 @@ internal fun MessageQueueCard(
                 )
                 IconButton(
                     onClick = onTogglePause,
-                    modifier = Modifier.size(28.dp)
+                    modifier = Modifier.size(36.dp)
                 ) {
                     Icon(
                         imageVector = if (isPaused) Icons.Default.PlayArrow else Icons.Default.Pause,

@@ -36,6 +36,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.aiassistant.ui.theme.EchoChartColors
 import com.aiassistant.ui.components.EchoGlassPagePanelShape
 import com.aiassistant.ui.components.EchoWallpaperBackground
 import com.aiassistant.ui.components.echoFilterChipBorder
@@ -582,9 +583,9 @@ private fun ChartCard(
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                LegendDot("输入 Token", Color(0xFF6BA4F8), contentColor.copy(alpha = 0.85f))
-                LegendDot("输出 Token", Color(0xFF38BDF8), contentColor.copy(alpha = 0.85f))
-                LegendDot("思考 Token", Color(0xFFFB7185), contentColor.copy(alpha = 0.85f))
+                LegendDot("输入 Token", EchoChartColors.primary, contentColor.copy(alpha = 0.85f))
+                LegendDot("输出 Token", EchoChartColors.secondary, contentColor.copy(alpha = 0.85f))
+                LegendDot("思考 Token", EchoChartColors.tertiary, contentColor.copy(alpha = 0.85f))
             }
         }
     }
@@ -606,10 +607,10 @@ private fun LegendDot(text: String, color: Color, textColor: Color) {
 
 @Composable
 private fun ModernTokenBars(buckets: List<Bucket>, maxToken: Int, labelColor: Color) {
-    val inputColor = Color(0xFF6BA4F8) // 淡天蓝
-    val outputColor = Color(0xFF38BDF8) // 淡青蓝
-    val thinkingColor = Color(0xFFFB7185) // 淡珊瑚粉
-    val otherColor = Color(0xFFA5B4FC) // 淡紫
+    val inputColor = EchoChartColors.primary // 淡天蓝
+    val outputColor = EchoChartColors.secondary // 淡青蓝
+    val thinkingColor = EchoChartColors.tertiary // 淡珊瑚粉
+    val otherColor = EchoChartColors.quaternary // 淡紫
     val gridColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
     val plotBackground = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
     val emptyBarColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.20f)
@@ -712,7 +713,7 @@ private fun ModernTrendChart(
     buckets: List<Bucket>,
     labelColor: Color = MaterialTheme.colorScheme.onSurfaceVariant
 ) {
-    val successColor = Color(0xFF38BDF8) // 淡青蓝
+    val successColor = EchoChartColors.secondary // 淡青蓝
     val gridColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
     val plotBackground = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
     val haloColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
@@ -1028,7 +1029,7 @@ private fun ModernModelStatsTable(
                                             modifier = Modifier
                                                 .weight(inputRatio)
                                                 .fillMaxHeight()
-                                                .background(Color(0xFF6BA4F8))
+                                                .background(EchoChartColors.primary)
                                         )
                                     }
                                     if (outputRatio > 0f) {
@@ -1036,7 +1037,7 @@ private fun ModernModelStatsTable(
                                             modifier = Modifier
                                                 .weight(outputRatio)
                                                 .fillMaxHeight()
-                                                .background(Color(0xFF38BDF8))
+                                                .background(EchoChartColors.secondary)
                                         )
                                     }
                                     if (thinkingRatio > 0f) {
@@ -1044,7 +1045,7 @@ private fun ModernModelStatsTable(
                                             modifier = Modifier
                                                 .weight(thinkingRatio)
                                                 .fillMaxHeight()
-                                                .background(Color(0xFFFB7185))
+                                                .background(EchoChartColors.tertiary)
                                         )
                                     }
                                 }
@@ -1064,7 +1065,7 @@ private fun ModernModelStatsTable(
                                 MiniStatsChip(
                                     icon = Icons.Default.CheckCircle,
                                     label = "成功率 ${formatPercent(row.successRate)}",
-                                    tint = Color(0xFF38BDF8)
+                                    tint = EchoChartColors.secondary
                                 )
                                 if (row.avgResponseTime > 0) {
                                     MiniStatsChip(
@@ -1077,7 +1078,7 @@ private fun ModernModelStatsTable(
                                     MiniStatsChip(
                                         icon = Icons.Default.Psychology,
                                         label = "思考 ${formatNumber(row.thinkingTokens)}",
-                                        tint = Color(0xFFFB7185)
+                                        tint = EchoChartColors.tertiary
                                     )
                                 }
                             }

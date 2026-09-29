@@ -188,11 +188,11 @@ internal fun ChatScrollJumpButtons(
             Surface(
                 onClick = onJumpToTop,
                 shape = CircleShape,
-                color = Color(0xFFBAE6FD).copy(alpha = 0.72f),
-                contentColor = Color(0xFF0369A1),
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f),
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                 border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)),
                 shadowElevation = 0.dp,
-                modifier = Modifier.size(32.dp)
+                modifier = Modifier.size(40.dp)
             ) {
                 Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                     Icon(
@@ -207,11 +207,11 @@ internal fun ChatScrollJumpButtons(
             Surface(
                 onClick = onJumpToPrevInput,
                 shape = CircleShape,
-                color = Color(0xFF93C5FD).copy(alpha = 0.75f),
-                contentColor = Color(0xFF1D4ED8),
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.55f),
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                 border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)),
                 shadowElevation = 0.dp,
-                modifier = Modifier.size(32.dp)
+                modifier = Modifier.size(40.dp)
             ) {
                 Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                     Icon(
@@ -226,11 +226,11 @@ internal fun ChatScrollJumpButtons(
             Surface(
                 onClick = onJumpToNextInput,
                 shape = CircleShape,
-                color = Color(0xFF60A5FA).copy(alpha = 0.78f),
-                contentColor = Color.White,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.78f),
+                contentColor = MaterialTheme.colorScheme.onPrimary,
                 border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)),
                 shadowElevation = 0.dp,
-                modifier = Modifier.size(32.dp)
+                modifier = Modifier.size(40.dp)
             ) {
                 Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                     Icon(
@@ -245,11 +245,11 @@ internal fun ChatScrollJumpButtons(
             Surface(
                 onClick = onJumpToBottom,
                 shape = CircleShape,
-                color = Color(0xFF3B82F6).copy(alpha = 0.82f),
-                contentColor = Color.White,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.88f),
+                contentColor = MaterialTheme.colorScheme.onPrimary,
                 border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)),
                 shadowElevation = 0.dp,
-                modifier = Modifier.size(32.dp)
+                modifier = Modifier.size(40.dp)
             ) {
                 Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                     Icon(

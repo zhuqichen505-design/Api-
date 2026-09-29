@@ -135,3 +135,21 @@ fun EchoGlassButton(
         content = content
     )
 }
+
+/**
+ * Echo 复选框配色方案
+ * 与 echoSwitchColors() 同源的选中色规范（§5.4）：选中走 primary/onPrimary，
+ * 未选中边框用 outline，保证玻璃卡上的可见性。
+ */
+@Composable
+fun echoCheckboxColors(): CheckboxColors {
+    val colorScheme = MaterialTheme.colorScheme
+    return CheckboxDefaults.colors(
+        checkedColor = colorScheme.primary,
+        checkmarkColor = colorScheme.onPrimary,
+        uncheckedColor = colorScheme.outline,
+        disabledCheckedColor = colorScheme.onSurface.copy(alpha = 0.12f),
+        disabledUncheckedColor = colorScheme.outline.copy(alpha = 0.38f),
+        disabledIndeterminateColor = colorScheme.onSurface.copy(alpha = 0.38f)
+    )
+}

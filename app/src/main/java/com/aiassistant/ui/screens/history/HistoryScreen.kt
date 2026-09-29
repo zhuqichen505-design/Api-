@@ -20,6 +20,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
+import com.aiassistant.ui.components.echoCheckboxColors
 import com.aiassistant.AiAssistantApp
 import com.aiassistant.BuildConfig
 import com.aiassistant.domain.model.Conversation
@@ -219,7 +220,8 @@ fun HistoryScreen(
             ) {
                 Checkbox(
                     checked = searchInMessages,
-                    onCheckedChange = { searchInMessages = it }
+                    onCheckedChange = { searchInMessages = it },
+                    colors = echoCheckboxColors()
                 )
                 Text(
                     text = "搜索消息内容",
@@ -391,7 +393,6 @@ fun HistoryConversationCard(
                 Text(
                     text = conversation.title,
                     style = MaterialTheme.typography.titleMedium.copy(
-                        fontSize = 16.sp,
                         fontFamily = androidx.compose.ui.text.font.FontFamily.SansSerif,
                         fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                     ),
@@ -823,7 +824,6 @@ fun SearchResultCard(
                 Text(
                     text = result.conversation.title,
                     style = MaterialTheme.typography.titleMedium.copy(
-                        fontSize = 16.sp,
                         fontFamily = androidx.compose.ui.text.font.FontFamily.SansSerif,
                         fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                     ),

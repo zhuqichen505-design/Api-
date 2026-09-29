@@ -148,6 +148,21 @@ object EchoFolderColors {
         Color(0xFFEC4899),  // pink-500
         Color(0xFF64748B)   // slate-500
     )
+
+    /**
+     * 兼容历史数据的 8 色粉彩调色板。
+     * folder.color 索引 1..8 与既有数据库数据一一对应，顺序禁止调整。
+     */
+    val pastelPalette = listOf(
+        Color(0xFFE57373), // 1 红
+        Color(0xFFFFB74D), // 2 橙
+        Color(0xFFFFF176), // 3 黄
+        Color(0xFF60A5FA), // 4 天蓝
+        Color(0xFF64B5F6), // 5 蓝
+        Color(0xFF9575CD), // 6 紫
+        Color(0xFF818CF8), // 7 靛蓝
+        Color(0xFFA1887F)  // 8 棕
+    )
 }
 
 // ============ 思考等级颜色 (EchoThinkingColors) ============
@@ -173,4 +188,7 @@ object EchoThinkingColors {
     // 最高等级 (ultra/max)
     val max = Color(0xFF4F46E5)
     val maxGradient = listOf(Color(0xFF6366F1), Color(0xFF4338CA))
+
+    // 最高等级的强调色（档位胶囊选中态前景，取 maxGradient 深端）
+    val maxAccent = Color(0xFF4338CA)
 }

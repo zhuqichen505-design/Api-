@@ -14,6 +14,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
+import com.aiassistant.ui.theme.EchoFolderColors
 import com.aiassistant.ui.theme.EchoTokens
 import com.aiassistant.ui.components.echoShapeCombinedClick
 import androidx.compose.foundation.layout.*
@@ -58,6 +59,7 @@ import com.aiassistant.domain.model.Conversation
 import com.aiassistant.domain.model.Folder
 import com.aiassistant.utils.BackupManager
 import android.widget.Toast
+import com.aiassistant.ui.components.CardEmphasis
 import com.aiassistant.ui.components.EchoGlassCard
 import com.aiassistant.ui.components.EchoGlassDialog
 import com.aiassistant.ui.components.EchoGlassDropdownMenu
@@ -81,6 +83,7 @@ import com.aiassistant.utils.BackgroundImageManager
 import java.text.SimpleDateFormat
 import java.util.*
 
+// 批量删除弹窗专属"柔和删除"视觉（方案 §九：保留浅红柔和删除风格，不入语义 error）
 private val DeleteDialogPink = Color(0xFFFFE4E6)
 private val DeleteDialogContent = Color(0xFFBE123C)
 private const val EchoWordmarkActiveVariant = "liquid-script"
@@ -203,7 +206,7 @@ fun HomeScreen(
                 homeBackgroundBitmap?.let { bitmap ->
                     Image(
                         bitmap = bitmap.asImageBitmap(),
-                        contentDescription = null,
+                        contentDescription = null, // decorative
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop
                     )
@@ -654,7 +657,7 @@ private fun NewConversationGlassButton(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Icon(Icons.Default.Add, contentDescription = null)
+            Icon(Icons.Default.Add, contentDescription = null) // decorative
             Text(
                 text = "新对话",
                 style = MaterialTheme.typography.titleMedium,
@@ -814,7 +817,7 @@ private fun HomeSearchRow(
             ) {
                 Icon(
                     Icons.Default.Search,
-                    contentDescription = null,
+                    contentDescription = null, // decorative
                     modifier = Modifier.size(22.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -953,7 +956,7 @@ private fun BatchSelectionBar(
             ) {
                 Icon(
                     Icons.Default.VisibilityOff,
-                    contentDescription = null,
+                    contentDescription = null, // decorative
                     modifier = Modifier.size(18.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
@@ -971,7 +974,7 @@ private fun BatchSelectionBar(
             ) {
                 Icon(
                     Icons.Default.Delete,
-                    contentDescription = null,
+                    contentDescription = null, // decorative
                     modifier = Modifier.size(18.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
@@ -995,7 +998,7 @@ private fun BatchDeleteConfirmDialog(
         icon = {
             Icon(
                 Icons.Default.DeleteForever,
-                contentDescription = null,
+                contentDescription = null, // decorative
                 tint = DeleteDialogContent
             )
         },
@@ -1052,7 +1055,7 @@ private fun PinnedSectionHeader(
         ) {
             Icon(
                 Icons.Default.PushPin,
-                contentDescription = null,
+                contentDescription = null, // decorative
                 modifier = Modifier.size(16.dp),
                 tint = MaterialTheme.colorScheme.primary
             )
@@ -1163,16 +1166,7 @@ fun FolderSelector(
     onManageFolders: () -> Unit,
     readableBackdrop: Color
 ) {
-    val folderColors = listOf(
-        Color(0xFFE57373),
-        Color(0xFFFFB74D),
-        Color(0xFFFFF176),
-        Color(0xFF60A5FA),
-        Color(0xFF64B5F6),
-        Color(0xFF9575CD),
-        Color(0xFF818CF8),
-        Color(0xFFA1887F),
-    )
+    val folderColors = EchoFolderColors.pastelPalette
 
     val folderIcons = mapOf(
         "folder" to Icons.Default.Folder,
@@ -1202,7 +1196,7 @@ fun FolderSelector(
                 leadingIcon = {
                     Icon(
                         Icons.Default.ChatBubbleOutline,
-                        contentDescription = null,
+                        contentDescription = null, // decorative
                         modifier = Modifier.size(18.dp)
                     )
                 }
@@ -1219,7 +1213,7 @@ fun FolderSelector(
                 leadingIcon = {
                     Icon(
                         Icons.Default.PushPin,
-                        contentDescription = null,
+                        contentDescription = null, // decorative
                         modifier = Modifier.size(18.dp)
                     )
                 }
@@ -1246,7 +1240,7 @@ fun FolderSelector(
                     ) {
                         Icon(
                             icon,
-                            contentDescription = null,
+                            contentDescription = null, // decorative
                             modifier = Modifier.size(14.dp),
                             tint = if (selectedFolderId == folder.id) Color.White else color
                         )
@@ -1265,7 +1259,7 @@ fun FolderSelector(
                 leadingIcon = {
                     Icon(
                         Icons.Default.CreateNewFolder,
-                        contentDescription = null,
+                        contentDescription = null, // decorative
                         modifier = Modifier.size(18.dp)
                     )
                 }
@@ -1339,7 +1333,7 @@ fun ConfigSelector(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+            Icon(Icons.Default.ArrowDropDown, contentDescription = null) // decorative
         }
 
         EchoGlassDropdownMenu(
@@ -1379,7 +1373,7 @@ fun ConfigSelector(
                         if (config.id == selectedConfig?.id) {
                             Icon(
                                 Icons.Default.Check,
-                                contentDescription = null,
+                                contentDescription = null, // decorative
                                 tint = MaterialTheme.colorScheme.primary
                             )
                         }
@@ -1398,7 +1392,7 @@ fun ConfigSelector(
                     onNavigateToSettings()
                 },
                 leadingIcon = {
-                    Icon(Icons.Default.Settings, contentDescription = null)
+                    Icon(Icons.Default.Settings, contentDescription = null) // decorative
                 }
             )
         }
@@ -1484,7 +1478,8 @@ fun ConversationCard(
         onLongClickLabel = "多选对话",
         shape = cardShape,
         containerColor = cardTint,
-        highlight = selected
+        highlight = selected,
+        emphasis = CardEmphasis.Subdued
     ) {
         Row(
             modifier = Modifier
@@ -1600,7 +1595,7 @@ fun ConversationCard(
                                 showMenu = false
                             },
                             leadingIcon = {
-                                Icon(Icons.Default.Edit, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                Icon(Icons.Default.Edit, contentDescription = null, tint = MaterialTheme.colorScheme.primary) // decorative
                             }
                         )
                         DropdownMenuItem(
@@ -1612,7 +1607,7 @@ fun ConversationCard(
                             leadingIcon = {
                                 Icon(
                                     Icons.Default.PushPin,
-                                    contentDescription = null,
+                                    contentDescription = null, // decorative
                                     tint = MaterialTheme.colorScheme.primary
                                 )
                             }
@@ -1626,7 +1621,7 @@ fun ConversationCard(
                             leadingIcon = {
                                 Icon(
                                     Icons.Default.ContentCopy,
-                                    contentDescription = null,
+                                    contentDescription = null, // decorative
                                     tint = MaterialTheme.colorScheme.primary
                                 )
                             }
@@ -1640,7 +1635,7 @@ fun ConversationCard(
                             leadingIcon = {
                                 Icon(
                                     Icons.Default.Backup,
-                                    contentDescription = null,
+                                    contentDescription = null, // decorative
                                     tint = MaterialTheme.colorScheme.primary
                                 )
                             }
@@ -1652,7 +1647,7 @@ fun ConversationCard(
                                 showMenu = false
                             },
                             leadingIcon = {
-                                Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = null, tint = MaterialTheme.colorScheme.primary) // decorative
                             }
                         )
                         DropdownMenuItem(
@@ -1662,7 +1657,7 @@ fun ConversationCard(
                                 showMenu = false
                             },
                             leadingIcon = {
-                                Icon(Icons.Default.VisibilityOff, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Icon(Icons.Default.VisibilityOff, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) // decorative
                             }
                         )
                         HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = glass.outline.copy(alpha = 0.5f))
@@ -1675,7 +1670,7 @@ fun ConversationCard(
                             leadingIcon = {
                                 Icon(
                                     Icons.Default.Delete,
-                                    contentDescription = null,
+                                    contentDescription = null, // decorative
                                     tint = MaterialTheme.colorScheme.error
                                 )
                             }
@@ -1769,7 +1764,7 @@ fun MoveToFolderDialog(
                 ) {
                     Icon(
                         Icons.Default.CreateNewFolder,
-                        contentDescription = null,
+                        contentDescription = null, // decorative
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -1792,7 +1787,7 @@ fun MoveToFolderDialog(
                         ) {
                             Icon(
                                 Icons.Default.FolderOff,
-                                contentDescription = null,
+                                contentDescription = null, // decorative
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(modifier = Modifier.width(12.dp))
@@ -1800,7 +1795,7 @@ fun MoveToFolderDialog(
                             if (currentFolderId == null) {
                                 Icon(
                                     Icons.Default.Check,
-                                    contentDescription = null,
+                                    contentDescription = null, // decorative
                                     tint = MaterialTheme.colorScheme.primary
                                 )
                             }
@@ -1809,11 +1804,7 @@ fun MoveToFolderDialog(
 
                     items(folders) { folder ->
                         val folderRowShape = RoundedCornerShape(16.dp)
-                        val folderColors = listOf(
-                            Color(0xFFE57373), Color(0xFFFFB74D), Color(0xFFFFF176),
-                            Color(0xFF60A5FA), Color(0xFF64B5F6), Color(0xFF9575CD),
-                            Color(0xFF818CF8), Color(0xFFA1887F)
-                        )
+                        val folderColors = EchoFolderColors.pastelPalette
                         val color = folderColors.getOrElse(folder.color - 1) {
                             MaterialTheme.colorScheme.primary
                         }
@@ -1834,7 +1825,7 @@ fun MoveToFolderDialog(
                             ) {
                                 Icon(
                                     Icons.Default.Folder,
-                                    contentDescription = null,
+                                    contentDescription = null, // decorative
                                     tint = Color.White,
                                     modifier = Modifier.size(20.dp)
                                 )
@@ -1849,7 +1840,7 @@ fun MoveToFolderDialog(
                             if (currentFolderId == folder.id) {
                                 Icon(
                                     Icons.Default.Check,
-                                    contentDescription = null,
+                                    contentDescription = null, // decorative
                                     tint = MaterialTheme.colorScheme.primary
                                 )
                             }
@@ -1974,7 +1965,7 @@ fun EmptyHomeContent(
         ) {
             Icon(
                 Icons.Default.AutoAwesome,
-                contentDescription = null,
+                contentDescription = null, // decorative
                 modifier = Modifier.size(40.dp),
                 tint = MaterialTheme.colorScheme.primary
             )
@@ -2075,7 +2066,7 @@ fun NewChatDialog(
                     leadingIcon = {
                         Icon(
                             Icons.Default.SmartToy,
-                            contentDescription = null,
+                            contentDescription = null, // decorative
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(18.dp)
                         )
@@ -2149,7 +2140,7 @@ fun NewChatDialog(
                             leadingIcon = {
                                 Icon(
                                     Icons.Default.CreateNewFolder,
-                                    contentDescription = null,
+                                    contentDescription = null, // decorative
                                     modifier = Modifier.size(18.dp)
                                 )
                             },
@@ -2192,7 +2183,7 @@ fun NewChatDialog(
                     ) {
                         Icon(
                             Icons.Default.Lock,
-                            contentDescription = null,
+                            contentDescription = null, // decorative
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(20.dp)
                         )
@@ -2271,7 +2262,7 @@ fun NewChatDialog(
             onDismissRequest = { showModelPickerDialog = false },
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.SmartToy, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Icon(Icons.Default.SmartToy, contentDescription = null, tint = MaterialTheme.colorScheme.primary) // decorative
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("选择 API 配置与模型")
                 }
@@ -2299,7 +2290,7 @@ fun NewChatDialog(
                                 elevation = echoFilterChipElevation(),
                                 leadingIcon = {
                                     if (isCfgSelected) {
-                                        Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) // decorative
                                     }
                                 }
                             )
@@ -2315,7 +2306,7 @@ fun NewChatDialog(
                         onValueChange = { modelSearchQuery = it },
                         modifier = Modifier.fillMaxWidth(),
                         placeholder = { Text("搜索可用模型...") },
-                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null)  }, // decorative
                         singleLine = true
                     )
 
@@ -2351,7 +2342,7 @@ fun NewChatDialog(
                                     if (isSelected) {
                                         Icon(
                                             Icons.Default.Check,
-                                            contentDescription = null,
+                                            contentDescription = null, // decorative
                                             tint = MaterialTheme.colorScheme.primary,
                                             modifier = Modifier.size(18.dp)
                                         )
@@ -2366,7 +2357,7 @@ fun NewChatDialog(
                             onClick = { showCustomInput = true },
                             modifier = Modifier.align(Alignment.End)
                         ) {
-                            Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp)) // decorative
                             Spacer(modifier = Modifier.width(4.dp))
                             Text("自定义模型名称")
                         }

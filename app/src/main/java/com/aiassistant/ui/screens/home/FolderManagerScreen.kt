@@ -21,6 +21,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.aiassistant.ui.theme.EchoFolderColors
 import com.aiassistant.AiAssistantApp
 import com.aiassistant.domain.model.Folder
 import com.aiassistant.ui.components.EchoGlassDialog
@@ -199,16 +200,7 @@ fun FolderItem(
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
 
-    val folderColors = listOf(
-        Color(0xFFE57373), // 红
-        Color(0xFFFFB74D), // 橙
-        Color(0xFFFFF176), // 黄
-        Color(0xFF60A5FA), // 天蓝
-        Color(0xFF64B5F6), // 蓝
-        Color(0xFF9575CD), // 紫
-        Color(0xFF818CF8), // 靛蓝
-        Color(0xFFA1887F), // 棕
-    )
+    val folderColors = EchoFolderColors.pastelPalette
 
     val folderIcons = mapOf(
         "folder" to Icons.Default.Folder,
@@ -439,16 +431,8 @@ fun FolderEditDialog(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     folderColors.forEach { (colorIndex, colorName) ->
-                        val color = when (colorIndex) {
-                            1 -> Color(0xFFE57373)
-                            2 -> Color(0xFFFFB74D)
-                            3 -> Color(0xFFFFF176)
-                            4 -> Color(0xFF60A5FA)
-                            5 -> Color(0xFF64B5F6)
-                            6 -> Color(0xFF9575CD)
-                            7 -> Color(0xFF818CF8)
-                            8 -> Color(0xFFA1887F)
-                            else -> MaterialTheme.colorScheme.primaryContainer
+                        val color = EchoFolderColors.pastelPalette.getOrElse(colorIndex - 1) {
+                            MaterialTheme.colorScheme.primaryContainer
                         }
 
                         Box(

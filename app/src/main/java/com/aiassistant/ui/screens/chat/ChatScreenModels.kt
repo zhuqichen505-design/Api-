@@ -5,12 +5,7 @@ package com.aiassistant.ui.screens.chat
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.ui.graphics.Color
 import com.aiassistant.domain.model.Message
-
-internal const val ChatGlassTintAlpha = 0.86f
-internal val ChatUserGlassTint = Color(0xFFD9ECFF)
-internal val ThinkingContentBlue = Color(0xFF6BA4F8)
 
 data class BranchSuccessDialogState(
     val newConversationId: Long,
