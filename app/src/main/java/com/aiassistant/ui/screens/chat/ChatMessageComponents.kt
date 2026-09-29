@@ -134,6 +134,7 @@ import com.aiassistant.utils.BackgroundImageManager
 import com.aiassistant.utils.FileUtils
 import com.aiassistant.utils.RoleplaySmartAnalyzer
 import com.aiassistant.utils.RoleplaySmartParser
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
@@ -150,6 +151,13 @@ import com.aiassistant.ui.components.EchoPrimaryButton
 import com.aiassistant.ui.components.EchoGlassButton
 import com.aiassistant.ui.screens.roleplay.ConflictAction
 import com.aiassistant.ui.theme.EchoTokens
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.togetherWith
+import com.aiassistant.ui.theme.EchoThinkingColors
 
 
 fun formatThinkingCapsuleText(
@@ -348,7 +356,8 @@ internal fun MessageBubble(
     onDelete: (() -> Unit)? = null,
     customAvatarUri: String? = null,
     onTogglePin: ((Message) -> Unit)? = null,
-    onToggleExclude: ((Message) -> Unit)? = null
+    onToggleExclude: ((Message) -> Unit)? = null,
+    thinkingEffort: String? = null
 ) {
     val isUser = message.role == "user"
     val resolvedReadableBackdrop = readableBackdrop.takeOrElse {
@@ -402,6 +411,51 @@ internal fun MessageBubble(
     val citations = remember(message.content) {
         if (!isUser) extractCitationsFromContent(message.content) else emptyList()
     }
+
+    // ===== 动效轮：生成状态机（P0-4）与落定/光标生命周期（P0-3）=====
+    val generationState = rememberGenerationUiState(
+        isGenerating = isGenerating,
+        content = message.content,
+        hasThinking = hasThinking,
+        reconnectStatus = reconnectStatus,
+        contentIsError = !isUser && isErrorMessage(message.content)
+    )
+    // 光标生命周期：流式期间可见；生成结束后保留 300ms 供淡出，再摘除
+    var cursorAlive by remember { mutableStateOf(isGenerating) }
+    val wasGenerating = remember { mutableStateOf(isGenerating) }
+    // P0-3② 落定脉冲：scale 1.0→0.995→1.0（200ms，graphicsLayer 绘制层，一次性）
+    val settleScale = remember { androidx.compose.animation.core.Animatable(1f) }
+    LaunchedEffect(isGenerating) {
+        if (isGenerating) {
+            cursorAlive = true
+        } else {
+            val wasGeneratingBefore = wasGenerating.value
+            if (wasGeneratingBefore && message.content.isNotBlank() &&
+                generationState != GenerationUiState.Failed
+            ) {
+                runCatching {
+                    settleScale.animateTo(
+                        0.995f,
+                        com.aiassistant.ui.theme.EchoMotion.tweenSpec<Float>(com.aiassistant.ui.theme.EchoMotion.Duration.fast)
+                    )
+                    settleScale.animateTo(
+                        1f,
+                        com.aiassistant.ui.theme.EchoMotion.tweenSpec<Float>(com.aiassistant.ui.theme.EchoMotion.Duration.fast)
+                    )
+                }
+            }
+            kotlinx.coroutines.delay(com.aiassistant.ui.theme.EchoMotion.Typewriter.cursorFadeMs.toLong())
+            cursorAlive = false
+        }
+        wasGenerating.value = isGenerating
+    }
+    // 光标/脉冲环同源配色：思考模型取思考档位色，非思考模型用 primary（P0-1②/P0-2②）
+    val generationAccentColor = if (hasThinking) {
+        com.aiassistant.ui.theme.EchoThinkingColors.forEffort(thinkingEffort)
+    } else {
+        MaterialTheme.colorScheme.primary
+    }
+    val reducedMotion = com.aiassistant.ui.theme.rememberReducedMotion()
 
     activeCitation?.let { citation ->
         CitationDetailDialog(
@@ -508,7 +562,10 @@ internal fun MessageBubble(
                             onCitationClick = { id ->
                                 activeCitation = citations.find { it.index == id }
                                     ?: CitationInfo(id, "参考资料 $id", "https://www.google.com/search?q=$id")
-                            }
+                            },
+                            streaming = isGenerating || cursorAlive,
+                            cursor = if (cursorAlive) generationAccentColor else null,
+                            cursorFading = !isGenerating
                         )
                         if (citations.isNotEmpty()) {
                             Spacer(modifier = Modifier.height(8.dp))
@@ -608,7 +665,12 @@ internal fun MessageBubble(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                    .graphicsLayer {
+                        val s = settleScale.value
+                        scaleX = s
+                        scaleY = s
+                    },
                 horizontalAlignment = Alignment.Start
             ) {
                 val thinkingBubbleColor = glass.controlSelected
@@ -740,11 +802,30 @@ internal fun MessageBubble(
                                         modifier = Modifier.size(16.dp),
                                         tint = MaterialTheme.colorScheme.error
                                     )
-                                } else if (isConnecting || isThinkingActive) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(13.dp),
-                                        strokeWidth = 1.8.dp,
-                                        color = MaterialTheme.colorScheme.primary
+                                } else if (generationState == GenerationUiState.Reconnecting) {
+                                    // P0-1④ 重连：双弧追逐旋转（error 语义色）
+                                    EchoDoubleArcRing(
+                                        color = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                } else if (generationState == GenerationUiState.Connecting ||
+                                    generationState == GenerationUiState.Thinking
+                                ) {
+                                    // P0-1①② 连接/思考：呼吸脉冲环，阶段切换时 primary 平滑过渡到思考档位色
+                                    val ringColor by animateColorAsState(
+                                        targetValue = if (generationState == GenerationUiState.Thinking) {
+                                            generationAccentColor
+                                        } else {
+                                            MaterialTheme.colorScheme.primary
+                                        },
+                                        animationSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec(
+                                            com.aiassistant.ui.theme.EchoMotion.Duration.fast
+                                        ),
+                                        label = "pulseRingColor"
+                                    )
+                                    EchoPulseRing(
+                                        color = ringColor,
+                                        modifier = Modifier.size(16.dp)
                                     )
                                 } else {
                                     // 统一图标样式，删除机器人头像样式 (SmartToy)，全状态保持一致的 Psychology 图标
@@ -764,15 +845,26 @@ internal fun MessageBubble(
                                         else Modifier
                                     )
                             ) {
-                                Text(
-                                    text = capsuleText,
-                                    style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.SansSerif,
-                                        fontWeight = FontWeight.SemiBold),
-                                    color = if (isStatusError) MaterialTheme.colorScheme.error else thinkingHeaderColor,
-                                    maxLines = maxLinesCount,
-                                    softWrap = enableSoftWrap,
-                                    overflow = TextOverflow.Clip
-                                )
+                                // P0-1② 状态文案交叉淡换：以状态枚举为 key（150ms 淡出+淡入），
+                                // 同状态下文案变化不触发动画（避免逐字符抖动）
+                                AnimatedContent(
+                                    targetState = generationState,
+                                    transitionSpec = {
+                                        (fadeIn(com.aiassistant.ui.theme.EchoMotion.tweenSpec<Float>(com.aiassistant.ui.theme.EchoMotion.Duration.fast)) togetherWith
+                                            fadeOut(com.aiassistant.ui.theme.EchoMotion.tweenSpec<Float>(com.aiassistant.ui.theme.EchoMotion.Duration.fast)))
+                                    },
+                                    label = "capsulePhase"
+                                ) { _ ->
+                                    Text(
+                                        text = capsuleText,
+                                        style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.SansSerif,
+                                            fontWeight = FontWeight.SemiBold),
+                                        color = if (isStatusError) MaterialTheme.colorScheme.error else thinkingHeaderColor,
+                                        maxLines = maxLinesCount,
+                                        softWrap = enableSoftWrap,
+                                        overflow = TextOverflow.Clip
+                                    )
+                                }
                             }
                             if (hasThinking && hasThinkingContent) {
                                 Icon(
@@ -787,6 +879,34 @@ internal fun MessageBubble(
                                     contentDescription = if (isStatusExpanded) "收起完整信息" else "展开完整信息",
                                     modifier = Modifier.size(16.dp),
                                     tint = (if (isStatusError) MaterialTheme.colorScheme.error else thinkingHeaderColor).copy(alpha = 0.78f)
+                                )
+                            }
+                        }
+                    }
+
+                    // P0-1③ 连接等待计时：>8s 滑入弱提示，>20s 升级 error 语义色（仅连接态；重连态由 reconnectStatus 文案承载）
+                    if (generationState == GenerationUiState.Connecting && !reducedMotion) {
+                        var elapsedSec by remember { mutableIntStateOf(0) }
+                        LaunchedEffect(Unit) {
+                            while (isActive) {
+                                kotlinx.coroutines.delay(1000)
+                                elapsedSec++
+                            }
+                        }
+                        if (elapsedSec >= 8) {
+                            AnimatedVisibility(
+                                visible = true,
+                                enter = fadeIn(com.aiassistant.ui.theme.EchoMotion.tweenSpec<Float>(com.aiassistant.ui.theme.EchoMotion.Duration.fast)) +
+                                    slideInVertically(
+                                        animationSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec<androidx.compose.ui.unit.IntOffset>(com.aiassistant.ui.theme.EchoMotion.Duration.fast),
+                                        initialOffsetY = { it / 2 }
+                                    )
+                            ) {
+                                Text(
+                                    text = "连接时间较长，正在等待 ${(assistantModelName.ifBlank { "AI" }).displayModelShortName()} 响应…（已等待 ${elapsedSec}s）",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (elapsedSec >= 20) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(start = 4.dp, top = 4.dp)
                                 )
                             }
                         }

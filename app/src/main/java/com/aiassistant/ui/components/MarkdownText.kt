@@ -40,13 +40,163 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.CornerRadius
+import com.aiassistant.ui.theme.EchoMotion
+import com.aiassistant.ui.theme.rememberReducedMotion
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.ui.graphics.graphicsLayer
 
 @Composable
 fun MarkdownText(
     content: String,
     modifier: Modifier = Modifier,
     color: Color = MaterialTheme.colorScheme.onSurface,
-    onCitationClick: ((Int) -> Unit)? = null
+    onCitationClick: ((Int) -> Unit)? = null,
+    streaming: Boolean = false,
+    cursor: Color? = null,
+    cursorFading: Boolean = false
+) {
+    if (!streaming) {
+        MarkdownContent(
+            content = content,
+            modifier = modifier,
+            color = color,
+            onCitationClick = onCitationClick,
+            endCursorColor = if (cursor != null && (cursorFading || !streaming)) cursor else null
+        )
+    } else {
+        // P0-2② 增量渲染：稳定点之前的块解析一次后随强跳过不再重算（R-2），
+        // 仅尾部片段每帧重解析（成本 O(尾部长)）；流式结束后走上方全文路径定稿
+        Column(modifier = modifier) {
+            val split = remember(content) { computeStableSplit(content) }
+            if (split.stable.isNotEmpty()) {
+                MarkdownContent(
+                    content = split.stable,
+                    color = color,
+                    onCitationClick = onCitationClick
+                )
+            }
+            if (split.tail.isNotEmpty()) {
+                if (split.tailInFence) {
+                    // 方案 P0-2④：未闭合 ``` 围栏——围栏开启行之前的文本照常渲染，
+                    // 围栏内内容以等宽 plain 文本预显示，闭合后自然升级为高亮代码块
+                    val fenceStart = split.tail.lastIndexOf("```")
+                    val preFence = if (fenceStart > 0) split.tail.substring(0, fenceStart) else ""
+                    val fenceBody = if (fenceStart >= 0) {
+                        split.tail.substring(fenceStart).lineSequence().drop(1).joinToString("\n")
+                    } else {
+                        split.tail
+                    }
+                    if (preFence.isNotBlank()) {
+                        MarkdownContent(
+                            content = preFence,
+                            color = color,
+                            onCitationClick = onCitationClick
+                        )
+                    }
+                    if (fenceBody.isNotEmpty()) {
+                        Text(
+                            text = fenceBody,
+                            style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                            color = color,
+                            modifier = Modifier.padding(vertical = 2.dp)
+                        )
+                    }
+                } else {
+                    MarkdownContent(
+                        content = split.tail,
+                        color = color,
+                        onCitationClick = onCitationClick,
+                        endCursorColor = cursor
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 流式稳定点切分结果（P0-2②）
+ */
+data class MarkdownStableSplit(
+    val stable: String,
+    val tail: String,
+    val tailInFence: Boolean
+)
+
+/**
+ * 计算流式 Markdown 的稳定点切分（纯函数，供单元测试验证单调性与围栏安全，R-2）。
+ * 稳定点保守化策略：仅「围栏外的空行段落边界」与「已闭合代码围栏行尾」算稳定点；
+ * 数学块（$$/\[/\begin{...}）未闭合期间不产生稳定点，避免公式跨块撕裂；
+ * 稳定前缀随内容增长单调不减，尾部由流式路径每帧重解析。
+ */
+fun computeStableSplit(content: String): MarkdownStableSplit {
+    if (content.isEmpty()) return MarkdownStableSplit("", "", false)
+    val lines = content.split("\n")
+    var inFence = false
+    var inMath = false
+    var mathEndTag: String? = null
+    var lastStableEndLine = -1
+    for (i in lines.indices) {
+        val line = lines[i]
+        val trimmed = line.trim()
+        if (inMath) {
+            if (mathEndTag != null && line.contains(mathEndTag)) {
+                inMath = false
+                mathEndTag = null
+            }
+            continue
+        }
+        if (line.trimStart().startsWith("```")) {
+            inFence = !inFence
+            if (!inFence && i < lines.size - 1) lastStableEndLine = i
+            continue
+        }
+        if (inFence) continue
+        if (trimmed.startsWith("\\begin{")) {
+            val envName = trimmed.substringAfter("\\begin{").substringBefore("}")
+            val endTag = "\\end{$envName}"
+            if (!line.contains(endTag)) {
+                inMath = true
+                mathEndTag = endTag
+            }
+            continue
+        }
+        if (trimmed.startsWith("\\[")) {
+            if (!(trimmed.endsWith("\\]") && trimmed.length > 4)) {
+                inMath = true
+                mathEndTag = "\\]"
+            }
+            continue
+        }
+        if (trimmed.startsWith("$$")) {
+            if (!(trimmed.endsWith("$$") && trimmed.length > 4)) {
+                inMath = true
+                mathEndTag = "$$"
+            }
+            continue
+        }
+        if (line.isBlank() && i in 1 until lines.size - 1) {
+            lastStableEndLine = i
+        }
+    }
+    if (lastStableEndLine < 0) return MarkdownStableSplit("", content, inFence)
+    // 稳定段包含边界行的换行符，保证 stable + tail 与原文严格相等（还原不变量，防丢字）
+    val stable = lines.take(lastStableEndLine + 1).joinToString("\n") + "\n"
+    val tail = lines.drop(lastStableEndLine + 1).joinToString("\n")
+    return MarkdownStableSplit(stable, tail, inFence)
+}
+
+@Composable
+private fun MarkdownContent(
+    content: String,
+    modifier: Modifier = Modifier,
+    color: Color,
+    onCitationClick: ((Int) -> Unit)?,
+    endCursorColor: Color? = null
 ) {
     Column(modifier = modifier) {
         val lines = remember(content) { content.split("\n") }
@@ -291,7 +441,8 @@ fun MarkdownText(
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = color,
                                 modifier = Modifier.padding(vertical = 2.dp),
-                                onCitationClick = onCitationClick
+                                onCitationClick = onCitationClick,
+                                endCursorColor = if (index >= lines.size) endCursorColor else null
                             )
                         }
                     }
@@ -482,18 +633,45 @@ internal fun InlineMarkdownText(
     style: TextStyle,
     color: Color,
     modifier: Modifier = Modifier,
-    onCitationClick: ((Int) -> Unit)? = null
+    onCitationClick: ((Int) -> Unit)? = null,
+    endCursorColor: Color? = null
 ) {
     val uriHandler = LocalUriHandler.current
     val hasCitations = remember(text) { text.getStringAnnotations(tag = "CITATION", start = 0, end = text.length).isNotEmpty() }
     val hasUrls = remember(text) { text.getStringAnnotations(tag = "URL", start = 0, end = text.length).isNotEmpty() }
 
     if (!hasCitations && !hasUrls) {
-        Text(
-            text = text,
-            style = style.copy(color = color),
-            modifier = modifier
-        )
+        if (endCursorColor == null) {
+            Text(
+                text = text,
+                style = style.copy(color = color),
+                modifier = modifier
+            )
+        } else {
+            // P0-2② 呼吸光标：以 onTextLayout 覆盖层定位到文本末尾，
+            // 位置/透明度均仅在绘制阶段读取（graphicsLayer/Canvas），零测量干扰（R-3）
+            val layoutState = remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
+            Box(modifier) {
+                Text(
+                    text = text,
+                    style = style.copy(color = color),
+                    onTextLayout = { layoutState.value = it }
+                )
+                EchoStreamingCursor(
+                    color = endCursorColor,
+                    modifier = Modifier.graphicsLayer {
+                        val layout: androidx.compose.ui.text.TextLayoutResult? = layoutState.value
+                        if (layout != null) {
+                            val lineIndex: Int = layout.lineCount - 1
+                            translationX = layout.getLineRight(lineIndex) - 1.dp.toPx()
+                            translationY = layout.getLineTop(lineIndex)
+                        } else {
+                            alpha = 0f
+                        }
+                    }
+                )
+            }
+        }
     } else {
         ClickableText(
             text = text,
@@ -541,4 +719,39 @@ fun highlightSyntax(code: String, language: String, isDark: Boolean): AnnotatedS
 @Composable
 fun CodeBlock(code: String, language: String = "", modifier: Modifier = Modifier) {
     com.aiassistant.ui.components.markdown.CodeBlock(code = code, language = language, modifier = modifier)
+}
+
+/**
+ * Echo 流式打字光标（P0-2②/P0-3①）
+ * 2dp 宽、字高约 70% 的竖线，530ms 周期透明度呼吸；落定时以 300ms 淡出（fading=true）。
+ * reduced motion：光标保持静态可见（保留状态指示），淡出路径不变。
+ */
+@Composable
+internal fun EchoStreamingCursor(
+    color: Color,
+    modifier: Modifier = Modifier,
+    fading: Boolean = false
+) {
+    val reduced = rememberReducedMotion()
+    val transition = rememberInfiniteTransition(label = "echoCursor")
+    val breathe by transition.animateFloat(
+        initialValue = 1f,
+        targetValue = 0.25f,
+        animationSpec = EchoMotion.reverseCycleSpec<Float>(EchoMotion.Typewriter.cursorBlinkMs),
+        label = "cursorBreathe"
+    )
+    val fade by animateFloatAsState(
+        targetValue = if (fading) 0f else 1f,
+        animationSpec = EchoMotion.tweenSpec<Float>(EchoMotion.Typewriter.cursorFadeMs),
+        label = "cursorFade"
+    )
+    Canvas(modifier.size(width = 2.dp, height = 18.dp)) {
+        val alpha = if (reduced) fade else breathe * fade
+        if (alpha > 0.01f) {
+            drawRoundRect(
+                color = color.copy(alpha = alpha),
+                cornerRadius = CornerRadius(1.dp.toPx(), 1.dp.toPx())
+            )
+        }
+    }
 }

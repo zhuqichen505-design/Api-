@@ -228,4 +228,13 @@ object EchoThinkingColors {
 
     // 最高等级的强调色（档位胶囊选中态前景，取 maxGradient 深端）
     val maxAccent = Color(0xFF4338CA)
+
+    /** 思考档位字符串 → 档位色（动效轮：光标/脉冲环同源配色，方案 P0-1②/P0-2②） */
+    fun forEffort(effort: String?): Color = when {
+        effort == null -> medium
+        effort.equals("low", true) || effort.equals("fast", true) -> low
+        effort.equals("high", true) || effort.equals("deep", true) -> high
+        effort.equals("ultra", true) || effort.equals("max", true) -> maxAccent
+        else -> medium
+    }
 }

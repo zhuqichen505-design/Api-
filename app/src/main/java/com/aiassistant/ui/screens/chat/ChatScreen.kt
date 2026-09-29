@@ -144,6 +144,7 @@ import com.aiassistant.ui.components.EchoPrimaryButton
 import com.aiassistant.ui.components.EchoGlassButton
 import com.aiassistant.ui.screens.roleplay.ConflictAction
 import com.aiassistant.ui.theme.EchoTokens
+import androidx.compose.runtime.produceState
 
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -166,8 +167,38 @@ fun ChatScreen(
     val uiState by viewModel.uiState.collectAsState()
     val messages by viewModel.messages.collectAsState()
     val isGenerating by viewModel.isGenerating.collectAsState()
-    val currentResponse by viewModel.currentResponse.collectAsState()
-    val currentThinking by viewModel.currentThinking.collectAsState()
+    // P0-2① 合帧消费（R-1 红线）：流式 token 经 33ms 窗口合并（≈30fps 上限），
+    // 杜绝逐 token 全屏重组；长度收缩（重置/重发清空）时立即发射，避免旧文本滞留。
+    // StateFlow conflate 特性天然丢弃中间态，无积压风险。
+    val currentResponse by produceState("", viewModel) {
+        var lastFrame = 0L
+        var prevLength = -1
+        viewModel.currentResponse.collect { full ->
+            val now = android.os.SystemClock.uptimeMillis()
+            if (full.length < prevLength || full.isEmpty() ||
+                now - lastFrame >= com.aiassistant.ui.theme.EchoMotion.Typewriter.frameBudgetMs
+            ) {
+                value = full
+                prevLength = full.length
+                lastFrame = now
+            }
+        }
+    }
+    // 与 currentResponse 同一合帧策略，思考块流式同样 30fps 上限
+    val currentThinking by produceState("", viewModel) {
+        var lastFrame = 0L
+        var prevLength = -1
+        viewModel.currentThinking.collect { full ->
+            val now = android.os.SystemClock.uptimeMillis()
+            if (full.length < prevLength || full.isEmpty() ||
+                now - lastFrame >= com.aiassistant.ui.theme.EchoMotion.Typewriter.frameBudgetMs
+            ) {
+                value = full
+                prevLength = full.length
+                lastFrame = now
+            }
+        }
+    }
     val error by viewModel.error.collectAsState()
     val availableModelOptions by viewModel.availableModelOptions.collectAsState()
     val currentModel by viewModel.currentModel.collectAsState()
@@ -996,6 +1027,7 @@ fun ChatScreen(
                                     hazeState = hazeState,
                                     readableBackdrop = readableBackdrops.content,
                                     isGenerating = true,
+                                    thinkingEffort = tempSettings.thinkingEffort,
                                     assistantAvatarRevision = modelAvatarRevision,
                                     assistantApiConfigId = currentModelOption?.apiConfigId,
                                     assistantModelName = currentAssistantModelName,
@@ -1149,6 +1181,7 @@ fun ChatScreen(
                                     hazeState = hazeState,
                                     readableBackdrop = readableBackdrops.content,
                                     isGenerating = true,
+                                    thinkingEffort = tempSettings.thinkingEffort,
                                     assistantAvatarRevision = modelAvatarRevision,
                                     assistantApiConfigId = currentModelOption?.apiConfigId,
                                     assistantModelName = currentAssistantModelName,
@@ -1187,6 +1220,7 @@ fun ChatScreen(
                                 hazeState = hazeState,
                                 readableBackdrop = readableBackdrops.content,
                                 isGenerating = true,
+                                thinkingEffort = tempSettings.thinkingEffort,
                                 assistantAvatarRevision = modelAvatarRevision,
                                 assistantApiConfigId = currentModelOption?.apiConfigId,
                                 assistantModelName = currentAssistantModelName,
