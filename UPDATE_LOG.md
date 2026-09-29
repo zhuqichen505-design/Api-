@@ -2,6 +2,40 @@
 
 本文档按照工作流规范记录每次版本更新、需求变更与复核结果。
 
+## [2026-09-29] - UI 重构工程（阶段0-5）：全应用 UI 一致性与可访问性升级（未发版）
+
+### 1. 本次需求
+按《UI-Kimi.md》v1.1（uicraft 复核版）重构方案与《重构检查清单.md》《重构进度日志.md》，完成 Echo 全应用 UI 系统性重构，**功能零变更**，仅升级可读性、一致性、操作逻辑与美观性。本日志记录代码重构阶段（阶段0-4）与验证阶段（阶段5）的全部落地情况；**依据用户最高准则「未明确要求构建 APK 不执行打包发布」，本次未递增版本号、未构建 APK**，发版动作（版本递增、CHANGELOG、APK 输出 releases）待用户明确指示后执行。
+
+### 2. 改动概览（六阶段全览）
+1. **阶段0 地基**：EchoTokens 扩展八组令牌（Spacing 语义别名/IconSize/TouchTarget/Component/Type/ShadowRecipe）；Color.kt 修正浅色 OutlineVariant/Error、深色 Tertiary、深色表面层级（DarkSurface/DarkSurfaceVariant/DarkOutline/DarkOnSurfaceVariant）；Theme.kt 补全 surfaceContainer 槽位与 surfaceTint；echoGlassPalette() 消费令牌；新增 EchoChartColors/EchoFolderColors；EchoScaffold 补 SnackbarHost。
+2. **阶段1 核心组件**：新建 EchoSwitch（后重写：去除内部 scale、Compact 自绘 44×26 轨道、isLoading 加载态、Role.Switch 语义）/EchoSettingRow（42dp 图标底色块、badge、enabled）/EchoSectionHeader/EchoConfirmDialog（44dp 按钮）/EchoIconButton/EchoBadge（深色适配语义色、Info 类型）；8 处 scale 开关与 18 处裸开关全部统一 echoSwitchColors()；8 处游离阴影接入 card/overlay/raised 三级配方；EchoGlassCard 增加 emphasis（Subdued 降噪）。
+3. **阶段2 设置模块**：删除 personalization 死路由；设置菜单「核心/智能/数据」分组；长标题「搜索与工具」+ Ellipsis；9 Tab 间距统一 12dp；裸卡片容器统一 SettingsGlassCard；6 个简单设置行迁移 EchoSettingRow；4 处列表尾保存反馈卡片全部改 Snackbar；API 配置卡片两行式重组；7 处手写状态徽章收敛 EchoBadge。
+4. **阶段3 主流程页面**：聊天页 20 处思考档位色入 EchoThinkingColors、错误/状态横幅入 EchoSemanticColors 四组、跳转按钮 primary 派生、BackHandler 弹窗优先关闭链（8 弹窗→隐藏栏→思考浮层→退出）、底部偏移收敛 bottomBarOverlay；首页 35 处 contentDescription 甄别（装饰性注释豁免）、对话卡片 Subdued 降噪、3 组重复文件夹调色板收敛 pastelPalette；历史页 Checkbox 同源配色；统计页 13 处图表色入 EchoChartColors；联网设置健康区 9 处入语义色；触控目标整改（28→36、34→36~40、32→40dp）。
+5. **阶段4 角色扮演与弹窗收尾**：7 处复制粘贴的删除确认收敛 EchoConfirmDialog；EchoGlassDialog 弹窗焦点管理（focusable + semantics paneTitle）；角色/场景编辑器保存按钮改常驻底栏（bottomBar + imePadding 随键盘上浮）；新建角色扮演会话页三张导航卡组件化；93 处排版裸字号按就近阶梯归并清零；标题 horizontalScroll 反模式清零。
+
+### 3. 验证结果
+- `compileDebugKotlin`：BUILD SUCCESSFUL（每阶段独立验证，退出码 0）；
+- `testDebugUnitTest`：BUILD SUCCESSFUL，全部用例 PASSED、0 FAILED；
+- `lintDebug`：构建失败，根因为 Kotlin 2.2.21 编译元数据（2.2.0）超出 AGP lint 内置 kotlinx-metadata 支持上限（2.0.0）；经基线提交 6d0df7d worktree 对照运行确认为**存量工具链问题**，非本次重构引入；修复需升级 AGP 或调整 lint 检测器，属构建配置任务，未在本次 UI 重构范围内处理；
+- 硬性指标门禁（7 项）全部达标：Modifier.scale=0、屏幕层硬编码色 3 处（≤5，注释理由）、fontSize 裸值 0、开关配色统一 100%、阴影配方统一 8 处、设置卡片间距统一、触控目标合规；
+- 真机走查（深浅色截图矩阵/TalkBack/弹窗焦点循环）无连接设备，留待人工验收。
+
+### 4. 改动文件清单（UI 层，30 个文件）
+- theme：`Color.kt`（含 EchoThinkingColors、EchoFolderColors.pastelPalette）、`EchoDesignTokens.kt`（settingIconBackdrop 等）
+- components：`EchoSwitch.kt`（重写）、`EchoSettingRow.kt`（升级）、`EchoBadge.kt`、`EchoConfirmDialog.kt`、`EchoControls.kt`（echoCheckboxColors）、`EchoGlassCard.kt`（emphasis）、`EchoHaze.kt`（焦点管理）、`EchoPillSlider.kt`、`EchoTextToolbar.kt`、`ImageCropEditDialog.kt`、`SideAnchorNavigator.kt`、`SmoothReorderState.kt`
+- screens/settings：`SettingsScreen.kt`、`SettingsAppearanceTab.kt`、`SettingsModelFeaturesTab.kt`、`SettingsPromptsMemoryTab.kt`、`SettingsPersonalizationTab.kt`、`SettingsSecurityAndBackupTab.kt`、`SettingsWebSearchTab.kt`、`SettingsApiConfigDialog.kt`、`SettingsUniversalModelPicker.kt`
+- screens/chat：`ChatScreen.kt`、`ChatInputComponents.kt`、`ChatMessageComponents.kt`、`ChatContextComponents.kt`、`ChatScreenModels.kt`、`ChatSettingsDialogs.kt`、`story/StoryUnifiedSettingsDialog.kt`、`story/TimelineReconcileDialog.kt`、`dialogs/ChatMemorySection.kt`、`dialogs/ChatTimelineSection.kt`
+- screens/home：`HomeScreen.kt`、`FolderManagerScreen.kt`
+- screens/history、stats、roleplay：`HistoryScreen.kt`、`StatsScreen.kt`、`CharacterEditorScreen.kt`、`ScenarioEditorScreen.kt`、`NewRoleplaySessionScreen.kt`、`RoleplayStudioScreen.kt`、`RoleplayMemoryScreen.kt`
+
+### 5. 版本与产物
+- 版本号：v2.5.6 (152) **保持不变**（未发版）；
+- APK：未构建（等待用户明确指示；构建时需遵循 releases 目录最高铁律：增量输出 `Echo-v<version>.apk`、永久保留历史包）；
+- 重构工程留痕：`APP改进/UI/重构进度日志.md`、`APP改进/UI/重构检查清单.md` 已同步更新（硬性指标门禁最终值、22 项功能零缺失核对、阶段任务状态）。
+
+---
+
 ## [2026-09-28] - v2.5.6 对话专属设定备份打通、时间线双轨恢复与单对话导入增强
 
 ### 1. 核心改进与缺陷修复

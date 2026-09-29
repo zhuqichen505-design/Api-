@@ -582,6 +582,13 @@ fun BackupTab(
     var backups by remember { mutableStateOf(BackupManager.getBackupList(context)) }
     var isBackingUp by remember { mutableStateOf(false) }
     var showMessage by remember { mutableStateOf<String?>(null) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(showMessage) {
+        showMessage?.let {
+            snackbarHostState.showSnackbar(it)
+            showMessage = null
+        }
+    }
     val exportBackupLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         contract = androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/zip")
     ) { uri ->
@@ -609,8 +616,9 @@ fun BackupTab(
         }
     }
 
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
+    Box(modifier = modifier) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
         contentPadding = contentPadding,
         verticalArrangement = Arrangement.spacedBy(EchoTokens.Spacing.cardGap)
     ) {
@@ -741,6 +749,11 @@ fun BackupTab(
                 )
             }
         }
+    }
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter)
+        )
     }
 }
 
