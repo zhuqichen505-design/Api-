@@ -511,7 +511,7 @@ private fun MetricPill(
                 )
                 Text(
                     text = label,
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                    style = MaterialTheme.typography.labelSmall,
                     color = contentColor.copy(alpha = 0.72f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -519,11 +519,8 @@ private fun MetricPill(
             }
             Text(
                 text = value,
-                style = MaterialTheme.typography.titleSmall.copy(
-                    fontSize = 13.sp,
-                    fontFamily = FontFamily.SansSerif,
-                    fontWeight = FontWeight.Bold
-                ),
+                style = MaterialTheme.typography.titleSmall.copy(fontFamily = FontFamily.SansSerif,
+                    fontWeight = FontWeight.Bold),
                 color = contentColor,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -815,7 +812,7 @@ private fun AxisLabels(labels: List<String>, height: androidx.compose.ui.unit.Dp
         labels.forEach { label ->
             Text(
                 text = label,
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.5.sp),
+                style = MaterialTheme.typography.labelSmall,
                 color = color,
                 maxLines = 1
             )
@@ -835,7 +832,7 @@ private fun XAxisLabels(buckets: List<Bucket>) {
         labels.forEach { label ->
             Text(
                 text = label,
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.5.sp),
+                style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
             )
         }
@@ -905,10 +902,7 @@ private fun ModernModelStatsTable(
                     ) {
                         Text(
                             text = "${rows.size}",
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            ),
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                             color = MaterialTheme.colorScheme.primary
                         )
                     }
@@ -938,7 +932,6 @@ private fun ModernModelStatsTable(
                             Text(
                                 text = title,
                                 style = MaterialTheme.typography.labelSmall.copy(
-                                    fontSize = 11.sp,
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                                 ),
                                 color = if (isSelected) MaterialTheme.colorScheme.primary else content.copy(alpha = 0.72f)
@@ -976,11 +969,8 @@ private fun ModernModelStatsTable(
                                 ) {
                                     Text(
                                         text = row.modelName,
-                                        style = MaterialTheme.typography.bodyMedium.copy(
-                                            fontFamily = FontFamily.SansSerif,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 14.5.sp
-                                        ),
+                                        style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.SansSerif,
+                                            fontWeight = FontWeight.Bold),
                                         color = content,
                                         maxLines = 1
                                     )
@@ -994,7 +984,7 @@ private fun ModernModelStatsTable(
                                         ) {
                                             Text(
                                                 text = row.provider,
-                                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                                style = MaterialTheme.typography.labelSmall,
                                                 color = content.copy(alpha = 0.65f)
                                             )
                                         }
@@ -1003,10 +993,7 @@ private fun ModernModelStatsTable(
 
                                 Text(
                                     text = "${formatNumber(row.totalTokens)} Tokens",
-                                    style = MaterialTheme.typography.titleSmall.copy(
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 13.5.sp
-                                    ),
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                                     color = MaterialTheme.colorScheme.primary
                                 )
                             }
@@ -1112,10 +1099,7 @@ private fun MiniStatsChip(
         )
         Text(
             text = label,
-            style = MaterialTheme.typography.labelSmall.copy(
-                fontSize = 10.5.sp,
-                fontFamily = FontFamily.SansSerif
-            ),
+            style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.SansSerif),
             color = tint,
             maxLines = 1
         )

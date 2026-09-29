@@ -920,8 +920,7 @@ fun TimelineReconcileDialog(
                                                 }
                                             },
                                             textStyle = MaterialTheme.typography.bodySmall.copy(
-                                                color = MaterialTheme.colorScheme.onSurface,
-                                                lineHeight = 18.sp
+                                                color = MaterialTheme.colorScheme.onSurface
                                             ),
                                             cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                                             decorationBox = { innerTextField ->

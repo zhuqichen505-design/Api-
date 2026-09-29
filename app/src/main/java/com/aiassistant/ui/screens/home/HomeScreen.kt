@@ -675,10 +675,8 @@ private fun EchoWordmark(modifier: Modifier = Modifier) {
     ) {
         Text(
             text = "ECHO",
-            style = MaterialTheme.typography.titleLarge.copy(
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 4.sp,
-                fontSize = 20.sp
+            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold,
+                letterSpacing = 4.sp // 字距参数（非字号），品牌字标需要，场景特殊保留
             ),
             color = MaterialTheme.colorScheme.onBackground
         )
@@ -827,10 +825,7 @@ private fun HomeSearchRow(
                     onValueChange = onSearchQueryChange,
                     modifier = Modifier.weight(1f),
                     singleLine = true,
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(
-                        color = searchTextColor,
-                        fontSize = 15.sp
-                    ),
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = searchTextColor),
                     decorationBox = { innerTextField ->
                         Box(contentAlignment = Alignment.CenterStart) {
                             if (searchQuery.isBlank()) {
@@ -1516,11 +1511,8 @@ fun ConversationCard(
                 ) {
                     Text(
                         text = conversation.title,
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontSize = 16.5.sp,
-                            fontFamily = FontFamily.SansSerif,
-                            fontWeight = FontWeight.Bold
-                        ),
+                        style = MaterialTheme.typography.titleMedium.copy(fontFamily = FontFamily.SansSerif,
+                            fontWeight = FontWeight.Bold),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false)

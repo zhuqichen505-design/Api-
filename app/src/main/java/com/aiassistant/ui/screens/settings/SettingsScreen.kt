@@ -68,6 +68,7 @@ import com.aiassistant.domain.model.WorldBookEntry
 import com.aiassistant.domain.model.ModelCapabilityEngine
 import com.aiassistant.domain.model.ModelCustomSettings
 import com.aiassistant.domain.model.PromptTemplate
+import com.aiassistant.ui.components.EchoConfirmDialog
 import com.aiassistant.ui.components.EchoBadge
 import com.aiassistant.ui.components.EchoBadgeType
 import com.aiassistant.ui.components.EchoGlassCard
@@ -565,13 +566,13 @@ fun SettingsInputField(
             onValueChange = onValueChange,
             modifier = Modifier.fillMaxWidth(),
             placeholder = if (placeholder.isNotBlank()) {
-                { Text(placeholder, style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp)) }
+                { Text(placeholder, style = MaterialTheme.typography.bodyMedium) }
             } else null,
             singleLine = singleLine,
             minLines = minLines,
             maxLines = maxLines,
             shape = SettingsInnerShape,
-            textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
+            textStyle = MaterialTheme.typography.bodyMedium,
             visualTransformation = visualTransformation,
             keyboardOptions = keyboardOptions,
             colors = OutlinedTextFieldDefaults.colors(
@@ -952,20 +953,15 @@ fun SettingsMenuItem(
             ) {
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.SansSerif
-                    ),
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.SansSerif),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = subtitle,
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        fontSize = 12.5.sp
-                    ),
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -1286,29 +1282,13 @@ fun ApiConfigCard(
     }
 
     if (showDeleteDialog) {
-        EchoGlassDialog(
-            hazeState = hazeState,
-            onDismissRequest = { showDeleteDialog = false },
-            title = { Text("删除配置") },
-            text = { Text("确定要删除这个API配置吗？") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        onDelete()
-                        showDeleteDialog = false
-                    },
-                    colors = ButtonDefaults.textButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    )
-                ) {
-                    Text("删除")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false }) {
-                    Text("取消")
-                }
-            }
+        EchoConfirmDialog(
+            title = "删除配置",
+            text = "确定要删除这个API配置吗？",
+            confirmText = "删除",
+            isDestructive = true,
+            onConfirm = { onDelete() },
+            onDismiss = { showDeleteDialog = false }
         )
     }
 }

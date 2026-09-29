@@ -388,7 +388,7 @@ fun ApiConfigDialog(
                                 ) {
                                     Text(
                                         text = if (validKeysCount > 1) "已录入 $validKeysCount 个密钥 · 自动轮询故障转移" else "已录入 1 个密钥",
-                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.5.sp),
+                                        style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                                     )
@@ -398,7 +398,7 @@ fun ApiConfigDialog(
 
                         Text(
                             text = "提示：可为每个 Key 设置名称或备注，排在前面的 Key 拥有最高调用优先级，遇到异常自动切换后序 Key。",
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                            style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
                         )
 
@@ -494,7 +494,7 @@ fun ApiConfigDialog(
                                         ) {
                                             Text(
                                                 text = keyLabel,
-                                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold, fontSize = 12.sp),
+                                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
                                                 color = if (!isKeyEnabled) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                                                     else if (index == 0) MaterialTheme.colorScheme.primary
                                                     else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -513,9 +513,7 @@ fun ApiConfigDialog(
                                             singleLine = true,
                                             textStyle = MaterialTheme.typography.bodySmall.copy(
                                                 color = MaterialTheme.colorScheme.onSurface,
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Normal
-                                            ),
+                                                fontWeight = FontWeight.Normal),
                                             cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                                             decorationBox = { innerTextField ->
                                                 Box(
@@ -533,7 +531,7 @@ fun ApiConfigDialog(
                                                     if (currentKey.name.isEmpty()) {
                                                         Text(
                                                             text = "备注名称 (可选)",
-                                                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
+                                                            style = MaterialTheme.typography.bodySmall,
                                                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
                                                         )
                                                     }
@@ -678,11 +676,11 @@ fun ApiConfigDialog(
                                                 apiKey = AiRepository.formatNamedApiKeys(updated)
                                             }
                                         },
-                                        placeholder = { Text("填写密钥 (sk-...)", style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp)) },
+                                        placeholder = { Text("填写密钥 (sk-...)", style = MaterialTheme.typography.bodyMedium) },
                                         visualTransformation = if (isVisible) VisualTransformation.None else PasswordVisualTransformation(),
                                         singleLine = true,
                                         shape = RoundedCornerShape(8.dp),
-                                        textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp),
+                                        textStyle = MaterialTheme.typography.bodyMedium,
                                         colors = OutlinedTextFieldDefaults.colors(
                                             focusedBorderColor = MaterialTheme.colorScheme.primary,
                                             unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
@@ -825,10 +823,7 @@ fun ApiConfigDialog(
                                 value = customModelInput,
                                 onValueChange = { customModelInput = it },
                                 singleLine = true,
-                                textStyle = MaterialTheme.typography.bodySmall.copy(
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    fontSize = 12.sp
-                                ),
+                                textStyle = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurface),
                                 cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                                 decorationBox = { innerTextField ->
                                     Box(
@@ -846,7 +841,7 @@ fun ApiConfigDialog(
                                         if (customModelInput.isEmpty()) {
                                             Text(
                                                 text = "手动添加模型 (如: qwen-max, claude-3-7-sonnet)...",
-                                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
+                                                style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
                                             )
                                         }
@@ -906,7 +901,7 @@ fun ApiConfigDialog(
                                         OutlinedTextField(
                                             value = modelSearchQuery,
                                             onValueChange = { modelSearchQuery = it },
-                                            placeholder = { Text("搜索已配置模型...", style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp)) },
+                                            placeholder = { Text("搜索已配置模型...", style = MaterialTheme.typography.bodySmall) },
                                             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp)) },
                                             trailingIcon = if (modelSearchQuery.isNotBlank()) {
                                                 {
@@ -917,7 +912,7 @@ fun ApiConfigDialog(
                                             } else null,
                                             singleLine = true,
                                             shape = RoundedCornerShape(10.dp),
-                                            textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 12.5.sp),
+                                            textStyle = MaterialTheme.typography.bodySmall,
                                             modifier = Modifier.fillMaxWidth()
                                         )
                                     }
@@ -970,7 +965,7 @@ fun ApiConfigDialog(
                                 ) {
                                     Text(
                                         text = "已折叠 (${availableModels.size} 个模型，已勾选 ${enabledModelNames.size} 个)，点击展开",
-                                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                                        style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                     Icon(
@@ -1074,7 +1069,7 @@ fun ApiConfigDialog(
                             OutlinedTextField(
                                 value = keyModelSearchQuery,
                                 onValueChange = { keyModelSearchQuery = it },
-                                placeholder = { Text("在 Key 读取到的模型中搜索...", style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp)) },
+                                placeholder = { Text("在 Key 读取到的模型中搜索...", style = MaterialTheme.typography.bodySmall) },
                                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp)) },
                                 trailingIcon = if (keyModelSearchQuery.isNotBlank()) {
                                     {
@@ -1085,7 +1080,7 @@ fun ApiConfigDialog(
                                 } else null,
                                 singleLine = true,
                                 shape = RoundedCornerShape(10.dp),
-                                textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 12.5.sp),
+                                textStyle = MaterialTheme.typography.bodySmall,
                                 modifier = Modifier.fillMaxWidth()
                             )
 
@@ -1120,16 +1115,16 @@ fun ApiConfigDialog(
                                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                                             ) {
                                                 if (eval.contextWindowDisplay.isNotBlank()) {
-                                                    Text(eval.contextWindowDisplay, style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = MaterialTheme.colorScheme.primary)
+                                                    Text(eval.contextWindowDisplay, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                                                 }
                                                 if (eval.supportsVision) {
-                                                    Text("视觉", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = MaterialTheme.colorScheme.secondary)
+                                                    Text("视觉", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
                                                 }
                                                 if (eval.supportsTools) {
-                                                    Text("工具", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = MaterialTheme.colorScheme.tertiary)
+                                                    Text("工具", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.tertiary)
                                                 }
                                                 if (eval.supportsReasoning) {
-                                                    Text("思考", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = MaterialTheme.colorScheme.error)
+                                                    Text("思考", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
                                                 }
                                             }
                                         }
@@ -1141,7 +1136,7 @@ fun ApiConfigDialog(
                                             ) {
                                                 Text(
                                                     text = "已添加",
-                                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
+                                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                                                     color = MaterialTheme.colorScheme.primary,
                                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                                                 )
@@ -1167,7 +1162,7 @@ fun ApiConfigDialog(
                                             ) {
                                                 Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(13.dp))
                                                 Spacer(modifier = Modifier.width(2.dp))
-                                                Text("添加", style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp))
+                                                Text("添加", style = MaterialTheme.typography.labelSmall)
                                             }
                                         }
                                     }
@@ -1337,7 +1332,7 @@ private fun ModelCustomSettingCard(
                         ) {
                             Text(
                                 text = ctxLabel,
-                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp),
+                                style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                             )
@@ -1350,7 +1345,7 @@ private fun ModelCustomSettingCard(
                             ) {
                                 Text(
                                     text = "视觉",
-                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp),
+                                    style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.secondary,
                                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                                 )
@@ -1364,7 +1359,7 @@ private fun ModelCustomSettingCard(
                             ) {
                                 Text(
                                     text = "工具",
-                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp),
+                                    style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.tertiary,
                                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                                 )
@@ -1378,7 +1373,7 @@ private fun ModelCustomSettingCard(
                             ) {
                                 Text(
                                     text = "思考",
-                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp),
+                                    style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.error,
                                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                                 )
@@ -1392,7 +1387,7 @@ private fun ModelCustomSettingCard(
                             ) {
                                 Text(
                                     text = "联网",
-                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp),
+                                    style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                                 )
@@ -1471,7 +1466,7 @@ private fun ModelCustomSettingCard(
                                 )
                                 Text(
                                     text = "清空配置",
-                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                                    style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.error,
                                     fontWeight = FontWeight.Medium
                                 )
@@ -1529,10 +1524,7 @@ private fun ModelCustomSettingCard(
                                 },
                                 singleLine = true,
                                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
-                                textStyle = MaterialTheme.typography.bodySmall.copy(
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    fontSize = 12.sp
-                                ),
+                                textStyle = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurface),
                                 cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                                 decorationBox = { innerTextField ->
                                     Box(
@@ -1550,7 +1542,7 @@ private fun ModelCustomSettingCard(
                                         if (customTokensInput.isEmpty()) {
                                             Text(
                                                 text = "自定义 Tokens (如 8192, 131072, 262144)...",
-                                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
+                                                style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
                                             )
                                         }

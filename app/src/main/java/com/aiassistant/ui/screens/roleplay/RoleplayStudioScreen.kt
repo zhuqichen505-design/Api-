@@ -36,6 +36,7 @@ import com.aiassistant.domain.model.CharacterProfile
 import com.aiassistant.domain.model.RoleplayScenario
 import com.aiassistant.domain.model.RoleplaySession
 import com.aiassistant.domain.model.NarrativeMode
+import com.aiassistant.ui.components.EchoConfirmDialog
 import com.aiassistant.ui.components.EchoGlassCard
 import com.aiassistant.ui.components.EchoGlassDialog
 import com.aiassistant.ui.components.EchoPrimaryButton
@@ -433,11 +434,8 @@ private fun SessionCard(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = storyTitle,
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontSize = 16.5.sp,
-                        fontFamily = androidx.compose.ui.text.font.FontFamily.SansSerif,
-                        fontWeight = FontWeight.Bold
-                    )
+                    style = MaterialTheme.typography.titleMedium.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.SansSerif,
+                        fontWeight = FontWeight.Bold)
                 )
                 if (boundCharNames.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(2.dp))
@@ -600,25 +598,15 @@ private fun SessionCard(
     }
 
     if (showDeleteDialog) {
-        EchoGlassDialog(
-            onDismissRequest = { showDeleteDialog = false },
-            title = { Text("确认删除故事") },
-            text = { Text("确定要删除此故事会话吗？对话历史记录将一并清除。") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showDeleteDialog = false
-                        onDelete()
-                    }
-                ) {
-                    Text("删除", color = MaterialTheme.colorScheme.error)
-                }
+        EchoConfirmDialog(
+            title = "确认删除故事",
+            text = "确定要删除此故事会话吗？对话历史记录将一并清除。",
+            confirmText = "删除",
+            isDestructive = true,
+            onConfirm = {
+                onDelete()
             },
-            dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false }) {
-                    Text("取消")
-                }
-            }
+            onDismiss = { showDeleteDialog = false }
         )
     }
 }
@@ -987,27 +975,17 @@ private fun CharactersTab(
     }
 
     if (showDeleteConfirm) {
-        EchoGlassDialog(
-            onDismissRequest = { showDeleteConfirm = false },
-            title = { Text("确认批量删除") },
-            text = { Text("确定要删除选中的 ${selectedIds.size} 位角色吗？此操作无法撤销。") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showDeleteConfirm = false
-                        onDeleteMultiple(selectedIds.toList())
-                        isSelectionMode = false
-                        selectedIds = emptySet()
-                    }
-                ) {
-                    Text("删除", color = MaterialTheme.colorScheme.error)
-                }
+        EchoConfirmDialog(
+            title = "确认批量删除",
+            text = "确定要删除选中的 ${selectedIds.size} 位角色吗？此操作无法撤销。",
+            confirmText = "删除",
+            isDestructive = true,
+            onConfirm = {
+                onDeleteMultiple(selectedIds.toList())
+                isSelectionMode = false
+                selectedIds = emptySet()
             },
-            dismissButton = {
-                TextButton(onClick = { showDeleteConfirm = false }) {
-                    Text("取消")
-                }
-            }
+            onDismiss = { showDeleteConfirm = false }
         )
     }
 }
@@ -1255,27 +1233,17 @@ private fun ScenariosTab(
     }
 
     if (showDeleteConfirm) {
-        EchoGlassDialog(
-            onDismissRequest = { showDeleteConfirm = false },
-            title = { Text("确认批量删除") },
-            text = { Text("确定要删除选中的 ${selectedIds.size} 个世界观吗？此操作无法撤销。") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showDeleteConfirm = false
-                        onDeleteMultiple(selectedIds.toList())
-                        isSelectionMode = false
-                        selectedIds = emptySet()
-                    }
-                ) {
-                    Text("删除", color = MaterialTheme.colorScheme.error)
-                }
+        EchoConfirmDialog(
+            title = "确认批量删除",
+            text = "确定要删除选中的 ${selectedIds.size} 个世界观吗？此操作无法撤销。",
+            confirmText = "删除",
+            isDestructive = true,
+            onConfirm = {
+                onDeleteMultiple(selectedIds.toList())
+                isSelectionMode = false
+                selectedIds = emptySet()
             },
-            dismissButton = {
-                TextButton(onClick = { showDeleteConfirm = false }) {
-                    Text("取消")
-                }
-            }
+            onDismiss = { showDeleteConfirm = false }
         )
     }
 }

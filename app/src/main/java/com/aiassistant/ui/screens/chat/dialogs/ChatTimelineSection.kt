@@ -739,11 +739,11 @@ fun ChatSettingsTimelineSection(
                     OutlinedTextField(
                         value = storyTimeInput,
                         onValueChange = { storyTimeInput = it },
-                        placeholder = { Text("输入故事时间节点...", fontSize = 13.sp) },
+                        placeholder = { Text("输入故事时间节点...", style = MaterialTheme.typography.bodySmall) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         shape = RoundedCornerShape(10.dp),
-                        textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp)
+                        textStyle = MaterialTheme.typography.bodyMedium
                     )
                 }
             },
@@ -794,8 +794,8 @@ fun ChatSettingsTimelineSection(
                     OutlinedTextField(
                         value = addTimeTag,
                         onValueChange = { addTimeTag = it },
-                        label = { Text("时间标签", fontSize = 12.sp) },
-                        placeholder = { Text("如：第 1 天·傍晚、次日拂晓", fontSize = 12.sp) },
+                        label = { Text("时间标签", style = MaterialTheme.typography.bodySmall) },
+                        placeholder = { Text("如：第 1 天·傍晚、次日拂晓", style = MaterialTheme.typography.bodySmall) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         shape = RoundedCornerShape(10.dp)
@@ -818,7 +818,7 @@ fun ChatSettingsTimelineSection(
                             FilterChip(
                                 selected = addCategory == cat,
                                 onClick = { addCategory = cat },
-                                label = { Text("${cat.emoji} ${cat.displayName}", fontSize = 11.sp) }
+                                label = { Text("${cat.emoji} ${cat.displayName}", style = MaterialTheme.typography.labelSmall) }
                             )
                         }
                     }
@@ -826,8 +826,8 @@ fun ChatSettingsTimelineSection(
                     OutlinedTextField(
                         value = addEventText,
                         onValueChange = { addEventText = it },
-                        label = { Text("关键事件事实（15~40字）", fontSize = 12.sp) },
-                        placeholder = { Text("主体在何处完成了什么事实...", fontSize = 12.sp) },
+                        label = { Text("关键事件事实（15~40字）", style = MaterialTheme.typography.bodySmall) },
+                        placeholder = { Text("主体在何处完成了什么事实...", style = MaterialTheme.typography.bodySmall) },
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 68.dp, max = 130.dp),
@@ -874,7 +874,7 @@ fun ChatSettingsTimelineSection(
                     OutlinedTextField(
                         value = editTimeTag,
                         onValueChange = { editTimeTag = it },
-                        label = { Text("时间标签", fontSize = 12.sp) },
+                        label = { Text("时间标签", style = MaterialTheme.typography.bodySmall) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         shape = RoundedCornerShape(10.dp)
@@ -896,7 +896,7 @@ fun ChatSettingsTimelineSection(
                             FilterChip(
                                 selected = editCategory == cat,
                                 onClick = { editCategory = cat },
-                                label = { Text("${cat.emoji} ${cat.displayName}", fontSize = 11.sp) }
+                                label = { Text("${cat.emoji} ${cat.displayName}", style = MaterialTheme.typography.labelSmall) }
                             )
                         }
                     }
@@ -904,7 +904,7 @@ fun ChatSettingsTimelineSection(
                     OutlinedTextField(
                         value = editEventText,
                         onValueChange = { editEventText = it },
-                        label = { Text("关键事件事实", fontSize = 12.sp) },
+                        label = { Text("关键事件事实", style = MaterialTheme.typography.bodySmall) },
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 68.dp, max = 130.dp),

@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.aiassistant.ui.components.EchoSettingRow
 import com.aiassistant.domain.model.*
 import com.aiassistant.ui.components.*
 import com.aiassistant.ui.theme.EchoTokens
@@ -115,36 +116,14 @@ fun NewRoleplaySessionScreen(
                     modifier = Modifier.fillMaxWidth(),
                     shape = EchoTokens.Radius.shapeLg
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            if (selectedCharacters.isNotEmpty()) {
-                                Text(
-                                    text = selectedCharacters.joinToString("、") { it.name },
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = "已选 ${selectedCharacters.size} 位角色参与故事演绎",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                            } else {
-                                Text(
-                                    text = "选择登场角色（支持单选或多选群像）",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
+                    EchoSettingRow(
+                        title = if (selectedCharacters.isNotEmpty()) selectedCharacters.joinToString("、") { it.name }
+                                else "选择登场角色（支持单选或多选群像）",
+                        subtitle = if (selectedCharacters.isNotEmpty()) "已选 ${selectedCharacters.size} 位角色参与故事演绎" else null,
+                        trailing = {
+                            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
+                    )
                 }
             }
 
@@ -175,38 +154,15 @@ fun NewRoleplaySessionScreen(
                     modifier = Modifier.fillMaxWidth(),
                     shape = EchoTokens.Radius.shapeLg
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            if (selectedScenario != null) {
-                                Text(
-                                    text = selectedScenario!!.name,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                if (selectedScenario!!.worldview.isNotBlank()) {
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = selectedScenario!!.worldview.take(60) + if (selectedScenario!!.worldview.length > 60) "..." else "",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            } else {
-                                Text(
-                                    text = "选择世界观（可选，注入时空背景与规则）",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
+                    EchoSettingRow(
+                        title = if (selectedScenario != null) selectedScenario!!.name
+                                else "选择世界观（可选，注入时空背景与规则）",
+                        subtitle = if (selectedScenario != null && selectedScenario!!.worldview.isNotBlank())
+                            selectedScenario!!.worldview.take(60) + if (selectedScenario!!.worldview.length > 60) "..." else "" else null,
+                        trailing = {
+                            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
+                    )
                 }
             }
 
@@ -237,36 +193,13 @@ fun NewRoleplaySessionScreen(
                     modifier = Modifier.fillMaxWidth(),
                     shape = EchoTokens.Radius.shapeLg
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            if (selectedModelOption != null) {
-                                Text(
-                                    text = selectedModelOption!!.modelName,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = "${selectedModelOption!!.configName} · ${selectedModelOption!!.provider}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                            } else {
-                                Text(
-                                    text = "选择生成模型",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
+                    EchoSettingRow(
+                        title = if (selectedModelOption != null) selectedModelOption!!.modelName else "选择生成模型",
+                        subtitle = if (selectedModelOption != null) "${selectedModelOption!!.configName} · ${selectedModelOption!!.provider}" else null,
+                        trailing = {
+                            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
+                    )
                 }
             }
 
@@ -338,7 +271,7 @@ fun NewRoleplaySessionScreen(
                         selectedNarrativeMode
                     )
                 },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                 enabled = selectedModelOption != null || apiConfigs.isNotEmpty()
             ) {
                 Icon(Icons.Default.AutoStories, contentDescription = null, modifier = Modifier.size(18.dp))

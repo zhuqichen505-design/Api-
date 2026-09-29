@@ -1022,21 +1022,16 @@ internal fun ChatHeaderTitle(
         verticalArrangement = Arrangement.Center
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(scrollState),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleMedium.copy(
-                    fontSize = 17.sp,
-                    lineHeight = 21.sp,
                     fontFamily = FontFamily.SansSerif,
-                    fontWeight = FontWeight.Bold
-                ),
+                    fontWeight = FontWeight.Bold),
                 maxLines = 1,
-                softWrap = false
+                overflow = TextOverflow.Ellipsis
             )
         }
     }

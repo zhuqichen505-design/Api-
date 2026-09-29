@@ -365,10 +365,7 @@ fun WebSearchTab(
                                     onValueChange = { customInput = it.filter { char -> char.isDigit() }.take(2) },
                                     singleLine = true,
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                    textStyle = MaterialTheme.typography.bodyMedium.copy(
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        fontSize = 14.sp
-                                    ),
+                                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
                                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                                     decorationBox = { innerTextField ->
                                         Box(
@@ -386,7 +383,7 @@ fun WebSearchTab(
                                             if (customInput.isEmpty()) {
                                                 Text(
                                                     text = "请输入条数 (1~20)...",
-                                                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp),
+                                                    style = MaterialTheme.typography.bodyMedium,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
                                                 )
                                             }
@@ -532,7 +529,7 @@ fun WebSearchTab(
                                 ) {
                                     Text(
                                         text = if (isHealthInstalled) "已安装 $healthAppName" else "未检测到健康App",
-                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.5.sp),
+                                        style = MaterialTheme.typography.labelSmall,
                                         color = if (isHealthInstalled) rememberEchoSemanticColors().success.main else MaterialTheme.colorScheme.onSurfaceVariant,
                                         fontWeight = FontWeight.Medium,
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
@@ -560,11 +557,11 @@ fun WebSearchTab(
                                         Spacer(modifier = Modifier.height(2.dp))
                                         Text(
                                             "${currentHealthSummary.todaySteps}",
-                                            style = MaterialTheme.typography.titleMedium.copy(fontSize = 17.sp),
+                                            style = MaterialTheme.typography.titleMedium,
                                             fontWeight = FontWeight.Bold,
                                             color = MaterialTheme.colorScheme.primary
                                         )
-                                        Text("步", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp), color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f))
+                                        Text("步", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f))
                                     }
                                 }
 
@@ -584,11 +581,11 @@ fun WebSearchTab(
                                         Spacer(modifier = Modifier.height(2.dp))
                                         Text(
                                             if (hrVal > 0) "$hrVal" else "--",
-                                            style = MaterialTheme.typography.titleMedium.copy(fontSize = 17.sp),
+                                            style = MaterialTheme.typography.titleMedium,
                                             fontWeight = FontWeight.Bold,
                                             color = if (hrVal > 0) rememberEchoSemanticColors().error.main else MaterialTheme.colorScheme.onSurfaceVariant
                                         )
-                                        Text(if (hrVal > 0) "bpm" else "未录入", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(if (hrVal > 0) "bpm" else "未录入", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 }
 
@@ -608,11 +605,11 @@ fun WebSearchTab(
                                         Spacer(modifier = Modifier.height(2.dp))
                                         Text(
                                             if (sleepMins > 0) "${sleepMins / 60}h${sleepMins % 60}m" else "--",
-                                            style = MaterialTheme.typography.titleMedium.copy(fontSize = 15.sp),
+                                            style = MaterialTheme.typography.titleMedium,
                                             fontWeight = FontWeight.Bold,
                                             color = if (sleepMins > 0) rememberEchoSemanticColors().info.main else MaterialTheme.colorScheme.onSurfaceVariant
                                         )
-                                        Text(if (sleepMins > 0 && currentHealthSummary.sleepScore > 0) "评分 ${currentHealthSummary.sleepScore}" else if (sleepMins > 0) "已记录" else "未录入", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(if (sleepMins > 0 && currentHealthSummary.sleepScore > 0) "评分 ${currentHealthSummary.sleepScore}" else if (sleepMins > 0) "已记录" else "未录入", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 }
                             }

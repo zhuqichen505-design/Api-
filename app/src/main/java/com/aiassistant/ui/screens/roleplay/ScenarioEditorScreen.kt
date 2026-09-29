@@ -18,6 +18,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.aiassistant.domain.model.RoleplayScenario
+import com.aiassistant.ui.components.EchoConfirmDialog
 import com.aiassistant.ui.components.EchoGlassDialog
 import com.aiassistant.ui.components.EchoGlassDropdownMenu
 import com.aiassistant.utils.RoleplaySmartParser
@@ -91,6 +92,58 @@ fun ScenarioEditorScreen(
                     }
                 }
             )
+        },
+        bottomBar = {
+            Surface(
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                tonalElevation = 0.dp,
+                modifier = Modifier.imePadding()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .navigationBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                ) {
+                // 保存按钮
+                Button(
+                    onClick = {
+                        if (name.isNotBlank()) {
+                            val newScenario = RoleplayScenario(
+                                id = scenario?.id ?: 0,
+                                name = name,
+                                worldview = worldview,
+                                time = time,
+                                location = location,
+                                environment = environment,
+                                premise = premise,
+                                rules = rules,
+                                relationshipState = relationshipState,
+                                conflict = conflict,
+                                plotGoal = plotGoal,
+                                atmosphere = atmosphere,
+                                narrativePerspective = narrativePerspective,
+                                outputFormat = outputFormat,
+                                contentRestrictions = contentRestrictions,
+                                openingPrompt = openingPrompt,
+                                tags = tags.ifBlank { null },
+                                isFavorite = isFavorite,
+                                createdAt = scenario?.createdAt ?: System.currentTimeMillis(),
+                                updatedAt = System.currentTimeMillis()
+                            )
+                            onSave(newScenario)
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    enabled = name.isNotBlank()
+                ) {
+                    Icon(Icons.Default.Save, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("保存场景")
+                }
+                }
+            }
         }
     ) { paddingValues ->
         Column(
@@ -210,46 +263,6 @@ fun ScenarioEditorScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // 保存按钮
-            Button(
-                onClick = {
-                    if (name.isNotBlank()) {
-                        val newScenario = RoleplayScenario(
-                            id = scenario?.id ?: 0,
-                            name = name,
-                            worldview = worldview,
-                            time = time,
-                            location = location,
-                            environment = environment,
-                            premise = premise,
-                            rules = rules,
-                            relationshipState = relationshipState,
-                            conflict = conflict,
-                            plotGoal = plotGoal,
-                            atmosphere = atmosphere,
-                            narrativePerspective = narrativePerspective,
-                            outputFormat = outputFormat,
-                            contentRestrictions = contentRestrictions,
-                            openingPrompt = openingPrompt,
-                            tags = tags.ifBlank { null },
-                            isFavorite = isFavorite,
-                            createdAt = scenario?.createdAt ?: System.currentTimeMillis(),
-                            updatedAt = System.currentTimeMillis()
-                        )
-                        onSave(newScenario)
-                    }
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                enabled = name.isNotBlank()
-            ) {
-                Icon(Icons.Default.Save, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("保存场景")
-            }
-
-            Spacer(modifier = Modifier.height(32.dp))
         }
     }
 
@@ -302,25 +315,15 @@ fun ScenarioEditorScreen(
 
     // 删除确认对话框
     if (showDeleteDialog) {
-        EchoGlassDialog(
-            onDismissRequest = { showDeleteDialog = false },
-            title = { Text("确认删除") },
-            text = { Text("确定要删除场景\"${name}\"吗？此操作不可恢复。") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showDeleteDialog = false
-                        onDelete?.invoke()
-                    }
-                ) {
-                    Text("删除", color = MaterialTheme.colorScheme.error)
-                }
+        EchoConfirmDialog(
+            title = "确认删除",
+            text = "确定要删除场景\"${name}\"吗？此操作不可恢复。",
+            confirmText = "删除",
+            isDestructive = true,
+            onConfirm = {
+                onDelete?.invoke()
             },
-            dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false }) {
-                    Text("取消")
-                }
-            }
+            onDismiss = { showDeleteDialog = false }
         )
     }
 

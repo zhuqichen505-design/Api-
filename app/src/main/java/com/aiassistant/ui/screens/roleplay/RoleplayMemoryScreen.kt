@@ -12,6 +12,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.aiassistant.domain.model.RoleplayMemory
+import com.aiassistant.ui.components.EchoConfirmDialog
 import com.aiassistant.ui.components.EchoGlassDialog
 import com.aiassistant.ui.components.echoFilterChipBorder
 import com.aiassistant.ui.components.echoFilterChipColors
@@ -302,25 +303,15 @@ private fun MemoryCard(
     }
 
     if (showDeleteDialog) {
-        EchoGlassDialog(
-            onDismissRequest = { showDeleteDialog = false },
-            title = { Text("确认删除") },
-            text = { Text("确定要删除这条记忆吗？") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showDeleteDialog = false
-                        onDelete()
-                    }
-                ) {
-                    Text("删除", color = MaterialTheme.colorScheme.error)
-                }
+        EchoConfirmDialog(
+            title = "确认删除",
+            text = "确定要删除这条记忆吗？",
+            confirmText = "删除",
+            isDestructive = true,
+            onConfirm = {
+                onDelete()
             },
-            dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false }) {
-                    Text("取消")
-                }
-            }
+            onDismiss = { showDeleteDialog = false }
         )
     }
 }

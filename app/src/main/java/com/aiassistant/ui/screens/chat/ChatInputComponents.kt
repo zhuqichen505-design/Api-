@@ -733,15 +733,12 @@ internal fun QuotedTextPreviewCard(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = "引用内容",
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
-                    ),
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                     color = MaterialTheme.colorScheme.primary
                 )
                 Text(
                     text = quotedText.replace('\n', ' '),
-                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                    style = MaterialTheme.typography.bodySmall,
                     color = textColor.copy(alpha = 0.85f),
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
@@ -989,7 +986,7 @@ internal fun ReasoningEffortPopupCard(
                         ) {
                             Text(
                                 text = lvl.name,
-                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.5.sp),
+                                style = MaterialTheme.typography.labelMedium,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                             )
@@ -1164,7 +1161,7 @@ internal fun ThinkingParamCard(
                 ) {
                     Text(
                         text = badge,
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                        style = MaterialTheme.typography.labelSmall,
                         color = badgeColor,
                         fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
@@ -1174,7 +1171,7 @@ internal fun ThinkingParamCard(
 
             Text(
                 text = desc,
-                style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
@@ -1195,12 +1192,12 @@ internal fun ThinkingParamCard(
                     ) {
                         Text(
                             text = label,
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                            style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
                             text = value,
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace),
+                            style = MaterialTheme.typography.labelSmall.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace),
                             fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.primary
                         )
@@ -1265,7 +1262,7 @@ internal fun InputModelSelector(
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
                                 "当前模型配置已失效，请在下方切换至可用模型",
-                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
+                                style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.error
                             )
                         }

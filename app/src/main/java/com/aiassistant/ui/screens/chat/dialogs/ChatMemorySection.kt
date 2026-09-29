@@ -244,7 +244,7 @@ internal fun ChatSettingsSystemPromptSection(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = "【优先级说明】若设置了当前对话的系统提示词，将 100% 覆盖全局系统提示词；若留空则自动继承全局系统提示词。",
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
+                        style = MaterialTheme.typography.bodySmall,
                         color = secondaryColor
                     )
                 }
@@ -561,13 +561,13 @@ fun ChatSettingsSessionMemorySection(
                     OutlinedTextField(
                         value = addMemoryText,
                         onValueChange = { addMemoryText = it },
-                        placeholder = { Text("输入此会话的专属设定或约束...", fontSize = 13.sp) },
+                        placeholder = { Text("输入此会话的专属设定或约束...", style = MaterialTheme.typography.bodySmall) },
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 68.dp, max = 140.dp),
                         maxLines = 4,
                         shape = RoundedCornerShape(10.dp),
-                        textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp)
+                        textStyle = MaterialTheme.typography.bodyMedium
                     )
                 }
             },
@@ -613,7 +613,7 @@ fun ChatSettingsSessionMemorySection(
                         .heightIn(min = 68.dp, max = 140.dp),
                     maxLines = 4,
                     shape = RoundedCornerShape(10.dp),
-                    textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp)
+                    textStyle = MaterialTheme.typography.bodyMedium
                 )
             },
             buttons = {

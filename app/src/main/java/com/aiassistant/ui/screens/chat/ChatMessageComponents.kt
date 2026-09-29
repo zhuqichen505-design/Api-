@@ -749,12 +749,8 @@ internal fun MessageBubble(
                             ) {
                                 Text(
                                     text = capsuleText,
-                                    style = MaterialTheme.typography.labelSmall.copy(
-                                        fontSize = 12.5.sp,
-                                        fontFamily = FontFamily.SansSerif,
-                                        fontWeight = FontWeight.SemiBold,
-                                        lineHeight = 16.sp
-                                    ),
+                                    style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.SansSerif,
+                                        fontWeight = FontWeight.SemiBold),
                                     color = if (isStatusError) MaterialTheme.colorScheme.error else thinkingHeaderColor,
                                     maxLines = maxLinesCount,
                                     softWrap = enableSoftWrap,
@@ -828,7 +824,7 @@ internal fun MessageBubble(
                                                 ) {
                                                     Text(
                                                         text = "译文",
-                                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                                                        style = MaterialTheme.typography.labelSmall,
                                                         fontWeight = if (showTranslated) FontWeight.Bold else FontWeight.Normal,
                                                         color = if (showTranslated) MaterialTheme.colorScheme.onPrimary else thinkingHeaderColor.copy(alpha = 0.8f),
                                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
@@ -841,7 +837,7 @@ internal fun MessageBubble(
                                                 ) {
                                                     Text(
                                                         text = "原文",
-                                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                                                        style = MaterialTheme.typography.labelSmall,
                                                         fontWeight = if (!showTranslated) FontWeight.Bold else FontWeight.Normal,
                                                         color = if (!showTranslated) MaterialTheme.colorScheme.onPrimary else thinkingHeaderColor.copy(alpha = 0.8f),
                                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
@@ -1483,7 +1479,7 @@ fun TypingIndicator(
         text = "●".repeat(dotCount) + "○".repeat(3 - dotCount),
         color = Color(0xFF93C5FD), // 打字指示点专属浅蓝（与思考等级 low 色一致，场景特殊保留）
         style = MaterialTheme.typography.bodyLarge,
-        letterSpacing = 2.sp
+        letterSpacing = 2.sp // 字距参数（非字号），打字指示点视觉需要，场景特殊保留
     )
 }
 
@@ -1605,10 +1601,7 @@ fun CitationsCardsRow(
             )
             Text(
                 text = "参考资料来源 (${citations.size})",
-                style = MaterialTheme.typography.labelSmall.copy(
-                    fontSize = 11.5.sp,
-                    fontWeight = FontWeight.Bold
-                ),
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
@@ -1640,7 +1633,7 @@ fun CitationsCardsRow(
                         )
                         Text(
                             text = citation.title,
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.5.sp),
+                            style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -1897,7 +1890,7 @@ fun ToolCallsFooter(
                                         ) {
                                             Text(
                                                 text = "执行成功",
-                                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                                style = MaterialTheme.typography.labelSmall,
                                                 color = MaterialTheme.colorScheme.primary,
                                                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                                             )
@@ -1906,7 +1899,7 @@ fun ToolCallsFooter(
                                     if (record.summary.isNotBlank()) {
                                         Text(
                                             text = record.summary,
-                                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                                            style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             maxLines = 2,
                                             overflow = TextOverflow.Ellipsis
@@ -1991,10 +1984,7 @@ fun ToolCallDetailDialog(
                     SelectionContainer {
                         Text(
                             text = record.detailContent,
-                            style = MaterialTheme.typography.bodySmall.copy(
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 12.sp
-                            ),
+                            style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                             modifier = Modifier.padding(10.dp)
                         )
                     }

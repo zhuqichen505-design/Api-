@@ -293,10 +293,7 @@ fun UniversalModelPickerCard(
                                     value = manualModelName,
                                     onValueChange = { manualModelName = it },
                                     singleLine = true,
-                                    textStyle = MaterialTheme.typography.bodySmall.copy(
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        fontSize = 12.5.sp
-                                    ),
+                                    textStyle = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurface),
                                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                                     decorationBox = { innerTextField ->
                                         Box(
@@ -314,7 +311,7 @@ fun UniversalModelPickerCard(
                                             if (manualModelName.isEmpty()) {
                                                 Text(
                                                     text = "例如：gpt-4o-mini 或 deepseek-chat",
-                                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                                                    style = MaterialTheme.typography.bodySmall,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
                                                 )
                                             }
@@ -352,7 +349,7 @@ fun UniversalModelPickerCard(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     TextButton(onClick = { manualInputMode = false }) {
-                                        Text("返回列表", fontSize = 12.sp)
+                                        Text("返回列表", style = MaterialTheme.typography.bodySmall)
                                     }
                                     Button(
                                         onClick = {
@@ -365,7 +362,7 @@ fun UniversalModelPickerCard(
                                         enabled = manualModelName.isNotBlank(),
                                         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp)
                                     ) {
-                                        Text("确认选择", fontSize = 12.sp)
+                                        Text("确认选择", style = MaterialTheme.typography.bodySmall)
                                     }
                                 }
                             }
@@ -462,7 +459,7 @@ fun UniversalModelPickerCard(
                                                 )
                                                 Text(
                                                     "按每个会话各自绑定的模型与配置自动调用",
-                                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.5.sp),
+                                                    style = MaterialTheme.typography.labelSmall,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
                                             }
@@ -522,7 +519,7 @@ fun UniversalModelPickerCard(
                                                                 Text(
                                                                     "默认",
                                                                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
-                                                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                                                    style = MaterialTheme.typography.labelSmall,
                                                                     color = MaterialTheme.colorScheme.secondary
                                                                 )
                                                             }

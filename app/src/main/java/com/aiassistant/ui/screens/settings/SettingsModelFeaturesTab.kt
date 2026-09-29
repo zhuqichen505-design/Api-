@@ -520,7 +520,7 @@ fun ModelFeaturesTab(
                                             savedMessage = "已插入 $varKey"
                                         }
                                     },
-                                    label = { Text(varKey, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                                    label = { Text(varKey, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold) }
                                 )
                             }
                         }

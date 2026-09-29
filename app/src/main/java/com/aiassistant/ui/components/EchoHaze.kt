@@ -51,6 +51,9 @@ import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.haze
 import dev.chrisbanes.haze.hazeChild
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.foundation.focusable
 
 val EchoGlassDialogShape = EchoTokens.Radius.shapeXl
 val EchoGlassPagePanelShape = EchoTokens.Radius.shapeLg
@@ -271,7 +274,9 @@ fun EchoGlassDialog(
     containerColor: Color = Color.Unspecified,
     title: (@Composable ColumnScope.() -> Unit)? = null,
     content: (@Composable ColumnScope.() -> Unit)? = null,
-    buttons: (@Composable ColumnScope.() -> Unit)? = null
+    buttons: (@Composable ColumnScope.() -> Unit)? = null,
+    /** §6.0 无障碍：屏幕阅读器进入弹窗时朗读的面板标题 */
+    paneTitleText: String = "对话框"
 ) {
     val glass = echoGlassPalette()
     val resolvedTint = if (tint != Color.Unspecified) tint else glass.panel
@@ -313,6 +318,7 @@ fun EchoGlassDialog(
             }
         }
 
+        val resolvedPaneTitle = paneTitleText
         val configuration = androidx.compose.ui.platform.LocalConfiguration.current
         val maxResponsiveHeight = (configuration.screenHeightDp * 0.88f).dp.coerceAtLeast(240.dp)
         val maxResponsiveWidth = if (configuration.screenWidthDp > 600) 480.dp else (configuration.screenWidthDp * 0.92f).dp
@@ -333,6 +339,8 @@ fun EchoGlassDialog(
                     .widthIn(max = maxResponsiveWidth)
                     .heightIn(max = maxResponsiveHeight)
                     .padding(horizontal = 8.dp)
+                    .focusable() // §6.0：弹窗自身可聚焦，配合 Compose 弹窗窗口焦点陷阱，防止键盘焦点逃逸到背景层
+                    .semantics { paneTitle = resolvedPaneTitle }
                     .clickable(
                         interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                         indication = null,
