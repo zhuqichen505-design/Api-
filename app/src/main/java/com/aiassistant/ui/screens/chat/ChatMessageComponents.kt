@@ -68,7 +68,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalTextToolbar
 import androidx.compose.ui.platform.LocalUriHandler
+import com.aiassistant.ui.components.EchoDoubleArcRing
+import com.aiassistant.ui.components.EchoPulseRing
 import com.aiassistant.ui.components.EchoTextToolbar
+import com.aiassistant.ui.components.EchoWaveDots
 import com.aiassistant.ui.components.EchoTextToolbarHost
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.painterResource
@@ -1480,20 +1483,11 @@ internal fun ChatAvatar(
 fun TypingIndicator(
     textColor: androidx.compose.ui.graphics.Color
 ) {
-    var dotCount by remember { mutableIntStateOf(0) }
-
-    LaunchedEffect(Unit) {
-        while (true) {
-            kotlinx.coroutines.delay(400)
-            dotCount = (dotCount + 1) % 4
-        }
-    }
-
-    Text(
-        text = "●".repeat(dotCount) + "○".repeat(3 - dotCount),
-        color = Color(0xFF93C5FD), // 打字指示点专属浅蓝（与思考等级 low 色一致，场景特殊保留）
-        style = MaterialTheme.typography.bodyLarge,
-        letterSpacing = 2.sp // 字距参数（非字号），打字指示点视觉需要，场景特殊保留
+    // P1-4 重写：三点波浪跳动（Canvas 绘制，一次组合、零重组、零字符串分配），
+    // 颜色消费调用方内容色，替代原「●○○」文本轮播的每 400ms 一次 Text 重组与硬编码色
+    EchoWaveDots(
+        color = textColor,
+        modifier = Modifier.width(30.dp).height(14.dp)
     )
 }
 
