@@ -68,9 +68,13 @@ import com.aiassistant.domain.model.WorldBookEntry
 import com.aiassistant.domain.model.ModelCapabilityEngine
 import com.aiassistant.domain.model.ModelCustomSettings
 import com.aiassistant.domain.model.PromptTemplate
+import com.aiassistant.ui.components.EchoBadge
+import com.aiassistant.ui.components.EchoBadgeType
 import com.aiassistant.ui.components.EchoGlassCard
 import com.aiassistant.ui.components.EchoGlassDialog
 import com.aiassistant.ui.components.EchoGlassDropdownMenu
+import com.aiassistant.ui.components.EchoSectionHeader
+import com.aiassistant.ui.components.EchoSettingRow
 import com.aiassistant.ui.components.EchoSwitch
 import com.aiassistant.ui.components.readableTextColorFor
 import com.aiassistant.ui.components.rememberReadableBackdropColors
@@ -87,6 +91,7 @@ import com.aiassistant.ui.components.rememberEchoHazeState
 import com.aiassistant.ui.components.rememberSmoothReorderState
 import com.aiassistant.ui.components.reorderItem
 import com.aiassistant.ui.components.reorderDragHandle
+import com.aiassistant.ui.theme.EchoTokens
 import com.aiassistant.utils.AvatarManager
 import com.aiassistant.utils.BackgroundImageManager
 import com.aiassistant.utils.BackupManager
@@ -1164,93 +1169,50 @@ fun ApiConfigCard(
     val contentAlpha = if (config.isEnabled) 1f else 0.62f
 
     SettingsGlassCard(hazeState = hazeState) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            // 第一行：名称 + 标签 + 操作按钮
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.weight(1f).alpha(contentAlpha)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.horizontalScroll(rememberScrollState())
-                    ) {
-                        Text(
-                            text = config.name,
-                            style = MaterialTheme.typography.titleMedium,
-                            maxLines = 1
-                        )
-                        if (config.isDefault) {
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Surface(
-                                modifier = Modifier.height(24.dp),
-                                shape = RoundedCornerShape(999.dp),
-                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                                contentColor = MaterialTheme.colorScheme.primary,
-                                tonalElevation = 0.dp,
-                                shadowElevation = 0.dp
-                            ) {
-                                Box(
-                                    modifier = Modifier.padding(horizontal = 9.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text("新对话默认API", style = MaterialTheme.typography.labelSmall)
-                                }
-                            }
-                        }
-                        if (!config.isEnabled) {
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Surface(
-                                modifier = Modifier.height(24.dp),
-                                shape = RoundedCornerShape(999.dp),
-                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.18f),
-                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                tonalElevation = 0.dp,
-                                shadowElevation = 0.dp
-                            ) {
-                                Box(
-                                    modifier = Modifier.padding(horizontal = 9.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text("已停用", style = MaterialTheme.typography.labelSmall)
-                                }
-                            }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f).alpha(contentAlpha)
+                ) {
+                    Text(
+                        text = config.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (config.isDefault) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Surface(
+                            shape = RoundedCornerShape(999.dp),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                            contentColor = MaterialTheme.colorScheme.primary
+                        ) {
+                            Text(
+                                "默认",
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                            )
                         }
                     }
-                    Text(
-                        text = "${config.provider} · ${config.modelName}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        modifier = Modifier.horizontalScroll(rememberScrollState())
-                    )
-                    Text(
-                        text = "API类型: ${config.apiType.uppercase()}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    val parsedKeys = remember(config.apiKey) { AiRepository.parseNamedApiKeys(config.apiKey) }
-                    if (parsedKeys.isNotEmpty()) {
-                        val enabledCount = parsedKeys.count { it.isEnabled }
-                        val keySummary = if (parsedKeys.size > 1) {
-                            val names = parsedKeys.mapNotNull { it.name.ifBlank { null } }
-                            val statusSuffix = if (enabledCount < parsedKeys.size) " ($enabledCount/${parsedKeys.size} 启用)" else ""
-                            if (names.isNotEmpty()) {
-                                "密钥$statusSuffix: ${names.joinToString(", ")}"
-                            } else {
-                                "${parsedKeys.size} 个密钥$statusSuffix (已配置自动故障转移)"
-                            }
-                        } else {
-                            val item = parsedKeys[0]
-                            val statusText = if (!item.isEnabled) " [已停用]" else ""
-                            if (item.name.isNotBlank()) "密钥备注: ${item.name}$statusText" else if (!item.isEnabled) "密钥已停用" else null
-                        }
-                        if (keySummary != null) {
+                    if (!config.isEnabled) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Surface(
+                            shape = RoundedCornerShape(999.dp),
+                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.18f),
+                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        ) {
                             Text(
-                                text = keySummary,
-                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.5.sp),
-                                color = MaterialTheme.colorScheme.secondary,
-                                maxLines = 1,
-                                modifier = Modifier.horizontalScroll(rememberScrollState())
+                                "已停用",
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                             )
                         }
                     }
@@ -1262,22 +1224,89 @@ fun ApiConfigCard(
                         onCheckedChange = onToggleEnabled
                     )
                     IconButton(onClick = { onEdit(config) }) {
-                        Icon(Icons.Default.Edit, contentDescription = "编辑")
+                        Icon(Icons.Default.Edit, contentDescription = "编辑", modifier = Modifier.size(20.dp))
                     }
                     if (!config.isDefault) {
                         IconButton(onClick = onSetDefault) {
-                            Icon(Icons.Default.StarBorder, contentDescription = "设为新对话默认API")
+                            Icon(Icons.Default.StarBorder, contentDescription = "设为默认", modifier = Modifier.size(20.dp))
                         }
                     }
                     IconButton(onClick = { showDeleteDialog = true }) {
                         Icon(
                             Icons.Default.Delete,
                             contentDescription = "删除",
-                            tint = MaterialTheme.colorScheme.error
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // 第二行：提供商 + 模型 + API类型
+            Row(
+                modifier = Modifier.fillMaxWidth().alpha(contentAlpha),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = config.provider,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1
+                )
+                Text(
+                    text = "·",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = config.modelName,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                Text(
+                    text = config.apiType.uppercase(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            // 第三行：密钥信息（如果有）
+            val parsedKeys = remember(config.apiKey) { AiRepository.parseNamedApiKeys(config.apiKey) }
+            if (parsedKeys.isNotEmpty()) {
+                val enabledCount = parsedKeys.count { it.isEnabled }
+                val keySummary = if (parsedKeys.size > 1) {
+                    val names = parsedKeys.mapNotNull { it.name.ifBlank { null } }
+                    val statusSuffix = if (enabledCount < parsedKeys.size) " ($enabledCount/${parsedKeys.size} 启用)" else ""
+                    if (names.isNotEmpty()) {
+                        "密钥$statusSuffix: ${names.joinToString(", ")}"
+                    } else {
+                        "${parsedKeys.size} 个密钥$statusSuffix (已配置自动故障转移)"
+                    }
+                } else {
+                    val item = parsedKeys[0]
+                    val statusText = if (!item.isEnabled) " [已停用]" else ""
+                    if (item.name.isNotBlank()) "密钥备注: ${item.name}$statusText" else if (!item.isEnabled) "密钥已停用" else null
+                }
+                if (keySummary != null) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = keySummary,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.secondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.fillMaxWidth().alpha(contentAlpha)
+                    )
+                }
+            }
+        }
     }
 
     if (showDeleteDialog) {

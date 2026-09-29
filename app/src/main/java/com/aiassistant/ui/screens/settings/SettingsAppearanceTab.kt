@@ -137,6 +137,7 @@ fun AppearanceTab(
     var chatFontSize by remember(settings) { mutableIntStateOf(settings.chatFontSize) }
     var fontSizeScale by remember(settings) { mutableFloatStateOf(settings.fontSizeScale) }
     var savedMessage by remember { mutableStateOf<String?>(null) }
+    val snackbarHostState = remember { SnackbarHostState() }
 
     fun performSave() {
         manager.saveSettings(
@@ -147,6 +148,13 @@ fun AppearanceTab(
         )
         settings = manager.getSettings()
         savedMessage = "已保存界面与外观设定"
+    }
+
+    LaunchedEffect(savedMessage) {
+        savedMessage?.let {
+            snackbarHostState.showSnackbar(it)
+            savedMessage = null
+        }
     }
 
     var backgroundRevision by remember { mutableIntStateOf(0) }
@@ -175,11 +183,12 @@ fun AppearanceTab(
 
     val glass = echoGlassPalette()
 
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = contentPadding,
-        verticalArrangement = Arrangement.spacedBy(EchoTokens.Spacing.cardGap)
-    ) {
+    Box(modifier = modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = contentPadding,
+            verticalArrangement = Arrangement.spacedBy(EchoTokens.Spacing.cardGap)
+        ) {
         // 0. 用户头像设置
         item {
             SettingsGlassCard(hazeState = hazeState) {
@@ -569,25 +578,13 @@ fun AppearanceTab(
                 )
             }
         }
-
-        // 保存反馈消息
-        savedMessage?.let { message ->
-            item {
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        text = message,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.padding(12.dp)
-                    )
-                }
-            }
-        }
     }
+
+    SnackbarHost(
+        hostState = snackbarHostState,
+        modifier = Modifier.align(Alignment.BottomCenter)
+    )
+}
 
     pendingCropUri?.let { cropUri ->
         val currentTarget = pendingCropTarget
