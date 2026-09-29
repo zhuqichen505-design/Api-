@@ -763,7 +763,7 @@ internal fun MessageBubble(
                         modifier = Modifier
                             .defaultMinSize(minHeight = 34.dp)
                             .widthIn(max = maxBubbleWidth)
-                            .animateContentSize()
+                            .animateContentSize(com.aiassistant.ui.theme.EchoMotion.Spring.gentle())
                             .clip(capsuleShape)
                             .then(
                                 if (hasThinking && hasThinkingContent) {

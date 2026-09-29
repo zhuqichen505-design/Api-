@@ -145,6 +145,9 @@ import com.aiassistant.ui.components.EchoGlassButton
 import com.aiassistant.ui.screens.roleplay.ConflictAction
 import com.aiassistant.ui.theme.EchoTokens
 import androidx.compose.runtime.produceState
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.MutableTransitionState
 
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1400,10 +1403,18 @@ fun ChatScreen(
 
                 error?.let { errorMsg ->
                     Spacer(modifier = Modifier.height(6.dp))
+                    // P1-2③ 横幅登场：MutableTransitionState 初值 false→true，首次组合即播滑入+淡入
                     AnimatedVisibility(
-                        visible = true,
-                        enter = fadeIn() + expandVertically(),
-                        exit = fadeOut() + shrinkVertically()
+                        visibleState = remember {
+                            androidx.compose.animation.core.MutableTransitionState(false).apply { targetState = true }
+                        },
+                        enter = slideInVertically(
+                            animationSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec<androidx.compose.ui.unit.IntOffset>(com.aiassistant.ui.theme.EchoMotion.Duration.standard),
+                            initialOffsetY = { -it }
+                        ) + fadeIn(com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.standard)),
+                        exit = shrinkVertically(
+                            animationSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.fast)
+                        ) + fadeOut(com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.fast))
                     ) {
                         val errorShape = RoundedCornerShape(22.dp)
                         val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
@@ -1464,10 +1475,18 @@ fun ChatScreen(
 
                 contextUsage.statusMessage?.let { statusMsg ->
                     Spacer(modifier = Modifier.height(6.dp))
+                    // P1-2③ 横幅登场：MutableTransitionState 初值 false→true，首次组合即播滑入+淡入
                     AnimatedVisibility(
-                        visible = true,
-                        enter = fadeIn() + expandVertically(),
-                        exit = fadeOut() + shrinkVertically()
+                        visibleState = remember {
+                            androidx.compose.animation.core.MutableTransitionState(false).apply { targetState = true }
+                        },
+                        enter = slideInVertically(
+                            animationSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec<androidx.compose.ui.unit.IntOffset>(com.aiassistant.ui.theme.EchoMotion.Duration.standard),
+                            initialOffsetY = { -it }
+                        ) + fadeIn(com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.standard)),
+                        exit = shrinkVertically(
+                            animationSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.fast)
+                        ) + fadeOut(com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.fast))
                     ) {
                         val isWarning = statusMsg.startsWith("⚠️")
                         val isSuccess = statusMsg.startsWith("✅")

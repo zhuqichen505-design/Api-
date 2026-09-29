@@ -29,7 +29,7 @@ fun ExpandableText(
     var isExpanded by remember { mutableStateOf(false) }
     var hasOverflow by remember { mutableStateOf(false) }
 
-    Column(modifier = modifier.animateContentSize()) {
+    Column(modifier = modifier.animateContentSize(com.aiassistant.ui.theme.EchoMotion.Spring.gentle())) {
         Text(
             text = text,
             style = style,

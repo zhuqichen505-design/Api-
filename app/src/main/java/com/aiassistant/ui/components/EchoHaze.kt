@@ -54,6 +54,11 @@ import dev.chrisbanes.haze.hazeChild
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.foundation.focusable
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
 
 val EchoGlassDialogShape = EchoTokens.Radius.shapeXl
 val EchoGlassPagePanelShape = EchoTokens.Radius.shapeLg
@@ -463,8 +468,28 @@ fun EchoGlassDropdownMenu(
             onDismissRequest = onDismissRequest,
             modifier = modifier.border(BorderStroke(1.dp, glass.outline), menuShape),
             offset = offset,
-            properties = properties,
-            content = content
-        )
+            properties = properties
+        ) {
+            // P1-1 菜单锚点生长动效：内容以左上锚点缩放 0.85→1.0（emphasizedDecelerate）
+            // + 快速淡入展开；scaleIn 为绘制层变换，不改变弹窗定位测量（transformOrigin 对齐锚点）
+            val reducedMotion = com.aiassistant.ui.theme.rememberReducedMotion()
+            val appearState = remember { androidx.compose.animation.core.MutableTransitionState(false).apply { targetState = true } }
+            AnimatedVisibility(
+                visibleState = appearState,
+                enter = if (reducedMotion) {
+                    EnterTransition.None
+                } else {
+                    fadeIn(com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.fast)) +
+                        scaleIn(
+                            initialScale = 0.85f,
+                            animationSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.standard, com.aiassistant.ui.theme.EchoMotion.Easing.emphasizedDecelerate),
+                            transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
+                        )
+                },
+                exit = fadeOut(com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.fast))
+            ) {
+                Column(content = content)
+            }
+        }
     }
 }

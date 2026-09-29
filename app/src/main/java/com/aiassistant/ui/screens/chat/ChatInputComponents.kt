@@ -144,6 +144,12 @@ import com.aiassistant.ui.components.EchoPrimaryButton
 import com.aiassistant.ui.components.EchoGlassButton
 import com.aiassistant.ui.screens.roleplay.ConflictAction
 import com.aiassistant.ui.theme.EchoTokens
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.runtime.getValue
 
 
 @Composable
@@ -561,62 +567,96 @@ fun ChatInputBar(
                     }
 
                     val canSend = !isProcessingAttachments && (inputText.isNotBlank() || attachments.isNotEmpty() || !quotedText.isNullOrBlank())
-                    if (isGenerating) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                    // P1-3 发送→停止按钮状态切换：底色 300ms 渐变（primary↔error↔control），
+                    // 图标以旋入放大淡入/缩小淡出交叉切换；排队发送按钮保持独立（功能不变）
+                    val sendTargetContainer = when {
+                        isGenerating -> MaterialTheme.colorScheme.error
+                        canSend -> MaterialTheme.colorScheme.primary
+                        else -> glass.control
+                    }
+                    val sendTargetContent = when {
+                        isGenerating -> MaterialTheme.colorScheme.onError
+                        canSend -> MaterialTheme.colorScheme.onPrimary
+                        else -> MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+                    }
+                    val sendTargetBorder = when {
+                        isGenerating -> MaterialTheme.colorScheme.error.copy(alpha = 0.85f)
+                        canSend -> MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
+                        else -> glass.outlineSelected
+                    }
+                    val sendContainerColor by animateColorAsState(
+                        targetValue = sendTargetContainer,
+                        animationSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.slow),
+                        label = "sendContainer"
+                    )
+                    val sendContentColor by animateColorAsState(
+                        targetValue = sendTargetContent,
+                        animationSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.slow),
+                        label = "sendContent"
+                    )
+                    val sendBorderColor by animateColorAsState(
+                        targetValue = sendTargetBorder,
+                        animationSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.slow),
+                        label = "sendBorder"
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = sendContainerColor,
+                            contentColor = sendContentColor,
+                            border = BorderStroke(1.2.dp, sendBorderColor),
+                            modifier = Modifier
+                                .size(36.dp)
+                                .echoShapeClick(
+                                    CircleShape,
+                                    enabled = if (isGenerating) true else canSend,
+                                    onClick = if (isGenerating) onStopGeneration else onSend
+                                )
                         ) {
-                            Surface(
-                                shape = CircleShape,
-                                color = MaterialTheme.colorScheme.error,
-                                contentColor = MaterialTheme.colorScheme.onError,
-                                border = BorderStroke(1.2.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.85f)),
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .echoShapeClick(CircleShape, onClick = onStopGeneration)
-                            ) {
-                                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                                    Icon(Icons.Default.Stop, contentDescription = "停止当前生成", modifier = Modifier.size(18.dp))
-                                }
-                            }
-
-                            if (canSend) {
-                                Surface(
-                                    shape = CircleShape,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                                    border = BorderStroke(1.2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)),
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .echoShapeClick(CircleShape, enabled = true, onClick = onSend)
-                                ) {
-                                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                                AnimatedContent(
+                                    targetState = isGenerating,
+                                    transitionSpec = {
+                                        (fadeIn(com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.fast)) +
+                                            scaleIn(initialScale = 0.8f, animationSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.fast))) togetherWith
+                                            (fadeOut(com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.fast)) +
+                                            scaleOut(targetScale = 0.8f, animationSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.fast)))
+                                    },
+                                    label = "sendStopSwitch"
+                                ) { generating ->
+                                    if (generating) {
+                                        Icon(Icons.Default.Stop, contentDescription = "停止当前生成", modifier = Modifier.size(18.dp))
+                                    } else {
                                         Icon(
                                             imageVector = Icons.Default.ArrowUpward,
-                                            contentDescription = "加入排队",
+                                            contentDescription = "发送",
                                             modifier = Modifier.size(18.dp)
                                         )
                                     }
                                 }
                             }
                         }
-                    } else {
-                        val sendBorderColor = if (canSend) MaterialTheme.colorScheme.primary.copy(alpha = 0.85f) else glass.outlineSelected
-                        Surface(
-                            shape = CircleShape,
-                            color = if (canSend) MaterialTheme.colorScheme.primary else glass.control,
-                            contentColor = if (canSend) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary.copy(alpha = 0.45f),
-                            border = BorderStroke(1.2.dp, sendBorderColor),
-                            modifier = Modifier
-                                .size(36.dp)
-                                .echoShapeClick(CircleShape, enabled = canSend, onClick = onSend)
-                        ) {
-                            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                                Icon(
-                                    imageVector = Icons.Default.ArrowUpward,
-                                    contentDescription = "发送",
-                                    modifier = Modifier.size(18.dp)
-                                )
+
+                        if (isGenerating && canSend) {
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary,
+                                border = BorderStroke(1.2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)),
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .echoShapeClick(CircleShape, enabled = true, onClick = onSend)
+                            ) {
+                                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                                    Icon(
+                                        imageVector = Icons.Default.ArrowUpward,
+                                        contentDescription = "加入排队",
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
                             }
                         }
                     }
