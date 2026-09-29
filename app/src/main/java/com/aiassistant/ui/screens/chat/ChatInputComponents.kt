@@ -228,8 +228,11 @@ fun ChatInputBar(
         AnimatedContent(
             targetState = isBarsHidden,
             transitionSpec = {
-                (fadeIn(animationSpec = tween(280)) + scaleIn(initialScale = 0.8f, transformOrigin = TransformOrigin(1f, 1f), animationSpec = tween(280)))
-                    .togetherWith(fadeOut(animationSpec = tween(200)) + scaleOut(targetScale = 0.8f, transformOrigin = TransformOrigin(1f, 1f), animationSpec = tween(200)))
+                // 局部变量先求值，规避 K2 对表达式内显式泛型的解析歧义
+                val enterSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec<Float>(com.aiassistant.ui.theme.EchoMotion.Duration.standard)
+                val exitSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec<Float>(com.aiassistant.ui.theme.EchoMotion.Duration.fast)
+                (fadeIn(enterSpec) + scaleIn(initialScale = 0.8f, transformOrigin = TransformOrigin(1f, 1f), animationSpec = enterSpec))
+                    .togetherWith(fadeOut(exitSpec) + scaleOut(targetScale = 0.8f, transformOrigin = TransformOrigin(1f, 1f), animationSpec = exitSpec))
             },
             label = "inputBarHiddenAnim"
         ) { hidden ->
@@ -244,19 +247,13 @@ fun ChatInputBar(
                     val bottomPulseScale by bottomPulseTransition.animateFloat(
                         initialValue = 1.0f,
                         targetValue = 1.15f,
-                        animationSpec = infiniteRepeatable(
-                            animation = tween(1200, easing = FastOutSlowInEasing),
-                            repeatMode = RepeatMode.Reverse
-                        ),
+                        animationSpec = com.aiassistant.ui.theme.EchoMotion.reverseCycleSpec<Float>(com.aiassistant.ui.theme.EchoMotion.Cycle.pulse),
                         label = "bottomPulseScale"
                     )
                     val bottomPulseAlpha by bottomPulseTransition.animateFloat(
                         initialValue = 0.55f,
                         targetValue = 0.15f,
-                        animationSpec = infiniteRepeatable(
-                            animation = tween(1200, easing = FastOutSlowInEasing),
-                            repeatMode = RepeatMode.Reverse
-                        ),
+                        animationSpec = com.aiassistant.ui.theme.EchoMotion.reverseCycleSpec<Float>(com.aiassistant.ui.theme.EchoMotion.Cycle.pulse),
                         label = "bottomPulseAlpha"
                     )
                     val bottomHaloColor = if (isGenerating) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary

@@ -287,16 +287,16 @@ fun PromptsMemoryTab(
                     AnimatedVisibility(
                         visible = showPriorityDetails,
                         enter = expandVertically(
-                            animationSpec = androidx.compose.animation.core.tween(220),
+                            animationSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.standard),
                             expandFrom = Alignment.Top
                         ) + fadeIn(
-                            animationSpec = androidx.compose.animation.core.tween(180)
+                            animationSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.fast)
                         ),
                         exit = shrinkVertically(
-                            animationSpec = androidx.compose.animation.core.tween(200),
+                            animationSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.fast),
                             shrinkTowards = Alignment.Top
                         ) + fadeOut(
-                            animationSpec = androidx.compose.animation.core.tween(150)
+                            animationSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.fast)
                         ),
                         modifier = Modifier
                             .fillMaxWidth()

@@ -143,6 +143,8 @@ import com.aiassistant.ui.components.EchoPrimaryButton
 import com.aiassistant.ui.components.EchoGlassButton
 import com.aiassistant.ui.screens.roleplay.ConflictAction
 import com.aiassistant.ui.theme.EchoTokens
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 
 
 internal fun buildChatAnchorItems(displayMessages: List<DisplayMessageItem>): List<SideAnchorItem> {
@@ -174,10 +176,19 @@ internal fun ChatScrollJumpButtons(
     onJumpToBottom: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // P2-6 滚动辅助件：悬浮跳转钮弹入（snappy 弹簧缩放）+淡入，退场快收，统一 EchoMotion 曲线
     AnimatedVisibility(
         visible = visible,
-        enter = fadeIn() + scaleIn(),
-        exit = fadeOut() + scaleOut(),
+        enter = fadeIn(com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.fast)) +
+            scaleIn(
+                initialScale = 0.8f,
+                animationSpec = com.aiassistant.ui.theme.EchoMotion.Spring.snappy()
+            ),
+        exit = fadeOut(com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.fast)) +
+            scaleOut(
+                targetScale = 0.8f,
+                animationSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.fast)
+            ),
         modifier = modifier
     ) {
         Column(

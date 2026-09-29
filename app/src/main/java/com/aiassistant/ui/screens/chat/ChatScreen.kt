@@ -1264,8 +1264,11 @@ fun ChatScreen(
                 AnimatedContent(
                     targetState = isBarsHidden,
                     transitionSpec = {
-                        (fadeIn(animationSpec = tween(280)) + scaleIn(initialScale = 0.8f, transformOrigin = TransformOrigin(0f, 0f), animationSpec = tween(280)))
-                            .togetherWith(fadeOut(animationSpec = tween(200)) + scaleOut(targetScale = 0.8f, transformOrigin = TransformOrigin(0f, 0f), animationSpec = tween(200)))
+                        // 局部变量先求值，规避 K2 对表达式内显式泛型的解析歧义
+                        val topBarEnterSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec<Float>(com.aiassistant.ui.theme.EchoMotion.Duration.standard)
+                        val topBarExitSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec<Float>(com.aiassistant.ui.theme.EchoMotion.Duration.fast)
+                        (fadeIn(topBarEnterSpec) + scaleIn(initialScale = 0.8f, transformOrigin = TransformOrigin(0f, 0f), animationSpec = topBarEnterSpec))
+                            .togetherWith(fadeOut(topBarExitSpec) + scaleOut(targetScale = 0.8f, transformOrigin = TransformOrigin(0f, 0f), animationSpec = topBarExitSpec))
                     },
                     label = "topBarHiddenAnim"
                 ) { hidden ->
@@ -1274,19 +1277,13 @@ fun ChatScreen(
                         val topPulseScale by topPulseTransition.animateFloat(
                             initialValue = 1.0f,
                             targetValue = 1.15f,
-                            animationSpec = infiniteRepeatable(
-                                animation = tween(1200, easing = FastOutSlowInEasing),
-                                repeatMode = RepeatMode.Reverse
-                            ),
+                            animationSpec = com.aiassistant.ui.theme.EchoMotion.reverseCycleSpec<Float>(com.aiassistant.ui.theme.EchoMotion.Cycle.pulse),
                             label = "topPulseScale"
                         )
                         val topPulseAlpha by topPulseTransition.animateFloat(
                             initialValue = 0.55f,
                             targetValue = 0.15f,
-                            animationSpec = infiniteRepeatable(
-                                animation = tween(1200, easing = FastOutSlowInEasing),
-                                repeatMode = RepeatMode.Reverse
-                            ),
+                            animationSpec = com.aiassistant.ui.theme.EchoMotion.reverseCycleSpec<Float>(com.aiassistant.ui.theme.EchoMotion.Cycle.pulse),
                             label = "topPulseAlpha"
                         )
                         val topPulseColor = MaterialTheme.colorScheme.primary
