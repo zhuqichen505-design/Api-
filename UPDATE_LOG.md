@@ -90,6 +90,27 @@
 - 真机走查（截图矩阵/TalkBack/弹窗焦点）仍留待人工验收——本次 P1-1 漏网即因无真机视觉回归，建议发版前按 §8.2 执行。
 - 依据用户最高准则，本次仍未递增版本号、未构建 APK。
 
+## [2026-09-29] - UI 动效轮审核与优化（A1-A6 修复，未发版）
+
+### 1. 本次需求
+对动效轮成果（e557ef2→c25852c）进行独立审核与优化：关键链路反证核查、R-2 字面达成度审查、reduced motion 全量覆盖审计。
+
+### 2. 审核发现与修复（提交 66b176d）
+1. **A1（功能）**：R-2 未字面达成——增量渲染整段稳定字符串每跨段落边界全文重解析；改为不可变分段 `computeStableSegments`（段字符串前缀稳定，历史段零重算），新增段级单调性单测。
+2. **A2（功能）**：光标 fading 参数未接入 Cursor，落定淡出从未生效；全链路接线并修正 fading 时停止呼吸。
+3. **A3（功能）**：落定动画死代码——ViewModel onComplete 同帧清空 currentResponse 且流式气泡硬编码 isGenerating=true，P0-3 序列永不触发；新增 `settleSignal` 接线（落库持久化气泡以落定态入场，1.6s 防重播窗口）。
+4. **A4（体验）**：流式期波浪点+光标双重指示；TypingIndicator 改为仅等待期显示。
+5. **A5（规范）**：reduced motion 门禁 6 类漏洞（胶囊/发送按钮/等待提示/横幅/跳转钮/开关 thumb）逐一短路；等待提示作为功能信息保留、仅动画短路。
+6. **A6（体验）**：菜单 transformOrigin 改右上 (1,0)，与三点按钮空间关联一致。
+
+### 3. 验证
+compileDebugKotlin 通过；MotionRoundTests 17/17 PASSED；全量 testDebugUnitTest 0 FAILED；门禁维持（裸 tween=0 / Modifier.scale=0 / Color(0x=2 / 循环动画 100% 渲染层）；reduced motion 覆盖 10 文件。
+
+### 4. 改动文件
+`ui/components/EchoHaze.kt`、`EchoSwitch.kt`、`MarkdownText.kt`、`ui/screens/chat/ChatContextComponents.kt`、`ChatInputComponents.kt`、`ChatMessageComponents.kt`、`ChatScreen.kt`、`app/src/test/java/com/aiassistant/MotionRoundTests.kt`（8 文件）；版本号保持 v2.5.7 (153) 不变。
+
+---
+
 ## [2026-09-29] - UI 动效轮（第二轮 Polish）：微交互与动效深化（未发版）
 
 ### 1. 本次需求
