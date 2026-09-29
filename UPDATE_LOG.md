@@ -90,6 +90,30 @@
 - 真机走查（截图矩阵/TalkBack/弹窗焦点）仍留待人工验收——本次 P1-1 漏网即因无真机视觉回归，建议发版前按 §8.2 执行。
 - 依据用户最高准则，本次仍未递增版本号、未构建 APK。
 
+## [2026-09-30] - 动效轮检查报告修复（P2-1 + P3-1/2/3/4，未发版）
+
+### 1. 本次需求
+按《APP改进/UI/动效轮检查报告.md》（2026-09-30 独立验收）修复全部建议项。
+
+### 2. 修复内容（提交 cd997bf）
+1. **P2-1**：流式分段 key 撞名隐患——`key(segment)` 改 `key(segmentIndex to segment)`，位置信息纳入组合 key；
+2. **P3-1**：PressEffects 的 tween 直接调用归口 `EchoMotion.tweenSpec`；检查清单门禁正则升级 `[^.]btween(`（可捕获命名参数绕过），实测 ui/ 实码 0；
+3. **P3-2**：`EchoPulseRing`/`EchoDoubleArcRing`/`EchoWaveDots`/`EchoStreamingCursor` 的 InfiniteTransition 改条件创建，reduced motion 下不再空转调度帧回调；
+4. **P3-3**：MotionRoundTests 计数勘误 15/15、17/17 → 16/16（进度日志 + UPDATE_LOG）；
+5. **P3-4**：代码围栏流式期补恒亮静态光标（`breathing` 参数），闭合后自然过渡呼吸光标；
+6. **P3-5**：并行在途改动说明——无需动作，留痕备查。
+
+### 3. 验证
+compileDebugKotlin 通过；MotionRoundTests 全 PASSED；全量 testDebugUnitTest BUILD SUCCESSFUL 0 FAILED；升级后门禁实测 ui/ 下 tween( 实码 0。
+
+### 4. 改动文件（3 个）
+`ui/components/EchoConnectionIndicator.kt`、`ui/components/MarkdownText.kt`、`ui/components/PressEffects.kt`；文档：进度日志、检查清单门禁表、UPDATE_LOG。版本号 v2.5.7 (153) 保持不变。
+
+### 5. 遗留
+报告 §四 真机项（R-1 重组频率实测、R-5 中端机 jank、R-6 走查、弱网观感）发版前必做。
+
+---
+
 ## [2026-09-29] - UI 动效轮审核与优化（A1-A6 修复，未发版）
 
 ### 1. 本次需求
@@ -104,7 +128,7 @@
 6. **A6（体验）**：菜单 transformOrigin 改右上 (1,0)，与三点按钮空间关联一致。
 
 ### 3. 验证
-compileDebugKotlin 通过；MotionRoundTests 17/17 PASSED；全量 testDebugUnitTest 0 FAILED；门禁维持（裸 tween=0 / Modifier.scale=0 / Color(0x=2 / 循环动画 100% 渲染层）；reduced motion 覆盖 10 文件。
+compileDebugKotlin 通过；MotionRoundTests 16/16 PASSED；全量 testDebugUnitTest 0 FAILED；门禁维持（裸 tween=0 / Modifier.scale=0 / Color(0x=2 / 循环动画 100% 渲染层）；reduced motion 覆盖 10 文件。
 
 ### 4. 改动文件
 `ui/components/EchoHaze.kt`、`EchoSwitch.kt`、`MarkdownText.kt`、`ui/screens/chat/ChatContextComponents.kt`、`ChatInputComponents.kt`、`ChatMessageComponents.kt`、`ChatScreen.kt`、`app/src/test/java/com/aiassistant/MotionRoundTests.kt`（8 文件）；版本号保持 v2.5.7 (153) 不变。
@@ -124,7 +148,7 @@ compileDebugKotlin 通过；MotionRoundTests 17/17 PASSED；全量 testDebugUnit
 
 ### 3. 验证结果
 - `compileDebugKotlin`：BUILD SUCCESSFUL（M0-M4 每阶段验证）；
-- `testDebugUnitTest`：全量 0 FAILED；新增 `MotionRoundTests` 15 项（稳定点单调性/围栏/数学块/表格完整性/状态机行为等价）全部 PASSED；
+- `testDebugUnitTest`：全量 0 FAILED；新增 `MotionRoundTests` 16 项（稳定分段单调性/围栏/数学块/表格完整性/状态机行为等价）全部 PASSED；
 - 门禁终值：屏幕层裸 tween=0、Modifier.scale=0、屏幕层 Color(0x=2（注释理由）、循环动画 100% 渲染层驱动；
 - 流式重组频率/jank 帧占比/reduced motion 真机走查：需真机剖析（Layout Inspector/GPU 渲染分析），无连接设备留待人工验收。
 
