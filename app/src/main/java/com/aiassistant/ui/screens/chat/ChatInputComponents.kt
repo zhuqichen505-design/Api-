@@ -581,19 +581,30 @@ fun ChatInputBar(
                         canSend -> MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
                         else -> glass.outlineSelected
                     }
+                    // A5：reduced motion 时颜色/图标瞬切
+                    val sendMotionSpec = if (com.aiassistant.ui.theme.rememberReducedMotion()) {
+                        androidx.compose.animation.core.snap<androidx.compose.ui.graphics.Color>()
+                    } else {
+                        com.aiassistant.ui.theme.EchoMotion.tweenSpec<androidx.compose.ui.graphics.Color>(com.aiassistant.ui.theme.EchoMotion.Duration.slow)
+                    }
+                    val sendSwitchSpec = if (com.aiassistant.ui.theme.rememberReducedMotion()) {
+                        androidx.compose.animation.core.snap<Float>()
+                    } else {
+                        com.aiassistant.ui.theme.EchoMotion.tweenSpec<Float>(com.aiassistant.ui.theme.EchoMotion.Duration.fast)
+                    }
                     val sendContainerColor by animateColorAsState(
                         targetValue = sendTargetContainer,
-                        animationSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.slow),
+                        animationSpec = sendMotionSpec,
                         label = "sendContainer"
                     )
                     val sendContentColor by animateColorAsState(
                         targetValue = sendTargetContent,
-                        animationSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.slow),
+                        animationSpec = sendMotionSpec,
                         label = "sendContent"
                     )
                     val sendBorderColor by animateColorAsState(
                         targetValue = sendTargetBorder,
-                        animationSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.slow),
+                        animationSpec = sendMotionSpec,
                         label = "sendBorder"
                     )
                     Row(
@@ -617,10 +628,10 @@ fun ChatInputBar(
                                 AnimatedContent(
                                     targetState = isGenerating,
                                     transitionSpec = {
-                                        (fadeIn(com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.fast)) +
-                                            scaleIn(initialScale = 0.8f, animationSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.fast))) togetherWith
-                                            (fadeOut(com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.fast)) +
-                                            scaleOut(targetScale = 0.8f, animationSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.fast)))
+                                        (fadeIn(sendSwitchSpec) +
+                                            scaleIn(initialScale = 0.8f, animationSpec = sendSwitchSpec)) togetherWith
+                                            (fadeOut(sendSwitchSpec) +
+                                            scaleOut(targetScale = 0.8f, animationSpec = sendSwitchSpec))
                                     },
                                     label = "sendStopSwitch"
                                 ) { generating ->

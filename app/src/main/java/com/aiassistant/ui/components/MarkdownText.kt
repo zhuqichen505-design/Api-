@@ -48,6 +48,7 @@ import com.aiassistant.ui.theme.EchoMotion
 import com.aiassistant.ui.theme.rememberReducedMotion
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.runtime.key
 
 @Composable
 fun MarkdownText(
@@ -64,21 +65,24 @@ fun MarkdownText(
             content = content,
             modifier = modifier,
             color = color,
-            onCitationClick = onCitationClick,
-            endCursorColor = if (cursor != null && (cursorFading || !streaming)) cursor else null
+            onCitationClick = onCitationClick
         )
     } else {
-        // P0-2② 增量渲染：稳定点之前的块解析一次后随强跳过不再重算（R-2），
-        // 仅尾部片段每帧重解析（成本 O(尾部长)）；流式结束后走上方全文路径定稿
+        // P0-2② 增量渲染（A1 修正）：稳定内容切分为不可变分段，每段 key(段文本) 独立组合；
+        // 段字符串一旦完成永不变化 → remember(content=段) 不重算，历史段零重解析（R-2 字面达成）；
+        // 新段仅在完成时解析一次；未稳定尾部每帧重解析（O(尾部长)）；流式结束走上方全文路径定稿
         Column(modifier = modifier) {
-            val split = remember(content) { computeStableSplit(content) }
-            if (split.stable.isNotEmpty()) {
-                MarkdownContent(
-                    content = split.stable,
-                    color = color,
-                    onCitationClick = onCitationClick
-                )
+            val segmentation = remember(content) { computeStableSegments(content) }
+            segmentation.segments.forEach { segment ->
+                key(segment) {
+                    MarkdownContent(
+                        content = segment,
+                        color = color,
+                        onCitationClick = onCitationClick
+                    )
+                }
             }
+            val split = MarkdownSegmentation(emptyList(), segmentation.tail, segmentation.tailInFence)
             if (split.tail.isNotEmpty()) {
                 if (split.tailInFence) {
                     // 方案 P0-2④：未闭合 ``` 围栏——围栏开启行之前的文本照常渲染，
@@ -110,7 +114,8 @@ fun MarkdownText(
                         content = split.tail,
                         color = color,
                         onCitationClick = onCitationClick,
-                        endCursorColor = cursor
+                        endCursorColor = cursor,
+                        endCursorFading = cursorFading
                     )
                 }
             }
@@ -119,50 +124,63 @@ fun MarkdownText(
 }
 
 /**
- * 流式稳定点切分结果（P0-2②）
+ * 流式 Markdown 分段结果（P0-2② / 审核修正版）
  */
-data class MarkdownStableSplit(
-    val stable: String,
-    val tail: String,
-    val tailInFence: Boolean
+data class MarkdownSegmentation(
+    val segments: List<String>,   // 已完成段（不可变：后续内容增长不改变已产出段的字符串）
+    val tail: String,             // 未稳定尾部（每帧重解析，成本 O(尾部长)）
+    val tailInFence: Boolean      // 尾部是否处于未闭合 ``` 围栏内
 )
 
 /**
- * 计算流式 Markdown 的稳定点切分（纯函数，供单元测试验证单调性与围栏安全，R-2）。
- * 稳定点保守化策略：仅「围栏外的空行段落边界」与「已闭合代码围栏行尾」算稳定点；
- * 数学块（$$/\[/\begin{...}）未闭合期间不产生稳定点，避免公式跨块撕裂；
- * 稳定前缀随内容增长单调不减，尾部由流式路径每帧重解析。
+ * 计算流式 Markdown 的稳定分段（纯函数，供单元测试验证不变量，R-2）。
+ * 保守策略：仅「围栏外的空行段落边界」与「闭合代码围栏行（其后仍有内容）」切段；
+ * 数学块（$$/\[/\begin{...}）未闭合期间不切段，避免公式跨段撕裂；
+ * 每段包含其边界行的换行符，保证 segments 拼接 + tail 与原文严格相等；
+ * 段字符串前缀稳定（内容增长不修改历史段）→ 每段 remember(content=段) 零重算。
  */
-fun computeStableSplit(content: String): MarkdownStableSplit {
-    if (content.isEmpty()) return MarkdownStableSplit("", "", false)
+fun computeStableSegments(content: String): MarkdownSegmentation {
+    if (content.isEmpty()) return MarkdownSegmentation(emptyList(), "", false)
     val lines = content.split("\n")
+    val segments = ArrayList<String>()
+    var segmentStart = 0
     var inFence = false
     var inMath = false
     var mathEndTag: String? = null
-    var lastStableEndLine = -1
-    for (i in lines.indices) {
+    var i = 0
+    while (i < lines.size) {
         val line = lines[i]
         val trimmed = line.trim()
         if (inMath) {
-            if (mathEndTag != null && line.contains(mathEndTag)) {
+            val tag = mathEndTag
+            if (tag != null && line.contains(tag)) {
                 inMath = false
                 mathEndTag = null
             }
+            i++
             continue
         }
         if (line.trimStart().startsWith("```")) {
             inFence = !inFence
-            if (!inFence && i < lines.size - 1) lastStableEndLine = i
+            if (!inFence && i < lines.size - 1) {
+                segments.add(lines.subList(segmentStart, i + 1).joinToString("\n") + "\n")
+                segmentStart = i + 1
+            }
+            i++
             continue
         }
-        if (inFence) continue
+        if (inFence) {
+            i++
+            continue
+        }
         if (trimmed.startsWith("\\begin{")) {
             val envName = trimmed.substringAfter("\\begin{").substringBefore("}")
-            val endTag = "\\end{$envName}"
+            val endTag = "\\end{" + envName + "}"
             if (!line.contains(endTag)) {
                 inMath = true
                 mathEndTag = endTag
             }
+            i++
             continue
         }
         if (trimmed.startsWith("\\[")) {
@@ -170,6 +188,7 @@ fun computeStableSplit(content: String): MarkdownStableSplit {
                 inMath = true
                 mathEndTag = "\\]"
             }
+            i++
             continue
         }
         if (trimmed.startsWith("$$")) {
@@ -177,17 +196,17 @@ fun computeStableSplit(content: String): MarkdownStableSplit {
                 inMath = true
                 mathEndTag = "$$"
             }
+            i++
             continue
         }
         if (line.isBlank() && i in 1 until lines.size - 1) {
-            lastStableEndLine = i
+            segments.add(lines.subList(segmentStart, i + 1).joinToString("\n") + "\n")
+            segmentStart = i + 1
         }
+        i++
     }
-    if (lastStableEndLine < 0) return MarkdownStableSplit("", content, inFence)
-    // 稳定段包含边界行的换行符，保证 stable + tail 与原文严格相等（还原不变量，防丢字）
-    val stable = lines.take(lastStableEndLine + 1).joinToString("\n") + "\n"
-    val tail = lines.drop(lastStableEndLine + 1).joinToString("\n")
-    return MarkdownStableSplit(stable, tail, inFence)
+    val tail = lines.subList(segmentStart, lines.size).joinToString("\n")
+    return MarkdownSegmentation(segments, tail, inFence)
 }
 
 @Composable
@@ -196,7 +215,8 @@ private fun MarkdownContent(
     modifier: Modifier = Modifier,
     color: Color,
     onCitationClick: ((Int) -> Unit)?,
-    endCursorColor: Color? = null
+    endCursorColor: Color? = null,
+    endCursorFading: Boolean = false
 ) {
     Column(modifier = modifier) {
         val lines = remember(content) { content.split("\n") }
@@ -442,7 +462,8 @@ private fun MarkdownContent(
                                 color = color,
                                 modifier = Modifier.padding(vertical = 2.dp),
                                 onCitationClick = onCitationClick,
-                                endCursorColor = if (index >= lines.size) endCursorColor else null
+                                endCursorColor = if (index >= lines.size) endCursorColor else null,
+                                endCursorFading = endCursorFading
                             )
                         }
                     }
@@ -634,7 +655,8 @@ internal fun InlineMarkdownText(
     color: Color,
     modifier: Modifier = Modifier,
     onCitationClick: ((Int) -> Unit)? = null,
-    endCursorColor: Color? = null
+    endCursorColor: Color? = null,
+    endCursorFading: Boolean = false
 ) {
     val uriHandler = LocalUriHandler.current
     val hasCitations = remember(text) { text.getStringAnnotations(tag = "CITATION", start = 0, end = text.length).isNotEmpty() }
@@ -659,6 +681,7 @@ internal fun InlineMarkdownText(
                 )
                 EchoStreamingCursor(
                     color = endCursorColor,
+                    fading = endCursorFading,
                     modifier = Modifier.graphicsLayer {
                         val layout: androidx.compose.ui.text.TextLayoutResult? = layoutState.value
                         if (layout != null) {
@@ -746,7 +769,12 @@ internal fun EchoStreamingCursor(
         label = "cursorFade"
     )
     Canvas(modifier.size(width = 2.dp, height = 18.dp)) {
-        val alpha = if (reduced) fade else breathe * fade
+        // fading（落定）：停止呼吸、只做静态淡出；正常流式：呼吸；reduced：静态
+        val alpha = when {
+            reduced -> fade
+            fading -> fade
+            else -> breathe * fade
+        }
         if (alpha > 0.01f) {
             drawRoundRect(
                 color = color.copy(alpha = alpha),

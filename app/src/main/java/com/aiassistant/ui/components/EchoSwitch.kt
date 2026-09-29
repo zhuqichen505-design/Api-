@@ -26,7 +26,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import com.aiassistant.ui.theme.EchoMotion
 import com.aiassistant.ui.theme.EchoTokens
+import com.aiassistant.ui.theme.rememberReducedMotion
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
 
 /**
  * Echo 开关规格
@@ -116,17 +120,32 @@ private fun EchoCompactSwitchTrack(
     val thumbMargin = 3.dp
     val pillShape = RoundedCornerShape(trackHeight / 2)
 
+    // A5：reduced motion 时颜色/位移瞬切（snap），否则弹簧节奏动画
+    val reduced = rememberReducedMotion()
+    val colorSpec = if (reduced) {
+        androidx.compose.animation.core.snap<androidx.compose.ui.graphics.Color>()
+    } else {
+        androidx.compose.animation.core.tween<androidx.compose.ui.graphics.Color>(EchoMotion.Duration.fast)
+    }
     val trackColor by animateColorAsState(
         targetValue = if (checked) colors.checkedTrackColor else colors.uncheckedTrackColor,
+        animationSpec = colorSpec,
         label = "echoSwitchTrackColor"
     )
     val thumbColor by animateColorAsState(
         targetValue = if (checked) colors.checkedThumbColor else colors.uncheckedThumbColor,
+        animationSpec = colorSpec,
         label = "echoSwitchThumbColor"
     )
     val borderColor = if (checked) Color.Transparent else colors.uncheckedBorderColor
+    val offsetSpec = if (reduced) {
+        androidx.compose.animation.core.snap<androidx.compose.ui.unit.Dp>()
+    } else {
+        androidx.compose.animation.core.tween<androidx.compose.ui.unit.Dp>(EchoMotion.Duration.fast)
+    }
     val thumbOffset by animateDpAsState(
         targetValue = if (checked) trackWidth - thumbSize - thumbMargin else thumbMargin,
+        animationSpec = offsetSpec,
         label = "echoSwitchThumbOffset"
     )
 

@@ -483,7 +483,7 @@ fun EchoGlassDropdownMenu(
                         scaleIn(
                             initialScale = 0.85f,
                             animationSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.standard, com.aiassistant.ui.theme.EchoMotion.Easing.emphasizedDecelerate),
-                            transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
+                            transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 0f) // A6：右上锚点（三点按钮在右侧，菜单自其右下角生长）
                         )
                 },
                 exit = fadeOut(com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.fast))

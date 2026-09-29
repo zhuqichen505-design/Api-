@@ -357,7 +357,9 @@ internal fun MessageBubble(
     customAvatarUri: String? = null,
     onTogglePin: ((Message) -> Unit)? = null,
     onToggleExclude: ((Message) -> Unit)? = null,
-    thinkingEffort: String? = null
+    thinkingEffort: String? = null,
+    /** P0-3 落定信号：生成结束落库后的持久化气泡置 true，首次组合播放一次光标淡出+落定脉冲 */
+    settleSignal: Boolean = false
 ) {
     val isUser = message.role == "user"
     val resolvedReadableBackdrop = readableBackdrop.takeOrElse {
@@ -420,18 +422,22 @@ internal fun MessageBubble(
         reconnectStatus = reconnectStatus,
         contentIsError = !isUser && isErrorMessage(message.content)
     )
-    // 光标生命周期：流式期间可见；生成结束后保留 300ms 供淡出，再摘除
-    var cursorAlive by remember { mutableStateOf(isGenerating) }
-    val wasGenerating = remember { mutableStateOf(isGenerating) }
+    // 光标生命周期：流式期间可见；生成结束后保留 300ms 供淡出，再摘除；
+    // settleSignal（审核 A3）：常规路径下流式气泡随 isGenerating=false 同帧卸载（ViewModel 同帧清空
+    // currentResponse），落库后的持久化气泡以 settleSignal=true 入场，播放同一段收尾序列
+    val reducedMotion = com.aiassistant.ui.theme.rememberReducedMotion()
+    val settleEligible = settleSignal && generationState != GenerationUiState.Failed
+    var cursorAlive by remember { mutableStateOf(isGenerating || settleEligible) }
+    val wasGenerating = remember { mutableStateOf(isGenerating || settleEligible) }
     // P0-3② 落定脉冲：scale 1.0→0.995→1.0（200ms，graphicsLayer 绘制层，一次性）
     val settleScale = remember { androidx.compose.animation.core.Animatable(1f) }
-    LaunchedEffect(isGenerating) {
+    LaunchedEffect(isGenerating, settleEligible) {
         if (isGenerating) {
             cursorAlive = true
         } else {
             val wasGeneratingBefore = wasGenerating.value
             if (wasGeneratingBefore && message.content.isNotBlank() &&
-                generationState != GenerationUiState.Failed
+                generationState != GenerationUiState.Failed && !reducedMotion
             ) {
                 runCatching {
                     settleScale.animateTo(
@@ -455,7 +461,6 @@ internal fun MessageBubble(
     } else {
         MaterialTheme.colorScheme.primary
     }
-    val reducedMotion = com.aiassistant.ui.theme.rememberReducedMotion()
 
     activeCitation?.let { citation ->
         CitationDetailDialog(
@@ -583,10 +588,8 @@ internal fun MessageBubble(
                     )
                 }
 
-                if (isGenerating) {
-                    if (message.content.isNotBlank()) {
-                        Spacer(modifier = Modifier.height(6.dp))
-                    }
+                // 审核 A4：等待期（正文空白）由波浪点表达"活着"；流式期改由呼吸光标承担，避免双重指示
+                if (isGenerating && message.content.isBlank()) {
                     TypingIndicator(textColor = contentColor)
                 }
             }
@@ -847,11 +850,16 @@ internal fun MessageBubble(
                             ) {
                                 // P0-1② 状态文案交叉淡换：以状态枚举为 key（150ms 淡出+淡入），
                                 // 同状态下文案变化不触发动画（避免逐字符抖动）
+                                // A5：reduced motion 时 snap 硬切（保留状态变化本身），正常时 150ms 交叉淡换
+                                val capsuleSpec = if (reducedMotion) {
+                                    androidx.compose.animation.core.snap<Float>()
+                                } else {
+                                    com.aiassistant.ui.theme.EchoMotion.tweenSpec<Float>(com.aiassistant.ui.theme.EchoMotion.Duration.fast)
+                                }
                                 AnimatedContent(
                                     targetState = generationState,
                                     transitionSpec = {
-                                        (fadeIn(com.aiassistant.ui.theme.EchoMotion.tweenSpec<Float>(com.aiassistant.ui.theme.EchoMotion.Duration.fast)) togetherWith
-                                            fadeOut(com.aiassistant.ui.theme.EchoMotion.tweenSpec<Float>(com.aiassistant.ui.theme.EchoMotion.Duration.fast)))
+                                        (fadeIn(capsuleSpec) togetherWith fadeOut(capsuleSpec))
                                     },
                                     label = "capsulePhase"
                                 ) { _ ->
@@ -884,8 +892,9 @@ internal fun MessageBubble(
                         }
                     }
 
-                    // P0-1③ 连接等待计时：>8s 滑入弱提示，>20s 升级 error 语义色（仅连接态；重连态由 reconnectStatus 文案承载）
-                    if (generationState == GenerationUiState.Connecting && !reducedMotion) {
+                    // P0-1③ 连接等待计时：>8s 弱提示，>20s 升级 error 语义色（仅连接态；重连态由 reconnectStatus 文案承载）。
+                    // A5：reduced motion 下保留提示信息（功能性），仅短路登场动画（装饰性）
+                    if (generationState == GenerationUiState.Connecting) {
                         var elapsedSec by remember { mutableIntStateOf(0) }
                         LaunchedEffect(Unit) {
                             while (isActive) {
@@ -894,13 +903,18 @@ internal fun MessageBubble(
                             }
                         }
                         if (elapsedSec >= 8) {
-                            AnimatedVisibility(
-                                visible = true,
-                                enter = fadeIn(com.aiassistant.ui.theme.EchoMotion.tweenSpec<Float>(com.aiassistant.ui.theme.EchoMotion.Duration.fast)) +
+                            val hintEnter = if (reducedMotion) {
+                                androidx.compose.animation.EnterTransition.None
+                            } else {
+                                fadeIn(com.aiassistant.ui.theme.EchoMotion.tweenSpec<Float>(com.aiassistant.ui.theme.EchoMotion.Duration.fast)) +
                                     slideInVertically(
                                         animationSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec<androidx.compose.ui.unit.IntOffset>(com.aiassistant.ui.theme.EchoMotion.Duration.fast),
                                         initialOffsetY = { it / 2 }
                                     )
+                            }
+                            AnimatedVisibility(
+                                visible = true,
+                                enter = hintEnter
                             ) {
                                 Text(
                                     text = "连接时间较长，正在等待 ${(assistantModelName.ifBlank { "AI" }).displayModelShortName()} 响应…（已等待 ${elapsedSec}s）",

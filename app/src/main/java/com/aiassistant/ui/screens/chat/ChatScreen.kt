@@ -442,6 +442,24 @@ fun ChatScreen(
         }
     }
 
+    // 审核 A3：落定信号接线——生成结束后捕获最新落库的 assistant 消息 id，
+    // 对应持久化气泡以 settleSignal 入场播放收尾序列（光标淡出+落定脉冲）；
+    // 1.6s 后撤销信号（防滚动回看重播）
+    var settledMessageId by remember { mutableStateOf(0L) }
+    val wasGeneratingForSettle = remember { mutableStateOf(isGenerating) }
+    LaunchedEffect(isGenerating) {
+        if (!isGenerating && wasGeneratingForSettle.value) {
+            kotlinx.coroutines.delay(150) // 等待落库消息经 Room 流回 UI
+            val lastAssistant = messages.lastOrNull { it.role == "assistant" && it.id > 0 }
+            if (lastAssistant != null) {
+                settledMessageId = lastAssistant.id
+                kotlinx.coroutines.delay(1600)
+                settledMessageId = 0L
+            }
+        }
+        wasGeneratingForSettle.value = isGenerating
+    }
+
     LaunchedEffect(conversationId) {
         streamingBranchGroupId = null
         pendingEditSource = null
@@ -1159,7 +1177,8 @@ fun ChatScreen(
                                     },
                                     customAvatarUri = uiState.roleplayCharacter?.avatarUri ?: uiState.modelAvatarUri,
                                     onTogglePin = { msg -> viewModel.togglePinMessage(msg) },
-                                    onToggleExclude = { msg -> viewModel.toggleExcludeMessage(msg) }
+                                    onToggleExclude = { msg -> viewModel.toggleExcludeMessage(msg) },
+                                    settleSignal = message.role == "assistant" && message.id == settledMessageId
                                 )
                             }
 
@@ -1405,13 +1424,22 @@ fun ChatScreen(
                         visibleState = remember {
                             androidx.compose.animation.core.MutableTransitionState(false).apply { targetState = true }
                         },
-                        enter = slideInVertically(
-                            animationSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec<androidx.compose.ui.unit.IntOffset>(com.aiassistant.ui.theme.EchoMotion.Duration.standard),
-                            initialOffsetY = { -it }
-                        ) + fadeIn(com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.standard)),
-                        exit = shrinkVertically(
-                            animationSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.fast)
-                        ) + fadeOut(com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.fast))
+                        // A5：reduced motion 时横幅直接呈现（功能信息保留，装饰动画短路）
+                        enter = if (com.aiassistant.ui.theme.rememberReducedMotion()) {
+                            androidx.compose.animation.EnterTransition.None
+                        } else {
+                            slideInVertically(
+                                animationSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec<androidx.compose.ui.unit.IntOffset>(com.aiassistant.ui.theme.EchoMotion.Duration.standard),
+                                initialOffsetY = { -it }
+                            ) + fadeIn(com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.standard))
+                        },
+                        exit = if (com.aiassistant.ui.theme.rememberReducedMotion()) {
+                            androidx.compose.animation.ExitTransition.None
+                        } else {
+                            shrinkVertically(
+                                animationSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.fast)
+                            ) + fadeOut(com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.fast))
+                        }
                     ) {
                         val errorShape = RoundedCornerShape(22.dp)
                         val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
@@ -1477,13 +1505,22 @@ fun ChatScreen(
                         visibleState = remember {
                             androidx.compose.animation.core.MutableTransitionState(false).apply { targetState = true }
                         },
-                        enter = slideInVertically(
-                            animationSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec<androidx.compose.ui.unit.IntOffset>(com.aiassistant.ui.theme.EchoMotion.Duration.standard),
-                            initialOffsetY = { -it }
-                        ) + fadeIn(com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.standard)),
-                        exit = shrinkVertically(
-                            animationSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.fast)
-                        ) + fadeOut(com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.fast))
+                        // A5：reduced motion 时横幅直接呈现（功能信息保留，装饰动画短路）
+                        enter = if (com.aiassistant.ui.theme.rememberReducedMotion()) {
+                            androidx.compose.animation.EnterTransition.None
+                        } else {
+                            slideInVertically(
+                                animationSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec<androidx.compose.ui.unit.IntOffset>(com.aiassistant.ui.theme.EchoMotion.Duration.standard),
+                                initialOffsetY = { -it }
+                            ) + fadeIn(com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.standard))
+                        },
+                        exit = if (com.aiassistant.ui.theme.rememberReducedMotion()) {
+                            androidx.compose.animation.ExitTransition.None
+                        } else {
+                            shrinkVertically(
+                                animationSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.fast)
+                            ) + fadeOut(com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.fast))
+                        }
                     ) {
                         val isWarning = statusMsg.startsWith("⚠️")
                         val isSuccess = statusMsg.startsWith("✅")

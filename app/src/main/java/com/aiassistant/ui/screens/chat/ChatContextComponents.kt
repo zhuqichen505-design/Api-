@@ -176,19 +176,29 @@ internal fun ChatScrollJumpButtons(
     onJumpToBottom: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // P2-6 滚动辅助件：悬浮跳转钮弹入（snappy 弹簧缩放）+淡入，退场快收，统一 EchoMotion 曲线
+    // P2-6 滚动辅助件：悬浮跳转钮弹入（snappy 弹簧缩放）+淡入，退场快收，统一 EchoMotion 曲线；
+    // A5：reduced motion 时直接呈现/消失
+    val jumpMotionReduced = com.aiassistant.ui.theme.rememberReducedMotion()
     AnimatedVisibility(
         visible = visible,
-        enter = fadeIn(com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.fast)) +
-            scaleIn(
-                initialScale = 0.8f,
-                animationSpec = com.aiassistant.ui.theme.EchoMotion.Spring.snappy()
-            ),
-        exit = fadeOut(com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.fast)) +
-            scaleOut(
-                targetScale = 0.8f,
-                animationSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.fast)
-            ),
+        enter = if (jumpMotionReduced) {
+            androidx.compose.animation.EnterTransition.None
+        } else {
+            fadeIn(com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.fast)) +
+                scaleIn(
+                    initialScale = 0.8f,
+                    animationSpec = com.aiassistant.ui.theme.EchoMotion.Spring.snappy()
+                )
+        },
+        exit = if (jumpMotionReduced) {
+            androidx.compose.animation.ExitTransition.None
+        } else {
+            fadeOut(com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.fast)) +
+                scaleOut(
+                    targetScale = 0.8f,
+                    animationSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.fast)
+                )
+        },
         modifier = modifier
     ) {
         Column(
