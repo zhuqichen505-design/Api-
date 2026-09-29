@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.aiassistant.ui.theme.EchoTokens
+import com.aiassistant.ui.theme.rememberEchoSemanticColors
 
 /**
  * Echo 徽章 (EchoBadge)
@@ -35,18 +36,22 @@ fun EchoBadge(
     type: EchoBadgeType = EchoBadgeType.Primary,
     icon: ImageVector? = null
 ) {
+    val semanticColors = rememberEchoSemanticColors()
     val (backgroundColor, contentColor) = when (type) {
         EchoBadgeType.Primary -> {
             MaterialTheme.colorScheme.primaryContainer to MaterialTheme.colorScheme.onPrimaryContainer
         }
         EchoBadgeType.Success -> {
-            Color(0xFFDCFCE7) to Color(0xFF166534)
+            semanticColors.success.container to semanticColors.success.onContainer
         }
         EchoBadgeType.Warning -> {
-            Color(0xFFFEF3C7) to Color(0xFF92400E)
+            semanticColors.warning.container to semanticColors.warning.onContainer
         }
         EchoBadgeType.Error -> {
             MaterialTheme.colorScheme.errorContainer to MaterialTheme.colorScheme.onErrorContainer
+        }
+        EchoBadgeType.Info -> {
+            semanticColors.info.container to semanticColors.info.onContainer
         }
         EchoBadgeType.Neutral -> {
             MaterialTheme.colorScheme.surfaceVariant to MaterialTheme.colorScheme.onSurfaceVariant
@@ -91,6 +96,7 @@ enum class EchoBadgeType {
     Success,    // 成功状态
     Warning,    // 警告状态
     Error,      // 错误状态
+    Info,       // 信息提示
     Neutral     // 中性标签
 }
 

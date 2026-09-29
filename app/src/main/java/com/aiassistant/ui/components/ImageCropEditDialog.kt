@@ -26,6 +26,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.graphics.luminance
 import com.aiassistant.ui.theme.EchoTokens
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -84,13 +85,15 @@ fun ImageCropEditDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
+        val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
         Surface(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(16.dp),
             shape = EchoTokens.Radius.shapeXl,
             color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
-            tonalElevation = 6.dp
+            tonalElevation = 0.dp,
+            shadowElevation = EchoTokens.Elevation.overlay(isDark).elevation
         ) {
             Column(
                 modifier = Modifier

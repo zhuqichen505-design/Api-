@@ -144,6 +144,7 @@ import com.aiassistant.domain.model.RoleplaySession
 import com.aiassistant.ui.components.EchoGlassCard
 import com.aiassistant.ui.components.EchoPrimaryButton
 import com.aiassistant.ui.components.EchoGlassButton
+import com.aiassistant.ui.components.echoSwitchColors
 import com.aiassistant.ui.screens.roleplay.ConflictAction
 import com.aiassistant.ui.theme.EchoTokens
 
@@ -399,7 +400,8 @@ fun ChatSettingsDialog(
                             onCheckedChange = {
                                 enableThinking = it
                                 notifyTempSettingsChange()
-                            }
+                            },
+                            colors = echoSwitchColors()
                         )
                     }
                 }
@@ -427,7 +429,8 @@ fun ChatSettingsDialog(
                             onCheckedChange = {
                                 enableWebSearch = it
                                 notifyTempSettingsChange()
-                            }
+                            },
+                            colors = echoSwitchColors()
                         )
                     }
                 }

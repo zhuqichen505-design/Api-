@@ -174,6 +174,7 @@ object EchoTokens {
         val settingRowMinHeight: Dp = 56.dp
         val settingRowMinHeightWithSubtitle: Dp = 64.dp
         val menuItemMinHeight: Dp = 72.dp
+        val settingIconBackdrop: Dp = 42.dp // 设置行图标底色块（§4.2）
         val switchTrackWidth: Dp = 44.dp    // 紧凑开关轨道（见 EchoSwitch）
         val switchTrackHeight: Dp = 26.dp
         val avatarSize: Dp = 72.dp

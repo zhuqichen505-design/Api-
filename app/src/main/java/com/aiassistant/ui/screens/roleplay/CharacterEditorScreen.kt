@@ -33,6 +33,7 @@ import com.aiassistant.ui.components.EchoGlassDialog
 import com.aiassistant.ui.components.EchoGlassDropdownMenu
 import com.aiassistant.ui.components.ImageCropEditDialog
 import com.aiassistant.ui.components.CropShapeMode
+import com.aiassistant.ui.components.echoSwitchColors
 import com.aiassistant.utils.AvatarManager
 import com.aiassistant.utils.RoleplaySmartParser
 import kotlinx.coroutines.launch
@@ -759,7 +760,8 @@ private fun BasicInfoSection(
             Text("设为默认角色")
             Switch(
                 checked = isDefault,
-                onCheckedChange = onIsDefaultChange
+                onCheckedChange = onIsDefaultChange,
+                colors = echoSwitchColors()
             )
         }
     }

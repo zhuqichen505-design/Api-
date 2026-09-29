@@ -73,6 +73,8 @@ import com.aiassistant.domain.model.WorldBookEntry
 import com.aiassistant.domain.model.ModelCapabilityEngine
 import com.aiassistant.domain.model.ModelCustomSettings
 import com.aiassistant.domain.model.PromptTemplate
+import com.aiassistant.ui.components.EchoSettingRow
+import com.aiassistant.ui.components.EchoSwitch
 import com.aiassistant.ui.components.EchoGlassCard
 import com.aiassistant.ui.components.EchoGlassDialog
 import com.aiassistant.ui.components.EchoGlassDropdownMenu
@@ -233,13 +235,11 @@ fun WebSearchTab(
                         placeholder = "留空则使用官方免Key通道"
                     )
                 } else {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                    EchoSettingRow(
+                        title = "启用 Tavily 搜索",
+                        contentPaddingHorizontal = 0.dp
                     ) {
-                        Text("启用 Tavily 搜索", style = MaterialTheme.typography.bodyMedium)
-                        Switch(
+                        EchoSwitch(
                             checked = tavilyEnabled,
                             onCheckedChange = {
                                 tavilyEnabled = it
@@ -295,13 +295,11 @@ fun WebSearchTab(
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                     )
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                    EchoSettingRow(
+                        title = "包含 Tavily 自动摘要",
+                        contentPaddingHorizontal = 0.dp
                     ) {
-                        Text("包含 Tavily 自动摘要", style = MaterialTheme.typography.bodyMedium)
-                        Switch(
+                        EchoSwitch(
                             checked = includeAnswer,
                             onCheckedChange = {
                                 includeAnswer = it
@@ -428,18 +426,13 @@ fun WebSearchTab(
             }
 
             SettingsGlassCard(hazeState = hazeState) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
+                EchoSettingRow(
+                    title = "手机设备与健康数据联动",
+                    subtitle = "允许模型根据问题读取时间、定位、步数、心率、睡眠及硬件",
+                    icon = Icons.Default.Smartphone,
+                    contentPaddingHorizontal = 0.dp
                 ) {
-                    Icon(Icons.Default.Smartphone, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("手机设备与健康数据联动", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text("允许模型根据问题读取时间、定位、步数、心率、睡眠及硬件", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Switch(
+                    EchoSwitch(
                         checked = deviceToolsEnabled,
                         onCheckedChange = {
                             deviceToolsEnabled = it

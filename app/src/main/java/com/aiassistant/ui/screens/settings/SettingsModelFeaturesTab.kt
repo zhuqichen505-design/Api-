@@ -72,6 +72,10 @@ import com.aiassistant.domain.model.WorldBookEntry
 import com.aiassistant.domain.model.ModelCapabilityEngine
 import com.aiassistant.domain.model.ModelCustomSettings
 import com.aiassistant.domain.model.PromptTemplate
+import com.aiassistant.ui.components.EchoBadge
+import com.aiassistant.ui.components.EchoBadgeType
+import com.aiassistant.ui.components.EchoSettingRow
+import com.aiassistant.ui.components.EchoSwitch
 import com.aiassistant.ui.components.EchoGlassCard
 import com.aiassistant.ui.components.EchoGlassDialog
 import com.aiassistant.ui.components.EchoGlassDropdownMenu
@@ -163,6 +167,13 @@ fun ModelFeaturesTab(
     var thinkingTextTemplate by remember(settings) { mutableStateOf(settings.thinkingTextTemplate) }
 
     var savedMessage by remember { mutableStateOf<String?>(null) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(savedMessage) {
+        savedMessage?.let {
+            snackbarHostState.showSnackbar(it)
+            savedMessage = null
+        }
+    }
 
     fun persistSettings(
         newAutoNameEnabled: Boolean = autoNameEnabled,
@@ -230,34 +241,22 @@ fun ModelFeaturesTab(
 
     val glass = echoGlassPalette()
 
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = contentPadding,
-        verticalArrangement = Arrangement.spacedBy(EchoTokens.Spacing.cardGap)
-    ) {
-        // 1. 对话智能自动命名模型 (自由选择所有模型)
-        item {
-            SettingsGlassCard(hazeState = hazeState) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
+    Box(modifier = modifier) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = contentPadding,
+            verticalArrangement = Arrangement.spacedBy(EchoTokens.Spacing.cardGap)
+        ) {
+            // 1. 对话智能自动命名模型 (自由选择所有模型)
+            item {
+                SettingsGlassCard(hazeState = hazeState) {
+                EchoSettingRow(
+                    title = "对话智能自动命名",
+                    subtitle = "新对话首轮交互后自动生成简短精炼标题，可直接自由选择所有模型",
+                    icon = Icons.Default.DriveFileRenameOutline,
+                    contentPaddingHorizontal = 0.dp
                 ) {
-                    Icon(
-                        Icons.Default.DriveFileRenameOutline,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("对话智能自动命名", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text(
-                            "新对话首轮交互后自动生成简短精炼标题，可直接自由选择所有模型",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Switch(
+                    EchoSwitch(
                         checked = autoNameEnabled,
                         onCheckedChange = {
                             autoNameEnabled = it
@@ -267,409 +266,356 @@ fun ModelFeaturesTab(
                     )
                 }
 
-                if (autoNameEnabled) {
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                    if (autoNameEnabled) {
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
 
-                    // 自由直选所有模型
-                    UniversalModelPickerCard(
-                        hazeState = hazeState,
-                        title = "指定命名专用模型",
-                        subtitle = "直接跨服务商自由选择所有模型，无需先切换服务商",
-                        selectedConfigId = autoNameApiConfigId,
-                        selectedModel = autoNameModel,
-                        allConfigs = allApiConfigs,
-                        onSelect = { cfgId, model ->
-                            autoNameApiConfigId = cfgId
-                            autoNameModel = model
-                            persistSettings(newAutoNameConfigId = cfgId, newAutoNameModel = model)
-                            savedMessage = "已更新自动命名模型"
-                        }
-                    )
-
-                    // 自定义提示词
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(
-                            "自定义命名提示词（可选）：",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold
+                        // 自由直选所有模型
+                        UniversalModelPickerCard(
+                            hazeState = hazeState,
+                            title = "指定命名专用模型",
+                            subtitle = "直接跨服务商自由选择所有模型，无需先切换服务商",
+                            selectedConfigId = autoNameApiConfigId,
+                            selectedModel = autoNameModel,
+                            allConfigs = allApiConfigs,
+                            onSelect = { cfgId, model ->
+                                autoNameApiConfigId = cfgId
+                                autoNameModel = model
+                                persistSettings(newAutoNameConfigId = cfgId, newAutoNameModel = model)
+                                savedMessage = "已更新自动命名模型"
+                            }
                         )
-                        OutlinedTextField(
-                            value = autoNamePrompt,
-                            onValueChange = {
-                                autoNamePrompt = it
-                                savedMessage = null
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = 90.dp),
-                            placeholder = { Text("留空将使用默认精炼命名提示词...") },
-                            minLines = 2,
-                            maxLines = 6,
-                            shape = SettingsInnerShape
+
+                        // 自定义提示词
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                "自定义命名提示词（可选）：",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            OutlinedTextField(
+                                value = autoNamePrompt,
+                                onValueChange = {
+                                    autoNamePrompt = it
+                                    savedMessage = null
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 90.dp),
+                                placeholder = { Text("留空将使用默认精炼命名提示词...") },
+                                minLines = 2,
+                                maxLines = 6,
+                                shape = SettingsInnerShape
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 2. 深度思考链语言翻译 (自由选择所有模型)
+            item {
+                SettingsGlassCard(hazeState = hazeState) {
+                    EchoSettingRow(
+                        title = "思考链语言翻译",
+                        subtitle = "模型输出英文/多语言思考过程时，在消息上方提供「翻译」按钮进行快速中文译制",
+                        icon = Icons.Default.Translate,
+                        contentPaddingHorizontal = 0.dp
+                    ) {
+                        EchoSwitch(
+                            checked = enableThinkingTranslation,
+                            onCheckedChange = {
+                                enableThinkingTranslation = it
+                                persistSettings(newEnableThinkingTranslation = it)
+                                savedMessage = if (it) "已开启思考链翻译" else "已关闭思考链翻译"
+                            }
+                        )
+                    }
+
+                    if (enableThinkingTranslation) {
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                        // 自由直选所有模型
+                        UniversalModelPickerCard(
+                            hazeState = hazeState,
+                            title = "翻译专用模型",
+                            subtitle = "直接跨服务商自由选择所有模型，无需先切换服务商",
+                            selectedConfigId = thinkingTranslationApiConfigId,
+                            selectedModel = thinkingTranslationModel,
+                            allConfigs = allApiConfigs,
+                            onSelect = { cfgId, model ->
+                                thinkingTranslationApiConfigId = cfgId
+                                thinkingTranslationModel = model
+                                persistSettings(newThinkingConfigId = cfgId, newThinkingModel = model)
+                                savedMessage = "已更新思考链翻译模型"
+                            }
                         )
                     }
                 }
             }
-        }
 
-        // 2. 深度思考链语言翻译 (自由选择所有模型)
-        item {
-            SettingsGlassCard(hazeState = hazeState) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        Icons.Default.Translate,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("思考链语言翻译", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text(
-                            "模型输出英文/多语言思考过程时，在消息上方提供「翻译」按钮进行快速中文译制",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+            // 3. 记忆提炼与时间线分析辅助模型 (自由选择所有模型)
+            item {
+                SettingsGlassCard(hazeState = hazeState) {
+                    EchoSettingRow(
+                        title = "记忆提炼与时间线辅助模型",
+                        subtitle = "指定独立 API 与模型（如 deepseek-chat、gpt-4o-mini）专门提炼记忆与全量时间线梳理，彻底避免干扰主模型上下文与计费",
+                        icon = Icons.Default.Psychology,
+                        badgeText = if (auxiliaryMemoryEnabled) "已启用" else "未启用",
+                        badgeType = if (auxiliaryMemoryEnabled) EchoBadgeType.Success else EchoBadgeType.Neutral,
+                        contentPaddingHorizontal = 0.dp
+                    ) {
+                        EchoSwitch(
+                            checked = auxiliaryMemoryEnabled,
+                            onCheckedChange = {
+                                auxiliaryMemoryEnabled = it
+                                persistAuxiliaryMemorySettings(enabled = it)
+                                savedMessage = if (it) "已开启记忆提炼辅助模型" else "已关闭记忆提炼辅助模型"
+                            }
                         )
                     }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Switch(
-                        checked = enableThinkingTranslation,
-                        onCheckedChange = {
-                            enableThinkingTranslation = it
-                            persistSettings(newEnableThinkingTranslation = it)
-                            savedMessage = if (it) "已开启思考链翻译" else "已关闭思考链翻译"
-                        }
-                    )
-                }
 
-                if (enableThinkingTranslation) {
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                    if (auxiliaryMemoryEnabled) {
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
 
-                    // 自由直选所有模型
-                    UniversalModelPickerCard(
-                        hazeState = hazeState,
-                        title = "翻译专用模型",
-                        subtitle = "直接跨服务商自由选择所有模型，无需先切换服务商",
-                        selectedConfigId = thinkingTranslationApiConfigId,
-                        selectedModel = thinkingTranslationModel,
-                        allConfigs = allApiConfigs,
-                        onSelect = { cfgId, model ->
-                            thinkingTranslationApiConfigId = cfgId
-                            thinkingTranslationModel = model
-                            persistSettings(newThinkingConfigId = cfgId, newThinkingModel = model)
-                            savedMessage = "已更新思考链翻译模型"
+                        // 统一使用 UniversalModelPickerCard
+                        UniversalModelPickerCard(
+                            hazeState = hazeState,
+                            title = "记忆提炼专用模型",
+                            subtitle = "直接跨服务商自由选择所有模型，无需先切换服务商",
+                            selectedConfigId = auxiliaryMemoryConfigId,
+                            selectedModel = auxiliaryMemoryModel,
+                            allConfigs = allApiConfigs,
+                            onSelect = { cfgId, model ->
+                                auxiliaryMemoryConfigId = cfgId
+                                auxiliaryMemoryModel = model
+                                persistAuxiliaryMemorySettings(configId = cfgId, model = model)
+                                savedMessage = "已更新记忆提炼辅助模型"
+                            }
+                        )
+
+                        // 自定义提炼提示词
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                "自定义记忆提炼提示词（可选）：",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            OutlinedTextField(
+                                value = auxiliaryMemoryPrompt,
+                                onValueChange = {
+                                    auxiliaryMemoryPrompt = it
+                                    savedMessage = null
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 90.dp),
+                                placeholder = { Text("留空将使用默认记忆提炼与时间线解析提示词...") },
+                                minLines = 2,
+                                maxLines = 6,
+                                shape = SettingsInnerShape
+                            )
                         }
-                    )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "支持记忆提取与全量时间线分析",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            FilledTonalButton(
+                                onClick = { showAuxiliaryTestDialog = true },
+                                shape = RoundedCornerShape(999.dp)
+                            ) {
+                                Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("即时测试辅助连接", style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
+                    }
                 }
             }
-        }
 
-        // 3. 记忆提炼与时间线分析辅助模型 (自由选择所有模型)
-        item {
-            SettingsGlassCard(hazeState = hazeState) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        Icons.Default.Psychology,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
+            // 4. 思考胶囊文案自定义
+            item {
+                SettingsGlassCard(hazeState = hazeState) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.Psychology,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("思考胶囊文案自定义", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                "自定义模型输出时思考胶囊展示的文案，支持自由组合模型名称、耗时与 Token 消耗。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    SettingsInputField(
+                        title = "胶囊文案模板",
+                        value = thinkingTemplate,
+                        onValueChange = {
+                            thinkingTemplate = it
+                            savedMessage = null
+                        },
+                        placeholder = "{model} {status} {time} {tokens}"
                     )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        FlowRow(
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
+
+                    // 常用预设快捷填入
+                    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("快捷预设模板：", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Text("记忆提炼与时间线辅助模型", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                            Surface(
-                                shape = RoundedCornerShape(999.dp),
-                                color = if (auxiliaryMemoryEnabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
-                            ) {
-                                Text(
-                                    text = if (auxiliaryMemoryEnabled) "已启用" else "未启用",
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = if (auxiliaryMemoryEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontWeight = FontWeight.Bold
+                            listOf(
+                                "默认" to "{model} {status} {time} {tokens}",
+                                "叙述" to "{model} 思考了 {time} 消耗了 {tokens}",
+                                "极简" to "{model} · {time} · {tokens}"
+                            ).forEach { (name, tpl) ->
+                                FilterChip(
+                                    selected = thinkingTemplate == tpl,
+                                    onClick = {
+                                        thinkingTemplate = tpl
+                                        persistSettings(newThinkingTemplate = tpl)
+                                        savedMessage = "已应用胶囊模板"
+                                    },
+                                    label = { Text(name) },
+                                    colors = echoFilterChipColors(),
+                                    border = echoFilterChipBorder(thinkingTemplate == tpl)
                                 )
                             }
                         }
-                        Text(
-                            "指定独立 API 与模型（如 deepseek-chat、gpt-4o-mini）专门提炼记忆与全量时间线梳理，彻底避免干扰主模型上下文与计费",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
                     }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Switch(
-                        checked = auxiliaryMemoryEnabled,
-                        onCheckedChange = {
-                            auxiliaryMemoryEnabled = it
-                            persistAuxiliaryMemorySettings(enabled = it)
-                            savedMessage = if (it) "已开启记忆提炼辅助模型" else "已关闭记忆提炼辅助模型"
+
+                    // 变量标签
+                    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("可点击插入占位变量：", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            listOf(
+                                "{model}" to "模型名",
+                                "{time}" to "耗时",
+                                "{tokens}" to "Token量",
+                                "{status}" to "状态"
+                            ).forEach { (varKey, _) ->
+                                AssistChip(
+                                    onClick = {
+                                        if (!thinkingTemplate.contains(varKey)) {
+                                            val newTpl = if (thinkingTemplate.isBlank()) varKey else "$thinkingTemplate $varKey"
+                                            thinkingTemplate = newTpl
+                                            persistSettings(newThinkingTemplate = newTpl)
+                                            savedMessage = "已插入 $varKey"
+                                        }
+                                    },
+                                    label = { Text(varKey, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                                )
+                            }
                         }
-                    )
+                    }
                 }
+            }
 
-                if (auxiliaryMemoryEnabled) {
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-
-                    // 统一使用 UniversalModelPickerCard
-                    UniversalModelPickerCard(
-                        hazeState = hazeState,
-                        title = "记忆提炼专用模型",
-                        subtitle = "直接跨服务商自由选择所有模型，无需先切换服务商",
-                        selectedConfigId = auxiliaryMemoryConfigId,
-                        selectedModel = auxiliaryMemoryModel,
-                        allConfigs = allApiConfigs,
-                        onSelect = { cfgId, model ->
-                            auxiliaryMemoryConfigId = cfgId
-                            auxiliaryMemoryModel = model
-                            persistAuxiliaryMemorySettings(configId = cfgId, model = model)
-                            savedMessage = "已更新记忆提炼辅助模型"
-                        }
-                    )
-
-                    // 自定义提炼提示词
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(
-                            "自定义记忆提炼提示词（可选）：",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        OutlinedTextField(
-                            value = auxiliaryMemoryPrompt,
-                            onValueChange = {
-                                auxiliaryMemoryPrompt = it
-                                savedMessage = null
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = 90.dp),
-                            placeholder = { Text("留空将使用默认记忆提炼与时间线解析提示词...") },
-                            minLines = 2,
-                            maxLines = 6,
-                            shape = SettingsInnerShape
-                        )
-                    }
-
+            // 4. 生成状态文案自定义 (连接中 & 思考中)
+            item {
+                SettingsGlassCard(hazeState = hazeState) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            "支持记忆提取与全量时间线分析",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        FilledTonalButton(
-                            onClick = { showAuxiliaryTestDialog = true },
-                            shape = RoundedCornerShape(999.dp)
-                        ) {
-                            Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("即时测试辅助连接", style = MaterialTheme.typography.labelMedium)
-                        }
-                    }
-                }
-            }
-        }
-
-        // 4. 思考胶囊文案自定义
-        item {
-            SettingsGlassCard(hazeState = hazeState) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        Icons.Default.Psychology,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("思考胶囊文案自定义", style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            "自定义模型输出时思考胶囊展示的文案，支持自由组合模型名称、耗时与 Token 消耗。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-                SettingsInputField(
-                    title = "胶囊文案模板",
-                    value = thinkingTemplate,
-                    onValueChange = {
-                        thinkingTemplate = it
-                        savedMessage = null
-                    },
-                    placeholder = "{model} {status} {time} {tokens}"
-                )
-
-                // 常用预设快捷填入
-                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("快捷预设模板：", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        listOf(
-                            "默认" to "{model} {status} {time} {tokens}",
-                            "叙述" to "{model} 思考了 {time} 消耗了 {tokens}",
-                            "极简" to "{model} · {time} · {tokens}"
-                        ).forEach { (name, tpl) ->
-                            FilterChip(
-                                selected = thinkingTemplate == tpl,
-                                onClick = {
-                                    thinkingTemplate = tpl
-                                    persistSettings(newThinkingTemplate = tpl)
-                                    savedMessage = "已应用胶囊模板"
-                                },
-                                label = { Text(name) },
-                                colors = echoFilterChipColors(),
-                                border = echoFilterChipBorder(thinkingTemplate == tpl)
-                            )
-                        }
-                    }
-                }
-
-                // 变量标签
-                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("可点击插入占位变量：", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        listOf(
-                            "{model}" to "模型名",
-                            "{time}" to "耗时",
-                            "{tokens}" to "Token量",
-                            "{status}" to "状态"
-                        ).forEach { (varKey, _) ->
-                            AssistChip(
-                                onClick = {
-                                    if (!thinkingTemplate.contains(varKey)) {
-                                        val newTpl = if (thinkingTemplate.isBlank()) varKey else "$thinkingTemplate $varKey"
-                                        thinkingTemplate = newTpl
-                                        persistSettings(newThinkingTemplate = newTpl)
-                                        savedMessage = "已插入 $varKey"
-                                    }
-                                },
-                                label = { Text(varKey, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // 4. 生成状态文案自定义 (连接中 & 思考中)
-        item {
-            SettingsGlassCard(hazeState = hazeState) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        Icons.Default.Pending,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("生成状态文案自定义", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text(
-                            "自定义模型正在连接与深度思考时显示的提示文案，支持 {model} 变量占位",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    IconButton(
-                        onClick = {
-                            connectingTemplate = "{model} 正在连接中..."
-                            thinkingTextTemplate = "{model} 正在思考中..."
-                            persistSettings(
-                                newConnectingTemplate = "{model} 正在连接中...",
-                                newThinkingTextTemplate = "{model} 正在思考中..."
-                            )
-                            savedMessage = "已重置生成文案为默认值"
-                        }
-                    ) {
                         Icon(
-                            Icons.Default.RestartAlt,
-                            contentDescription = "重置为默认值",
+                            Icons.Default.Pending,
+                            contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary
                         )
-                    }
-                }
-
-                SettingsInputField(
-                    title = "连接中文案（支持 {model}）",
-                    value = connectingTemplate,
-                    onValueChange = {
-                        connectingTemplate = it
-                        savedMessage = null
-                    },
-                    placeholder = "{model} 正在连接中..."
-                )
-
-                SettingsInputField(
-                    title = "思考中文案（支持 {model}）",
-                    value = thinkingTextTemplate,
-                    onValueChange = {
-                        thinkingTextTemplate = it
-                        savedMessage = null
-                    },
-                    placeholder = "{model} 正在思考中..."
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    TextButton(
-                        onClick = {
-                            connectingTemplate = "{model} 正在连接中..."
-                            thinkingTextTemplate = "{model} 正在思考中..."
-                            persistSettings(
-                                newConnectingTemplate = "{model} 正在连接中...",
-                                newThinkingTextTemplate = "{model} 正在思考中..."
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("生成状态文案自定义", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            Text(
+                                "自定义模型正在连接与深度思考时显示的提示文案，支持 {model} 变量占位",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            savedMessage = "已恢复默认文案"
                         }
+                        IconButton(
+                            onClick = {
+                                connectingTemplate = "{model} 正在连接中..."
+                                thinkingTextTemplate = "{model} 正在思考中..."
+                                persistSettings(
+                                    newConnectingTemplate = "{model} 正在连接中...",
+                                    newThinkingTextTemplate = "{model} 正在思考中..."
+                                )
+                                savedMessage = "已重置生成文案为默认值"
+                            }
+                        ) {
+                            Icon(
+                                Icons.Default.RestartAlt,
+                                contentDescription = "重置为默认值",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+
+                    SettingsInputField(
+                        title = "连接中文案（支持 {model}）",
+                        value = connectingTemplate,
+                        onValueChange = {
+                            connectingTemplate = it
+                            savedMessage = null
+                        },
+                        placeholder = "{model} 正在连接中..."
+                    )
+
+                    SettingsInputField(
+                        title = "思考中文案（支持 {model}）",
+                        value = thinkingTextTemplate,
+                        onValueChange = {
+                            thinkingTextTemplate = it
+                            savedMessage = null
+                        },
+                        placeholder = "{model} 正在思考中..."
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
                     ) {
-                        Icon(Icons.Default.RestartAlt, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("重置为默认值")
+                        TextButton(
+                            onClick = {
+                                connectingTemplate = "{model} 正在连接中..."
+                                thinkingTextTemplate = "{model} 正在思考中..."
+                                persistSettings(
+                                    newConnectingTemplate = "{model} 正在连接中...",
+                                    newThinkingTextTemplate = "{model} 正在思考中..."
+                                )
+                                savedMessage = "已恢复默认文案"
+                            }
+                        ) {
+                            Icon(Icons.Default.RestartAlt, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("重置为默认值")
+                        }
                     }
                 }
             }
         }
 
-        // 保存反馈消息
-        savedMessage?.let { message ->
-            item {
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        text = message,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.padding(12.dp)
-                    )
-                }
-            }
-        }
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter)
+        )
     }
 
     // 辅助模型测试与平滑降级弹窗

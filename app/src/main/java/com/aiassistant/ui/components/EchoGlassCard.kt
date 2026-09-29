@@ -24,6 +24,13 @@ import com.aiassistant.ui.theme.EchoTokens
 import dev.chrisbanes.haze.HazeState
 
 /**
+ * 卡片视觉强调级别 (CardEmphasis)
+ * - Standard：完整四层玻璃效果（高光 + 顶部微光线 + 渐变边框 + 阴影），用于视觉焦点区
+ * - Subdued：仅保留"边框 + 轻阴影"，用于设置/历史等列表密集场景，降低视觉噪点（§3.3 E-6）
+ */
+enum class CardEmphasis { Standard, Subdued }
+
+/**
  * Echo 标准玻璃卡片 (EchoGlassCard)
  * 全应用统一的高端液态玻璃容器，具备纯净半透明底色、45°环境光折射高光、平滑微阴影。
  * 杜绝多次模糊计算导致的错位、拖影与重叠色块 Bug。
@@ -39,6 +46,7 @@ fun EchoGlassCard(
     hazeState: HazeState? = null,
     highlight: Boolean = false,
     showBorder: Boolean = true,
+    emphasis: CardEmphasis = CardEmphasis.Standard,
     content: @Composable BoxScope.() -> Unit
 ) {
     val colorScheme = MaterialTheme.colorScheme
@@ -62,16 +70,18 @@ fun EchoGlassCard(
         end = Offset.Infinite
     )
 
+    val shadowRecipe = EchoTokens.Elevation.card(isDark)
     var baseModifier = modifier
         .shadow(
             elevation = elevation,
             shape = shape,
-            ambientColor = Color.Black.copy(alpha = if (isDark) 0.10f else 0.03f),
-            spotColor = colorScheme.primary.copy(alpha = if (isDark) 0.06f else 0.02f)
+            ambientColor = shadowRecipe.ambient,
+            spotColor = shadowRecipe.spot
         )
         .clip(shape)
         .background(defaultBg, shape)
-        .drawBehind {
+        .then(
+            if (emphasis == CardEmphasis.Subdued) Modifier else Modifier.drawBehind {
             // 45° 柔和环境漫反射高光 (模拟真实液态玻璃光学折射)
             val specularAlpha = if (isDark) 0.05f else 0.09f
             drawRoundRect(
@@ -93,7 +103,8 @@ fun EchoGlassCard(
                 size = Size(size.width * 0.60f, 1.dp.toPx()),
                 cornerRadius = CornerRadius(999.dp.toPx(), 999.dp.toPx())
             )
-        }
+            }
+        )
 
     if (showBorder && borderWidth > 0.dp) {
         baseModifier = baseModifier.border(
@@ -126,6 +137,7 @@ fun EchoGlassCard(
     hazeState: HazeState? = null,
     highlight: Boolean = false,
     showBorder: Boolean = true,
+    emphasis: CardEmphasis = CardEmphasis.Standard,
     content: @Composable BoxScope.() -> Unit
 ) {
     val clickModifier = if (onLongClick != null) {
@@ -149,6 +161,7 @@ fun EchoGlassCard(
         hazeState = hazeState,
         highlight = highlight,
         showBorder = showBorder,
+        emphasis = emphasis,
         content = content
     )
 }

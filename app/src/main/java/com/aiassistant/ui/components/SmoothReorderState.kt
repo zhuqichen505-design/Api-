@@ -21,6 +21,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.Shape
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
+import com.aiassistant.ui.theme.EchoTokens
 
 /**
  * 平滑拖拽与重排序状态控制器 (SmoothReorderState)
@@ -212,7 +215,11 @@ fun Modifier.reorderItem(
     state: SmoothReorderState,
     index: Int,
     key: Any,
-    shape: Shape = RoundedCornerShape(10.dp)
+    shape: Shape = RoundedCornerShape(10.dp),
+    // 拖拽激活态阴影统一走 Elevation.raised() 配方（§3.3），默认取浅色配方值
+    activeShadowElevation: Dp = EchoTokens.Elevation.raised(false).elevation,
+    activeAmbientShadow: Color = EchoTokens.Elevation.raised(false).ambient,
+    activeSpotShadow: Color = EchoTokens.Elevation.raised(false).spot
 ): Modifier = this
     .onSizeChanged { size ->
         state.setItemHeight(index, size.height.toFloat())
@@ -225,9 +232,9 @@ fun Modifier.reorderItem(
         if (state.isItemActive(index)) {
             scaleX = 1.02f
             scaleY = 1.02f
-            shadowElevation = 8.dp.toPx()
-            ambientShadowColor = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.25f)
-            spotShadowColor = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.35f)
+            shadowElevation = activeShadowElevation.toPx()
+            ambientShadowColor = activeAmbientShadow
+            spotShadowColor = activeSpotShadow
         } else {
             scaleX = 1.0f
             scaleY = 1.0f

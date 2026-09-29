@@ -149,3 +149,28 @@ object EchoFolderColors {
         Color(0xFF64748B)   // slate-500
     )
 }
+
+// ============ 思考等级颜色 (EchoThinkingColors) ============
+// 聊天页思考等级专用，替代 ChatInputComponents 硬编码色
+
+object EchoThinkingColors {
+    // 关闭状态
+    val none = Color(0xFF64748B)
+    val noneGradient = listOf(Color(0xFF64748B), Color(0xFF94A3B8))
+
+    // 低等级 (low/fast)
+    val low = Color(0xFF60A5FA)
+    val lowGradient = listOf(Color(0xFF93C5FD), Color(0xFF60A5FA))
+
+    // 中等级 (medium/balanced)
+    val medium = Color(0xFF2563EB)
+    val mediumGradient = listOf(Color(0xFF3B82F6), Color(0xFF1D4ED8))
+
+    // 高等级 (high/deep)
+    val high = Color(0xFF1D4ED8)
+    val highGradient = listOf(Color(0xFF1D4ED8), Color(0xFF1E3A8A))
+
+    // 最高等级 (ultra/max)
+    val max = Color(0xFF4F46E5)
+    val maxGradient = listOf(Color(0xFF6366F1), Color(0xFF4338CA))
+}

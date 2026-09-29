@@ -14,6 +14,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
+import com.aiassistant.ui.theme.EchoTokens
 import com.aiassistant.ui.components.echoShapeCombinedClick
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -74,6 +75,7 @@ import com.aiassistant.ui.components.readableTextColorFor
 import com.aiassistant.ui.components.rememberReadableBackdropColor
 import com.aiassistant.ui.components.rememberEchoHazeState
 import com.aiassistant.ui.components.rememberLazyListControlsVisible
+import com.aiassistant.ui.components.echoSwitchColors
 import com.aiassistant.utils.AvatarManager
 import com.aiassistant.utils.BackgroundImageManager
 import java.text.SimpleDateFormat
@@ -629,10 +631,10 @@ private fun NewConversationGlassButton(
     Surface(
         modifier = modifier
             .shadow(
-                elevation = 4.dp,
+                elevation = EchoTokens.Elevation.overlay(isDark).elevation,
                 shape = buttonShape,
-                ambientColor = Color.Black.copy(alpha = 0.08f),
-                spotColor = primary.copy(alpha = 0.15f)
+                ambientColor = EchoTokens.Elevation.overlay(isDark).ambient,
+                spotColor = EchoTokens.Elevation.overlay(isDark).spot
             )
             .echoShapeCombinedClick(
                 shape = buttonShape,
@@ -2205,7 +2207,8 @@ fun NewChatDialog(
                         }
                         Switch(
                             checked = isPrivate,
-                            onCheckedChange = { isPrivate = it }
+                            onCheckedChange = { isPrivate = it },
+                            colors = echoSwitchColors()
                         )
                     }
                 }

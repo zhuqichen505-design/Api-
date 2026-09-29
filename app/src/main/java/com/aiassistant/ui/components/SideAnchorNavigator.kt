@@ -26,6 +26,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import com.aiassistant.ui.theme.EchoTokens
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -44,6 +45,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -202,6 +204,7 @@ private fun ExpandedAnchorPanel(
     onDismiss: () -> Unit,
     onSelected: (SideAnchorItem) -> Unit
 ) {
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val panelShape = RoundedCornerShape(24.dp)
     val panelListState = rememberLazyListState()
     val activeIndex = remember(items, currentIndex) {
@@ -234,10 +237,10 @@ private fun ExpandedAnchorPanel(
             .widthIn(min = 230.dp, max = 300.dp)
             .heightIn(max = 440.dp)
             .shadow(
-                elevation = 12.dp,
+                elevation = EchoTokens.Elevation.overlay(isDark).elevation,
                 shape = panelShape,
-                ambientColor = Color.Black.copy(alpha = 0.08f),
-                spotColor = Color.Black.copy(alpha = 0.12f)
+                ambientColor = EchoTokens.Elevation.overlay(isDark).ambient,
+                spotColor = EchoTokens.Elevation.overlay(isDark).spot
             )
             .clip(panelShape)
     }

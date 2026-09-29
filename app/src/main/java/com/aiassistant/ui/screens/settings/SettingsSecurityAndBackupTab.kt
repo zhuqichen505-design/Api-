@@ -73,6 +73,8 @@ import com.aiassistant.domain.model.ModelCapabilityEngine
 import com.aiassistant.domain.model.ModelCustomSettings
 import com.aiassistant.domain.model.PromptTemplate
 import com.aiassistant.ui.components.EchoGlassCard
+import com.aiassistant.ui.components.EchoBadge
+import com.aiassistant.ui.components.EchoBadgeType
 import com.aiassistant.ui.components.EchoGlassDialog
 import com.aiassistant.ui.components.EchoGlassDropdownMenu
 import com.aiassistant.ui.components.readableTextColorFor
@@ -613,32 +615,16 @@ fun BackupTab(
         verticalArrangement = Arrangement.spacedBy(EchoTokens.Spacing.cardGap)
     ) {
         item {
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .echoHazePanel(
-                        hazeState = hazeState,
-                        shape = SettingsPanelShape,
-                        tint = echoGlassPalette().panel,
-                        blurRadius = 18.dp
-                    ),
-                shape = SettingsPanelShape,
-                color = echoGlassPalette().panel,
-                tonalElevation = 0.dp,
-                shadowElevation = 0.dp
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "数据备份与恢复",
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "定期备份可以防止数据丢失。建议在更新应用前备份数据。",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+            SettingsGlassCard(hazeState = hazeState) {
+                Text(
+                    text = "数据备份与恢复",
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Text(
+                    text = "定期备份可以防止数据丢失。建议在更新应用前备份数据。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
 
@@ -772,22 +758,9 @@ fun BackupItemCard(
 
     val isSingleConv = backup.fileName.endsWith(".json", ignoreCase = true)
 
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .echoHazePanel(
-                hazeState = hazeState,
-                shape = SettingsPanelShape,
-                tint = echoGlassPalette().panel,
-                blurRadius = 18.dp
-            ),
-        shape = SettingsPanelShape,
-        color = echoGlassPalette().panel,
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp
-    ) {
+    SettingsGlassCard(hazeState = hazeState) {
         Row(
-            modifier = Modifier.padding(12.dp),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
@@ -808,17 +781,10 @@ fun BackupItemCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    Surface(
-                        shape = RoundedCornerShape(4.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
-                    ) {
-                        Text(
-                            text = if (isSingleConv) "单对话" else "全量",
-                            style = MaterialTheme.typography.labelSmall,
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    }
+                    EchoBadge(
+                        text = if (isSingleConv) "单对话" else "全量",
+                        type = EchoBadgeType.Primary
+                    )
                 }
                 Text(
                     text = dateFormat.format(Date(backup.lastModified)),

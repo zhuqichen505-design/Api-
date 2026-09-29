@@ -26,8 +26,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
+import com.aiassistant.ui.theme.EchoTokens
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.TextToolbar
 import androidx.compose.ui.platform.TextToolbarStatus
@@ -225,12 +227,13 @@ fun EchoTextToolbarHost(
             dismissOnClickOutside = false
         )
     ) {
+        val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
         val pillShape = RoundedCornerShape(999.dp)
         Surface(
             shape = pillShape,
             color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
             border = BorderStroke(1.dp, glass.outline),
-            shadowElevation = 4.dp
+            shadowElevation = EchoTokens.Elevation.overlay(isDark).elevation
         ) {
             Row(
                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),

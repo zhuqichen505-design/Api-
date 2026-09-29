@@ -677,12 +677,6 @@ fun SettingsScreen(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = tabContentPadding
                     )
-                    "personalization" -> PersonalizationTab(
-                        hazeState = hazeState,
-                        modifier = Modifier.fillMaxSize(),
-                        themeMode = themeMode,
-                        onThemeModeChange = onThemeModeChange
-                    )
                     "web_search" -> WebSearchTab(
                         hazeState = hazeState,
                         modifier = Modifier.fillMaxSize(),
@@ -744,8 +738,7 @@ fun SettingsScreen(
                                 "appearance" -> "界面与外观"
                                 "model_features" -> "模型辅助与思考"
                                 "prompts_memory" -> "提示词与记忆"
-                                "personalization" -> "界面与外观"
-                                "web_search" -> "联网搜索与智能工具箱"
+                                "web_search" -> "搜索与工具"
                                 "hidden_conversations" -> "其他对话"
                                 "backup" -> "数据备份"
                                 "about" -> "关于"
@@ -778,6 +771,7 @@ fun SettingsMenu(
         contentPadding = contentPadding,
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        item { EchoSectionHeader(title = "核心") }
         item {
             SettingsMenuItem(
                 hazeState = hazeState,
@@ -796,6 +790,7 @@ fun SettingsMenu(
                 onClick = { onSectionSelected("appearance") }
             )
         }
+        item { EchoSectionHeader(title = "智能") }
         item {
             SettingsMenuItem(
                 hazeState = hazeState,
@@ -823,6 +818,7 @@ fun SettingsMenu(
                 onClick = { onSectionSelected("web_search") }
             )
         }
+        item { EchoSectionHeader(title = "数据") }
         item {
             SettingsMenuItem(
                 hazeState = hazeState,
@@ -1190,31 +1186,11 @@ fun ApiConfigCard(
                     )
                     if (config.isDefault) {
                         Spacer(modifier = Modifier.width(8.dp))
-                        Surface(
-                            shape = RoundedCornerShape(999.dp),
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                            contentColor = MaterialTheme.colorScheme.primary
-                        ) {
-                            Text(
-                                "默认",
-                                style = MaterialTheme.typography.labelSmall,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                            )
-                        }
+                        EchoBadge(text = "默认", type = EchoBadgeType.Primary)
                     }
                     if (!config.isEnabled) {
                         Spacer(modifier = Modifier.width(8.dp))
-                        Surface(
-                            shape = RoundedCornerShape(999.dp),
-                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.18f),
-                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                        ) {
-                            Text(
-                                "已停用",
-                                style = MaterialTheme.typography.labelSmall,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                            )
-                        }
+                        EchoBadge(text = "已停用", type = EchoBadgeType.Neutral)
                     }
                 }
 

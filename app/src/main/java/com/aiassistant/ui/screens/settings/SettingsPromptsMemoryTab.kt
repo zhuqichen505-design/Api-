@@ -72,6 +72,10 @@ import com.aiassistant.domain.model.WorldBookEntry
 import com.aiassistant.domain.model.ModelCapabilityEngine
 import com.aiassistant.domain.model.ModelCustomSettings
 import com.aiassistant.domain.model.PromptTemplate
+import com.aiassistant.ui.components.EchoBadge
+import com.aiassistant.ui.components.EchoBadgeType
+import com.aiassistant.ui.components.EchoSettingRow
+import com.aiassistant.ui.components.EchoSwitch
 import com.aiassistant.ui.components.EchoGlassCard
 import com.aiassistant.ui.components.EchoGlassDialog
 import com.aiassistant.ui.components.EchoGlassDropdownMenu
@@ -136,6 +140,13 @@ fun PromptsMemoryTab(
     var autoMemoryEnabled by remember(settings) { mutableStateOf(settings.autoMemoryEnabled) }
 
     var savedMessage by remember { mutableStateOf<String?>(null) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(savedMessage) {
+        savedMessage?.let {
+            snackbarHostState.showSnackbar(it)
+            savedMessage = null
+        }
+    }
 
     fun persistPromptSettings(
         newGlobalPrompt: String = globalPrompt,
@@ -232,330 +243,508 @@ fun PromptsMemoryTab(
 
     val glass = echoGlassPalette()
 
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = contentPadding,
-        verticalArrangement = Arrangement.spacedBy(EchoTokens.Spacing.cardGap)
-    ) {
-        // 1. 提示词与记忆生效机制与优先级说明
-        item {
-            SettingsGlassCard(hazeState = hazeState) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .echoShapeClick(SettingsInnerShape) { showPriorityDetails = !showPriorityDetails },
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+    Box(modifier = modifier) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = contentPadding,
+            verticalArrangement = Arrangement.spacedBy(EchoTokens.Spacing.cardGap)
+        ) {
+            // 1. 提示词与记忆生效机制与优先级说明
+            item {
+                SettingsGlassCard(hazeState = hazeState) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .echoShapeClick(SettingsInnerShape) { showPriorityDetails = !showPriorityDetails },
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Icon(
+                                Icons.Default.HelpOutline,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text("提示词与记忆生效机制与优先级说明", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                Text(
+                                    "系统提示词 / 全局提示词 / 个性化偏好 / 长期记忆规则",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        IconButton(onClick = { showPriorityDetails = !showPriorityDetails }) {
+                            Icon(
+                                if (showPriorityDetails) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    AnimatedVisibility(
+                        visible = showPriorityDetails,
+                        enter = expandVertically(
+                            animationSpec = androidx.compose.animation.core.tween(220),
+                            expandFrom = Alignment.Top
+                        ) + fadeIn(
+                            animationSpec = androidx.compose.animation.core.tween(180)
+                        ),
+                        exit = shrinkVertically(
+                            animationSpec = androidx.compose.animation.core.tween(200),
+                            shrinkTowards = Alignment.Top
+                        ) + fadeOut(
+                            animationSpec = androidx.compose.animation.core.tween(150)
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clipToBounds()
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 6.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            PriorityRuleRow(
+                                badge = "最高优先级",
+                                title = "会话专属系统提示词 (100% 独占)",
+                                description = "在单个对话设置中填写的系统提示词拥有最高优先级。当其存在时，全局系统提示词将被 100% 覆盖，0 作用生效。",
+                                badgeColor = MaterialTheme.colorScheme.primary
+                            )
+                            PriorityRuleRow(
+                                badge = "默认兜底",
+                                title = "全局系统提示词 (全局兜底)",
+                                description = "仅在对话未设置任何专属系统提示词时自动继承；一旦对话设置了专属提示词即刻失效。",
+                                badgeColor = MaterialTheme.colorScheme.secondary
+                            )
+                            PriorityRuleRow(
+                                badge = "全局引导",
+                                title = "个性化偏好 (全局引导)",
+                                description = "对所有普通对话起全局引导与输出润色效果；若偏好内容与提示词规则发生冲突，严格以提示词为准。",
+                                badgeColor = MaterialTheme.colorScheme.tertiary
+                            )
+                            PriorityRuleRow(
+                                badge = "弹窗确认",
+                                title = "长期记忆 vs 会话记忆 (严禁静默入库)",
+                                description = "模型识别到重要偏好或事实后，必须在聊天输入框上方弹出确认浮条，由您主动点击【存为跨会话长期记忆】或【仅本会话生效】或【忽略】，杜绝静默污染记忆库。",
+                                badgeColor = MaterialTheme.colorScheme.primary
+                            )
+                            PriorityRuleRow(
+                                badge = "物理隔离",
+                                title = "角色扮演与故事创作 (物理严格隔离)",
+                                description = "角色与故事创作拥有独立角色卡、世界观与剧情备忘录，绝对不读取也不污染普通对话的提示词、偏好与日常记忆。",
+                                badgeColor = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 2. 全局系统提示词模块
+            item {
+                SettingsGlassCard(hazeState = hazeState) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Icon(
-                            Icons.Default.HelpOutline,
+                            Icons.Default.EditNote,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary
                         )
                         Spacer(modifier = Modifier.width(10.dp))
-                        Column {
-                            Text("提示词与记忆生效机制与优先级说明", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("全局系统提示词", style = MaterialTheme.typography.titleMedium)
                             Text(
-                                "系统提示词 / 全局提示词 / 个性化偏好 / 长期记忆规则",
+                                "设置的系统提示词将作为默认提示词应用于普通新对话（角色扮演/故事创作模式使用专属设定）。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        TextButton(
+                            onClick = {
+                                val defaultPrompt = "你是一个专业、严谨、有深度思考能力的 AI 助手。回答问题时逻辑清晰、论证充分，遇到专业问题主动给出高质量的代码或技术解释，语言自然流畅。"
+                                globalPrompt = defaultPrompt
+                                persistPromptSettings(newGlobalPrompt = defaultPrompt)
+                                savedMessage = "已填入并保存默认提示词"
+                            }
+                        ) {
+                            Text("填入默认预设", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = globalPrompt,
+                        onValueChange = {
+                            globalPrompt = it
+                            savedMessage = null
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 120.dp),
+                        placeholder = { Text("例如：你是一个专业、富有同理心的全能AI助手...") },
+                        minLines = 4,
+                        maxLines = 14,
+                        shape = SettingsInnerShape
+                    )
+                }
+            }
+
+            // 3. 故事创作与角色扮演全局教学指引
+            item {
+                SettingsGlassCard(hazeState = hazeState) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.AutoStories,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("故事创作与角色扮演全局教学指引", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                "用于教学模型如何创作故事、行文规范与沉浸感（如以演代述、避免性格副词、维持角色独立性）。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        TextButton(
+                            onClick = {
+                                val defaultGuidelines = com.aiassistant.data.repository.RoleplayRepository.DEFAULT_FICTION_TEACHING_GUIDELINES
+                                globalRoleplayPrompt = defaultGuidelines
+                                persistPromptSettings(newGlobalRoleplayPrompt = defaultGuidelines)
+                                savedMessage = "已填入并保存创作规范"
+                            }
+                        ) {
+                            Text("填入默认规范", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = globalRoleplayPrompt,
+                        onValueChange = {
+                            globalRoleplayPrompt = it
+                            savedMessage = null
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 120.dp),
+                        placeholder = { Text("留空将使用内置文学创作铁律（Show Don't Tell、真实对白与微动作交融）...") },
+                        minLines = 4,
+                        maxLines = 14,
+                        shape = SettingsInnerShape
+                    )
+                }
+            }
+
+            // 4. 自定义偏好与关于我画像
+            item {
+                SettingsGlassCard(hazeState = hazeState) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.Psychology,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("“关于我”与自定义偏好", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                "模型在所有普通对话中都会参考这些背景信息，让回答更贴合您的喜好与需求。",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
-                    IconButton(onClick = { showPriorityDetails = !showPriorityDetails }) {
+
+                    PersonalizationTextField(
+                        title = "用户画像与偏好指令",
+                        value = instruction,
+                        placeholder = "例如：\n- 我是一名全栈工程师，主要使用 Kotlin 和 Python\n- 回答请直接切入重点，少说客套话\n- 代码请附带关键行注释",
+                        onValueChange = {
+                            instruction = it
+                            savedMessage = null
+                        }
+                    )
+                }
+            }
+
+            // 5. 跨会话长期记忆
+            item {
+                SettingsGlassCard(hazeState = hazeState) {
+                    EchoSettingRow(
+                        title = "跨会话长期记忆",
+                        subtitle = "管理跨所有对话共通参考的全局偏好。开关仅影响全局偏好；各对话专属偏好和记忆完全独立运作。",
+                        icon = Icons.Default.Memory,
+                        contentPaddingHorizontal = 0.dp
+                    ) {
+                        EchoSwitch(
+                            checked = autoMemoryEnabled,
+                            onCheckedChange = {
+                                autoMemoryEnabled = it
+                                persistPromptSettings(newAutoMemoryEnabled = it)
+                                savedMessage = if (it) "已开启跨会话长期记忆" else "已关闭跨会话长期记忆"
+                            }
+                        )
+                    }
+
+                    if (autoMemoryEnabled) {
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .echoShapeClick(SettingsInnerShape) { isMemoriesExpanded = !isMemoriesExpanded },
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    "全局偏好库管理",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(999.dp),
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                                ) {
+                                    Text(
+                                        text = "${globalMemories.size} 条",
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(onClick = { isAddingMemory = true }, modifier = Modifier.size(32.dp)) {
+                                    Icon(Icons.Default.Add, contentDescription = "添加偏好", tint = MaterialTheme.colorScheme.primary)
+                                }
+                                IconButton(onClick = { isMemoriesExpanded = !isMemoriesExpanded }, modifier = Modifier.size(32.dp)) {
+                                    Icon(
+                                        if (isMemoriesExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+
+                        AnimatedVisibility(visible = isMemoriesExpanded) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = memorySearchQuery,
+                                    onValueChange = { memorySearchQuery = it },
+                                    placeholder = { Text("搜索全局偏好内容或关键词...") },
+                                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                                    trailingIcon = {
+                                        if (memorySearchQuery.isNotBlank()) {
+                                            IconButton(onClick = { memorySearchQuery = "" }) {
+                                                Icon(Icons.Default.Close, contentDescription = "清除", modifier = Modifier.size(16.dp))
+                                            }
+                                        }
+                                    },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(999.dp)
+                                )
+
+                                if (globalMemories.isEmpty()) {
+                                    Surface(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = SettingsInnerShape,
+                                        color = glass.control
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.padding(20.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Lightbulb,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                                modifier = Modifier.size(32.dp)
+                                            )
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Text(
+                                                if (memorySearchQuery.isBlank()) "暂无全局偏好条目\n当与 AI 对话提及个人习惯或点击右上角「+」时将在此处列出。"
+                                                else "没有搜索到符合条件的全局偏好条目",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                            )
+                                        }
+                                    }
+                                } else {
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        globalMemories.forEach { memory ->
+                                            MemoryItemCard(
+                                                memory = memory,
+                                                onToggleEnabled = { enabled ->
+                                                    coroutineScope.launch {
+                                                        repository.saveMemory(memory.copy(isEnabled = enabled, updatedAt = System.currentTimeMillis()))
+                                                    }
+                                                },
+                                                onEdit = { memoryToEdit = memory },
+                                                onDelete = {
+                                                    coroutineScope.launch {
+                                                        repository.deleteMemory(memory)
+                                                    }
+                                                }
+                                            )
+                                        }
+
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.End
+                                        ) {
+                                            TextButton(onClick = { showClearAllConfirm = true }) {
+                                                Icon(Icons.Default.DeleteSweep, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error)
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("清空全局偏好", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+
+            // 6. 世界书与设定库 (Lorebook)
+            item {
+                SettingsGlassCard(hazeState = hazeState) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Icon(
-                            if (showPriorityDetails) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            Icons.Default.MenuBook,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            tint = MaterialTheme.colorScheme.primary
                         )
-                    }
-                }
-
-                AnimatedVisibility(
-                    visible = showPriorityDetails,
-                    enter = expandVertically(
-                        animationSpec = androidx.compose.animation.core.tween(220),
-                        expandFrom = Alignment.Top
-                    ) + fadeIn(
-                        animationSpec = androidx.compose.animation.core.tween(180)
-                    ),
-                    exit = shrinkVertically(
-                        animationSpec = androidx.compose.animation.core.tween(200),
-                        shrinkTowards = Alignment.Top
-                    ) + fadeOut(
-                        animationSpec = androidx.compose.animation.core.tween(150)
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clipToBounds()
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 6.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        PriorityRuleRow(
-                            badge = "最高优先级",
-                            title = "会话专属系统提示词 (100% 独占)",
-                            description = "在单个对话设置中填写的系统提示词拥有最高优先级。当其存在时，全局系统提示词将被 100% 覆盖，0 作用生效。",
-                            badgeColor = MaterialTheme.colorScheme.primary
-                        )
-                        PriorityRuleRow(
-                            badge = "默认兜底",
-                            title = "全局系统提示词 (全局兜底)",
-                            description = "仅在对话未设置任何专属系统提示词时自动继承；一旦对话设置了专属提示词即刻失效。",
-                            badgeColor = MaterialTheme.colorScheme.secondary
-                        )
-                        PriorityRuleRow(
-                            badge = "全局引导",
-                            title = "个性化偏好 (全局引导)",
-                            description = "对所有普通对话起全局引导与输出润色效果；若偏好内容与提示词规则发生冲突，严格以提示词为准。",
-                            badgeColor = MaterialTheme.colorScheme.tertiary
-                        )
-                        PriorityRuleRow(
-                            badge = "弹窗确认",
-                            title = "长期记忆 vs 会话记忆 (严禁静默入库)",
-                            description = "模型识别到重要偏好或事实后，必须在聊天输入框上方弹出确认浮条，由您主动点击【存为跨会话长期记忆】或【仅本会话生效】或【忽略】，杜绝静默污染记忆库。",
-                            badgeColor = MaterialTheme.colorScheme.primary
-                        )
-                        PriorityRuleRow(
-                            badge = "物理隔离",
-                            title = "角色扮演与故事创作 (物理严格隔离)",
-                            description = "角色与故事创作拥有独立角色卡、世界观与剧情备忘录，绝对不读取也不污染普通对话的提示词、偏好与日常记忆。",
-                            badgeColor = MaterialTheme.colorScheme.error
-                        )
-                    }
-                }
-            }
-        }
-
-        // 2. 全局系统提示词模块
-        item {
-            SettingsGlassCard(hazeState = hazeState) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        Icons.Default.EditNote,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("全局系统提示词", style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            "设置的系统提示词将作为默认提示词应用于普通新对话（角色扮演/故事创作模式使用专属设定）。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    TextButton(
-                        onClick = {
-                            val defaultPrompt = "你是一个专业、严谨、有深度思考能力的 AI 助手。回答问题时逻辑清晰、论证充分，遇到专业问题主动给出高质量的代码或技术解释，语言自然流畅。"
-                            globalPrompt = defaultPrompt
-                            persistPromptSettings(newGlobalPrompt = defaultPrompt)
-                            savedMessage = "已填入并保存默认提示词"
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("世界书与设定库 (Lorebook)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            Text(
+                                "基于关键词自动唤醒设定或常驻注入世界观，普通对话与故事模式均可自由生效",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
-                    ) {
-                        Text("填入默认预设", style = MaterialTheme.typography.labelSmall)
                     }
-                }
 
-                OutlinedTextField(
-                    value = globalPrompt,
-                    onValueChange = {
-                        globalPrompt = it
-                        savedMessage = null
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 120.dp),
-                    placeholder = { Text("例如：你是一个专业、富有同理心的全能AI助手...") },
-                    minLines = 4,
-                    maxLines = 14,
-                    shape = SettingsInnerShape
-                )
-            }
-        }
-
-        // 3. 故事创作与角色扮演全局教学指引
-        item {
-            SettingsGlassCard(hazeState = hazeState) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        Icons.Default.AutoStories,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("故事创作与角色扮演全局教学指引", style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            "用于教学模型如何创作故事、行文规范与沉浸感（如以演代述、避免性格副词、维持角色独立性）。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    TextButton(
-                        onClick = {
-                            val defaultGuidelines = com.aiassistant.data.repository.RoleplayRepository.DEFAULT_FICTION_TEACHING_GUIDELINES
-                            globalRoleplayPrompt = defaultGuidelines
-                            persistPromptSettings(newGlobalRoleplayPrompt = defaultGuidelines)
-                            savedMessage = "已填入并保存创作规范"
-                        }
-                    ) {
-                        Text("填入默认规范", style = MaterialTheme.typography.labelSmall)
-                    }
-                }
-
-                OutlinedTextField(
-                    value = globalRoleplayPrompt,
-                    onValueChange = {
-                        globalRoleplayPrompt = it
-                        savedMessage = null
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 120.dp),
-                    placeholder = { Text("留空将使用内置文学创作铁律（Show Don't Tell、真实对白与微动作交融）...") },
-                    minLines = 4,
-                    maxLines = 14,
-                    shape = SettingsInnerShape
-                )
-            }
-        }
-
-        // 4. 自定义偏好与关于我画像
-        item {
-            SettingsGlassCard(hazeState = hazeState) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        Icons.Default.Psychology,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("“关于我”与自定义偏好", style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            "模型在所有普通对话中都会参考这些背景信息，让回答更贴合您的喜好与需求。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-                PersonalizationTextField(
-                    title = "用户画像与偏好指令",
-                    value = instruction,
-                    placeholder = "例如：\n- 我是一名全栈工程师，主要使用 Kotlin 和 Python\n- 回答请直接切入重点，少说客套话\n- 代码请附带关键行注释",
-                    onValueChange = {
-                        instruction = it
-                        savedMessage = null
-                    }
-                )
-            }
-        }
-
-        // 5. 跨会话长期记忆
-        item {
-            SettingsGlassCard(hazeState = hazeState) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        Icons.Default.Memory,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("跨会话长期记忆", style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            "管理跨所有对话共通参考的全局偏好。开关仅影响全局偏好；各对话专属偏好和记忆完全独立运作。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Switch(
-                        checked = autoMemoryEnabled,
-                        onCheckedChange = {
-                            autoMemoryEnabled = it
-                            persistPromptSettings(newAutoMemoryEnabled = it)
-                            savedMessage = if (it) "已开启跨会话长期记忆" else "已关闭跨会话长期记忆"
-                        }
-                    )
-                }
-
-                if (autoMemoryEnabled) {
                     HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
 
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .echoShapeClick(SettingsInnerShape) { isMemoriesExpanded = !isMemoriesExpanded },
+                            .echoShapeClick(SettingsInnerShape) { isWorldBooksExpanded = !isWorldBooksExpanded },
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                "全局偏好库管理",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold
-                            )
+                            Text("世界书列表", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                             Spacer(modifier = Modifier.width(6.dp))
-                            Surface(
-                                shape = RoundedCornerShape(999.dp),
-                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                            ) {
-                                Text(
-                                    text = "${globalMemories.size} 条",
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
+                            EchoBadge(text = "${allWorldBooks.size} 本", type = EchoBadgeType.Primary)
                         }
 
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            IconButton(onClick = { isAddingMemory = true }, modifier = Modifier.size(32.dp)) {
-                                Icon(Icons.Default.Add, contentDescription = "添加偏好", tint = MaterialTheme.colorScheme.primary)
+                            TextButton(
+                                onClick = {
+                                    coroutineScope.launch {
+                                        val sampleBook = WorldBook(
+                                            name = "奇幻与机械纪元",
+                                            description = "以太魔法与重工业机械神谕并存的世界观设定集",
+                                            isEnabled = true,
+                                            tags = "奇幻,机械,设定集"
+                                        )
+                                        val bookId = repository.insertWorldBook(sampleBook)
+                                        if (bookId > 0L) {
+                                            repository.insertWorldBookEntry(
+                                                WorldBookEntry(
+                                                    bookId = bookId,
+                                                    name = "以太灵素",
+                                                    keys = "以太, 灵素, 魔法, 施法",
+                                                    content = "以太是构筑天地万物的灵性能量，过度抽取会导致现实空间裂隙与灵力枯竭。",
+                                                    isEnabled = true,
+                                                    isConstant = false,
+                                                    priority = 20
+                                                )
+                                            )
+                                            repository.insertWorldBookEntry(
+                                                WorldBookEntry(
+                                                    bookId = bookId,
+                                                    name = "铁心重工神谕",
+                                                    keys = "铁心, 机械, 齿轮, 蒸汽, 议会",
+                                                    content = "掌控大陆重工科技的机械神殿，崇尚秩序与严酷法典，对野生法师保持警惕。",
+                                                    isEnabled = true,
+                                                    isConstant = false,
+                                                    priority = 15
+                                                )
+                                            )
+                                            repository.insertWorldBookEntry(
+                                                WorldBookEntry(
+                                                    bookId = bookId,
+                                                    name = "世界基底铁律 (常驻)",
+                                                    keys = "",
+                                                    content = "大陆的一切能量转换严格遵循等价守恒，严禁任何形式的亡者逆转复活。",
+                                                    isEnabled = true,
+                                                    isConstant = true,
+                                                    priority = 30
+                                                )
+                                            )
+                                            savedMessage = "已成功载入示例世界书《奇幻与机械纪元》"
+                                        }
+                                    }
+                                }
+                            ) {
+                                Icon(Icons.Default.AutoStories, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("示例载入", style = MaterialTheme.typography.labelSmall)
                             }
-                            IconButton(onClick = { isMemoriesExpanded = !isMemoriesExpanded }, modifier = Modifier.size(32.dp)) {
-                                Icon(
-                                    if (isMemoriesExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                            IconButton(onClick = { isAddingWorldBook = true }, modifier = Modifier.size(32.dp)) {
+                                Icon(Icons.Default.Add, contentDescription = "新建世界书", tint = MaterialTheme.colorScheme.primary)
+                            }
+                            IconButton(onClick = { isWorldBooksExpanded = !isWorldBooksExpanded }, modifier = Modifier.size(32.dp)) {
+                                Icon(if (isWorldBooksExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                     }
 
-                    AnimatedVisibility(visible = isMemoriesExpanded) {
+                    AnimatedVisibility(visible = isWorldBooksExpanded) {
                         Column(
                             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             OutlinedTextField(
-                                value = memorySearchQuery,
-                                onValueChange = { memorySearchQuery = it },
-                                placeholder = { Text("搜索全局偏好内容或关键词...") },
+                                value = worldBookSearchQuery,
+                                onValueChange = { worldBookSearchQuery = it },
+                                placeholder = { Text("搜索世界书名称或标签...") },
                                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
                                 trailingIcon = {
-                                    if (memorySearchQuery.isNotBlank()) {
-                                        IconButton(onClick = { memorySearchQuery = "" }) {
+                                    if (worldBookSearchQuery.isNotBlank()) {
+                                        IconButton(onClick = { worldBookSearchQuery = "" }) {
                                             Icon(Icons.Default.Close, contentDescription = "清除", modifier = Modifier.size(16.dp))
                                         }
                                     }
@@ -565,7 +754,7 @@ fun PromptsMemoryTab(
                                 shape = RoundedCornerShape(999.dp)
                             )
 
-                            if (globalMemories.isEmpty()) {
+                            if (allWorldBooks.isEmpty()) {
                                 Surface(
                                     modifier = Modifier.fillMaxWidth(),
                                     shape = SettingsInnerShape,
@@ -576,15 +765,14 @@ fun PromptsMemoryTab(
                                         horizontalAlignment = Alignment.CenterHorizontally
                                     ) {
                                         Icon(
-                                            Icons.Default.Lightbulb,
+                                            Icons.Default.MenuBook,
                                             contentDescription = null,
                                             tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                                             modifier = Modifier.size(32.dp)
                                         )
                                         Spacer(modifier = Modifier.height(6.dp))
                                         Text(
-                                            if (memorySearchQuery.isBlank()) "暂无全局偏好条目\n当与 AI 对话提及个人习惯或点击右上角「+」时将在此处列出。"
-                                            else "没有搜索到符合条件的全局偏好条目",
+                                            "暂无世界书设定\n点击右上角「示例载入」可一键生成《奇幻与机械纪元》，或点击「+」新建专属设定集。",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -596,455 +784,248 @@ fun PromptsMemoryTab(
                                     modifier = Modifier.fillMaxWidth(),
                                     verticalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    globalMemories.forEach { memory ->
-                                        MemoryItemCard(
-                                            memory = memory,
+                                    filteredWorldBooks.forEach { book ->
+                                        WorldBookCardItem(
+                                            book = book,
                                             onToggleEnabled = { enabled ->
                                                 coroutineScope.launch {
-                                                    repository.saveMemory(memory.copy(isEnabled = enabled, updatedAt = System.currentTimeMillis()))
+                                                    repository.setWorldBookEnabled(book.id, enabled)
                                                 }
                                             },
-                                            onEdit = { memoryToEdit = memory },
+                                            onManageEntries = { selectedWorldBookForEntries = book },
+                                            onEdit = { worldBookToEdit = book },
+                                            onDelete = { worldBookToDelete = book }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 7. 提示词模板系统
+            item {
+                SettingsGlassCard(hazeState = hazeState) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.Widgets,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("提示词模板工作流", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            Text(
+                                "预设结构化指令与 {{变量}} 占位符，支持聊天输入框快速调用",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .echoShapeClick(SettingsInnerShape) { isTemplatesExpanded = !isTemplatesExpanded },
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("模板库列表", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            EchoBadge(text = "${allTemplates.size} 个", type = EchoBadgeType.Primary)
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(onClick = { isAddingTemplate = true }, modifier = Modifier.size(32.dp)) {
+                                Icon(Icons.Default.Add, contentDescription = "新建模板", tint = MaterialTheme.colorScheme.primary)
+                            }
+                            IconButton(onClick = { isTemplatesExpanded = !isTemplatesExpanded }, modifier = Modifier.size(32.dp)) {
+                                Icon(if (isTemplatesExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+
+                    AnimatedVisibility(visible = isTemplatesExpanded) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = templateSearchQuery,
+                                onValueChange = { templateSearchQuery = it },
+                                placeholder = { Text("搜索模板名称或内容...") },
+                                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                                trailingIcon = {
+                                    if (templateSearchQuery.isNotBlank()) {
+                                        IconButton(onClick = { templateSearchQuery = "" }) {
+                                            Icon(Icons.Default.Close, contentDescription = "清除", modifier = Modifier.size(16.dp))
+                                        }
+                                    }
+                                },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(999.dp)
+                            )
+
+                            if (filteredTemplates.isEmpty()) {
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = SettingsInnerShape,
+                                    color = glass.control
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(20.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Description,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                            modifier = Modifier.size(32.dp)
+                                        )
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            "暂无匹配的提示词模板\n点击右上角「+」新建专属的高效生产力模板。",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                        )
+                                    }
+                                }
+                            } else {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    filteredTemplates.forEach { tpl ->
+                                        PromptTemplateItemCard(
+                                            template = tpl,
+                                            onEdit = { templateToEdit = tpl },
                                             onDelete = {
                                                 coroutineScope.launch {
-                                                    repository.deleteMemory(memory)
+                                                    repository.deletePromptTemplate(tpl)
                                                 }
                                             }
                                         )
                                     }
-
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.End
-                                    ) {
-                                        TextButton(onClick = { showClearAllConfirm = true }) {
-                                            Icon(Icons.Default.DeleteSweep, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error)
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text("清空全局偏好", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
-                                        }
-                                    }
                                 }
                             }
                         }
                     }
                 }
             }
-        }
 
-
-        // 6. 世界书与设定库 (Lorebook)
-        item {
-            SettingsGlassCard(hazeState = hazeState) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        Icons.Default.MenuBook,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("世界书与设定库 (Lorebook)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text(
-                            "基于关键词自动唤醒设定或常驻注入世界观，普通对话与故事模式均可自由生效",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .echoShapeClick(SettingsInnerShape) { isWorldBooksExpanded = !isWorldBooksExpanded },
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("世界书列表", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Surface(shape = RoundedCornerShape(999.dp), color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)) {
-                            Text("${allWorldBooks.size} 本", modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                        }
-                    }
-
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        TextButton(
-                            onClick = {
-                                coroutineScope.launch {
-                                    val sampleBook = WorldBook(
-                                        name = "奇幻与机械纪元",
-                                        description = "以太魔法与重工业机械神谕并存的世界观设定集",
-                                        isEnabled = true,
-                                        tags = "奇幻,机械,设定集"
-                                    )
-                                    val bookId = repository.insertWorldBook(sampleBook)
-                                    if (bookId > 0L) {
-                                        repository.insertWorldBookEntry(
-                                            WorldBookEntry(
-                                                bookId = bookId,
-                                                name = "以太灵素",
-                                                keys = "以太, 灵素, 魔法, 施法",
-                                                content = "以太是构筑天地万物的灵性能量，过度抽取会导致现实空间裂隙与灵力枯竭。",
-                                                isEnabled = true,
-                                                isConstant = false,
-                                                priority = 20
-                                            )
-                                        )
-                                        repository.insertWorldBookEntry(
-                                            WorldBookEntry(
-                                                bookId = bookId,
-                                                name = "铁心重工神谕",
-                                                keys = "铁心, 机械, 齿轮, 蒸汽, 议会",
-                                                content = "掌控大陆重工科技的机械神殿，崇尚秩序与严酷法典，对野生法师保持警惕。",
-                                                isEnabled = true,
-                                                isConstant = false,
-                                                priority = 15
-                                            )
-                                        )
-                                        repository.insertWorldBookEntry(
-                                            WorldBookEntry(
-                                                bookId = bookId,
-                                                name = "世界基底铁律 (常驻)",
-                                                keys = "",
-                                                content = "大陆的一切能量转换严格遵循等价守恒，严禁任何形式的亡者逆转复活。",
-                                                isEnabled = true,
-                                                isConstant = true,
-                                                priority = 30
-                                            )
-                                        )
-                                        savedMessage = "已成功载入示例世界书《奇幻与机械纪元》"
-                                    }
-                                }
-                            }
-                        ) {
-                            Icon(Icons.Default.AutoStories, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("示例载入", style = MaterialTheme.typography.labelSmall)
-                        }
-                        IconButton(onClick = { isAddingWorldBook = true }, modifier = Modifier.size(32.dp)) {
-                            Icon(Icons.Default.Add, contentDescription = "新建世界书", tint = MaterialTheme.colorScheme.primary)
-                        }
-                        IconButton(onClick = { isWorldBooksExpanded = !isWorldBooksExpanded }, modifier = Modifier.size(32.dp)) {
-                            Icon(if (isWorldBooksExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-
-                AnimatedVisibility(visible = isWorldBooksExpanded) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        OutlinedTextField(
-                            value = worldBookSearchQuery,
-                            onValueChange = { worldBookSearchQuery = it },
-                            placeholder = { Text("搜索世界书名称或标签...") },
-                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                            trailingIcon = {
-                                if (worldBookSearchQuery.isNotBlank()) {
-                                    IconButton(onClick = { worldBookSearchQuery = "" }) {
-                                        Icon(Icons.Default.Close, contentDescription = "清除", modifier = Modifier.size(16.dp))
-                                    }
-                                }
-                            },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(999.dp)
-                        )
-
-                        if (allWorldBooks.isEmpty()) {
-                            Surface(
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = SettingsInnerShape,
-                                color = glass.control
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(20.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    Icon(
-                                        Icons.Default.MenuBook,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                        modifier = Modifier.size(32.dp)
-                                    )
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Text(
-                                        "暂无世界书设定\n点击右上角「示例载入」可一键生成《奇幻与机械纪元》，或点击「+」新建专属设定集。",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                                    )
-                                }
-                            }
-                        } else {
-                            Column(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                filteredWorldBooks.forEach { book ->
-                                    WorldBookCardItem(
-                                        book = book,
-                                        onToggleEnabled = { enabled ->
-                                            coroutineScope.launch {
-                                                repository.setWorldBookEnabled(book.id, enabled)
-                                            }
-                                        },
-                                        onManageEntries = { selectedWorldBookForEntries = book },
-                                        onEdit = { worldBookToEdit = book },
-                                        onDelete = { worldBookToDelete = book }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // 7. 提示词模板系统
-        item {
-            SettingsGlassCard(hazeState = hazeState) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        Icons.Default.Widgets,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("提示词模板工作流", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text(
-                            "预设结构化指令与 {{变量}} 占位符，支持聊天输入框快速调用",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .echoShapeClick(SettingsInnerShape) { isTemplatesExpanded = !isTemplatesExpanded },
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("模板库列表", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Surface(shape = RoundedCornerShape(999.dp), color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)) {
-                            Text("${allTemplates.size} 个", modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { isAddingTemplate = true }, modifier = Modifier.size(32.dp)) {
-                            Icon(Icons.Default.Add, contentDescription = "新建模板", tint = MaterialTheme.colorScheme.primary)
-                        }
-                        IconButton(onClick = { isTemplatesExpanded = !isTemplatesExpanded }, modifier = Modifier.size(32.dp)) {
-                            Icon(if (isTemplatesExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-
-                AnimatedVisibility(visible = isTemplatesExpanded) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        OutlinedTextField(
-                            value = templateSearchQuery,
-                            onValueChange = { templateSearchQuery = it },
-                            placeholder = { Text("搜索模板名称或内容...") },
-                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                            trailingIcon = {
-                                if (templateSearchQuery.isNotBlank()) {
-                                    IconButton(onClick = { templateSearchQuery = "" }) {
-                                        Icon(Icons.Default.Close, contentDescription = "清除", modifier = Modifier.size(16.dp))
-                                    }
-                                }
-                            },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(999.dp)
-                        )
-
-                        if (filteredTemplates.isEmpty()) {
-                            Surface(
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = SettingsInnerShape,
-                                color = glass.control
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(20.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    Icon(
-                                        Icons.Default.Description,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                        modifier = Modifier.size(32.dp)
-                                    )
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Text(
-                                        "暂无匹配的提示词模板\n点击右上角「+」新建专属的高效生产力模板。",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                                    )
-                                }
-                            }
-                        } else {
-                            Column(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                filteredTemplates.forEach { tpl ->
-                                    PromptTemplateItemCard(
-                                        template = tpl,
-                                        onEdit = { templateToEdit = tpl },
-                                        onDelete = {
-                                            coroutineScope.launch {
-                                                repository.deletePromptTemplate(tpl)
-                                            }
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // 7. 环境变量与安全密钥注入
-        item {
-            SettingsGlassCard(hazeState = hazeState) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        Icons.Default.DataObject,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("提示词环境变量注入", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text(
-                            "配置自定义环境变量（如 {{PROJECT_NAME}}），发送时自动解密并动态替换",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .echoShapeClick(SettingsInnerShape) { isEnvVarsExpanded = !isEnvVarsExpanded },
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("环境变量列表", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Surface(shape = RoundedCornerShape(999.dp), color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.15f)) {
-                            Text("${allEnvVars.size} 个", modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { isAddingEnvVar = true }, modifier = Modifier.size(32.dp)) {
-                            Icon(Icons.Default.Add, contentDescription = "添加变量", tint = MaterialTheme.colorScheme.primary)
-                        }
-                        IconButton(onClick = { isEnvVarsExpanded = !isEnvVarsExpanded }, modifier = Modifier.size(32.dp)) {
-                            Icon(if (isEnvVarsExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-
-                AnimatedVisibility(visible = isEnvVarsExpanded) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        if (allEnvVars.isEmpty()) {
-                            Surface(
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = SettingsInnerShape,
-                                color = glass.control
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(20.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    Icon(
-                                        Icons.Default.Code,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                        modifier = Modifier.size(32.dp)
-                                    )
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Text(
-                                        "暂无自定义环境变量\n点击右上角「添加变量」创建可动态替换的变量。",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                                    )
-                                }
-                            }
-                        } else {
-                            Column(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                allEnvVars.forEach { variable ->
-                                    EnvironmentVariableItemCard(
-                                        variable = variable,
-                                        onEdit = { envVarToEdit = variable },
-                                        onDelete = {
-                                            coroutineScope.launch {
-                                                repository.deleteEnvironmentVariable(variable)
-                                            }
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // 保存反馈消息
-        savedMessage?.let { message ->
+            // 7. 环境变量与安全密钥注入
             item {
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        text = message,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.padding(12.dp)
-                    )
+                SettingsGlassCard(hazeState = hazeState) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.DataObject,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("提示词环境变量注入", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            Text(
+                                "配置自定义环境变量（如 {{PROJECT_NAME}}），发送时自动解密并动态替换",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .echoShapeClick(SettingsInnerShape) { isEnvVarsExpanded = !isEnvVarsExpanded },
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("环境变量列表", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            EchoBadge(text = "${allEnvVars.size} 个", type = EchoBadgeType.Info)
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(onClick = { isAddingEnvVar = true }, modifier = Modifier.size(32.dp)) {
+                                Icon(Icons.Default.Add, contentDescription = "添加变量", tint = MaterialTheme.colorScheme.primary)
+                            }
+                            IconButton(onClick = { isEnvVarsExpanded = !isEnvVarsExpanded }, modifier = Modifier.size(32.dp)) {
+                                Icon(if (isEnvVarsExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+
+                    AnimatedVisibility(visible = isEnvVarsExpanded) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            if (allEnvVars.isEmpty()) {
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = SettingsInnerShape,
+                                    color = glass.control
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(20.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Code,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                            modifier = Modifier.size(32.dp)
+                                        )
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            "暂无自定义环境变量\n点击右上角「添加变量」创建可动态替换的变量。",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                        )
+                                    }
+                                }
+                            } else {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    allEnvVars.forEach { variable ->
+                                        EnvironmentVariableItemCard(
+                                            variable = variable,
+                                            onEdit = { envVarToEdit = variable },
+                                            onDelete = {
+                                                coroutineScope.launch {
+                                                    repository.deleteEnvironmentVariable(variable)
+                                                }
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
+
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter)
+        )
     }
 
     // 记忆编辑弹窗

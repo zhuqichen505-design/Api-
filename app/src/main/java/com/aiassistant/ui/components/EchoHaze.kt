@@ -143,12 +143,13 @@ fun Modifier.echoHazePanel(
         colorScheme.surface.copy(alpha = if (isDark) 0.85f else 0.88f)
     }
 
+    val shadowRecipe = EchoTokens.Elevation.card(isDark)
     var mod = this
         .shadow(
             elevation = EchoTokens.Elevation.subtle,
             shape = shape,
-            ambientColor = Color.Black.copy(alpha = if (isDark) 0.10f else 0.03f),
-            spotColor = colorScheme.primary.copy(alpha = if (isDark) 0.05f else 0.02f)
+            ambientColor = shadowRecipe.ambient,
+            spotColor = shadowRecipe.spot
         )
 
     if (hazeState != null) {

@@ -144,6 +144,7 @@ import com.aiassistant.domain.model.RoleplaySession
 import com.aiassistant.ui.components.EchoGlassCard
 import com.aiassistant.ui.components.EchoPrimaryButton
 import com.aiassistant.ui.components.EchoGlassButton
+import com.aiassistant.ui.components.echoSwitchColors
 import com.aiassistant.ui.screens.roleplay.ConflictAction
 import com.aiassistant.ui.theme.EchoTokens
 
@@ -984,7 +985,8 @@ fun StoryUnifiedSettingsDialog(
                                     }
                                     Switch(
                                         checked = enableThinking,
-                                        onCheckedChange = { enableThinking = it }
+                                        onCheckedChange = { enableThinking = it },
+                                        colors = echoSwitchColors()
                                     )
                                 }
                             }
@@ -1023,7 +1025,8 @@ fun StoryUnifiedSettingsDialog(
                                     }
                                     Switch(
                                         checked = enableWebSearch,
-                                        onCheckedChange = { enableWebSearch = it }
+                                        onCheckedChange = { enableWebSearch = it },
+                                        colors = echoSwitchColors()
                                     )
                                 }
                             }
@@ -1040,7 +1043,8 @@ fun StoryUnifiedSettingsDialog(
                                     }
                                     Switch(
                                         checked = enableExternalMemory,
-                                        onCheckedChange = { enableExternalMemory = it }
+                                        onCheckedChange = { enableExternalMemory = it },
+                                        colors = echoSwitchColors()
                                     )
                                 }
                             }
@@ -1057,7 +1061,8 @@ fun StoryUnifiedSettingsDialog(
                                     }
                                     Switch(
                                         checked = enableWorldBook,
-                                        onCheckedChange = { enableWorldBook = it }
+                                        onCheckedChange = { enableWorldBook = it },
+                                        colors = echoSwitchColors()
                                     )
                                 }
                             }

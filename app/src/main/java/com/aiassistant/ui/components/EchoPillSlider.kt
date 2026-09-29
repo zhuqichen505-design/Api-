@@ -36,6 +36,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.luminance
+import com.aiassistant.ui.theme.EchoTokens
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
@@ -245,7 +246,7 @@ fun EchoPillSlider(
                 modifier = Modifier
                     .offset { IntOffset(thumbLeft, thumbTop) }
                     .size(thumbSize)
-                    .shadow(elevation = 5.dp, shape = CircleShape, spotColor = Color.Black.copy(alpha = 0.28f))
+                    .shadow(elevation = EchoTokens.Elevation.raised(isDark).elevation, shape = CircleShape, ambientColor = EchoTokens.Elevation.raised(isDark).ambient, spotColor = EchoTokens.Elevation.raised(isDark).spot)
                     .clip(CircleShape)
                     .background(Color.White)
             )
