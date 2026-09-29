@@ -2,6 +2,34 @@
 
 本文档按照工作流规范记录每次版本更新、需求变更与复核结果。
 
+## [2026-09-29] - v2.5.7+ 模型厂商级适配（未发版）：GPT/MiniMax/Kimi/DeepSeek/Gemini/GLM/MiMo 思考档位与参数策略
+
+### 1. 需求
+按 2026-09 主流模型信息，按厂商识别模型并针对性适配思考强度、温度、上下文、max_tokens 等参数；明确不再为 o1/o3 等过时模型做专项适配。
+
+### 2. 收集到的主流模型规格（2026-09）
+- **GPT**：GPT-5.6 系列 / GPT-6 Astra·Sol·Luna；Astra 上下文 1,050,000、最大输出 128K；reasoning_effort 支持 low/medium/high/xhigh/max；使用 max_completion_tokens。
+- **DeepSeek**：deepseek-flash / deepseek-v4-pro（V4.1）；上下文 1M、最大输出 384K；flash 有视觉、pro 无。
+- **Gemini**：3.8 Flash / 3.5 Flash / 3.1 Pro；上下文 1M（3.1 Pro 输出 64K）。
+- **Kimi**：K3 上下文 1M；reasoning_effort 仅 low/high/max（默认 max）；max_completion_tokens 默认 131072、上限 1048576；temperature 固定 1.0，建议省略 top_p/penalty；始终思考。K2.6 上下文 256K。
+- **GLM**：GLM-5.3 上下文 1M、最大输出 128K；reasoning_effort 仅 low/high/max（默认 max）；始终思考。
+- **MiniMax**：M3 上下文 1M、原生多模态；M2.7 系列为工程/办公旗舰。
+- **MiMo**：V2.5 / V2.6 / V2.6-Pro 全模态，上下文 256K 起。
+
+### 3. 代码改动
+- 新增 `ModelVendorProfiles.kt`：按 gpt/minimax/kimi/deepseek/gemini/glm/mimo/claude 识别厂商，给出思考档位、温度策略、max_tokens 字段、输出上限、上下文默认值。
+- 重写 `ModelCapabilityEngine.kt`：上下文/视觉/思考档位全面厂商化；移除 o 系列专项识别。
+- `AiRepository.kt`：请求参数按厂商策略组装（temperature/top_p/penalty 省略规则、max_tokens vs max_completion_tokens、reasoning_effort 档位映射）；预设模型列表对齐 2026-09 主流。
+- `TokenEstimationHelper.kt`：思考档位映射到厂商真实支持集（如 Kimi/GLM 三档、GPT-6 含 xhigh）。
+- `FileUtils.kt`：视觉能力按厂商/代际（deepseek-flash 有视觉、v4-pro 无）。
+- 测试：`ModernModelAdaptation2026Test` 覆盖厂商识别/档位/温度/上下文；旧 o 系列专项断言改为现代模型。
+
+### 4. 验证
+- `compileDebugKotlin` + `testDebugUnitTest`：427 项单元测试全部通过（BUILD SUCCESSFUL）。
+- 未构建 APK（用户未要求打包）。
+
+---
+
 ## [2026-09-29] - v2.5.7 时间线防篡改、生成截断根治、报错红框全包裹、原子防双重报错与后台跨页面持续生成
 
 ### 1. 核心改进与缺陷修复
@@ -61,6 +89,34 @@
 - 硬性指标门禁重跑无回退（scale=0、`Color(0x`=3、裸字号=0、阴影零游离）；
 - 真机走查（截图矩阵/TalkBack/弹窗焦点）仍留待人工验收——本次 P1-1 漏网即因无真机视觉回归，建议发版前按 §8.2 执行。
 - 依据用户最高准则，本次仍未递增版本号、未构建 APK。
+
+## [2026-09-29] - UI 动效轮（第二轮 Polish）：微交互与动效深化（未发版）
+
+### 1. 本次需求
+按《APP改进/UI/UI-微交互与动效深化方案.md》v1.0 执行第二轮 UI Polish：动效与微交互深化。铁律：功能零变更、流式输出流畅度优先于一切动效、全程不触碰 ViewModel/数据层/网络层。
+
+### 2. 改动概览
+1. **动效地基（M0）**：新建 `theme/EchoMotion.kt`（时长阶梯/循环周期/打字机节奏/M3 缓动/弹簧令牌 + `rememberReducedMotion()` 降级开关）；新建 `components/EchoConnectionIndicator.kt`（呼吸脉冲环、重连双弧、三点波浪——全部 Canvas 渲染层动画，零重组零每帧分配）；TypingIndicator 由「●○○」文本轮播重写为波浪点（消除 400ms 一次 Text 重组与硬编码色）。
+2. **生成链路核心（M1）**：新建 `GenerationUiState` 状态机总线（行为等价迁移错误判定，单测覆盖）；流式 token 合帧消费（33ms 窗口 ≈30fps 上限，杜绝逐 token 全屏重组）；MarkdownText 增量渲染（稳定点切分，稳定前缀零重解析，修复 stable+tail 还原不变量丢字缺陷）；流式呼吸光标（onTextLayout 覆盖层定位，落定 300ms 淡出）；连接三阶段动画（脉冲环/重连双弧/文案交叉淡换/8 秒等待弱提示）；生成落定脉冲。
+3. **高频触点（M2）**：下拉菜单锚点生长动效（8 处消费方零改动）；错误/状态横幅登场滑入；animateContentSize 统一 gentle 弹簧；发送→停止按钮底色渐变 + 图标旋变（排队发送功能等价保留）。
+4. **质感微交互（M3+M4）**：按压下沉 0.97 + 弹簧回弹接入全部形状化点击修饰符消费方；跳转悬浮钮弹入曲线统一；存量 12 处裸 tween(NNN) 全部归并令牌，屏幕层裸时长清零。
+
+### 3. 验证结果
+- `compileDebugKotlin`：BUILD SUCCESSFUL（M0-M4 每阶段验证）；
+- `testDebugUnitTest`：全量 0 FAILED；新增 `MotionRoundTests` 15 项（稳定点单调性/围栏/数学块/表格完整性/状态机行为等价）全部 PASSED；
+- 门禁终值：屏幕层裸 tween=0、Modifier.scale=0、屏幕层 Color(0x=2（注释理由）、循环动画 100% 渲染层驱动；
+- 流式重组频率/jank 帧占比/reduced motion 真机走查：需真机剖析（Layout Inspector/GPU 渲染分析），无连接设备留待人工验收。
+
+### 4. 改动文件清单（UI 层 10 个文件）
+- 新增：`ui/theme/EchoMotion.kt`、`ui/components/EchoConnectionIndicator.kt`、`ui/screens/chat/GenerationUiState.kt`、`app/src/test/java/com/aiassistant/MotionRoundTests.kt`
+- 修改：`ui/theme/Color.kt`（forEffort 档位色）、`ui/components/MarkdownText.kt`（streaming/光标/稳定点）、`ui/components/PressEffects.kt`（按压缩放）、`ui/components/EchoHaze.kt`（菜单动效）、`ui/components/ExpandableText.kt`（弹簧）
+- 修改（screens/chat）：`ChatScreen.kt`（合帧/横幅/档位色）、`ChatMessageComponents.kt`（状态机/胶囊/落定/光标/TypingIndicator）、`ChatInputComponents.kt`（发送停止翻牌/裸时长归并）、`ChatContextComponents.kt`（跳转钮曲线）、`screens/settings/SettingsPromptsMemoryTab.kt`（裸时长归并）
+
+### 5. 版本与产物
+- 版本号 v2.5.7 (153) **保持不变**（未发版）；APK 未构建（待用户明确指示，遵循 releases 最高铁律）；
+- 留痕：`APP改进/UI/重构进度日志.md` 已追加第二轮章节（含与方案的有意偏差及技术理由）。
+
+---
 
 ## [2026-09-29] - UI 重构工程（阶段0-5）：全应用 UI 一致性与可访问性升级（未发版）
 
