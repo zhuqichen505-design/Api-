@@ -1,4 +1,4 @@
-package com.aiassistant
+﻿package com.aiassistant
 
 import com.aiassistant.data.repository.RoleplayRepository
 import com.aiassistant.domain.model.CharacterProfile
@@ -48,12 +48,12 @@ class V1918FeaturesTest {
 
     @Test
     fun testThinkingGearCompatibility() {
-        // OpenAI o1: gear supports low/med/high
-        val o1 = ModelCapabilityEngine.resolveCapabilities("o1-mini")
-        assertTrue(o1.supportsThinking)
-        assertEquals("openai", o1.reasoningProviderType)
-        assertTrue(o1.supportedThinkingGears.contains("low"))
-        assertTrue(o1.supportedThinkingGears.contains("high"))
+        // 现代 GPT-6：五档含 xhigh（不再为 o 系列做专项适配）
+        val gpt6 = ModelCapabilityEngine.resolveCapabilities("gpt-6-astra")
+        assertTrue(gpt6.supportsThinking)
+        assertEquals("openai", gpt6.reasoningProviderType)
+        assertTrue(gpt6.supportedThinkingGears.contains("low"))
+        assertTrue(gpt6.supportedThinkingGears.contains("high"))
 
         // Claude 3.7: gear supports low/med/high/max
         val claude37 = ModelCapabilityEngine.resolveCapabilities("claude-3-7-sonnet")

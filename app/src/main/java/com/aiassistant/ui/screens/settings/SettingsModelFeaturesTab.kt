@@ -159,6 +159,28 @@ fun ModelFeaturesTab(
         settings = manager.getSettings()
     }
 
+    var autoCompressionEnabled by remember(settings) { mutableStateOf(settings.autoCompressionTierEnabled) }
+    var thresholdL2 by remember(settings) { mutableFloatStateOf(settings.autoCompressionThresholdL2) }
+    var thresholdL3 by remember(settings) { mutableFloatStateOf(settings.autoCompressionThresholdL3) }
+    var thresholdL4 by remember(settings) { mutableFloatStateOf(settings.autoCompressionThresholdL4) }
+
+    fun persistCompressionSettings(
+        enabled: Boolean = autoCompressionEnabled,
+        l2: Float = thresholdL2,
+        l3: Float = thresholdL3,
+        l4: Float = thresholdL4
+    ) {
+        manager.saveSettings(
+            settings.copy(
+                autoCompressionTierEnabled = enabled,
+                autoCompressionThresholdL2 = l2,
+                autoCompressionThresholdL3 = l3,
+                autoCompressionThresholdL4 = l4
+            )
+        )
+        settings = manager.getSettings()
+    }
+
     var thinkingTemplate by remember(settings) { mutableStateOf(settings.thinkingCapsuleTemplate) }
 
     val allApiConfigs by repository.getAllApiConfigs().collectAsState(initial = emptyList())
@@ -610,6 +632,109 @@ fun ModelFeaturesTab(
                     }
                 }
             }
+
+            // 5. 上下文压缩与自动升档策略
+            item {
+                SettingsGlassCard(hazeState = hazeState) {
+                    EchoSettingRow(
+                        title = "上下文压缩与自动升档",
+                        subtitle = "会话占用越过阈值时经聊天横幅提醒升档，绝不静默精简",
+                        icon = Icons.Default.Compress,
+                        contentPaddingHorizontal = 0.dp
+                    ) {
+                        EchoSwitch(
+                            checked = autoCompressionEnabled,
+                            onCheckedChange = {
+                                autoCompressionEnabled = it
+                                persistCompressionSettings(enabled = it)
+                                savedMessage = if (it) "已开启上下文自动升档提醒" else "已关闭上下文自动升档"
+                            }
+                        )
+                    }
+
+                    AnimatedVisibility(
+                        visible = autoCompressionEnabled,
+                        enter = expandVertically(animationSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.standard)) + fadeIn(),
+                        exit = shrinkVertically(animationSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.fast)) + fadeOut()
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 10.dp),
+                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            HorizontalDivider(
+                                modifier = Modifier.padding(vertical = 2.dp),
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                            )
+
+                            // 阈值调节 L2
+                            ThresholdSliderItem(
+                                title = "L2 滚动摘要触发阈值",
+                                subtitle = "超出后建议合并较早轮次为摘要（默认 75%）",
+                                currentPercent = (thresholdL2 * 100).toInt(),
+                                min = 50,
+                                max = 85,
+                                onValueChange = {
+                                    thresholdL2 = it / 100f
+                                    persistCompressionSettings(l2 = it / 100f)
+                                }
+                            )
+
+                            // 阈值调节 L3
+                            ThresholdSliderItem(
+                                title = "L3 深度压缩触发阈值",
+                                subtitle = "超出后建议合并全历史为结构化决策摘要（默认 85%）",
+                                currentPercent = (thresholdL3 * 100).toInt(),
+                                min = 75,
+                                max = 92,
+                                onValueChange = {
+                                    thresholdL3 = it / 100f
+                                    persistCompressionSettings(l3 = it / 100f)
+                                }
+                            )
+
+                            // 阈值调节 L4
+                            ThresholdSliderItem(
+                                title = "L4 极限压缩触发阈值",
+                                subtitle = "超出后建议仅保留系统设定与最近8轮（默认 95%）",
+                                currentPercent = (thresholdL4 * 100).toInt(),
+                                min = 88,
+                                max = 99,
+                                onValueChange = {
+                                    thresholdL4 = it / 100f
+                                    persistCompressionSettings(l4 = it / 100f)
+                                }
+                            )
+
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Info,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Text(
+                                        text = "自动升档以“渐进式无损提醒”为原则：越过阈值后在聊天界面显示「立即压缩」与「忽略」操作横幅，由您决定是否升档，绝不静默精简对话内容。",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         SnackbarHost(
@@ -644,6 +769,52 @@ fun ModelFeaturesTab(
                 showAuxiliaryTestDialog = false
                 auxiliaryTestResult = null
             }
+        )
+    }
+}
+
+@Composable
+private fun ThresholdSliderItem(
+    title: String,
+    subtitle: String,
+    currentPercent: Int,
+    min: Int,
+    max: Int,
+    onValueChange: (Int) -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+            ) {
+                Text(
+                    text = "$currentPercent%",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                )
+            }
+        }
+        Slider(
+            value = currentPercent.toFloat(),
+            onValueChange = { onValueChange(it.toInt()) },
+            valueRange = min.toFloat()..max.toFloat(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 36.dp)
         )
     }
 }

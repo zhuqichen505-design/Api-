@@ -215,9 +215,9 @@ fun ApiConfigDialog(
 
     // 预设配置
     val presets = mapOf(
-        "anthropic" to Triple("https://api.anthropic.com/v1", "claude-3-5-sonnet-20241022", "Anthropic"),
-        "deepseek" to Triple("https://api.deepseek.com/v1", "deepseek-chat", "DeepSeek"),
-        "openai" to Triple("https://api.openai.com/v1", "gpt-4o", "OpenAI")
+        "anthropic" to Triple("https://api.anthropic.com/v1", "claude-sonnet-4-6", "Anthropic"),
+        "deepseek" to Triple("https://api.deepseek.com/v1", "deepseek-flash", "DeepSeek"),
+        "openai" to Triple("https://api.openai.com/v1", "gpt-6-astra", "OpenAI")
     )
 
     LaunchedEffect(config?.id) {

@@ -29,7 +29,11 @@ data class PersonalizationSettings(
     val auxiliaryMemoryModel: String = "",
     val auxiliaryMemoryPrompt: String = "",
     val autoTimelineEnabled: Boolean = true,
-    val autoTimelineNoticeEnabled: Boolean = true
+    val autoTimelineNoticeEnabled: Boolean = true,
+    val autoCompressionTierEnabled: Boolean = false,
+    val autoCompressionThresholdL2: Float = 0.75f,
+    val autoCompressionThresholdL3: Float = 0.85f,
+    val autoCompressionThresholdL4: Float = 0.95f
 )
 
 class PersonalizationManager(private val context: Context) {
@@ -74,7 +78,11 @@ class PersonalizationManager(private val context: Context) {
             auxiliaryMemoryModel = prefs.getString(KEY_AUXILIARY_MEMORY_MODEL, "").orEmpty(),
             auxiliaryMemoryPrompt = prefs.getString(KEY_AUXILIARY_MEMORY_PROMPT, DEFAULT_AUXILIARY_MEMORY_PROMPT).orEmpty().ifBlank { DEFAULT_AUXILIARY_MEMORY_PROMPT },
             autoTimelineEnabled = prefs.getBoolean(KEY_AUTO_TIMELINE_ENABLED, true),
-            autoTimelineNoticeEnabled = prefs.getBoolean(KEY_AUTO_TIMELINE_NOTICE_ENABLED, true)
+            autoTimelineNoticeEnabled = prefs.getBoolean(KEY_AUTO_TIMELINE_NOTICE_ENABLED, true),
+            autoCompressionTierEnabled = prefs.getBoolean(KEY_AUTO_COMPRESSION_TIER_ENABLED, false),
+            autoCompressionThresholdL2 = prefs.getFloat(KEY_AUTO_COMPRESSION_THRESHOLD_L2, 0.75f),
+            autoCompressionThresholdL3 = prefs.getFloat(KEY_AUTO_COMPRESSION_THRESHOLD_L3, 0.85f),
+            autoCompressionThresholdL4 = prefs.getFloat(KEY_AUTO_COMPRESSION_THRESHOLD_L4, 0.95f)
         )
     }
 
@@ -108,6 +116,10 @@ class PersonalizationManager(private val context: Context) {
             .putString(KEY_AUXILIARY_MEMORY_PROMPT, settings.auxiliaryMemoryPrompt)
             .putBoolean(KEY_AUTO_TIMELINE_ENABLED, settings.autoTimelineEnabled)
             .putBoolean(KEY_AUTO_TIMELINE_NOTICE_ENABLED, settings.autoTimelineNoticeEnabled)
+            .putBoolean(KEY_AUTO_COMPRESSION_TIER_ENABLED, settings.autoCompressionTierEnabled)
+            .putFloat(KEY_AUTO_COMPRESSION_THRESHOLD_L2, settings.autoCompressionThresholdL2)
+            .putFloat(KEY_AUTO_COMPRESSION_THRESHOLD_L3, settings.autoCompressionThresholdL3)
+            .putFloat(KEY_AUTO_COMPRESSION_THRESHOLD_L4, settings.autoCompressionThresholdL4)
             .commit()
     }
 
@@ -167,6 +179,10 @@ class PersonalizationManager(private val context: Context) {
         private const val KEY_AUXILIARY_MEMORY_PROMPT = "auxiliary_memory_prompt"
         private const val KEY_AUTO_TIMELINE_ENABLED = "auto_timeline_enabled"
         private const val KEY_AUTO_TIMELINE_NOTICE_ENABLED = "auto_timeline_notice_enabled"
+        private const val KEY_AUTO_COMPRESSION_TIER_ENABLED = "auto_compression_tier_enabled"
+        private const val KEY_AUTO_COMPRESSION_THRESHOLD_L2 = "auto_compression_threshold_l2"
+        private const val KEY_AUTO_COMPRESSION_THRESHOLD_L3 = "auto_compression_threshold_l3"
+        private const val KEY_AUTO_COMPRESSION_THRESHOLD_L4 = "auto_compression_threshold_l4"
 
         const val DEFAULT_AUXILIARY_MEMORY_PROMPT = "你是一个专业的记忆与设定提炼助手。请阅读以下对话内容，判断是否包含值得长期记住的人物画像、长期偏好、重要事实、剧情设定或行为约束（如称呼要求、绝对禁忌、输出规范等）。\n" +
             "【沉浸感最高准则（铁律）】：\n" +

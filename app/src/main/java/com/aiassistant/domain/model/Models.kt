@@ -97,6 +97,8 @@ data class Conversation(
     val modelAvatarUri: String? = null,
     val currentStoryTime: String? = null,
     val contextWindowTokens: Int? = null, // 会话级独立最大上下文上限（Tokens），null表示跟随模型
+    val compressionTier: Int = 0,        // 会话独立压缩档位：0=L0, 1=L1, 2=L2, 3=L3, 4=L4
+    val compressionRecentRounds: Int = 8, // L2 滚动摘要档保留的最近轮数 N (4~32)
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 )
@@ -379,7 +381,10 @@ data class ConversationContextUsage(
     val hasRollingSummary: Boolean = false,
     val summaryUpdatedAt: Long? = null,
     val compressedThroughMessageId: Long? = null,
-    val canCompress: Boolean = false
+    val canCompress: Boolean = false,
+    val compressionTier: CompressionTier = CompressionTier.L0,
+    val compressionRecentRounds: Int = 8,
+    val tierPreviews: List<TierCompressionPreview> = emptyList()
 )
 
 // ============ API 请求/响应格式 ============

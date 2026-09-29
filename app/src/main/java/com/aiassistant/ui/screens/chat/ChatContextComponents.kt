@@ -358,7 +358,8 @@ internal fun ContextUsageDialog(
     onRefresh: () -> Unit,
     onCompress: () -> Unit,
     onGenerateRollingSummary: () -> Unit = {},
-    onEditRollingSummary: (() -> Unit)? = null
+    onEditRollingSummary: (() -> Unit)? = null,
+    onSelectCompressionTier: ((com.aiassistant.domain.model.CompressionTier, Int) -> Unit)? = null
 ) {
     val usage = state.usage
 
@@ -408,6 +409,12 @@ internal fun ContextUsageDialog(
                 ) {
                     item {
                         ContextUsageOverview(usage = usage, customLimit = customContextLimit)
+                    }
+                    item {
+                        ContextCompressionTierSelectorCard(
+                            usage = usage,
+                            onApplyTier = onSelectCompressionTier
+                        )
                     }
                     if (onUpdateContextLimit != null) {
                         item {
@@ -1140,5 +1147,281 @@ internal fun RollingSummaryEditDialog(
             }
         }
     )
+}
+
+@Composable
+internal fun ContextCompressionTierSelectorCard(
+    usage: com.aiassistant.domain.model.ConversationContextUsage,
+    onApplyTier: ((com.aiassistant.domain.model.CompressionTier, Int) -> Unit)?
+) {
+    var selectedTier by remember(usage.compressionTier) { mutableStateOf(usage.compressionTier) }
+    var l2Rounds by remember(usage.compressionRecentRounds) { mutableIntStateOf(usage.compressionRecentRounds) }
+    var confirmedTier by remember(usage.compressionTier) { mutableStateOf(usage.compressionTier) }
+    var confirmedRounds by remember(usage.compressionRecentRounds) { mutableIntStateOf(usage.compressionRecentRounds) }
+
+    val hasPendingChange = selectedTier != confirmedTier || (selectedTier == com.aiassistant.domain.model.CompressionTier.L2 && l2Rounds != confirmedRounds)
+    val currentPreview = usage.tierPreviews.firstOrNull { it.tier == selectedTier }
+
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Compress,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        text = "请求组装压缩档位",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                ) {
+                    Text(
+                        text = "当前: ${usage.compressionTier.displayName}",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                    )
+                }
+            }
+
+            Text(
+                text = "压缩仅在组装发送至大模型的请求报文时生效，绝不物理改写或删除数据库中的聊天记录。每会话独立记忆。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            // 档位单选列表
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                com.aiassistant.domain.model.CompressionTier.values().forEach { tier ->
+                    val isSelected = tier == selectedTier
+                    val isCurrentSaved = tier == usage.compressionTier
+                    val preview = usage.tierPreviews.firstOrNull { it.tier == tier }
+                    val estTokens = preview?.estimatedTokens ?: 0
+                    val savedTokens = preview?.tokensSaved ?: 0
+                    val savedPercent = ((preview?.savingsPercent ?: 0f) * 100).toInt()
+
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface.copy(alpha = 0.45f),
+                        border = BorderStroke(
+                            width = if (isSelected) 1.5.dp else 1.dp,
+                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                selectedTier = tier
+                            }
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    RadioButton(
+                                        selected = isSelected,
+                                        onClick = { selectedTier = tier },
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                    Text(
+                                        text = "${tier.name} · ${tier.displayName}",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                    )
+                                    if (isCurrentSaved) {
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.15f)
+                                        ) {
+                                            Text(
+                                                text = "生效中",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.secondary,
+                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = "预估 ~$estTokens T",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    if (savedTokens > 0) {
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.15f)
+                                        ) {
+                                            Text(
+                                                text = "-$savedPercent%",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.tertiary,
+                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            Text(
+                                text = tier.detailLossNote,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+
+                            // L2 档位提供 N 轮滑动选择 (4~32)
+                            if (tier == com.aiassistant.domain.model.CompressionTier.L2 && isSelected) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 6.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "保留最近轮数 N：",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        Text(
+                                            text = "最近 $l2Rounds 轮（${l2Rounds * 2} 条原文）",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                    Slider(
+                                        value = l2Rounds.toFloat(),
+                                        onValueChange = { l2Rounds = it.toInt() },
+                                        valueRange = 4f..32f,
+                                        steps = 27,
+                                        modifier = Modifier.fillMaxWidth().heightIn(min = 36.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 前后对比预览卡片与确认生效
+            AnimatedVisibility(
+                visible = hasPendingChange,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "前后对比预览（确认后生效）",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "原档位：${usage.compressionTier.displayName} (~${usage.estimatedInputTokens} Tokens)",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            Text(
+                                text = "新档位：${selectedTier.displayName} (~${currentPreview?.estimatedTokens ?: 0} Tokens)",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+
+                        if ((currentPreview?.tokensSaved ?: 0) > 0) {
+                            Text(
+                                text = "预计释放约 ${currentPreview?.tokensSaved} Tokens (约 -${((currentPreview?.savingsPercent ?: 0f) * 100).toInt()}%)",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.tertiary,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+
+                        Text(
+                            text = "修剪策略：${selectedTier.detailLossNote}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            Button(
+                                onClick = {
+                                    onApplyTier?.invoke(selectedTier, l2Rounds)
+                                    confirmedTier = selectedTier
+                                    confirmedRounds = l2Rounds
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
+                            ) {
+                                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("确认应用并生效", style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 

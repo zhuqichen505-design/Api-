@@ -119,7 +119,8 @@ class AiRepository(
         fun parseApiKeys(rawKey: String?): List<String> = ApiKeysHelper.parseApiKeys(rawKey)
 
         fun isMainlyEnglish(text: String?): Boolean = TokenEstimationHelper.isMainlyEnglish(text)
-        fun normalizeThinkingEffort(effort: String?, providerType: String = "openai"): String = TokenEstimationHelper.normalizeThinkingEffort(effort, providerType)
+        fun normalizeThinkingEffort(effort: String?, providerType: String = "openai", modelName: String? = null): String =
+            TokenEstimationHelper.normalizeThinkingEffort(effort, providerType, modelName)
         fun thinkingBudgetForEffort(effort: String?, configuredBudget: Int): Int = TokenEstimationHelper.thinkingBudgetForEffort(effort, configuredBudget)
         fun isTimeoutException(e: Throwable): Boolean = NetworkExceptionClassifier.isTimeoutException(e)
         fun estimateTokenCount(text: String): Int = TokenEstimationHelper.estimateTokenCount(text)
@@ -582,29 +583,56 @@ class AiRepository(
         return value
     }
 
-    // 获取预设模型列表
+    // 获取预设模型列表（对齐 2026-09 主流；实际可用以服务端 /models 为准）
     private fun getPresetModels(apiType: String, provider: String): List<String> {
         return when {
             apiType == "anthropic" -> listOf(
+                "claude-opus-4-6",
+                "claude-sonnet-4-6",
+                "claude-haiku-4-5",
                 "claude-3-5-sonnet-20241022",
-                "claude-3-5-haiku-20241022",
-                "claude-3-opus-20240229",
-                "claude-3-sonnet-20240229",
-                "claude-3-haiku-20240307"
+                "claude-3-5-haiku-20241022"
             )
             provider.contains("DeepSeek", ignoreCase = true) -> listOf(
+                "deepseek-flash",
+                "deepseek-v4-pro",
                 "deepseek-chat",
                 "deepseek-reasoner"
             )
             provider.contains("OpenAI", ignoreCase = true) -> listOf(
-                "gpt-4o",
-                "gpt-4o-mini",
-                "gpt-4-turbo",
-                "gpt-4",
-                "gpt-3.5-turbo"
+                "gpt-6-astra",
+                "gpt-6-luna",
+                "gpt-6-sol",
+                "gpt-5.6",
+                "gpt-5.5",
+                "gpt-5",
+                "gpt-4.1"
             )
-            provider.contains("MiMo", ignoreCase = true) -> listOf(
-                "mimo"
+            provider.contains("Gemini", ignoreCase = true) || provider.contains("Google", ignoreCase = true) -> listOf(
+                "gemini-3.8-flash",
+                "gemini-3.5-flash",
+                "gemini-3.1-pro"
+            )
+            provider.contains("MiniMax", ignoreCase = true) -> listOf(
+                "MiniMax-M3",
+                "MiniMax-M2.7",
+                "MiniMax-M2.7-highspeed"
+            )
+            provider.contains("Kimi", ignoreCase = true) || provider.contains("Moonshot", ignoreCase = true) -> listOf(
+                "kimi-k3",
+                "kimi-k2.6",
+                "moonshot-v1-128k"
+            )
+            provider.contains("GLM", ignoreCase = true) || provider.contains("Zhipu", ignoreCase = true) ||
+                provider.contains("智谱", ignoreCase = true) -> listOf(
+                "glm-5.3",
+                "glm-5.2",
+                "glm-4.7"
+            )
+            provider.contains("MiMo", ignoreCase = true) || provider.contains("Xiaomi", ignoreCase = true) -> listOf(
+                "MiMo-V2.6-Pro",
+                "MiMo-V2.6",
+                "MiMo-V2.5"
             )
             else -> emptyList()
         }
@@ -1104,6 +1132,21 @@ class AiRepository(
         conversationDao.updateModelAvatarUri(conversationId, avatarUri)
     }
 
+    suspend fun updateConversationCompressionTier(
+        conversationId: Long,
+        tier: com.aiassistant.domain.model.CompressionTier,
+        recentRounds: Int
+    ) = withContext(Dispatchers.IO) {
+        conversationDao.updateCompressionTier(
+            id = conversationId,
+            tier = tier.level,
+            recentRounds = recentRounds.coerceIn(
+                com.aiassistant.domain.model.CompressionTierPolicy.MIN_L2_RECENT_ROUNDS,
+                com.aiassistant.domain.model.CompressionTierPolicy.MAX_L2_RECENT_ROUNDS
+            )
+        )
+    }
+
     suspend fun saveMessage(message: Message): Long {
         val id = messageDao.insertMessage(message)
         updateConversationStats(message.conversationId)
@@ -1572,44 +1615,45 @@ class AiRepository(
             options = effectiveOptions,
             allowNativeWebSearch = !searchIsReady
         )
-        val isO1OrO3 = requestModel.startsWith("o1", ignoreCase = true) ||
-            requestModel.startsWith("o3", ignoreCase = true) ||
-            requestModel.startsWith("o4", ignoreCase = true) ||
-            requestModel.contains("/o1", ignoreCase = true) ||
-            requestModel.contains("/o3", ignoreCase = true) ||
-            requestModel.contains("/o4", ignoreCase = true)
+        // 2026-09 厂商适配：按模型名识别 GPT/MiniMax/Kimi/DeepSeek/Gemini/GLM/MiMo，不再为 o 系列做专项分支
+        val vendorPolicy = com.aiassistant.domain.model.ModelVendorProfiles.policyFor(requestModel)
+        val capability = com.aiassistant.domain.model.ModelCapabilityEngine.evaluateModel(requestModel)
 
         val rawConfiguredMax = effectiveOptions.maxTokens ?: config.maxTokens
         // 兼容历史遗留 50000 默认值：自动纠偏降级为 8192，杜绝上游网关报错
         val configuredMax = if (rawConfiguredMax == 50000) 8192 else (rawConfiguredMax.takeIf { it > 0 } ?: 8192)
-        val isReasoningOrThinkingModel = isO1OrO3 ||
-            requestModel.contains("r1", ignoreCase = true) ||
-            requestModel.contains("reasoner", ignoreCase = true) ||
-            requestModel.contains("thinking", ignoreCase = true) ||
-            requestModel.contains("qwq", ignoreCase = true) ||
-            (effectiveOptions.enableThinking == true || config.enableThinking)
-        // 输出Token安全预算：
-        // - 对带有深度思考/推理的模型：单次输出必须给予充足预算 (8192..32768)，防止思考过程消耗过多 Token 导致正文在中间被强制截断！
-        // - 对通用模型：确保默认至少 8192，区间 (1024..16384)
-        val safeMaxTokens = if (isO1OrO3) {
-            maxOf(configuredMax, 8192).coerceIn(4096, 64000)
-        } else if (isReasoningOrThinkingModel) {
-            maxOf(configuredMax, 8192).coerceIn(8192, 32768)
-        } else {
-            configuredMax.coerceIn(1024, 16384)
+        val isReasoningOrThinkingModel = capability.supportsThinking ||
+            requestModel.contains("deepseek-v4", ignoreCase = true) ||
+            requestModel.contains("deepseek-flash", ignoreCase = true) ||
+            (effectiveOptions.enableThinking == true || config.enableThinking || vendorPolicy.alwaysThinking)
+        val providerMaxOutput = vendorPolicy.maxOutputTokensCap.coerceIn(1_024, 1_048_576)
+        // 输出Token安全预算：按厂商上限收敛，思考模型预留充足预算防截断
+        val safeMaxTokens = when {
+            vendorPolicy.usesMaxCompletionTokens -> maxOf(configuredMax, 8192)
+                .coerceIn(4096, minOf(vendorPolicy.defaultMaxOutputTokens.coerceAtLeast(8192), providerMaxOutput))
+            isReasoningOrThinkingModel -> maxOf(configuredMax, 8192)
+                .coerceIn(8192, minOf(64_000, providerMaxOutput))
+            else -> configuredMax.coerceIn(1024, minOf(32_768, providerMaxOutput))
         }
+
+        val omitTemperature = vendorPolicy.temperaturePolicy == com.aiassistant.domain.model.TemperaturePolicy.FIXED_ONE ||
+            (vendorPolicy.temperaturePolicy == com.aiassistant.domain.model.TemperaturePolicy.OMIT_WHEN_THINKING &&
+                (effectiveOptions.enableThinking == true || config.enableThinking || vendorPolicy.alwaysThinking))
+        val omitSamplingExtras = vendorPolicy.omitsTopPAndPenalties || omitTemperature
+        val mappedEffort = com.aiassistant.domain.model.ModelVendorProfiles
+            .mapThinkingGear(effectiveOptions.thinkingEffort, vendorPolicy)
 
         val request = ChatCompletionRequest(
             model = requestModel,
             messages = normalizedChatMessages,
-            temperature = if (isO1OrO3) null else requestTemperature(config, effectiveOptions),
-            max_tokens = if (isO1OrO3) null else safeMaxTokens,
-            max_completion_tokens = if (isO1OrO3) safeMaxTokens else null,
-            top_p = effectiveOptions.topP,
-            top_k = if (providerToggles.includeTopK) config.topK else null,
+            temperature = if (omitTemperature) null else requestTemperature(config, effectiveOptions),
+            max_tokens = if (capability.usesMaxCompletionTokens) null else safeMaxTokens,
+            max_completion_tokens = if (capability.usesMaxCompletionTokens) safeMaxTokens else null,
+            top_p = if (omitSamplingExtras) null else effectiveOptions.topP,
+            top_k = if (providerToggles.includeTopK && !omitSamplingExtras) config.topK else null,
             stream = true,
-            frequency_penalty = if (isO1OrO3) null else config.frequencyPenalty.takeIf { it != 0.0f },
-            presence_penalty = if (isO1OrO3) null else config.presencePenalty.takeIf { it != 0.0f },
+            frequency_penalty = if (omitSamplingExtras) null else config.frequencyPenalty.takeIf { it != 0.0f },
+            presence_penalty = if (omitSamplingExtras) null else config.presencePenalty.takeIf { it != 0.0f },
             stop = parseStopSequences(config.stopSequences),
             seed = config.seed,
             response_format = config.responseFormat?.let { ResponseFormat(it) },
@@ -1622,8 +1666,10 @@ class AiRepository(
             search_context_size = if (providerToggles.includeGenericSearch) config.searchContextSize else null,
             enable_thinking = if (providerToggles.includeEnableThinking) true else null,
             thinking_budget = if (providerToggles.includeThinkingBudget) thinkingBudgetForEffort(effectiveOptions.thinkingEffort, config.thinkingBudget) else null,
-            thinking_effort = if (providerToggles.includeThinkingEffort) effectiveOptions.thinkingEffort else null,
-            reasoning_effort = if (providerToggles.includeReasoningEffort && isO1OrO3) effectiveOptions.thinkingEffort else null
+            thinking_effort = if (providerToggles.includeThinkingEffort) mappedEffort else null,
+            reasoning_effort = if (vendorPolicy.usesReasoningEffort && (effectiveOptions.enableThinking == true || config.enableThinking || vendorPolicy.alwaysThinking || providerToggles.includeReasoningEffort)) {
+                mappedEffort
+            } else null
         )
 
         val auth = RetrofitClient.formatApiKey(config.apiKey)
@@ -2306,13 +2352,28 @@ class AiRepository(
 
     private fun requestTemperature(config: ApiConfig, options: ChatRequestOptions): Float? {
         val identity = listOf(config.provider, config.baseUrl, config.modelName).joinToString(" ").lowercase()
-        val isAnthropic = config.apiType == "anthropic" || config.provider.equals("anthropic", ignoreCase = true) || "anthropic" in identity || "claude" in identity
-        // 现代主流大模型已全面支持深度思考能力，无需根据名字硬编码判断。
-        // 开启思考模式时，Anthropic 协议规范要求 temperature 必须为 1.0f；其他思考模型普遍不接受自定义温度，统一置 null 避免服务端报错。
-        if (options.enableThinking == true) {
-            return if (isAnthropic) 1.0f else null
+        val policy = com.aiassistant.domain.model.ModelVendorProfiles.policyFor(
+            config.modelName, config.provider, config.baseUrl
+        )
+        val isAnthropic = config.apiType == "anthropic" || policy.vendor == com.aiassistant.domain.model.ModelVendor.CLAUDE ||
+            config.provider.equals("anthropic", ignoreCase = true) || "anthropic" in identity || "claude" in identity
+
+        return when (policy.temperaturePolicy) {
+            // Kimi K3 / GLM-5.3：官方固定 temperature=1.0，不建议显式传入
+            com.aiassistant.domain.model.TemperaturePolicy.FIXED_ONE -> null
+            // 现代 OpenAI 推理风格：思考时省略 temperature
+            com.aiassistant.domain.model.TemperaturePolicy.OMIT_WHEN_THINKING ->
+                if (options.enableThinking == true || policy.alwaysThinking) null
+                else options.temperature?.coerceIn(0f, temperatureMaxForConfig(config))
+            // Anthropic：思考开启时强制 1.0
+            com.aiassistant.domain.model.TemperaturePolicy.FORCE_ONE_WHEN_THINKING ->
+                if (options.enableThinking == true || isAnthropic) 1.0f
+                else options.temperature?.coerceIn(0f, temperatureMaxForConfig(config))
+            com.aiassistant.domain.model.TemperaturePolicy.ALLOWED ->
+                if (options.enableThinking == true && !isAnthropic) null
+                else if (isAnthropic && options.enableThinking == true) 1.0f
+                else options.temperature?.coerceIn(0f, temperatureMaxForConfig(config))
         }
-        return options.temperature?.coerceIn(0f, temperatureMaxForConfig(config))
     }
 
     private fun resolveRequestModel(config: ApiConfig, options: ChatRequestOptions): String {
@@ -2432,12 +2493,69 @@ class AiRepository(
         val memoryTokens = memoryBlock?.let(::estimateTokenCount) ?: 0
         val memoryItemCount = memoryDao.getCandidateMemories(conversation.id).size
 
-        val estimatedInputTokens = (
+        val currentTier = com.aiassistant.domain.model.CompressionTier.fromLevel(conversation.compressionTier)
+        val l2Rounds = (conversation.compressionRecentRounds).coerceIn(
+            com.aiassistant.domain.model.CompressionTierPolicy.MIN_L2_RECENT_ROUNDS,
+            com.aiassistant.domain.model.CompressionTierPolicy.MAX_L2_RECENT_ROUNDS
+        )
+
+        // 基础 L0 组装结果
+        val l0Res = ChatContextAssemblyHelper.assembleTieredContextMessages(
+            tier = com.aiassistant.domain.model.CompressionTier.L0,
+            usableMessages = usableMessages,
+            recentBudget = recentBudget,
+            l2RecentRounds = l2Rounds,
+            existingRollingSummary = conversation.rollingSummary
+        )
+        val baselineTokens = (
             SYSTEM_PROMPT_TOKEN_RESERVE +
-                resolution.recentTokens +
+                l0Res.recentTokens +
                 memoryTokens.coerceAtMost(memoryBudget)
         ).coerceAtLeast(0)
+
+        // 计算 5 个档位的对比预览快照
+        val previews = com.aiassistant.domain.model.CompressionTier.values().map { t ->
+            val res = if (t == com.aiassistant.domain.model.CompressionTier.L0) l0Res else {
+                ChatContextAssemblyHelper.assembleTieredContextMessages(
+                    tier = t,
+                    usableMessages = usableMessages,
+                    recentBudget = recentBudget,
+                    l2RecentRounds = l2Rounds,
+                    existingRollingSummary = conversation.rollingSummary
+                )
+            }
+            val tierTokens = (
+                SYSTEM_PROMPT_TOKEN_RESERVE +
+                    res.recentTokens +
+                    memoryTokens.coerceAtMost(memoryBudget)
+            ).coerceAtLeast(0)
+            val tokensSaved = (baselineTokens - tierTokens).coerceAtLeast(0)
+            val savingsPercent = if (baselineTokens > 0) (tokensSaved / baselineTokens.toFloat()).coerceIn(0f, 1f) else 0f
+            com.aiassistant.domain.model.TierCompressionPreview(
+                tier = t,
+                estimatedTokens = tierTokens,
+                baselineTokens = baselineTokens,
+                tokensSaved = tokensSaved,
+                savingsPercent = savingsPercent,
+                retainedRoundsDesc = com.aiassistant.domain.model.CompressionTierPolicy.getRetainedRoundsDesc(t, l2Rounds),
+                lossNote = t.detailLossNote
+            )
+        }
+
+        val currentPreview = previews.firstOrNull { it.tier == currentTier } ?: previews.first()
+        val estimatedInputTokens = currentPreview.estimatedTokens
         val calculatedUsagePercent = (estimatedInputTokens / promptBudget.toFloat()).coerceIn(0f, 1f)
+
+        val activeRes = when (currentTier) {
+            com.aiassistant.domain.model.CompressionTier.L0 -> l0Res
+            else -> ChatContextAssemblyHelper.assembleTieredContextMessages(
+                tier = currentTier,
+                usableMessages = usableMessages,
+                recentBudget = recentBudget,
+                l2RecentRounds = l2Rounds,
+                existingRollingSummary = conversation.rollingSummary
+            )
+        }
 
         return ConversationContextUsage(
             contextWindowTokens = contextWindow,
@@ -2445,16 +2563,19 @@ class AiRepository(
             promptBudgetTokens = promptBudget,
             estimatedInputTokens = estimatedInputTokens,
             usagePercent = calculatedUsagePercent,
-            recentMessageCount = resolution.activeMessages.size,
-            olderMessageCount = resolution.uncompressedOlderCount,
-            recentTokens = resolution.recentTokens,
-            summaryTokens = 0,
+            recentMessageCount = activeRes.activeMessages.size,
+            olderMessageCount = activeRes.uncompressedOlderCount,
+            recentTokens = activeRes.recentTokens,
+            summaryTokens = if (activeRes.injectedSummary != null) TokenEstimationHelper.estimateTokenCount(activeRes.injectedSummary) else 0,
             memoryTokens = memoryTokens,
             memoryItemCount = memoryItemCount,
-            hasRollingSummary = false,
+            hasRollingSummary = !conversation.rollingSummary.isNullOrBlank(),
             summaryUpdatedAt = conversation.summaryUpdatedAt,
             compressedThroughMessageId = conversation.summaryUpdatedMessageId,
-            canCompress = resolution.canCompress
+            canCompress = activeRes.canCompress,
+            compressionTier = currentTier,
+            compressionRecentRounds = l2Rounds,
+            tierPreviews = previews
         )
     }
 
@@ -2503,17 +2624,50 @@ class AiRepository(
             buildRelevantMemoryBlock(it, currentUserMessage, memoryBudget, options)
         }
 
-        val resolution = resolveActiveContextMessages(
-            usableMessages = usableMessages,
-            compressedThrough = conversation?.summaryUpdatedMessageId ?: 0L,
-            recentBudget = recentBudget
+        var activeTier = com.aiassistant.domain.model.CompressionTier.fromLevel(conversation?.compressionTier)
+        val l2Rounds = (conversation?.compressionRecentRounds ?: com.aiassistant.domain.model.CompressionTierPolicy.DEFAULT_L2_RECENT_ROUNDS).coerceIn(
+            com.aiassistant.domain.model.CompressionTierPolicy.MIN_L2_RECENT_ROUNDS,
+            com.aiassistant.domain.model.CompressionTierPolicy.MAX_L2_RECENT_ROUNDS
         )
 
-        // 彻底废除滚动摘要：summary 始终为 null，不再调用 ensureRollingSummary，杜绝静态摘要锁死剧情
+        val structuredSummary = if (activeTier == com.aiassistant.domain.model.CompressionTier.L2 || activeTier == com.aiassistant.domain.model.CompressionTier.L3) {
+            conversation?.rollingSummary?.takeIf { it.isNotBlank() }
+                ?: runCatching {
+                    com.aiassistant.utils.AdvancedMemoryEngine.generateExtractiveStructuredSummary(usableMessages).toPromptBlock()
+                }.getOrNull()
+        } else null
+
+        var tieredResult = ChatContextAssemblyHelper.assembleTieredContextMessages(
+            tier = activeTier,
+            usableMessages = usableMessages,
+            recentBudget = recentBudget,
+            l2RecentRounds = l2Rounds,
+            existingRollingSummary = conversation?.rollingSummary,
+            structuredSummary = structuredSummary
+        )
+
+        // 溢出安全回退：若当前档位组装后仍超 promptBudget 上限，自动降一档，直到 L4
+        val memoryTokensCost = memoryBlock?.let(::estimateTokenCount) ?: 0
+        var totalEstimated = SYSTEM_PROMPT_TOKEN_RESERVE + tieredResult.recentTokens + memoryTokensCost
+        while (totalEstimated > promptBudget && activeTier != com.aiassistant.domain.model.CompressionTier.L4) {
+            val fallback = com.aiassistant.domain.model.CompressionTierPolicy.fallbackOnContextOverflow(activeTier, totalEstimated, promptBudget)
+                ?: break
+            activeTier = fallback
+            tieredResult = ChatContextAssemblyHelper.assembleTieredContextMessages(
+                tier = activeTier,
+                usableMessages = usableMessages,
+                recentBudget = recentBudget,
+                l2RecentRounds = l2Rounds,
+                existingRollingSummary = conversation?.rollingSummary,
+                structuredSummary = structuredSummary
+            )
+            totalEstimated = SYSTEM_PROMPT_TOKEN_RESERVE + tieredResult.recentTokens + memoryTokensCost
+        }
+
         return ContextBundle(
-            summary = null,
+            summary = tieredResult.injectedSummary,
             memoryBlock = memoryBlock,
-            recentMessages = resolution.activeMessages
+            recentMessages = tieredResult.activeMessages
         )
     }
 
@@ -2523,9 +2677,16 @@ class AiRepository(
         contextWindowOverrideTokens: Int? = null
     ): Int {
         val contextWindow = contextWindowOverrideTokens
-            ?.coerceIn(4_000, 2_000_000)
+            ?.coerceIn(4_000, 4_000_000)
             ?: estimateModelContextWindowTokens(modelName)
-        val maxAllowedOutputReserve = (contextWindow * 0.25f).toInt().coerceAtLeast(1024).coerceAtMost(8192)
+        // 2026-09：DeepSeek V4 最大输出 384K、GPT-6 Astra 128K，输出预留不再被 8K 死锁
+        val capabilityReserveCap = com.aiassistant.domain.model.ModelCapabilityEngine
+            .evaluateModel(modelName)
+            .maxOutputTokens
+            .coerceIn(2_048, 64_000)
+        val maxAllowedOutputReserve = (contextWindow * 0.25f).toInt()
+            .coerceAtLeast(1_024)
+            .coerceAtMost(capabilityReserveCap)
         val outputReserve = (maxOutputTokens ?: 4_096).coerceIn(512, maxAllowedOutputReserve)
         return (contextWindow - outputReserve - 1_024)
             .coerceAtLeast(3_000)
@@ -2671,7 +2832,14 @@ class AiRepository(
         val normalizedUrl = normalizeApiBaseUrl(config.baseUrl, config.apiType)
         val allKeys = parseApiKeys(config.apiKey).ifEmpty { listOf(config.apiKey) }
         var lastException: Exception? = null
-        val isO1OrO3 = modelName.startsWith("o1", ignoreCase = true) || modelName.startsWith("o3", ignoreCase = true)
+        val isModernOpenAiStyle = com.aiassistant.domain.model.ModelCapabilityEngine
+            .isModernOpenAiReasoningStyle(modelName) ||
+            com.aiassistant.domain.model.ModelVendorProfiles.detectVendor(modelName).let {
+                it == com.aiassistant.domain.model.ModelVendor.KIMI ||
+                    it == com.aiassistant.domain.model.ModelVendor.GLM ||
+                    it == com.aiassistant.domain.model.ModelVendor.GPT ||
+                    it == com.aiassistant.domain.model.ModelVendor.MINIMAX
+            }
 
         for (key in allKeys) {
             val cleanKey = key.removePrefix("Bearer ").trim()
@@ -2701,8 +2869,8 @@ class AiRepository(
                             model = modelName,
                             messages = listOf(ChatMessage(role = "user", content = prompt)),
                             temperature = null,
-                            max_tokens = if (isO1OrO3) null else completionTokens,
-                            max_completion_tokens = if (isO1OrO3) completionTokens else null,
+                            max_tokens = if (isModernOpenAiStyle) null else completionTokens,
+                            max_completion_tokens = if (isModernOpenAiStyle) completionTokens else null,
                             stream = false
                         )
                         val response = RetrofitClient.getAnalysisService(normalizedUrl)
@@ -2821,14 +2989,16 @@ class AiRepository(
             }
         }
 
-        // 彻底废除滚动摘要 (summaryBlock) 注入：
-        // 过往历史压缩成果由 memoryBlock（会话专属记忆与独立时间线系统）承载，
-        // 彻底根除静态陈旧摘要导致模型在过去时间点原地踏步的痛点。
+        val summaryPart = olderSummary?.takeIf { it.isNotBlank() }?.let {
+            "【历史对话前序背景与摘要】：\n${it.trim()}\n（注：以上为超出近期上下文窗口的早期对话摘要，仅供参考背景，当前对话以此后的近期消息为准。）"
+        }
+
         return listOfNotNull(
             basePrompt,
             personalizationPart,
             buildRuntimeFeaturePrompt(options),
             promptPart,
+            summaryPart,
             memoryBlock,
             worldBookBlock
         ).joinToString("\n\n").ifBlank { null }

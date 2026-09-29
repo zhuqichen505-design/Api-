@@ -109,7 +109,10 @@ class V236FeaturesTest {
             val cap = ModelCapabilityEngine.resolveCapabilities(model)
             assertTrue("模型 $model 必须默认支持思考", cap.supportsThinking)
             assertTrue("模型 $model 必须默认支持 reasoning", cap.supportsReasoning)
-            assertTrue("模型 $model 必须支持 4 档思考深度", cap.supportedThinkingGears.containsAll(listOf("low", "medium", "high", "max")))
+            // 2026-09：不同厂商思考档位不同（Kimi/GLM 三档，GPT-6 五档），但至少要有 low/high 且不少于 3 档
+            assertTrue("模型 $model 思考档位需含 low", cap.supportedThinkingGears.contains("low"))
+            assertTrue("模型 $model 思考档位需含 high", cap.supportedThinkingGears.contains("high"))
+            assertTrue("模型 $model 思考档位不少于 3 档", cap.supportedThinkingGears.size >= 3)
             assertTrue("模型 $model 上下文额度充足 (>= 128K)", cap.contextWindowTokens >= 128_000)
         }
     }

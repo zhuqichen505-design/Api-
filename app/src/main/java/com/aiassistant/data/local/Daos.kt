@@ -171,6 +171,14 @@ interface ConversationDao {
         tokens: Int?,
         timestamp: Long = System.currentTimeMillis()
     )
+
+    @Query("UPDATE conversations SET compressionTier = :tier, compressionRecentRounds = :recentRounds, updatedAt = :timestamp WHERE id = :id")
+    suspend fun updateCompressionTier(
+        id: Long,
+        tier: Int,
+        recentRounds: Int,
+        timestamp: Long = System.currentTimeMillis()
+    )
 }
 
 // ============ 消息 DAO ============

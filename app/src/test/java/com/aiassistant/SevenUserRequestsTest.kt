@@ -1,4 +1,4 @@
-package com.aiassistant
+﻿package com.aiassistant
 
 import com.aiassistant.data.repository.AiRepository
 import com.aiassistant.domain.model.ModelCapabilityEngine
@@ -43,14 +43,14 @@ class SevenUserRequestsTest {
 
     @Test
     fun testModelCapabilityEngineReasoningProviderDetection() {
-        // 1. 代理/第三方中转 URL 上的 o3-mini 模型识别
-        val o3Proxy = ModelCapabilityEngine.evaluateModel(
-            modelName = "o3-mini",
+        // 1. 代理/第三方中转 URL 上的现代 GPT-6 识别
+        val gpt6Proxy = ModelCapabilityEngine.evaluateModel(
+            modelName = "gpt-6-luna",
             provider = "CustomProxy",
             baseUrl = "https://api.oneapi-relay.com/v1"
         )
-        assertTrue("o3-mini 必须支持思考", o3Proxy.supportsThinking)
-        assertEquals("openai", o3Proxy.reasoningProviderType)
+        assertTrue("gpt-6-luna 必须支持思考", gpt6Proxy.supportsThinking)
+        assertEquals("openai", gpt6Proxy.reasoningProviderType)
 
         // 2. Claude 3.7 模型识别
         val claude37 = ModelCapabilityEngine.evaluateModel(

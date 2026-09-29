@@ -1,4 +1,4 @@
-package com.aiassistant
+﻿package com.aiassistant
 
 import com.aiassistant.data.repository.AiRepository
 import com.aiassistant.domain.model.ModelCapabilityEngine
@@ -92,10 +92,14 @@ class V1920FeaturesTest {
 
     @Test
     fun testThinkingGearsAvailability() {
-        // OpenAI o 系列：3 档
-        val o3Cap = ModelCapabilityEngine.resolveCapabilities("o3-mini")
-        assertTrue(o3Cap.supportsThinking)
-        assertEquals(listOf("low", "medium", "high"), o3Cap.supportedThinkingGears)
+        // 2026-09：过时 o 系列走默认统一方案；Kimi 官方三档
+        val defaultCap = ModelCapabilityEngine.resolveCapabilities("some-future-model")
+        assertTrue(defaultCap.supportsThinking)
+        assertTrue(defaultCap.supportedThinkingGears.contains("low"))
+        assertTrue(defaultCap.supportedThinkingGears.contains("high"))
+
+        val kimiCap = ModelCapabilityEngine.resolveCapabilities("kimi-k3")
+        assertEquals(listOf("low", "high", "max"), kimiCap.supportedThinkingGears)
 
         // Claude 3.7：4 档
         val claudeCap = ModelCapabilityEngine.resolveCapabilities("claude-3-7-sonnet")

@@ -90,6 +90,38 @@
 - 真机走查（截图矩阵/TalkBack/弹窗焦点）仍留待人工验收——本次 P1-1 漏网即因无真机视觉回归，建议发版前按 §8.2 执行。
 - 依据用户最高准则，本次仍未递增版本号、未构建 APK。
 
+## [2026-09-30] - v2.5.8 阶梯式上下文压缩选择 + 2026 模型适配（含动效轮全量发版）
+
+### 1. 现状调查报告（压缩机制审计结论）
+- **既有自动压缩**（`ChatViewModel.evaluateAutoCompression`/`refreshContextUsage`，`contextUsage` 状态）：仅做占用提示与单一策略处理，无档位概念、无用户选择、无对比预览 → 复用其触发时机与横幅通道，作为"自动升档提醒"的宿主；
+- **滚动摘要**（`RollingSummaryEditDialog` + `conversation.rollingSummary`）：摘要持久化于会话字段、请求组装时注入 → 直接复用为 **L2 档**的摘要来源；
+- **组装与估算**（`AiRepository` + `ChatContextAssemblyHelper` + `TokenEstimationHelper`）：组装顺序系统提示→记忆→世界书→会话记忆→历史消息，预算按模型窗口估算 → 在 `ChatContextAssemblyHelper` 新增 `assembleTieredContextMessages` 分档组装入口，五档共用预算与安全边界代码；
+- **UI**（`ContextUsageDialog` + 聊天页上下文横幅）：复用为档位选择区与自动升档提醒的动作宿主；
+- **持久化**：Room v29 → conversations 表新增 compressionTier/compressionRecentRounds 两列（MIGRATION_29_30，addColumnIfMissing 非破坏式）；
+- **复用结论**：L2 完全复用滚动摘要；L1 为新增 `ContentPruningHelper` 内存修剪；L3 新增本地抽取式结构化摘要（`AdvancedMemoryEngine.generateExtractiveStructuredSummary`，不联网）；L4 为组装窗口裁剪。无需推翻任何既有机制。
+
+### 2. 功能实现（核心约束：压缩仅在请求组装层，绝不物理改写/删除消息）
+1. **五档枚举与策略**：`domain/model/CompressionTier.kt`（L0 完整保留 / L1 轻量修剪 / L2 滚动摘要 N 可选 4~32 默认 8 / L3 深度压缩保留 16 轮 / L4 极限压缩保留 8 轮）+ `CompressionTierPolicy` 纯函数（自动升档判定、上限溢出逐级降档、保留轮数描述）；
+2. **L1 修剪器**：`data/repository/helpers/ContentPruningHelper.kt`（OCR 块/联网与工具结果块/超 8 行代码块→占位说明，正则白名单匹配现有注入格式）；
+3. **分档组装**：`ChatContextAssemblyHelper.assembleTieredContextMessages`（档位窗口矩阵、pinned 与最近一轮硬性保留、预算内取舍、摘要注入优先级 L2 滚动摘要优先 / L3 结构化摘要优先）；`AiRepository` 接入 + 溢出自动降档循环 + 2026 模型预算修正；
+4. **会话级持久化**：Room v30（MIGRATION_29_30 + `ConversationDao.updateCompressionTier`）+ `Conversation` 新字段；
+5. **UI**：`ContextCompressionTierSelectorCard`（档位单选 + L2 轮数 Slider 4~32 + 每档 token 预估与损失说明 + 前后对比预览确认生效）接入上下文管理弹窗；聊天页横幅新增「立即压缩 / 忽略」动作（`applyPendingAutoCompression` / `dismissPendingAutoCompression`）；
+6. **设置**：模型辅助与思考 Tab 新增「上下文压缩与自动升档」区（开关默认关 + L2/L3/L4 三阈值 Slider，`PersonalizationManager` 持久化）。
+
+### 3. 测试
+- 新增 `CompressionTierPolicyTest`：升档判定（关闭/低于阈值/逐级）、溢出降档链、L1 修剪、MIGRATION_29_30 注册、分档组装安全边界（pinned/最近一轮/预算）；
+- 全量 `testDebugUnitTest`：**450 tests，0 failures 0 errors**；`compileDebugKotlin` 退出码 0。
+
+### 4. 同批工作流：2026 模型适配（同一中断会话的在途成果，一并收编）
+- 新增 `domain/model/ModelVendorProfiles.kt`（厂商/代际细分参数策略）；`ModelCapabilityEngine` 上下文窗口与多模态判定按厂商策略修正（DeepSeek V4+ 1M/384K 输出、GPT-6 Astra 1.05M 等）；`TokenEstimationHelper.normalizeThinkingEffort` 增加按模型名安全映射；`AiRepository` 预算估算对接新能力；`SettingsApiConfigDialog`/`FileUtils` 适配；新增 `ModernModelAdaptation2026Test`。
+
+### 5. 版本与产物
+- versionCode 154 / versionName 2.5.8；CHANGELOG 已记 v2.5.8；README/PROJECT 已同步；
+- APK：`assembleRelease` 构建后增量输出 `D:\Agent\APP-烧ppeleases\Echo-v2.5.8.apk`（历史包全部保留），SHA256 见交付说明；
+- 本版本自 v2.5.7 起累计包含：时间线与流式稳定性（v2.5.7 已含）、动效轮（EchoMotion/生成链路动效/菜单与状态过渡/按压反馈）、检查报告修复（A1-A6/P2-1/P3-1~4）、本条压缩与适配功能。
+
+---
+
 ## [2026-09-30] - 动效轮检查报告修复（P2-1 + P3-1/2/3/4，未发版）
 
 ### 1. 本次需求

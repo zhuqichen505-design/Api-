@@ -216,7 +216,16 @@ object FileUtils {
     fun supportsImageInput(modelName: String): Boolean {
         val name = modelName.lowercase()
         if (name.isBlank()) return false
-        if (name.contains("deepseek") || name.contains("reasoner")) return false
+
+        // DeepSeek V4：flash 支持视觉；pro / 历史 reasoner/r1 不支持
+        if (name.contains("deepseek")) {
+            if (name.contains("deepseek-v4-pro") || name.contains("deepseek-reasoner") ||
+                name.contains("deepseek-r1") || name == "deepseek-chat"
+            ) {
+                return false
+            }
+            return name.contains("flash") || name.contains("vision") || name.contains("vl")
+        }
 
         val visionSignals = listOf(
             "vision",
@@ -224,9 +233,12 @@ object FileUtils {
             "gpt-4o",
             "gpt-4.1",
             "gpt-5",
+            "gpt-6",
+            "astra",
             "gemini",
             "claude-3",
             "claude-4",
+            "claude-5",
             "qwen2-vl",
             "qwen-vl",
             "glm-4v",

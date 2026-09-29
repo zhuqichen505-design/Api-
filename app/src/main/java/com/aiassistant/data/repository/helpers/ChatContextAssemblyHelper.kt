@@ -200,4 +200,120 @@ object ChatContextAssemblyHelper {
             lastOlderMessageId = lastOlderMessageId
         )
     }
+
+    fun assembleTieredContextMessages(
+        tier: com.aiassistant.domain.model.CompressionTier,
+        usableMessages: List<Message>,
+        recentBudget: Int,
+        l2RecentRounds: Int = com.aiassistant.domain.model.CompressionTierPolicy.DEFAULT_L2_RECENT_ROUNDS,
+        existingRollingSummary: String? = null,
+        structuredSummary: String? = null
+    ): TieredContextResult {
+        if (usableMessages.isEmpty()) {
+            return TieredContextResult(emptyList(), null, 0, 0, false)
+        }
+
+        // 确定不同档位的最近消息窗口保留数量（以轮数 * 2 计）
+        val recentWindowCount = when (tier) {
+            com.aiassistant.domain.model.CompressionTier.L0 -> UNCOMPRESSED_RECENT_MESSAGE_COUNT
+            com.aiassistant.domain.model.CompressionTier.L1 -> UNCOMPRESSED_RECENT_MESSAGE_COUNT
+            com.aiassistant.domain.model.CompressionTier.L2 -> (l2RecentRounds.coerceIn(
+                com.aiassistant.domain.model.CompressionTierPolicy.MIN_L2_RECENT_ROUNDS,
+                com.aiassistant.domain.model.CompressionTierPolicy.MAX_L2_RECENT_ROUNDS
+            ) * 2)
+            com.aiassistant.domain.model.CompressionTier.L3 -> 32 // 16 轮
+            com.aiassistant.domain.model.CompressionTier.L4 -> 16 // 8 轮
+        }
+
+        val recentWindow = usableMessages.takeLast(recentWindowCount)
+        val recentWindowIds = recentWindow.map { it.id }.toSet()
+        val olderMessages = usableMessages.dropLast(recentWindow.size)
+
+        // 确定注入的摘要内容
+        val injectedSummary: String? = when (tier) {
+            com.aiassistant.domain.model.CompressionTier.L0 -> null
+            com.aiassistant.domain.model.CompressionTier.L1 -> null
+            com.aiassistant.domain.model.CompressionTier.L2 -> {
+                existingRollingSummary?.takeIf { it.isNotBlank() }
+                    ?: structuredSummary?.takeIf { it.isNotBlank() }
+            }
+            com.aiassistant.domain.model.CompressionTier.L3 -> {
+                structuredSummary?.takeIf { it.isNotBlank() }
+                    ?: existingRollingSummary?.takeIf { it.isNotBlank() }
+            }
+            com.aiassistant.domain.model.CompressionTier.L4 -> null
+        }
+
+        // 候选消息筛选与修剪：
+        // 硬性安全边界：
+        // 1. isPinned 消息无条件保留；
+        // 2. 最近 1 轮（最后 2 条）无条件保留；
+        // 3. L2/L3/L4 档位中，较早未置顶消息交由摘要承载；
+        // 4. L0/L1 档位中，较早消息在 recentBudget 预算内尽量保留。
+        val lastRoundIds = usableMessages.takeLast(2).map { it.id }.toSet()
+
+        val candidateMessages = usableMessages.filter { msg ->
+            when (tier) {
+                com.aiassistant.domain.model.CompressionTier.L0,
+                com.aiassistant.domain.model.CompressionTier.L1 -> {
+                    msg.isPinned || recentWindowIds.contains(msg.id) || olderMessages.any { it.id == msg.id }
+                }
+                com.aiassistant.domain.model.CompressionTier.L2,
+                com.aiassistant.domain.model.CompressionTier.L3,
+                com.aiassistant.domain.model.CompressionTier.L4 -> {
+                    msg.isPinned || lastRoundIds.contains(msg.id) || recentWindowIds.contains(msg.id)
+                }
+            }
+        }
+
+        var usedTokens = 0
+        val activeReversed = mutableListOf<Message>()
+
+        for (message in candidateMessages.asReversed()) {
+            val contentToUse = if (tier == com.aiassistant.domain.model.CompressionTier.L1 && !lastRoundIds.contains(message.id)) {
+                ContentPruningHelper.pruneMessageContent(message.content)
+            } else {
+                message.content
+            }
+            val compact = TokenEstimationHelper.compactMessageForHistory(contentToUse)
+            val cost = TokenEstimationHelper.estimateTokenCount(compact) + 24
+
+            val isMandatory = message.isPinned || lastRoundIds.contains(message.id) || recentWindowIds.contains(message.id)
+            if (!isMandatory && (usedTokens + cost > recentBudget)) {
+                continue
+            }
+
+            val finalMessage = if (contentToUse != message.content) {
+                message.copy(content = contentToUse)
+            } else {
+                message
+            }
+
+            activeReversed.add(finalMessage)
+            usedTokens += cost
+        }
+
+        val activeMessages = activeReversed.asReversed()
+        val summaryTokens = injectedSummary?.let { TokenEstimationHelper.estimateTokenCount(it) + 32 } ?: 0
+
+        return TieredContextResult(
+            activeMessages = activeMessages,
+            injectedSummary = injectedSummary,
+            recentTokens = usedTokens + summaryTokens,
+            uncompressedOlderCount = olderMessages.size,
+            canCompress = olderMessages.isNotEmpty()
+        )
+    }
 }
+
+/**
+ * 分档组装解析结果载体
+ */
+data class TieredContextResult(
+    val activeMessages: List<Message>,
+    val injectedSummary: String? = null,
+    val recentTokens: Int = 0,
+    val uncompressedOlderCount: Int = 0,
+    val canCompress: Boolean = false
+)
+

@@ -25,26 +25,29 @@ object TokenEstimationHelper {
         return latinCount >= 30 && chineseCount < (latinCount * 0.15)
     }
 
-    fun normalizeThinkingEffort(effort: String?, providerType: String = "openai"): String {
-        val normalized = effort?.lowercase()?.trim()
-        return when (normalized) {
-            "low", "fast" -> "low"
-            "medium", "balanced" -> "medium"
-            "high", "deep" -> "high"
-            "max", "ultra" -> {
-                // 严格官方 OpenAI 仅支持 low, medium, high；在 openai 模式下安全映射为 high
-                if (providerType.equals("openai", true)) "high" else "max"
+    fun normalizeThinkingEffort(effort: String?, providerType: String = "openai", modelName: String? = null): String {
+        // 未指定模型名时保持历史安全映射（max/ultra→high），避免向未知网关发送过高档位
+        if (modelName.isNullOrBlank()) {
+            return when (effort?.lowercase()?.trim()) {
+                "low", "fast" -> "low"
+                "medium", "balanced" -> "medium"
+                "high", "deep" -> "high"
+                "max", "ultra", "xhigh", "ultra_high", "highest" -> "high"
+                else -> "medium"
             }
-            else -> "medium"
         }
+        // 按厂商真实支持档位映射：Kimi/GLM 仅 low/high/max，GPT-6 含 xhigh/max
+        val policy = com.aiassistant.domain.model.ModelVendorProfiles.policyFor(modelName)
+        return com.aiassistant.domain.model.ModelVendorProfiles.mapThinkingGear(effort, policy)
     }
 
     fun thinkingBudgetForEffort(effort: String?, configuredBudget: Int): Int {
-        val base = configuredBudget.coerceIn(1024, 64000)
+        val base = configuredBudget.coerceIn(1024, 128_000)
         return when (effort?.lowercase()?.trim()) {
-            "low", "fast" -> (base / 2).coerceIn(1024, 64000)
-            "high", "deep" -> (base * 2).coerceIn(1024, 64000)
-            "max", "ultra" -> 32768.coerceAtLeast(base * 4).coerceAtMost(64000)
+            "low", "fast" -> (base / 2).coerceIn(1024, 128_000)
+            "high", "deep" -> (base * 2).coerceIn(1024, 128_000)
+            "xhigh" -> (base * 3).coerceIn(8_192, 128_000)
+            "max", "ultra" -> 32_768.coerceAtLeast(base * 4).coerceAtMost(128_000)
             else -> base
         }
     }

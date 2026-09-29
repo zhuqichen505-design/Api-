@@ -481,6 +481,13 @@ object AppDatabaseMigrations {
             }
         }
 
+        val MIGRATION_29_30 = object : Migration(29, 30) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                addColumnIfMissing(database, "conversations", "compressionTier", "INTEGER NOT NULL DEFAULT 0")
+                addColumnIfMissing(database, "conversations", "compressionRecentRounds", "INTEGER NOT NULL DEFAULT 8")
+            }
+        }
+
         val LEGACY_REPAIR_MIGRATIONS: Array<Migration> = ((1..22)
             .map { startVersion ->
                 object : Migration(startVersion, 23) {
@@ -488,7 +495,7 @@ object AppDatabaseMigrations {
                         repairSchema(database)
                     }
                 }
-            } + MIGRATION_17_18 + MIGRATION_18_19 + MIGRATION_19_20 + MIGRATION_20_21 + MIGRATION_21_22 + MIGRATION_22_23 + MIGRATION_23_24 + MIGRATION_24_25 + MIGRATION_25_26 + MIGRATION_26_27 + MIGRATION_27_28 + MIGRATION_28_29)
+            } + MIGRATION_17_18 + MIGRATION_18_19 + MIGRATION_19_20 + MIGRATION_20_21 + MIGRATION_21_22 + MIGRATION_22_23 + MIGRATION_23_24 + MIGRATION_24_25 + MIGRATION_25_26 + MIGRATION_26_27 + MIGRATION_27_28 + MIGRATION_28_29 + MIGRATION_29_30)
             .toTypedArray()
 
         private fun repairSchema(database: SupportSQLiteDatabase) {
@@ -571,6 +578,8 @@ object AppDatabaseMigrations {
                     ColumnSpec("modelAvatarUri", "TEXT", "NULL", nullable = true),
                     ColumnSpec("currentStoryTime", "TEXT", "NULL", nullable = true),
                     ColumnSpec("contextWindowTokens", "INTEGER", "NULL", nullable = true),
+                    ColumnSpec("compressionTier", "INTEGER NOT NULL", "0"),
+                    ColumnSpec("compressionRecentRounds", "INTEGER NOT NULL", "8"),
                     ColumnSpec("createdAt", "INTEGER NOT NULL", "0"),
                     ColumnSpec("updatedAt", "INTEGER NOT NULL", "0")
                 ),

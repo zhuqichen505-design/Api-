@@ -394,24 +394,53 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
     private fun getPresetModels(apiType: String, provider: String): List<String> {
         return when {
             apiType == "anthropic" -> listOf(
+                "claude-opus-4-6",
+                "claude-sonnet-4-6",
+                "claude-haiku-4-5",
                 "claude-3-5-sonnet-20241022",
-                "claude-3-5-haiku-20241022",
-                "claude-3-opus-20240229",
-                "claude-3-sonnet-20240229",
-                "claude-3-haiku-20240307"
+                "claude-3-5-haiku-20241022"
             )
             provider.contains("DeepSeek", ignoreCase = true) -> listOf(
+                "deepseek-flash",
+                "deepseek-v4-pro",
                 "deepseek-chat",
                 "deepseek-reasoner"
             )
             provider.contains("OpenAI", ignoreCase = true) -> listOf(
-                "gpt-4o",
-                "gpt-4o-mini",
-                "gpt-4-turbo",
-                "gpt-4",
-                "gpt-3.5-turbo"
+                "gpt-6-astra",
+                "gpt-6-luna",
+                "gpt-6-sol",
+                "gpt-5.6",
+                "gpt-5.5",
+                "gpt-5",
+                "gpt-4.1"
             )
-            provider.contains("MiMo", ignoreCase = true) -> listOf("mimo")
+            provider.contains("Gemini", ignoreCase = true) || provider.contains("Google", ignoreCase = true) -> listOf(
+                "gemini-3.8-flash",
+                "gemini-3.5-flash",
+                "gemini-3.1-pro"
+            )
+            provider.contains("MiniMax", ignoreCase = true) -> listOf(
+                "MiniMax-M3",
+                "MiniMax-M2.7",
+                "MiniMax-M2.7-highspeed"
+            )
+            provider.contains("Kimi", ignoreCase = true) || provider.contains("Moonshot", ignoreCase = true) -> listOf(
+                "kimi-k3",
+                "kimi-k2.6",
+                "moonshot-v1-128k"
+            )
+            provider.contains("GLM", ignoreCase = true) || provider.contains("Zhipu", ignoreCase = true) ||
+                provider.contains("智谱", ignoreCase = true) -> listOf(
+                "glm-5.3",
+                "glm-5.2",
+                "glm-4.7"
+            )
+            provider.contains("MiMo", ignoreCase = true) || provider.contains("Xiaomi", ignoreCase = true) -> listOf(
+                "MiMo-V2.6-Pro",
+                "MiMo-V2.6",
+                "MiMo-V2.5"
+            )
             else -> emptyList()
         }
     }
@@ -617,7 +646,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
     }
 
     fun clearContextStatusMessage() {
-        _contextUsage.update { it.copy(statusMessage = null) }
+        _contextUsage.update { it.copy(statusMessage = null, pendingAutoTier = null) }
     }
 
     fun generateRollingSummaryNow() {
@@ -683,22 +712,68 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
 
     fun getCurrentRollingSummary(): String = conversation?.rollingSummary.orEmpty()
 
+    fun setCompressionTier(tier: com.aiassistant.domain.model.CompressionTier, recentRounds: Int = 8) {
+        viewModelScope.launch {
+            val safeRounds = recentRounds.coerceIn(
+                com.aiassistant.domain.model.CompressionTierPolicy.MIN_L2_RECENT_ROUNDS,
+                com.aiassistant.domain.model.CompressionTierPolicy.MAX_L2_RECENT_ROUNDS
+            )
+            repository.updateConversationCompressionTier(conversationId, tier, safeRounds)
+            conversation = repository.getConversationById(conversationId) ?: conversation
+
+            if (_isGenerating.value) {
+                _contextUsage.update {
+                    it.copy(statusMessage = "⚙️ 压缩档位已变更为「${tier.displayName}」，将在下一轮请求生效")
+                }
+            } else {
+                refreshContextUsage()
+                _contextUsage.update {
+                    it.copy(
+                        statusMessage = "✅ 已切换至「${tier.displayName}」（${tier.shortDesc}）",
+                        pendingAutoTier = null
+                    )
+                }
+            }
+        }
+    }
+
+    fun applyPendingAutoCompression() {
+        val target = _contextUsage.value.pendingAutoTier ?: return
+        val currentRounds = _contextUsage.value.usage?.compressionRecentRounds ?: 8
+        setCompressionTier(target, currentRounds)
+    }
+
+    fun dismissPendingAutoCompression() {
+        _contextUsage.update {
+            it.copy(pendingAutoTier = null, statusMessage = null)
+        }
+    }
+
     private fun evaluateAutoCompression() {
         viewModelScope.launch {
             try {
+                val personalization = personalizationManager.getSettings()
+                if (!personalization.autoCompressionTierEnabled) return@launch
+
                 val usage = _contextUsage.value.usage ?: return@launch
                 val percent = usage.usagePercent
                 if (_contextUsage.value.isCompressing) return@launch
 
-                // 预留用户反应时间缓冲阶段（60% ~ 75%）：给出提前预警提示
-                if (usage.canCompress && percent in 0.60f..0.75f) {
-                    val warning = "⚠️ 上下文占用已达 ${(percent * 100).toInt()}%，接近自动压缩阈值（75%）。将在达到阈值后自动精简早期对话，您也可手动提前压缩。"
-                    if (_contextUsage.value.statusMessage == null) {
-                        _contextUsage.update { it.copy(statusMessage = warning) }
-                    }
-                } else if (usage.canCompress && percent > 0.75f) {
-                    // 超过 75% 触发自动压缩，带有开始与结束提示
-                    compressContextNow(isAuto = true)
+                val suggested = com.aiassistant.domain.model.CompressionTierPolicy.evaluateAutoUpgrade(
+                    currentTier = usage.compressionTier,
+                    usagePercent = percent,
+                    autoEnabled = true,
+                    thresholdL2 = personalization.autoCompressionThresholdL2,
+                    thresholdL3 = personalization.autoCompressionThresholdL3,
+                    thresholdL4 = personalization.autoCompressionThresholdL4
+                ) ?: return@launch
+
+                val banner = "⚠️ 上下文占用已达 ${(percent * 100).toInt()}%，建议升至「${suggested.displayName}」档（${suggested.shortDesc}）"
+                _contextUsage.update {
+                    it.copy(
+                        pendingAutoTier = suggested,
+                        statusMessage = banner
+                    )
                 }
             } catch (_: Exception) {}
         }
@@ -2683,7 +2758,8 @@ data class ContextUsageUiState(
     val usage: ConversationContextUsage? = null,
     val isCompressing: Boolean = false,
     val isGeneratingSummary: Boolean = false,
-    val statusMessage: String? = null
+    val statusMessage: String? = null,
+    val pendingAutoTier: com.aiassistant.domain.model.CompressionTier? = null
 )
 
 // 临时聊天设置（仅当前对话有效）

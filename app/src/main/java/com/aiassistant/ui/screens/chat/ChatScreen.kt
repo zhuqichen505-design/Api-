@@ -1578,6 +1578,27 @@ fun ChatScreen(
                                     color = bannerContentColor,
                                     modifier = Modifier.weight(1f)
                                 )
+                                if (contextUsage.pendingAutoTier != null) {
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Button(
+                                        onClick = { viewModel.applyPendingAutoCompression() },
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                        modifier = Modifier.heightIn(min = 36.dp)
+                                    ) {
+                                        Text("立即压缩", style = MaterialTheme.typography.labelSmall)
+                                    }
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    TextButton(
+                                        onClick = { viewModel.dismissPendingAutoCompression() },
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                        modifier = Modifier.heightIn(min = 36.dp)
+                                    ) {
+                                        Text("忽略", style = MaterialTheme.typography.labelSmall)
+                                    }
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                }
                                 IconButton(
                                     onClick = { viewModel.clearContextStatusMessage() },
                                     modifier = Modifier.size(36.dp)
@@ -1971,7 +1992,10 @@ fun ChatScreen(
             onRefresh = { viewModel.refreshContextUsage() },
             onCompress = { viewModel.compressContextNow() },
             onGenerateRollingSummary = { viewModel.generateRollingSummaryNow() },
-            onEditRollingSummary = { showRollingSummaryDialog = true }
+            onEditRollingSummary = { showRollingSummaryDialog = true },
+            onSelectCompressionTier = { tier, rounds ->
+                viewModel.setCompressionTier(tier, rounds)
+            }
         )
     }
 
