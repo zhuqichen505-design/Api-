@@ -56,15 +56,40 @@ enum class DayPhase(val order: Int, val displayName: String, val typicalActiviti
     companion object {
         fun inferFromText(text: String): DayPhase? {
             val lower = text.lowercase()
+            // 排除仅作为日常用语、往事回忆、将来计划中包含“晚”或“夜”的非当前时段词汇
+            val filtered = lower
+                .replace("昨晚", "")
+                .replace("昨夜", "")
+                .replace("前晚", "")
+                .replace("前夜", "")
+                .replace("早晚", "")
+                .replace("晚点", "")
+                .replace("来晚", "")
+                .replace("太晚", "")
+                .replace("还不晚", "")
+                .replace("不早不晚", "")
+                .replace("连夜", "")
+                .replace("日夜", "")
+                .replace("隔夜", "")
+                .replace("这几天晚上", "")
+                .replace("那几天晚上", "")
+
             return when {
-                lower.contains("清晨") || lower.contains("早晨") || lower.contains("早上") || lower.contains("拂晓") ||
-                lower.contains("晨光") || lower.contains("破晓") || lower.contains("晨曦") || lower.contains("早餐") || lower.contains("早点") -> EARLY_MORNING
-                lower.contains("上午") -> MORNING
-                lower.contains("中午") || lower.contains("正午") || lower.contains("晌午") || lower.contains("午间") || lower.contains("午餐") || lower.contains("吃午饭") -> NOON
-                lower.contains("下午") || lower.contains("午后") || lower.contains("下午茶") -> AFTERNOON
-                lower.contains("傍晚") || lower.contains("黄昏") || lower.contains("日落") || lower.contains("暮色") || lower.contains("夕阳") || lower.contains("晚霞") -> DUSK
-                lower.contains("深夜") || lower.contains("子时") || lower.contains("半夜") || lower.contains("凌晨") || lower.contains("更深") -> LATE_NIGHT
-                lower.contains("晚") || lower.contains("夜") || lower.contains("掌灯") || lower.contains("晚餐") || lower.contains("晚饭") || lower.contains("晚安") -> NIGHT
+                filtered.contains("清晨") || filtered.contains("早晨") || filtered.contains("早上") || filtered.contains("早安") ||
+                filtered.contains("晨光") || filtered.contains("破晓") || filtered.contains("晨曦") || filtered.contains("早餐") ||
+                filtered.contains("早点") || filtered.contains("拂晓") || filtered.contains("大清早") || filtered.contains("朝阳") -> EARLY_MORNING
+                filtered.contains("上午") || filtered.contains("半上午") || filtered.contains("白天") -> MORNING
+                filtered.contains("中午") || filtered.contains("正午") || filtered.contains("晌午") || filtered.contains("午间") || filtered.contains("午餐") || filtered.contains("吃午饭") -> NOON
+                filtered.contains("下午") || filtered.contains("午后") || filtered.contains("下午茶") || filtered.contains("未时") || filtered.contains("申时") -> AFTERNOON
+                filtered.contains("傍晚") || filtered.contains("黄昏") || filtered.contains("日落") || filtered.contains("暮色") || filtered.contains("夕阳") || filtered.contains("晚霞") || filtered.contains("天色渐暗") || filtered.contains("酉时") -> DUSK
+                filtered.contains("深夜") || filtered.contains("子时") || filtered.contains("半夜") || filtered.contains("凌晨") || filtered.contains("夜深人静") || filtered.contains("深更半夜") || filtered.contains("更深") -> LATE_NIGHT
+                // 仅匹配明确表述当前进入夜晚/晚间时段的真实场景描写，严禁对单个“晚”或“夜”字符泛滥误判
+                filtered.contains("夜幕降临") || filtered.contains("天黑了") || filtered.contains("天色已晚") || filtered.contains("天色已黑") ||
+                filtered.contains("入夜") || filtered.contains("掌灯") || filtered.contains("吃晚餐") || filtered.contains("吃晚饭") ||
+                filtered.contains("夜色深沉") || filtered.contains("月上中天") || filtered.contains("夜幕笼罩") || filtered.contains("准备就寝") ||
+                filtered.contains("就寝休息") || filtered.contains("晚上好") || filtered.contains("晚间时分") ||
+                (filtered.contains("晚上") && !filtered.contains("今晚去") && !filtered.contains("明晚") && !filtered.contains("等晚上")) ||
+                (filtered.contains("夜晚") && (filtered.contains("降临") || filtered.contains("此时") || filtered.contains("笼罩") || filtered.contains("深沉"))) -> NIGHT
                 else -> null
             }
         }
@@ -1096,9 +1121,9 @@ object TimelineMemoryHelper {
         }
         sb.append("【时序约束】：请严格基于该时序脉络推进，后续对话若发生时间推移请主动输出新时间节点。\n")
         sb.append("【时空主动推进与防停滞铁律（大模型必须严格遵循）】：\n")
-        sb.append("1.【时空基准点】：当前故事时空节点【${currentStoryTime ?: "未指定"}】仅代表本轮交互开始时的基准时空，绝非永恒固化的时间！\n")
-        sb.append("2.【自主推进时空】：当剧情活动告一段落（如交谈完毕、就餐结束、转移场景、入夜休息、次日天明等），模型在正文叙述中必须【主动描写并推进时间的流逝】（如在叙述中体现“转眼已是午后”、“夜色渐深”、“次日清晨”等），严禁让角色和故事机械地一直停留在旧时空！\n")
-        sb.append("3.【时序连贯】：后续对话请在剧情正文中自然呈现新的时间流转线索，系统将全自动捕获并同步更新时空节点。\n")
+        sb.append("1.【时空基准点】：当前故事时空节点【${currentStoryTime ?: "未指定"}】仅代表本轮交互开始时的基准时空，绝非永恒固化的时间。若剧情发生行动转移或进程发展，应主动描写并推进时间的流逝！\n")
+        sb.append("2.【防时段篡改铁律（核心）】：若当前时间设定为早晨/白天，严禁在正文没有描写数小时大跨度时间流逝（如夕阳西下、夜幕降临）的情况下，擅自将时间直接篡改为晚上或一直以晚上的口吻作答！普通交谈商议或提及过往往事绝不可作为入夜的依据！\n")
+        sb.append("3.【自然流逝法则】：时间推进应当平滑自然（如早晨->上午->正午->下午->傍晚->入夜），剧情交谈完毕准备动身、就餐结束、转移场景或长途跋涉时，顺理成章地平滑推移至相邻时段。\n")
         sb.append("</session_timeline>")
         return sb.toString()
     }
@@ -1145,9 +1170,18 @@ object TimelineMemoryHelper {
             "第 $currentDay 天"
         }
 
+        // 防虚假跳跃与篡改铁律：
+        // 若当前处于早晨/上午，严禁在一轮常规对话中无日内变迁描写地直接跃迁至入夜/夜晚/深夜（跨越>=4个时段）！
         if (textPhase != null && textPhase.order > currentPhase.order) {
-            val cleanPhase = textPhase.displayName.substringBefore("/")
-            return "$dayPrefix·$cleanPhase"
+            val isLeapToNight = (currentPhase == DayPhase.EARLY_MORNING || currentPhase == DayPhase.MORNING) &&
+                (textPhase == DayPhase.NIGHT || textPhase == DayPhase.LATE_NIGHT)
+            val hasExplicitEveningTransition = combined.contains("夕阳西下") || combined.contains("夜幕降临") ||
+                combined.contains("直到晚上") || combined.contains("天色彻底黑了下来") || combined.contains("转眼到了晚上")
+
+            if (!isLeapToNight || hasExplicitEveningTransition) {
+                val cleanPhase = textPhase.displayName.substringBefore("/")
+                return "$dayPrefix·$cleanPhase"
+            }
         }
 
         // 3. 典型活动结束触发顺延（例如：吃完早餐出发、会议结束、傍晚散场）

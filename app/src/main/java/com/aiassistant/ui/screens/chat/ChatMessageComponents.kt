@@ -4,6 +4,7 @@ package com.aiassistant.ui.screens.chat
 
 import android.net.Uri
 import android.graphics.BitmapFactory
+import com.aiassistant.ui.theme.rememberEchoSemanticColors
 import com.aiassistant.ui.components.ImageCropEditDialog
 import com.aiassistant.ui.components.CropShapeMode
 import androidx.activity.compose.BackHandler
@@ -304,9 +305,21 @@ internal fun isErrorMessage(content: String): Boolean {
     val trimmed = content.trim()
     return trimmed.startsWith("请求失败") ||
            trimmed.startsWith("[请求失败]") ||
-           trimmed.startsWith("Error:") ||
-           trimmed.startsWith("error:") ||
-           trimmed.contains("[输出已被中断:")
+           trimmed.startsWith("【请求失败】") ||
+           trimmed.startsWith("Error:", ignoreCase = true) ||
+           trimmed.startsWith("API错误") ||
+           trimmed.startsWith("[API错误]") ||
+           trimmed.startsWith("【API错误】") ||
+           trimmed.startsWith("所有 API Key") ||
+           trimmed.startsWith("连接失败") ||
+           trimmed.startsWith("连接超时") ||
+           trimmed.startsWith("网络异常") ||
+           trimmed.startsWith("网络波动") ||
+           trimmed.contains("[输出已被中断") ||
+           trimmed.contains("【连接异常信息记录】") ||
+           trimmed.contains("failed to stream request: empty response detected", ignoreCase = true) ||
+           trimmed.contains("(思考已完成，但模型未输出正文内容") ||
+           (trimmed.contains("回复已停止") && trimmed.contains("报错详情"))
 }
 
 @Composable
@@ -661,14 +674,15 @@ internal fun MessageBubble(
                     }
 
                     var isStatusExpanded by remember { mutableStateOf(false) }
-                    val isStatusError = !reconnectStatus.isNullOrBlank() && (
+                    val isMessageContentError = !isUser && isErrorMessage(message.content)
+                    val isStatusError = (!reconnectStatus.isNullOrBlank() && (
                         capsuleText.contains("异常") ||
                         capsuleText.contains("报错") ||
                         capsuleText.contains("失败") ||
                         capsuleText.contains("错误") ||
                         capsuleText.contains("Error", ignoreCase = true) ||
                         capsuleText.contains("HTTP", ignoreCase = true)
-                    )
+                    )) || isMessageContentError
                     // 状态文本包含多行、超长详细报错/URL信息或报错状态时提供展开功能，无多余内容不给展开键
                     val hasDetailedExpandableContent = !hasThinkingContent && (capsuleText.contains("\n") || capsuleText.length > 36 || isStatusError)
                     val canExpandStatus = hasDetailedExpandableContent || isStatusExpanded
@@ -920,83 +934,83 @@ internal fun MessageBubble(
                     val isErrorOutput = !isUser && isErrorMessage(message.content)
 
                     if (isErrorOutput) {
-                        var showErrorDetails by remember(message.id) { mutableStateOf(false) }
-                        val errorSummary = remember(message.content) {
-                            val lines = message.content.lines().map { it.trim() }.filter { it.isNotBlank() }
-                            val detailLine = lines.firstOrNull { it != "请求失败" && !it.startsWith("[输出已被中断") && !it.startsWith("可以检查") }
-                            when {
-                                !detailLine.isNullOrBlank() -> detailLine
-                                lines.isNotEmpty() -> lines.first()
-                                else -> "请求发生异常"
-                            }
+                        val interruptMarker = "[输出已被中断"
+                        val beforeInterrupt = if (message.content.contains(interruptMarker)) {
+                            message.content.substringBefore(interruptMarker).trimEnd()
+                        } else ""
+                        val errorBody = if (beforeInterrupt.isNotBlank()) {
+                            message.content.substring(message.content.indexOf(interruptMarker)).trim()
+                        } else {
+                            message.content.trim()
                         }
+
+                        // 如果前面已有部分输出内容，先以正常气泡展示正文
+                        if (beforeInterrupt.isNotBlank()) {
+                            MarkdownText(
+                                content = beforeInterrupt,
+                                color = textColor
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
+
+                        val semanticColors = rememberEchoSemanticColors()
+                        val errorSemantic = semanticColors.error
+                        val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+
                         Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 4.dp)
-                                .pointerInput(Unit) {
-                                    detectTapGestures(
-                                        onDoubleTap = { showErrorDetails = !showErrorDetails }
-                                    )
-                                },
-                            shape = RoundedCornerShape(14.dp),
-                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.22f),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.40f))
+                                .padding(vertical = 4.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            color = errorSemantic.container.copy(alpha = if (isDark) 0.38f else 0.22f),
+                            border = BorderStroke(1.2.dp, errorSemantic.border.copy(alpha = if (isDark) 0.55f else 0.70f))
                         ) {
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 12.dp, vertical = 10.dp)
+                                    .padding(14.dp)
                             ) {
                                 Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable { showErrorDetails = !showErrorDetails },
+                                    modifier = Modifier.fillMaxWidth(),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     Icon(
                                         Icons.Default.ErrorOutline,
-                                        contentDescription = "错误",
-                                        modifier = Modifier.size(18.dp),
-                                        tint = MaterialTheme.colorScheme.error
+                                        contentDescription = "错误提示",
+                                        modifier = Modifier.size(20.dp),
+                                        tint = errorSemantic.main
                                     )
                                     Text(
-                                        text = if (showErrorDetails) "错误信息详情" else errorSummary,
-                                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                                        color = MaterialTheme.colorScheme.onErrorContainer,
-                                        maxLines = if (showErrorDetails) 1 else 4,
+                                        text = if (beforeInterrupt.isNotBlank()) "生成已被中断" else "模型请求异常",
+                                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                        color = errorSemantic.main,
                                         modifier = Modifier.weight(1f)
                                     )
                                     IconButton(
-                                        onClick = { showErrorDetails = !showErrorDetails },
-                                        modifier = Modifier.size(36.dp)
+                                        onClick = {
+                                            clipboardManager.setText(AnnotatedString(errorBody))
+                                        },
+                                        modifier = Modifier.size(30.dp)
                                     ) {
                                         Icon(
-                                            imageVector = if (showErrorDetails) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                            contentDescription = if (showErrorDetails) "收起错误" else "展开错误",
-                                            tint = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f),
-                                            modifier = Modifier.size(18.dp)
+                                            Icons.Default.ContentCopy,
+                                            contentDescription = "复制报错信息",
+                                            modifier = Modifier.size(16.dp),
+                                            tint = errorSemantic.main.copy(alpha = 0.85f)
                                         )
                                     }
                                 }
 
-                                AnimatedVisibility(
-                                    visible = showErrorDetails,
-                                    enter = fadeIn() + expandVertically(),
-                                    exit = fadeOut() + shrinkVertically()
-                                ) {
-                                    Column(modifier = Modifier.padding(top = 8.dp)) {
-                                        HorizontalDivider(
-                                            color = MaterialTheme.colorScheme.error.copy(alpha = 0.25f),
-                                            modifier = Modifier.padding(bottom = 8.dp)
-                                        )
-                                        MarkdownText(
-                                            content = message.content,
-                                            color = MaterialTheme.colorScheme.onErrorContainer
-                                        )
-                                    }
-                                }
+                                HorizontalDivider(
+                                    color = errorSemantic.border.copy(alpha = 0.25f),
+                                    modifier = Modifier.padding(vertical = 8.dp)
+                                )
+
+                                MarkdownText(
+                                    content = errorBody,
+                                    color = errorSemantic.onContainer
+                                )
                             }
                         }
                     } else {

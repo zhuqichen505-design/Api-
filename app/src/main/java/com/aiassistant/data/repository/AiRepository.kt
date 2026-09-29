@@ -1580,13 +1580,21 @@ class AiRepository(
             requestModel.contains("/o4", ignoreCase = true)
 
         val rawConfiguredMax = effectiveOptions.maxTokens ?: config.maxTokens
-        // 兼容历史遗留 50000 默认值：自动纠偏降级为 4096，杜绝上游网关报错
-        val configuredMax = if (rawConfiguredMax == 50000) 4096 else rawConfiguredMax
+        // 兼容历史遗留 50000 默认值：自动纠偏降级为 8192，杜绝上游网关报错
+        val configuredMax = if (rawConfiguredMax == 50000) 8192 else (rawConfiguredMax.takeIf { it > 0 } ?: 8192)
+        val isReasoningOrThinkingModel = isO1OrO3 ||
+            requestModel.contains("r1", ignoreCase = true) ||
+            requestModel.contains("reasoner", ignoreCase = true) ||
+            requestModel.contains("thinking", ignoreCase = true) ||
+            requestModel.contains("qwq", ignoreCase = true) ||
+            (effectiveOptions.enableThinking == true || config.enableThinking)
         // 输出Token安全预算：
-        // - 对 OpenAI o系列思考模型支持较大预算 (4096..64000)；
-        // - 对通用模型（Gemini、Claude、DeepSeek、GPT-4o 等）：绝大多数单次输出上限为 4096 或 8192，强制收敛至安全区间 (1024..16384)，严禁发送 50000 导致上游拒收 (400) 或断流 (500 empty response)
+        // - 对带有深度思考/推理的模型：单次输出必须给予充足预算 (8192..32768)，防止思考过程消耗过多 Token 导致正文在中间被强制截断！
+        // - 对通用模型：确保默认至少 8192，区间 (1024..16384)
         val safeMaxTokens = if (isO1OrO3) {
-            maxOf(configuredMax, 4096).coerceIn(4096, 64000)
+            maxOf(configuredMax, 8192).coerceIn(4096, 64000)
+        } else if (isReasoningOrThinkingModel) {
+            maxOf(configuredMax, 8192).coerceIn(8192, 32768)
         } else {
             configuredMax.coerceIn(1024, 16384)
         }
@@ -1678,11 +1686,12 @@ class AiRepository(
                             lineStr = lineStr.trim()
                             if (lineStr.isEmpty() || lineStr.startsWith(":")) continue
 
-                            // 兼容多行换行缩进的完整 JSON 返回
-                            val isPartialJsonStart = (lineStr.startsWith("{") && !lineStr.endsWith("}"))
+                            // 兼容多行换行缩进的完整 JSON 返回（支持 data: {...} 与纯 NDJSON）
+                            val rawDataPart = if (lineStr.startsWith("data:", ignoreCase = true)) lineStr.substring(5).trim() else lineStr
+                            val isPartialJsonStart = (rawDataPart.startsWith("{") && !rawDataPart.endsWith("}"))
                             if (jsonAccumulator.isNotEmpty() || isPartialJsonStart) {
-                                jsonAccumulator.append(lineStr).append("\n")
-                                if (lineStr.endsWith("}") || lineStr == "}") {
+                                jsonAccumulator.append(rawDataPart).append("\n")
+                                if (rawDataPart.endsWith("}") || rawDataPart == "}") {
                                     lineStr = jsonAccumulator.toString().trim()
                                     jsonAccumulator.clear()
                                 } else {
@@ -1818,6 +1827,23 @@ class AiRepository(
                 if (!hasReceivedContent && toolCalls.isEmpty()) {
                     streamReadException?.let { throw it }
                     throw ApiException(500, "模型回复内容为空 (empty response detected)，未收到任何有效的文本或思考内容")
+                }
+
+                // 检测是否由于达到最大 Token 上限被截断（向用户输出明确友好说明与引导）
+                val isTruncatedByLength = lastFinishReason == "length" || lastFinishReason == "max_tokens"
+                if (isTruncatedByLength && fullContent.isNotBlank() && !fullContent.contains("已达单次最大 Token")) {
+                    val truncationHint = "\n\n*(已达到单次最大 Token 输出上限并截断，可在输入框输入“继续”或在设置中调大单次最大 Token)*"
+                    fullContent += truncationHint
+                    onToken(truncationHint)
+                }
+
+                // 检测是否流式网络异常中断（非正常结束，向用户明确展示中断信息并支持重试）
+                val currentStreamEx = streamReadException
+                if (currentStreamEx != null && !hasReceivedDone && (lastFinishReason.isNullOrBlank() || lastFinishReason == "null")) {
+                    val interruptMsg = currentStreamEx.message?.take(80)?.ifBlank { "网络连接断开" } ?: "网络连接断开"
+                    val interruptNotice = "\n\n[输出已被中断: 网络连接异常断开 ($interruptMsg)]"
+                    fullContent += interruptNotice
+                    onToken(interruptNotice)
                 }
 
                 // 需求 3：如果流结束时缺少 finish_reason 或 [DONE]，不要抛异常，只记录 warning 并给结果标记 finished: false
@@ -2115,6 +2141,15 @@ class AiRepository(
                     val fallbackMsg = "*(思考已完成，但模型未输出正文内容，可能由于输出 Token 达到上限或被提前截断)*"
                     fullContent = fallbackMsg
                     onToken(fallbackMsg)
+                }
+
+                // 检测是否流式网络异常中断
+                val currentAnthropicEx = anthropicStreamReadException
+                if (currentAnthropicEx != null && fullContent.isNotBlank() && !fullContent.contains("[输出已被中断")) {
+                    val interruptMsg = currentAnthropicEx.message?.take(80)?.ifBlank { "网络连接断开" } ?: "网络连接断开"
+                    val interruptNotice = "\n\n[输出已被中断: 网络连接异常断开 ($interruptMsg)]"
+                    fullContent += interruptNotice
+                    onToken(interruptNotice)
                 }
 
                 val hasReceivedContent = fullContent.isNotBlank() || !fullThinking.isNullOrBlank()
@@ -3816,11 +3851,12 @@ class AiRepository(
                 [助手剧情正文]: ${assistantReply.take(2000)}
 
                 请深度理解正文对话，敏锐判断并智能提取：
-                1.【时间流逝与时空推进（防停滞铁律）】：
-                   - 对话中角色活动是否发生变化或结束？时间是否有向前推移？
-                   - 包含：活动转换（如用餐完毕准备出发、交谈结束离开、战斗结束、休息就寝）、日内时段流转（从早晨到上午、从下午聊至傍晚/夜幕降临/深夜掌灯）、跨越至次日/翌日、相对时间跨度（如几天后、两周后、次月）或阶段节点（如暑假开始、新学期）；
-                   - 若剧情活动已告一段落或出现时移描写，必须积极推断并输出推进后的精确故事时间（例如从“第 1 天·早晨”推移至“第 1 天·上午”或“第 1 天·中午”，从“第 1 天·夜间”推移至“第 2 天·清晨”），严禁让故事错误地一直僵化停留在原时空【$existingStoryTime】！
-                   - 仅当此轮对话依然在同一时段同一场景紧密对话、活动尚未有任何进展时，才保持原时间。
+                1.【时间流逝与时空防篡改铁律（核心）】：
+                   - 对话中角色活动是否发生变化或结束？时间是否有自然向前推移？
+                   - 【防虚假篡改铁律（核心）】：若当前故事时间设定为早上/清晨/上午/白天【$existingStoryTime】，严禁在正文没有描写数小时大跨度时间流逝（如夕阳西下、夜幕降临、漫长的一天过去）的情况下，擅自将时间篡改为晚上/夜间！
+                     角色之间在此处的常规交谈、问候早餐、商讨计划、回忆昨晚往事或规划今晚安排，均属于当前早晨/上午时段内的活动，故事时间必须坚定保持在原早晨/上午时段或平滑顺延（如早晨推至上午、上午推至中午），绝对禁止违背设定直接篡改为晚上！
+                   - 仅当正文明确描写剧情告一段落、场景转移或明确描写日内时段流转（如由清晨行至正午、由午后聊至傍晚、待到夜幕降临）时，才积极推断并输出推进后的精确故事时间；
+                   - 若本轮对话依然在同一时段同一场景紧密对话，活动尚未有显著时段推进时，必须保持原时间。
                 2.【多轮事件修改补充 vs 新增事件（拒绝流水账重复，核心铁律）】：
                    - 现实中一件事情往往由多轮对话连续进行（如同一场交谈、同一顿饭、同一场战斗、同一个场景的活动、同一个任务的前后进展）；
                    - 如果当前对话属于过往已记录事件（见上述【已记录的时间线最近事件列表】）的延续、细节补充、深入推进或同一事件的收尾，【严禁新增独立重复事件】！
@@ -3887,6 +3923,22 @@ class AiRepository(
                         }
                     } catch (_: Exception) {}
                 }
+            }
+        }
+
+        // 防大模型幻觉篡改：若原故事时间为早晨/白天，模型擅自推断为“晚上/入夜/夜间”，且助手正文中无夕阳/黑夜真实描写，坚决拒绝篡改
+        val isOriginalMorningOrDay = existingStoryTime?.let {
+            it.contains("清晨") || it.contains("早晨") || it.contains("早上") || it.contains("上午") || it.contains("晨") || it.contains("白天")
+        } ?: false
+        val isModelOutputNight = modelStoryTime?.let {
+            it.contains("晚") || it.contains("夜") || it.contains("暮")
+        } ?: false
+        if (isOriginalMorningOrDay && isModelOutputNight) {
+            val hasEveningTransition = assistantReply.contains("夕阳西下") || assistantReply.contains("夜幕降临") ||
+                assistantReply.contains("直到晚上") || assistantReply.contains("天色彻底黑了下来") || assistantReply.contains("转眼到了晚上")
+            if (!hasEveningTransition) {
+                Log.w(tag, "拦截到大模型试图在无时移描写的情况下将早晨/白天篡改为夜晚: $modelStoryTime，保持早晨/顺延时段")
+                modelStoryTime = null
             }
         }
 

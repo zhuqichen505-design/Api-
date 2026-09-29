@@ -2,6 +2,49 @@
 
 本文档按照工作流规范记录每次版本更新、需求变更与复核结果。
 
+## [2026-09-29] - v2.5.7 时间线防篡改、生成截断根治、报错红框全包裹、原子防双重报错与后台跨页面持续生成
+
+### 1. 核心改进与缺陷修复
+1. **时间线提取优化与防早篡改晚（需求 1）**：
+   - **过滤非夜晚语境假阳性**：重构 `DayPhase.inferFromText`，精准剔除对话中高频出现的非夜晚语境词汇（如“昨晚没睡好”、“昨夜”、“前晚”、“早晚”、“晚点去”、“来晚”、“太晚”、“还不晚”、“连夜”、“日夜”等），并大幅扩展清晨与早间词汇（“大清早”、“朝阳”、“早安”、“晨曦”、“拂晓”等），杜绝将早晨日常交谈误判为夜晚；
+   - **时空步进防越级飞跃跳跃守卫**：在 `TimelineMemoryHelper.detectAutoStoryTimeAdvancement` 中增加防跨度飞跃守卫，当当前时空处于清晨/早间/白天且正文中没有描写日落、傍晚或夕阳西下等跨时段过渡时，严禁模型无端跃迁至夜晚；
+   - **大模型 Prompt 铁律协同**：在 `buildTimelineNodesPromptContext` 与 `autoEvaluateTimelineUpdate` 提示词中植入防篡改铁律，要求模型在正文没有描写数小时大跨度时间流逝的前提下，严禁擅自篡改时间线或以夜晚口吻作答。
+2. **回复内容中间截断排查与彻底修复（需求 2）**：
+   - **深度思考/推理模型 Token 预算动态扩充**：在 `AiRepository.kt` 中重构 `safeMaxTokens`，针对 DeepSeek-R1、QwQ、OpenAI o1/o3、Claude 3.7 Thinking、Gemini Thinking 等思考模型，将输出预算保底扩展至 8192~32768 tokens，彻底消除模型在思考阶段消耗过多 Token 导致正文在中间被截断的问题；
+   - **SSE 流式传输分块拼接修复**：修复多行格式 JSON 流在累积时因偶发携带 `data:` 前缀被反序列化器丢弃的问题，保障流式 Token 完整接收；
+   - **截断与中断透明感知**：当遇到 `finish_reason == "length"` 截断时自动向用户输出明确引导提示；当网络连接异常中断时保留已有生成内容并在末尾提示中断原因，支持即时重试。
+3. **报错消息全面支持红色窗口包裹（需求 3）**：
+   - **液态玻璃错误语义窗口（`ChatMessageComponents.kt`）**：模型报错持久化入库后，消息正文全量采用 `rememberEchoSemanticColors().error` 语义红框窗口包裹（`RoundedCornerShape(16.dp)`，红底红边高对比度排版），醒目展示错误图标、报错标题、一键复制报错内容按钮与 Markdown 排版，完全告别折叠灰暗小条；
+   - **部分中断内容双态呈现**：当回复生成了一半发生中断时，前半部分正常故事正文以优雅 Markdown 展现，末尾无缝拼接红色中断错误窗口，内容与报错界限分明；
+   - **模型身份胶囊联动**：报错消息上方的模型身份胶囊同步变为红色警示态与报警图标。
+4. **彻底消除保存报错时的重复二次输出（需求 4）**：
+   - **全局生成状态管理器（`ChatGenerationManager.kt`）**：在 Application 级生命周期内统筹管理活跃生成任务，内置 `AtomicBoolean` 原子标记锁（`isMessageSaved`）；
+   - **原子 CAS 保障（Compare-And-Set）**：所有消息入库与报错保存逻辑（`onComplete`、`onError`、协程 `catch` 以及用户点击停止 `stopGeneration`）均统一通过 `session.isMessageSaved.compareAndSet(false, true)` 进行独占保护，确保且仅确保单次入库，彻底杜绝并发竞态导致的两次重复报错输出。
+5. **返回首页/其他界面生成与思考气泡不中断、不短暂消失（需求 5）**：
+   - **全局应用级生成状态持有**：通过单例 `ChatGenerationManager` 在 Application 作用域全局持有各会话的流式数据（`currentResponse`、`currentThinking`、`reconnectStatus`、`isConnecting`、`isGenerating`）；
+   - **`ChatViewModel` 智能无缝挂载**：在 `ChatViewModel.init` 中调用 `attachToActiveGenerationSession()`，当用户从首页或其他界面重新进入会话时，毫秒级读取现存进度并持续监听流式 Flow，思考气泡、模型状态与正文回复无缝衔接，绝不闪烁、不短暂消失、不重置中断。
+
+### 2. 改动与新增文件清单
+- `app/src/main/java/com/aiassistant/data/repository/ChatGenerationManager.kt`（新增）：全局会话生成状态管理器与原子防重复保存单例
+- `app/src/main/java/com/aiassistant/utils/TimelineMemoryHelper.kt`：时间线时段提取过滤假阳性、防跨度跃迁守卫与 Prompt 防篡改指令协同
+- `app/src/main/java/com/aiassistant/data/repository/AiRepository.kt`：安全 Token 预算动态分配、SSE 分片解析修复、截断与中断透明感知提示
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatMessageComponents.kt`：报错消息红框全包裹、正文+中断双态渲染、模型身份胶囊联动
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatViewModel.kt`：挂载 ChatGenerationManager、全链路原子 CAS 防重、切页面无缝恢复
+- `app/src/test/java/com/aiassistant/V257FeaturesTest.kt`（新增）：覆盖时间线防篡改、CAS 防重复保存、报错识别等全量测试用例
+- `app/build.gradle.kts`：版本号递增至 versionCode = 153, versionName = "2.5.7"
+- `UPDATE_LOG.md` / `WORKFLOW_GUIDELINES.md`：记录版本迭代与规范留痕
+
+### 3. 构建与交付产物信息
+- **版本号**：v2.5.7 (versionCode: 153)
+- **编译与测试**：416 个单元测试全部执行通过（`BUILD SUCCESSFUL`）
+- **打包任务**：`assembleRelease` 成功（Exit Code 0）
+- **APK 输出路径**：`D:\Agent\APP-烧\app\releases\Echo-v2.5.7.apk`
+- **文件大小**：16,356,373 字节 (~15.60 MB)
+- **SHA256 校验和**：`59ADEB9D02DD4EA80A99FC6A21D003963FB9C6C64E28787BB2E5D025DD22970D`
+- **历史包保留策略**：`D:\Agent\APP-烧\app\releases` 目录下所有历史版本完好无损完整保留，仅增量交付 `Echo-v2.5.7.apk`。
+
+---
+
 ## [2026-09-29] - UI 重构独立审核与问题修复（P1×2 / P2×4 / P3×7，未发版）
 
 ### 1. 本次需求

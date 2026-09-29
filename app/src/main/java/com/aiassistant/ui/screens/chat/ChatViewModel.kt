@@ -14,6 +14,7 @@ import com.aiassistant.utils.TimelineDraftManager
 import com.aiassistant.utils.TimelineReconcileDraft
 import com.aiassistant.utils.TimelineReconcileCheckpoint
 import com.aiassistant.data.repository.AiRepository
+import com.aiassistant.data.repository.ChatGenerationManager
 import com.aiassistant.data.repository.AutoTimelineUpdateResult
 import com.google.gson.Gson
 import android.util.Log
@@ -184,6 +185,48 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
         loadConversation()
         loadPromptTemplates()
         observeUsageStatsForModels()
+        attachToActiveGenerationSession()
+    }
+
+    private fun attachToActiveGenerationSession() {
+        val activeSession = ChatGenerationManager.getSession(conversationId) ?: return
+        if (activeSession.isGenerating.value) {
+            _isGenerating.value = true
+            _currentResponse.value = activeSession.currentResponse.value
+            _currentThinking.value = activeSession.currentThinking.value
+            _reconnectStatus.value = activeSession.reconnectStatus.value
+            _error.value = activeSession.error.value
+            generationJob = activeSession.generationJob
+
+            viewModelScope.launch {
+                activeSession.currentResponse.collect { res ->
+                    _currentResponse.value = res
+                }
+            }
+            viewModelScope.launch {
+                activeSession.currentThinking.collect { thk ->
+                    _currentThinking.value = thk
+                }
+            }
+            viewModelScope.launch {
+                activeSession.reconnectStatus.collect { st ->
+                    _reconnectStatus.value = st
+                }
+            }
+            viewModelScope.launch {
+                activeSession.error.collect { err ->
+                    _error.value = err
+                }
+            }
+            viewModelScope.launch {
+                activeSession.isGenerating.collect { gen ->
+                    _isGenerating.value = gen
+                    if (!gen) {
+                        loadConversation()
+                    }
+                }
+            }
+        }
     }
 
     private fun observeUsageStatsForModels() {
@@ -879,7 +922,15 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
         val settings = if (_useTempSettings.value) _tempSettings.value else null
         val currentSystemPrompt = normalizeSystemPrompt(_uiState.value.systemPrompt)
 
+        val session = ChatGenerationManager.startSession(
+            conversationId = conversationId,
+            modelName = selectedOption.modelName,
+            variantGroupId = assistantVariantGroupId,
+            variantIndex = assistantVariantIndex
+        )
+
         generationJob = AiAssistantApp.instance.applicationScope.launch {
+            session.generationJob = coroutineContext[Job]
             _isGenerating.value = true
             _currentResponse.value = ""
             _currentThinking.value = ""
@@ -892,7 +943,9 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
             val slowTimeoutJob = launch {
                 kotlinx.coroutines.delay(120_000L)
                 if (_isGenerating.value && _reconnectStatus.value == null) {
-                    _reconnectStatus.value = "响应耗时较长（已持续 120s+），若为长篇生成或深度推理请耐心稍候，也可随时点击停止..."
+                    val slowMsg = "响应耗时较长（已持续 120s+），若为长篇生成或深度推理请耐心稍候，也可随时点击停止..."
+                    session.setStatus(slowMsg)
+                    _reconnectStatus.value = slowMsg
                 }
             }
 
@@ -909,6 +962,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                     )
                     val savedMsgId = repository.saveMessage(userMessage)
                     currentUserMsgId = savedMsgId
+                    session.userMessageId = savedMsgId
                 }
 
                 val selectedConfig = repository.getDecryptedConfig(selectedOption.apiConfigId)
@@ -958,29 +1012,35 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                         assistantVariantGroupId = assistantVariantGroupId,
                         assistantVariantIndex = assistantVariantIndex,
                         onToken = { token ->
-                            // 使用update确保线程安全
-                            _currentResponse.update { it + token }
+                            session.appendResponse(token)
+                            _currentResponse.value = session.currentResponse.value
                         },
                         onThinkingToken = { token ->
-                            _currentThinking.update { it + token }
+                            session.appendThinking(token)
+                            _currentThinking.value = session.currentThinking.value
                         },
                         onStatusUpdate = { status ->
+                            session.setStatus(status)
                             _reconnectStatus.value = status
                         },
                         onKeyAttemptError = { keyIndex, keyMasked, errorMsg ->
                             currentKeyAttemptErrors.add("Key #$keyIndex ($keyMasked)：$errorMsg")
                         },
                         onResetBuffer = {
+                            session.resetBuffer()
                             _currentResponse.value = ""
                             _currentThinking.value = ""
                         },
                         onComplete = { replyContent, _, _ ->
                             slowTimeoutJob.cancel()
+                            session.isMessageSaved.compareAndSet(false, true)
+                            session.markFinished()
+                            ChatGenerationManager.removeSession(conversationId)
                             isMessageSaved = true
                             _isGenerating.value = false
                             activeAssistantVariantGroupId = null
                             activeAssistantVariantIndex = 1
-                            val savedReply = replyContent.ifBlank { _currentResponse.value }
+                            val savedReply = replyContent.ifBlank { session.currentResponse.value.ifBlank { _currentResponse.value } }
                             _currentResponse.value = ""
                             _currentThinking.value = ""
                             _reconnectStatus.value = null
@@ -998,14 +1058,19 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                             // 重新同步会话状态与上下文使用情况（后台降级自动同步）
                             refreshContextUsage()
                             if (isUserStopping || errorMsg.contains("Socket closed", ignoreCase = true) || errorMsg.contains("Canceled", ignoreCase = true)) {
+                                session.markFinished()
+                                ChatGenerationManager.removeSession(conversationId)
                                 _isGenerating.value = false
                                 _currentResponse.value = ""
                                 _currentThinking.value = ""
-                            } else if (!isMessageSaved) {
+                            } else if (session.isMessageSaved.compareAndSet(false, true)) {
                                 isMessageSaved = true
+                                session.setError(errorMsg)
                                 _isGenerating.value = false
                                 _error.value = errorMsg
-                                saveErrorReply(errorMsg)
+                                saveErrorReply(errorMsg, session)
+                                session.markFinished()
+                                ChatGenerationManager.removeSession(conversationId)
                                 _currentResponse.value = ""
                                 _currentThinking.value = ""
                             }
@@ -1016,17 +1081,22 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                 slowTimeoutJob.cancel()
                 _reconnectStatus.value = null
                 if (isUserStopping || e is CancellationException || e.message?.contains("Socket closed", ignoreCase = true) == true || e.message?.contains("Canceled", ignoreCase = true) == true) {
+                    session.markFinished()
+                    ChatGenerationManager.removeSession(conversationId)
                     _isGenerating.value = false
                     _currentResponse.value = ""
                     _currentThinking.value = ""
                     return@launch
                 }
                 _isGenerating.value = false
-                if (!isMessageSaved) {
+                if (session.isMessageSaved.compareAndSet(false, true)) {
                     isMessageSaved = true
                     val errorMsg = e.message ?: "未知错误"
+                    session.setError(errorMsg)
                     _error.value = errorMsg
-                    saveErrorReply(errorMsg)
+                    saveErrorReply(errorMsg, session)
+                    session.markFinished()
+                    ChatGenerationManager.removeSession(conversationId)
                     _currentResponse.value = ""
                     _currentThinking.value = ""
                 }
@@ -1034,11 +1104,11 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
         }
     }
 
-    private fun saveErrorReply(errorMsg: String) {
-        val partialResponse = _currentResponse.value.trim()
-        val partialThinking = _currentThinking.value.trim().ifEmpty { null }
-        val variantGroupId = activeAssistantVariantGroupId
-        val variantIndex = activeAssistantVariantIndex
+    private fun saveErrorReply(errorMsg: String, session: ChatGenerationManager.ActiveSession? = null) {
+        val partialResponse = (session?.currentResponse?.value ?: _currentResponse.value).trim()
+        val partialThinking = (session?.currentThinking?.value ?: _currentThinking.value).trim().ifEmpty { null }
+        val variantGroupId = session?.assistantVariantGroupId ?: activeAssistantVariantGroupId
+        val variantIndex = session?.assistantVariantIndex ?: activeAssistantVariantIndex
         activeAssistantVariantGroupId = null
         activeAssistantVariantIndex = 1
         AiAssistantApp.instance.applicationScope.launch {
@@ -1060,6 +1130,9 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                 variantIndex = variantIndex
             )
             repository.saveMessage(message)
+            withContext(Dispatchers.Main) {
+                loadConversation()
+            }
         }
     }
 
@@ -1069,19 +1142,23 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
         generationJob?.cancel(CancellationException("用户暂停生成"))
         _isGenerating.value = false
 
-        val responseToSave = _currentResponse.value.trim()
-        val thinkingToSave = _currentThinking.value.trim().ifEmpty { null }
-        val variantGroupId = activeAssistantVariantGroupId
-        val variantIndex = activeAssistantVariantIndex
+        val session = ChatGenerationManager.getSession(conversationId)
+        val responseToSave = (session?.currentResponse?.value ?: _currentResponse.value).trim()
+        val thinkingToSave = (session?.currentThinking?.value ?: _currentThinking.value).trim().ifEmpty { null }
+        val variantGroupId = session?.assistantVariantGroupId ?: activeAssistantVariantGroupId
+        val variantIndex = session?.assistantVariantIndex ?: activeAssistantVariantIndex
         activeAssistantVariantGroupId = null
         activeAssistantVariantIndex = 1
 
-        val connStatus = _reconnectStatus.value?.takeIf { it.isNotBlank() }
-        val activeError = _error.value?.takeIf { it.isNotBlank() }
+        val connStatus = (session?.reconnectStatus?.value ?: _reconnectStatus.value)?.takeIf { it.isNotBlank() }
+        val activeError = (session?.error?.value ?: _error.value)?.takeIf { it.isNotBlank() }
         val hasErrors = currentKeyAttemptErrors.isNotEmpty() || connStatus != null || activeError != null
 
-        if (!isMessageSaved) {
+        val shouldSave = session?.isMessageSaved?.compareAndSet(false, true) ?: !isMessageSaved
+        if (shouldSave) {
             isMessageSaved = true
+            session?.markFinished()
+            ChatGenerationManager.removeSession(conversationId)
             val finalContent = buildString {
                 when {
                     responseToSave.isNotBlank() -> {
