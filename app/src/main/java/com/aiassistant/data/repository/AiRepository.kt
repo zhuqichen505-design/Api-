@@ -32,8 +32,11 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.Call
@@ -251,7 +254,37 @@ class AiRepository(
 
     // ============ API配置相关 ============
 
-    fun getAllApiConfigs(): Flow<List<ApiConfig>> = apiConfigDao.getAllConfigs()
+    private val apiConfigOrderTrigger = MutableStateFlow(0)
+
+    fun getAllApiConfigs(): Flow<List<ApiConfig>> = combine(
+        apiConfigDao.getAllConfigs(),
+        apiConfigOrderTrigger
+    ) { configs: List<ApiConfig>, _: Int ->
+        val order = personalizationManager.getApiConfigOrder()
+        if (order.isEmpty()) {
+            configs
+        } else {
+            val orderMap = order.withIndex().associate { it.value to it.index }
+            configs.sortedWith(
+                compareBy<ApiConfig> { orderMap[it.id] ?: Int.MAX_VALUE }
+                    .thenByDescending { it.isDefault }
+                    .thenBy { it.name }
+            )
+        }
+    }
+
+    fun saveApiConfigOrder(order: List<Long>) {
+        personalizationManager.saveApiConfigOrder(order)
+        apiConfigOrderTrigger.value += 1
+    }
+
+    fun isContextFallbackPermanentlyIgnored(conversationId: Long): Boolean {
+        return personalizationManager.isContextFallbackPermanentlyIgnored(conversationId)
+    }
+
+    fun setContextFallbackPermanentlyIgnored(conversationId: Long, ignored: Boolean) {
+        personalizationManager.setContextFallbackPermanentlyIgnored(conversationId, ignored)
+    }
 
     suspend fun getApiConfigById(id: Long): ApiConfig? = apiConfigDao.getConfigById(id)
 
@@ -1247,7 +1280,8 @@ class AiRepository(
         onKeyAttemptError: ((keyIndex: Int, keyMasked: String, errorMsg: String) -> Unit)? = null,
         onResetBuffer: (() -> Unit)? = null,
         onComplete: (String, String?, Any?) -> Unit,
-        onError: (String) -> Unit
+        onError: (String) -> Unit,
+        onContextFallbackPrompt: (suspend (reason: String) -> ContextFallbackChoice)? = null
     ) {
         try {
             dispatchChatMessageWithConfig(
@@ -1267,23 +1301,42 @@ class AiRepository(
             )
         } catch (e: Exception) {
             if (isRequestCancellation(e)) throw CancellationException("请求已取消", e)
-            if (isContextLimitOrEmptyResponseError(e) && retryWithCompressedContext(
-                    config = config,
-                    conversationId = conversationId,
-                    userMessage = userMessage,
-                    attachments = attachments,
-                    options = options,
-                    assistantVariantGroupId = assistantVariantGroupId,
-                    assistantVariantIndex = assistantVariantIndex,
-                    onToken = onToken,
-                    onThinkingToken = onThinkingToken,
-                    onKeyAttemptError = onKeyAttemptError,
-                    onResetBuffer = onResetBuffer,
-                    onComplete = onComplete,
-                    originalError = e
-                )
-            ) {
-                return
+            if (isContextLimitOrEmptyResponseError(e)) {
+                if (personalizationManager.isContextFallbackPermanentlyIgnored(conversationId)) {
+                    Log.i(tag, "会话 $conversationId 已永久忽略上下文回退，保全完整上下文")
+                } else {
+                    val decision = onContextFallbackPrompt?.invoke(e.message ?: "网络异常或空响应")
+                        ?: ContextFallbackChoice.FALLBACK
+                    when (decision) {
+                        ContextFallbackChoice.FALLBACK -> {
+                            if (retryWithCompressedContext(
+                                    config = config,
+                                    conversationId = conversationId,
+                                    userMessage = userMessage,
+                                    attachments = attachments,
+                                    options = options,
+                                    assistantVariantGroupId = assistantVariantGroupId,
+                                    assistantVariantIndex = assistantVariantIndex,
+                                    onToken = onToken,
+                                    onThinkingToken = onThinkingToken,
+                                    onKeyAttemptError = onKeyAttemptError,
+                                    onResetBuffer = onResetBuffer,
+                                    onComplete = onComplete,
+                                    originalError = e
+                                )
+                            ) {
+                                return
+                            }
+                        }
+                        ContextFallbackChoice.IGNORE -> {
+                            Log.i(tag, "用户选择忽略本次上下文回退，保持完整上下文不变")
+                        }
+                        ContextFallbackChoice.PERMANENTLY_IGNORE -> {
+                            Log.i(tag, "用户选择永久忽略当前会话的上下文回退")
+                            personalizationManager.setContextFallbackPermanentlyIgnored(conversationId, true)
+                        }
+                    }
+                }
             }
             Log.e(tag, "发送消息失败", e)
             onError(e.message ?: "未知错误")

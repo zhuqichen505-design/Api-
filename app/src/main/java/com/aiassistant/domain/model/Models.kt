@@ -387,6 +387,20 @@ data class ConversationContextUsage(
     val tierPreviews: List<TierCompressionPreview> = emptyList()
 )
 
+// ============ 网络异常上下文回退决策 ============
+
+enum class ContextFallbackChoice {
+    FALLBACK,            // 回退
+    IGNORE,              // 忽略
+    PERMANENTLY_IGNORE   // （当前对话）永久忽略
+}
+
+data class ContextFallbackPromptState(
+    val conversationId: Long,
+    val reason: String,
+    val onDecision: (ContextFallbackChoice) -> Unit
+)
+
 // ============ API 请求/响应格式 ============
 
 data class ChatCompletionRequest(

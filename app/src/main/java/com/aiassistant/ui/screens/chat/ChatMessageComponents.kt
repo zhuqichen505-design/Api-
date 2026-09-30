@@ -679,6 +679,7 @@ internal fun MessageBubble(
                 val thinkingBubbleColor = glass.controlSelected
                 val thinkingHeaderColor = MaterialTheme.colorScheme.onPrimaryContainer
                 val thinkingContentColor = glass.textPrimary
+                var isErrorReportExpanded by remember(message.id) { mutableStateOf(true) }
 
                 Row(
                     modifier = Modifier
@@ -697,14 +698,24 @@ internal fun MessageBubble(
                     val personalizationSettings = remember {
                         AiAssistantApp.instance.personalizationManager.getSettings()
                     }
+                    val isMessageContentError = !isUser && isErrorMessage(message.content)
                     val isConnecting = isGenerating && message.content.isBlank() && !hasThinking
                     val isThinkingActive = isGenerating && hasThinking && message.content.isBlank()
+                    val isConnectionFailed = isMessageContentError || (!reconnectStatus.isNullOrBlank() && (
+                        reconnectStatus.contains("异常") ||
+                        reconnectStatus.contains("报错") ||
+                        reconnectStatus.contains("失败") ||
+                        reconnectStatus.contains("错误") ||
+                        reconnectStatus.contains("Error", ignoreCase = true)
+                    ))
                     val capsuleText = remember(
                         assistantModelName,
                         hasThinking,
                         isGenerating,
                         isConnecting,
                         isThinkingActive,
+                        isConnectionFailed,
+                        isMessageContentError,
                         message.content,
                         message.responseTime,
                         message.thinkingTokens,
@@ -712,47 +723,50 @@ internal fun MessageBubble(
                         personalizationSettings.thinkingCapsuleTemplate,
                         reconnectStatus
                     ) {
-                        val rawModel = assistantModelName.ifBlank { "AI" }
-                        val model = rawModel.displayModelShortName()
-                        when {
-                            isConnecting -> {
-                                if (!reconnectStatus.isNullOrBlank()) {
-                                    reconnectStatus
-                                } else {
-                                    personalizationSettings.connectingTextTemplate.replace("{model}", model).ifBlank { "正在连接 $model..." }
+                        if (isConnectionFailed || isMessageContentError) {
+                            "模型连接失败"
+                        } else {
+                            val rawModel = assistantModelName.ifBlank { "AI" }
+                            val model = rawModel.displayModelShortName()
+                            when {
+                                isConnecting -> {
+                                    if (!reconnectStatus.isNullOrBlank()) {
+                                        reconnectStatus
+                                    } else {
+                                        personalizationSettings.connectingTextTemplate.replace("{model}", model).ifBlank { "正在连接 $model..." }
+                                    }
                                 }
+                                isThinkingActive -> personalizationSettings.thinkingTextTemplate.replace("{model}", model).ifBlank { "$model 正在思考中..." }
+                                hasThinking -> formatThinkingCapsuleText(
+                                    template = personalizationSettings.thinkingCapsuleTemplate.ifBlank { "{model} {status} {time} {tokens}" },
+                                    modelName = model,
+                                    isThinkingActive = isGenerating && message.content.isBlank(),
+                                    responseTimeMs = message.responseTime,
+                                    thinkingTokens = message.thinkingTokens,
+                                    totalTokens = message.tokenCount
+                                )
+                                isGenerating -> personalizationSettings.thinkingTextTemplate.replace("{model}", model).ifBlank { "$model 正在思考回复中..." }
+                                else -> formatNonThinkingCapsuleText(
+                                    modelName = model,
+                                    responseTimeMs = message.responseTime,
+                                    tokenCount = message.tokenCount,
+                                    content = message.content
+                                )
                             }
-                            isThinkingActive -> personalizationSettings.thinkingTextTemplate.replace("{model}", model).ifBlank { "$model 正在思考中..." }
-                            hasThinking -> formatThinkingCapsuleText(
-                                template = personalizationSettings.thinkingCapsuleTemplate.ifBlank { "{model} {status} {time} {tokens}" },
-                                modelName = model,
-                                isThinkingActive = isGenerating && message.content.isBlank(),
-                                responseTimeMs = message.responseTime,
-                                thinkingTokens = message.thinkingTokens,
-                                totalTokens = message.tokenCount
-                            )
-                            isGenerating -> personalizationSettings.thinkingTextTemplate.replace("{model}", model).ifBlank { "$model 正在思考回复中..." }
-                            else -> formatNonThinkingCapsuleText(
-                                modelName = model,
-                                responseTimeMs = message.responseTime,
-                                tokenCount = message.tokenCount,
-                                content = message.content
-                            )
                         }
                     }
 
                     var isStatusExpanded by remember { mutableStateOf(false) }
-                    val isMessageContentError = !isUser && isErrorMessage(message.content)
-                    val isStatusError = (!reconnectStatus.isNullOrBlank() && (
+                    val isStatusError = isConnectionFailed || (!reconnectStatus.isNullOrBlank() && (
                         capsuleText.contains("异常") ||
                         capsuleText.contains("报错") ||
                         capsuleText.contains("失败") ||
                         capsuleText.contains("错误") ||
                         capsuleText.contains("Error", ignoreCase = true) ||
                         capsuleText.contains("HTTP", ignoreCase = true)
-                    )) || isMessageContentError
+                    ))
                     // 状态文本包含多行、超长详细报错/URL信息或报错状态时提供展开功能，无多余内容不给展开键
-                    val hasDetailedExpandableContent = !hasThinkingContent && (capsuleText.contains("\n") || capsuleText.length > 36 || isStatusError)
+                    val hasDetailedExpandableContent = isMessageContentError || (!hasThinkingContent && (capsuleText.contains("\n") || capsuleText.length > 36 || isStatusError))
                     val canExpandStatus = hasDetailedExpandableContent || isStatusExpanded
                     val capsuleShape = RoundedCornerShape(16.dp)
                     val maxBubbleWidth = if (isStatusExpanded || isStatusError) 380.dp else 320.dp
@@ -762,6 +776,11 @@ internal fun MessageBubble(
                         else -> 1
                     }
                     val enableSoftWrap = isStatusExpanded || isStatusError
+                    // 胶囊 + 可选的连接等待提示：提示置于胶囊正下方，避免挤在连接胶囊右侧
+                    Column(
+                        modifier = Modifier.weight(1f, fill = false),
+                        horizontalAlignment = Alignment.Start
+                    ) {
                     Surface(
                         modifier = Modifier
                             .defaultMinSize(minHeight = 34.dp)
@@ -769,7 +788,12 @@ internal fun MessageBubble(
                             .animateContentSize(com.aiassistant.ui.theme.EchoMotion.Spring.gentle())
                             .clip(capsuleShape)
                             .then(
-                                if (hasThinking && hasThinkingContent) {
+                                if (isMessageContentError) {
+                                    Modifier.echoShapeClick(shape = capsuleShape) {
+                                        isErrorReportExpanded = !isErrorReportExpanded
+                                        isStatusExpanded = isErrorReportExpanded
+                                    }
+                                } else if (hasThinking && hasThinkingContent) {
                                     Modifier.echoShapeClick(shape = capsuleShape) {
                                         showThinking = !showThinking
                                     }
@@ -874,7 +898,14 @@ internal fun MessageBubble(
                                     )
                                 }
                             }
-                            if (hasThinking && hasThinkingContent) {
+                            if (isMessageContentError) {
+                                Icon(
+                                    imageVector = if (isErrorReportExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                    contentDescription = if (isErrorReportExpanded) "收起错误提示报告" else "展开错误提示报告",
+                                    modifier = Modifier.size(16.dp),
+                                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.85f)
+                                )
+                            } else if (hasThinking && hasThinkingContent) {
                                 Icon(
                                     imageVector = if (showThinking) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                                     contentDescription = if (showThinking) "收起" else "展开",
@@ -892,8 +923,9 @@ internal fun MessageBubble(
                         }
                     }
 
-                    // P0-1③ 连接等待计时：>8s 弱提示，>20s 升级 error 语义色（仅连接态；重连态由 reconnectStatus 文案承载）。
+                    // P0-1③ 连接等待计时：>30s 弱提示，>60s 升级 error 语义色（仅连接态；重连态由 reconnectStatus 文案承载）。
                     // A5：reduced motion 下保留提示信息（功能性），仅短路登场动画（装饰性）
+                    // 提示置于连接胶囊正下方，不再挤在胶囊右侧
                     if (generationState == GenerationUiState.Connecting) {
                         var elapsedSec by remember { mutableIntStateOf(0) }
                         LaunchedEffect(Unit) {
@@ -902,28 +934,30 @@ internal fun MessageBubble(
                                 elapsedSec++
                             }
                         }
-                        if (elapsedSec >= 8) {
+                        if (elapsedSec >= 30) {
                             val hintEnter = if (reducedMotion) {
                                 androidx.compose.animation.EnterTransition.None
                             } else {
                                 fadeIn(com.aiassistant.ui.theme.EchoMotion.tweenSpec<Float>(com.aiassistant.ui.theme.EchoMotion.Duration.fast)) +
                                     slideInVertically(
                                         animationSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec<androidx.compose.ui.unit.IntOffset>(com.aiassistant.ui.theme.EchoMotion.Duration.fast),
-                                        initialOffsetY = { it / 2 }
+                                        initialOffsetY = { -it / 3 }
                                     )
                             }
                             AnimatedVisibility(
                                 visible = true,
-                                enter = hintEnter
+                                enter = hintEnter,
+                                modifier = Modifier.padding(start = 2.dp, top = 4.dp)
                             ) {
                                 Text(
                                     text = "连接时间较长，正在等待 ${(assistantModelName.ifBlank { "AI" }).displayModelShortName()} 响应…（已等待 ${elapsedSec}s）",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = if (elapsedSec >= 20) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(start = 4.dp, top = 4.dp)
+                                    color = if (elapsedSec >= 60) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.widthIn(max = maxBubbleWidth)
                                 )
                             }
                         }
+                    }
                     }
                 }
 
@@ -1094,60 +1128,66 @@ internal fun MessageBubble(
                         val errorSemantic = semanticColors.error
                         val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
 
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                            shape = RoundedCornerShape(16.dp),
-                            color = errorSemantic.container.copy(alpha = if (isDark) 0.38f else 0.22f),
-                            border = BorderStroke(1.2.dp, errorSemantic.border.copy(alpha = if (isDark) 0.55f else 0.70f))
+                        AnimatedVisibility(
+                            visible = isErrorReportExpanded,
+                            enter = fadeIn(com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.fast)) + expandVertically(),
+                            exit = fadeOut(com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.fast)) + shrinkVertically()
                         ) {
-                            Column(
+                            Surface(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(14.dp)
+                                    .padding(vertical = 4.dp),
+                                shape = RoundedCornerShape(16.dp),
+                                color = errorSemantic.container.copy(alpha = if (isDark) 0.38f else 0.22f),
+                                border = BorderStroke(1.2.dp, errorSemantic.border.copy(alpha = if (isDark) 0.55f else 0.70f))
                             ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(14.dp)
                                 ) {
-                                    Icon(
-                                        Icons.Default.ErrorOutline,
-                                        contentDescription = "错误提示",
-                                        modifier = Modifier.size(20.dp),
-                                        tint = errorSemantic.main
-                                    )
-                                    Text(
-                                        text = if (beforeInterrupt.isNotBlank()) "生成已被中断" else "模型请求异常",
-                                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                                        color = errorSemantic.main,
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    IconButton(
-                                        onClick = {
-                                            clipboardManager.setText(AnnotatedString(errorBody))
-                                        },
-                                        modifier = Modifier.size(30.dp)
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
                                         Icon(
-                                            Icons.Default.ContentCopy,
-                                            contentDescription = "复制报错信息",
-                                            modifier = Modifier.size(16.dp),
-                                            tint = errorSemantic.main.copy(alpha = 0.85f)
+                                            Icons.Default.ErrorOutline,
+                                            contentDescription = "错误提示",
+                                            modifier = Modifier.size(20.dp),
+                                            tint = errorSemantic.main
                                         )
+                                        Text(
+                                            text = if (beforeInterrupt.isNotBlank()) "生成已被中断" else "模型请求异常",
+                                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                            color = errorSemantic.main,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        IconButton(
+                                            onClick = {
+                                                clipboardManager.setText(AnnotatedString(errorBody))
+                                            },
+                                            modifier = Modifier.size(30.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.ContentCopy,
+                                                contentDescription = "复制报错信息",
+                                                modifier = Modifier.size(16.dp),
+                                                tint = errorSemantic.main.copy(alpha = 0.85f)
+                                            )
+                                        }
                                     }
+
+                                    HorizontalDivider(
+                                        color = errorSemantic.border.copy(alpha = 0.25f),
+                                        modifier = Modifier.padding(vertical = 8.dp)
+                                    )
+
+                                    MarkdownText(
+                                        content = errorBody,
+                                        color = errorSemantic.onContainer
+                                    )
                                 }
-
-                                HorizontalDivider(
-                                    color = errorSemantic.border.copy(alpha = 0.25f),
-                                    modifier = Modifier.padding(vertical = 8.dp)
-                                )
-
-                                MarkdownText(
-                                    content = errorBody,
-                                    color = errorSemantic.onContainer
-                                )
                             }
                         }
                     } else {

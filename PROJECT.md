@@ -4,13 +4,15 @@
 
 Echo 是一个 Android 原生 AI API 客户端应用，用于调用 mimo、deepseek、OpenAI、Anthropic 等 AI 模型的 API。
 
-**当前版本**: v2.5.8
-**数据库版本**: 29
-**技术栈**: Kotlin + Jetpack Compose + Room + Retrofit
+**当前版本**: v2.6.0
+**数据库版本**: 30
+**技术栈**: Kotlin 2.2.21 + Jetpack Compose (BOM 2024.06.00) + Room 2.8.4 + Retrofit 2.9.0
+
+> 工作流、最高准则与 APK 发布铁律的唯一权威版本在工作区根目录 `D:\Agent\APP-Echo\AGENTS.md`；本文件是项目事实卡，与其冲突时以 AGENTS.md 与代码为准。
 
 ---
 
-## 维护规则
+## 维护规则（摘要，细则见 AGENTS.md）
 
 1. 每次代码变动后都必须提交到 Git。
 2. 每次版本更新后都必须创建对应版本标签，例如 `v1.7.2`。
@@ -25,26 +27,31 @@ Echo 是一个 Android 原生 AI API 客户端应用，用于调用 mimo、deeps
    - 版本标签
    - 是否已完成网络备份
 5. **APK 发布输出路径与历史版本安装包永久保留准则（最高铁律）**：
-   - 以后构建和发布 APK 时，**统一只发布在 `D:\Agent\APP-烧\app\releases` 这个路径**（严禁发布至其他路径）；
-   - 绝对严禁删除、覆盖或清理 `D:\Agent\APP-烧\app\releases` 目录下的任何历史版本安装包；
-   - 每次发布新版本时只在 `D:\Agent\APP-烧\app\releases` 目录下增量输出对应版本的唯一定名安装包（`Echo-v<version>.apk`），所有历史安装包必须永久保留。
+   - 以后构建和发布 APK 时，**统一只发布在 `D:\Agent\APP-Echo\app\releases` 这个路径**（严禁发布至其他路径）；
+   - 绝对严禁删除、覆盖或清理 `D:\Agent\APP-Echo\app\releases` 目录下的任何历史版本安装包；
+   - 每次发布新版本时只在 `D:\Agent\APP-Echo\app\releases` 目录下增量输出对应版本的唯一定名安装包（`Echo-v<version>.apk`），所有历史安装包必须永久保留。
 6. 不允许提交本机敏感文件或构建产物，包括 `local.properties`、keystore、`.env`、`app/build/`、`.gradle/` 等。
 
 ---
 
-## 数据库结构（v11）
+## 数据库结构（v30，实体清单以 `data/local/AppDatabase.kt` 为准）
 
-| 表名 | 说明 |
+| 实体（表） | 说明 |
 |------|------|
-| folders | 文件夹 |
-| api_configs | API配置 |
-| conversations | 对话 |
-| messages | 消息 |
-| api_usage_stats | 使用统计 |
-| environment_variables | 环境变量 |
-| prompt_templates | 提示词模板 |
-| conversation_branches | 会话分支（新增） |
-| selected_models | 选择的模型（新增） |
+| Folder | 文件夹 |
+| ApiConfig | API 配置 |
+| Conversation / Message | 对话与消息 |
+| ApiUsageStat | 使用统计 |
+| EnvironmentVariable | 环境变量（加密存储） |
+| PromptTemplate | 提示词模板 |
+| MemoryItem | 全局记忆 |
+| ConversationBranch / SelectedModel | 会话分支 / 模型选择与排序 |
+| CharacterProfile / CharacterTag / CharacterTagCrossRef | 角色卡 / 角色标签及关联 |
+| RoleplayScenario / RoleplaySession / RoleplayMemory | 角色扮演场景 / 会话 / 记忆 |
+| WorldBook / WorldBookEntry | 世界书 |
+| TimelineNode | 剧情时间线 |
+
+迁移链至 `MIGRATION_29_30`（`data/local/migrations/AppDatabaseMigrations.kt`）；修改实体必须 version+1 并新增 Migration，禁止 destructive migration。
 
 ---
 
@@ -75,13 +82,20 @@ Echo 是一个 Android 原生 AI API 客户端应用，用于调用 mimo、deeps
 | **v2.0.4** | **v23** | **分支功能完整重构与事务原子落库、分支生成弹窗确认与跳转、隐藏对话解锁会话维持** |
 | **v2.0.5** | **v23** | **非破坏性增量备份导入、复制整个对话（普通与隐藏同步）、备份单对话（普通与隐藏同步）** |
 
+> 完整版本历史见 `CHANGELOG.md` 与 `UPDATE_LOG.md`（v2.0.5 之后含角色扮演全链路、时间线、世界书、阶梯式上下文压缩等）。
+
 ---
 
-## 构建命令
+## 构建命令（Git Bash，已核验）
 
 ```bash
-cd d:/Agent/app/AiApiAssistant
-export JAVA_HOME="D:/Java/jdk-17.0.2"
-export ANDROID_HOME="C:/Users/19376/Android/Sdk"
-./gradlew assembleDebug --no-daemon
+cd /d/Agent/APP-Echo/app/AiApiAssistant
+./gradlew.bat compileDebugKotlin --no-daemon   # 编译
+./gradlew.bat testDebugUnitTest --no-daemon    # 单元测试
+./gradlew.bat lintDebug --no-daemon            # Lint
+./gradlew.bat assembleRelease --no-daemon      # 发布 APK
 ```
+
+- JDK 17 由 `gradle.properties` 的 `org.gradle.java.home=D:/Java/jdk-17.0.2` 固定，无需手动 export。
+- Android SDK 由 `local.properties` 的 `sdk.dir` 指定（本机 `D:\Agent\app\.android-sdk`，该文件不入库）。
+- 发布产物须复制为 `D:\Agent\APP-Echo\app\releases\Echo-v<version>.apk`（详见 AGENTS.md §4 铁律）。

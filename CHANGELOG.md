@@ -1,5 +1,26 @@
 # Echo 更新日志
 
+## v2.6.0 (2026-09-30) - 上下文回退选择、设定时间线编辑、连接失败胶囊优化与供应商拖动排序
+
+### 用户侧可见更新
+1. **弱网上下文回退弹窗选择**：因网络连接不畅或空响应导致请求受阻时，弹出选择窗口，用户可自主选择「回退」（裁剪历史重试）、「忽略」（保持完整上下文）或「（当前对话）永久忽略」（本对话始终保全完整上下文不回退）。
+2. **设定与时间线提取窗口长按直接编辑**：在时间线推进与智能记忆提取变更待确认卡片中，长按文字即可直接切换为输入框修改文本，编辑后可选择「取消」或「应用」。
+3. **连接失败胶囊视觉与错误报告折叠**：当模型连接失败时，胶囊彻底隐藏 Token 消耗（不再误显消耗量），直观呈现「模型连接失败」；点击胶囊即可自由展开或收起下方红色的错误提示报告。
+4. **拖动排序震动反馈优化**：关闭模型顺序与 API Key 拖动交换判定交界处的震动反馈，彻底消除重合交界点处手机马达反复响动的体验痛点。
+5. **设置页模型供应商支持长按拖动排序**：设置中的 API 配置管理列表支持长按拖动手柄直接调整供应商排序，并持久化记住偏好顺序。
+
+---
+
+## v2.5.9 (2026-09-30) - UI 细节统一修复
+
+### 用户侧可见更新
+1. **连接等待提示更克制**：连接超过 **30 秒**才提示「连接时间较长」，超过 60 秒才升级为红色警示；提示移到连接胶囊**正下方**，不再挤在胶囊右侧。
+2. **设置分区标题更易读**：「核心 / 智能 / 数据」及设置表单标签、剧情操作栏分区标题字号统一加大加粗，扫一眼就能看清分区。
+3. **拖动排序动画更顺滑**：API 配置里长按拖动交换 Key 时，卡片平滑抬起、相邻项柔和让位、松手稳稳归位，不再生硬弹跳。
+4. **模型也能拖动排序**：API 配置「已配置模型」左侧新增拖动手柄，长按即可调整模型顺序，保存后长期记住。
+
+---
+
 ## v2.5.8 (2026-09-30) - 阶梯式上下文压缩选择、动效深化与 2026 模型适配
 
 ### 用户侧可见更新
@@ -286,12 +307,12 @@
 
 ### 自动化测试与工程交付
 - **单元测试**：全量单元测试 343 项全部通过 (343 passed, 0 failed, BUILD SUCCESSFUL)。
-- **Release APK**：`D:\Agent\APP-烧\app\releases\Echo-v2.3.2.apk`。
+- **Release APK**：`D:\Agent\APP-Echo\app\releases\Echo-v2.3.2.apk`。
   - 文件大小: `16,320,509 字节 (~15.56 MB)`
   - SHA256: `9554993B06402614133725841BE845BF17916545D76B73CE8EAF0FB7BAFD52C4`
   - 签名方案: `v2 scheme (APK Signature Scheme v2): true`
   - 包信息: `package: name='com.aiassistant' versionCode='137' versionName='2.3.2'`
-- **发布路径与历史版本永久保留**：严格遵循准则，统一发布在 `D:\Agent\APP-烧\app\releases` 路径下，该目录下全部历史版本安装包永久完整保留，增量输出唯一定名的 `Echo-v2.3.2.apk`，未生成带有 `-arm64-v8a` 后缀命名的多余包。
+- **发布路径与历史版本永久保留**：严格遵循准则，统一发布在 `D:\Agent\APP-Echo\app\releases` 路径下，该目录下全部历史版本安装包永久完整保留，增量输出唯一定名的 `Echo-v2.3.2.apk`，未生成带有 `-arm64-v8a` 后缀命名的多余包。
 
 ---
 
@@ -311,12 +332,12 @@
 
 ### 自动化测试与工程交付
 - **单元测试**：全量单元测试 337 项全部通过 (337 passed, 0 failed, BUILD SUCCESSFUL)。
-- **Release APK**：`D:\Agent\APP-烧\app\releases\Echo-v2.3.1.apk`。
+- **Release APK**：`D:\Agent\APP-Echo\app\releases\Echo-v2.3.1.apk`。
   - 文件大小: `16,304,125 字节 (~15.55 MB)`
   - SHA256: `38C92D984D74FEC28DA9231A598F3DFA3A60C45DCE775334D290924AE8BE142D`
   - 签名方案: `v2 scheme (APK Signature Scheme v2): true`
   - 包信息: `package: name='com.aiassistant' versionCode='136' versionName='2.3.1'`
-- **发布路径与历史版本永久保留**：严格遵循准则，统一发布在 `D:\Agent\APP-烧\app\releases` 路径下，该目录下全部历史版本安装包永久完整保留，增量输出唯一定名的 `Echo-v2.3.1.apk`，未生成带有 `-arm64-v8a` 后缀命名的多余包。
+- **发布路径与历史版本永久保留**：严格遵循准则，统一发布在 `D:\Agent\APP-Echo\app\releases` 路径下，该目录下全部历史版本安装包永久完整保留，增量输出唯一定名的 `Echo-v2.3.1.apk`，未生成带有 `-arm64-v8a` 后缀命名的多余包。
 
 ---
 
@@ -341,12 +362,12 @@
 
 ### 自动化测试与工程交付
 - **单元测试**：全量单元测试 334 项全部通过 (BUILD SUCCESSFUL)。
-- **Release APK**：`D:\Agent\APP-烧\app\releases\Echo-v2.3.0.apk`。
+- **Release APK**：`D:\Agent\APP-Echo\app\releases\Echo-v2.3.0.apk`。
   - SHA256: `9BB0F67133B718DE180EA90D1A4A5E1D461FCF8FC104B7E75AC77FD8F9442FDA`
   - 大小: `16,304,125 字节 (~15.55 MB)`
   - 签名验证: `Verified using v2 scheme (APK Signature Scheme v2): true`
   - 包信息: `package: name='com.aiassistant' versionCode='135' versionName='2.3.0'`
-- **发布路径与历史版本永久保留**：严格遵循准则，统一发布在 `D:\Agent\APP-烧\app\releases` 路径下，该目录下全部历史版本安装包永久完整保留，增量输出唯一定名的 `Echo-v2.3.0.apk`，未生成带有 `-arm64-v8a` 后缀命名的多余包。
+- **发布路径与历史版本永久保留**：严格遵循准则，统一发布在 `D:\Agent\APP-Echo\app\releases` 路径下，该目录下全部历史版本安装包永久完整保留，增量输出唯一定名的 `Echo-v2.3.0.apk`，未生成带有 `-arm64-v8a` 后缀命名的多余包。
 
 ---
 
@@ -371,12 +392,12 @@
 
 ### 自动化测试与工程交付
 - **单元测试**：全量单元测试（包含 TimelineArchitectureAndOptimizationTest 6 项新测及 TimelineMemoryTest 11 项既有测试）100% 全部通过 (BUILD SUCCESSFUL)。
-- **Release APK**：`D:\Agent\APP-烧\app\releases\Echo-v2.2.9.apk`。
+- **Release APK**：`D:\Agent\APP-Echo\app\releases\Echo-v2.2.9.apk`。
   - SHA256: `1D02B30D501A3BFBEA4A037ED9BA60AD0F87E1A36F932E5C31A5C1759C330284`
   - 大小: `16,304,125 字节 (~15.55 MB)`
   - 签名验证: `Verified using v2 scheme (APK Signature Scheme v2): true`
   - 包信息: `package: name='com.aiassistant' versionCode='134' versionName='2.2.9'`
-- **发布路径与历史版本永久保留**：严格遵循准则，统一发布在 `D:\Agent\APP-烧\app\releases` 路径下，该目录下全部历史版本安装包永久完整保留，增量输出唯一定名的 `Echo-v2.2.9.apk`，未生成带有 `-arm64-v8a` 后缀命名的多余包。
+- **发布路径与历史版本永久保留**：严格遵循准则，统一发布在 `D:\Agent\APP-Echo\app\releases` 路径下，该目录下全部历史版本安装包永久完整保留，增量输出唯一定名的 `Echo-v2.2.9.apk`，未生成带有 `-arm64-v8a` 后缀命名的多余包。
 
 ---
 
@@ -416,10 +437,10 @@
 
 ### 自动化测试与工程交付
 - **单元测试**：全量单元测试（包含 V225FeaturesTest 5 项新测及 ContextCompressionAndBudgetTest 6 项新测）100% 全部通过 (BUILD SUCCESSFUL)。
-- **Release APK**：`D:\Agent\APP-烧\app\releases\Echo-v2.2.5.apk`。
+- **Release APK**：`D:\Agent\APP-Echo\app\releases\Echo-v2.2.5.apk`。
   - SHA256: `D5E04968B49C90CE7B14BF7A4F7E5676B0FAF9B6DFFA6661039633CB3F1C6E21`
   - 大小: `16,254,973 字节 (~15.5 MB)`
-- **发布路径与历史版本永久保留**：严格遵循准则，以后统一只发布在 `D:\Agent\APP-烧\app\releases` 路径下，该目录下全部历史版本安装包永久完整保留，增量输出唯一定名的 `Echo-v2.2.5.apk`，未生成带有 `-arm64-v8a` 后缀命名的多余包。
+- **发布路径与历史版本永久保留**：严格遵循准则，以后统一只发布在 `D:\Agent\APP-Echo\app\releases` 路径下，该目录下全部历史版本安装包永久完整保留，增量输出唯一定名的 `Echo-v2.2.5.apk`，未生成带有 `-arm64-v8a` 后缀命名的多余包。
 
 ## v2.2.4 (2026-09-19) - Markdown 全格式容错渲染、全角星号排版归一化、首尾非对称星号容错、跨行格式保护、字体合成保底与用户气泡 Markdown 支持
 
@@ -1145,7 +1166,7 @@
 - `versionCode`: 100
 - `versionName`: 1.9.20
 - ABI：arm64-v8a
-- 发布产物：`D:\Agent\APP-烧\app\releases\Echo-v1.9.20-arm64-v8a.apk`
+- 发布产物：`D:\Agent\APP-Echo\app\releases\Echo-v1.9.20-arm64-v8a.apk`
 - 文件体积：15,992,829 字节 (~15.25 MB)
 - SHA-256: `7165BE8DF433458E71F5EC4F9046C9E9BE025E017C8D7B8F95F68467BA33B89C`
 - 单元测试：87/87 全部通过 (包含 `V1920FeaturesTest` 5项专属测试)
@@ -1167,7 +1188,7 @@
 - `versionCode`: 99
 - `versionName`: 1.9.19
 - ABI：arm64-v8a
-- 发布产物：`D:\Agent\APP-烧\app\releases\Echo-v1.9.19-arm64-v8a.apk`
+- 发布产物：`D:\Agent\APP-Echo\app\releases\Echo-v1.9.19-arm64-v8a.apk`
 - 文件体积：15,976,197 字节 (~15.24 MB)
 - SHA-256: `61A9D3A2F4B154E683CFBAA7287D37D6462AD97D478DE12BF7A08DCA5206209A`
 
@@ -1186,7 +1207,7 @@
 - `versionCode`: 98
 - `versionName`: 1.9.18
 - ABI：arm64-v8a
-- 发布产物：`D:\Agent\APP-烧\app\releases\Echo-v1.9.18-arm64-v8a.apk`
+- 发布产物：`D:\Agent\APP-Echo\app\releases\Echo-v1.9.18-arm64-v8a.apk`
 - SHA-256: `465718F8530442D12D0ED4BCAA472DB6F862AD478DD951638D47275632242149`
 
 ## v1.9.17 (2026-09-07) - 自定义联网搜索结果数、模型列表选择自动命名、华为健康传感器主动刷新、提示词与记忆机制/优先级透明化、故事设置三栏重构、会话与故事无损双向转换、设置手风琴折叠、模型全维度能力解析、深蓝黑极客UI与WCAG AAA高对比度
@@ -1211,7 +1232,7 @@
 - `versionCode`: 97
 - `versionName`: 1.9.17
 - ABI：arm64-v8a
-- 单一产物：`D:\Agent\APP-烧\app\AiApiAssistant\releases\Echo-v1.9.17-arm64-v8a.apk`
+- 单一产物：`D:\Agent\APP-Echo\app\AiApiAssistant\releases\Echo-v1.9.17-arm64-v8a.apk`
 - 文件大小：15,959,813 字节 (约 15.22 MB)
 - SHA-256：`CC47B71AE6A1E78F24266D628F5B5E62525F09140D897A46D6E9091B775A47F6`
 - 签名状态：APK Signature Scheme v2 (已验证通过)
@@ -1235,7 +1256,7 @@
 - `versionCode`: 96
 - `versionName`: 1.9.16
 - ABI：arm64-v8a
-- 单一产物：`D:\Agent\APP-烧\app\releases\Echo-v1.9.16-arm64-v8a.apk`
+- 单一产物：`D:\Agent\APP-Echo\app\releases\Echo-v1.9.16-arm64-v8a.apk`
 - 文件大小：15,927,045 字节 (约 15.19 MB)
 - SHA-256：`FFE5404CA65790B0FFC0D084E1AEBD1993F0F76F8BD7486BB347286B11940235`
 - 签名状态：APK Signature Scheme v2 (已验证通过)
@@ -1259,7 +1280,7 @@
 - `versionCode`: 95
 - `versionName`: 1.9.15
 - ABI：arm64-v8a
-- 单一产物：`D:\Agent\APP-烧\app\releases\Echo-v1.9.15-arm64-v8a.apk`
+- 单一产物：`D:\Agent\APP-Echo\app\releases\Echo-v1.9.15-arm64-v8a.apk`
 - 文件大小：15,890,949 字节 (约 15.15 MB)
 - SHA-256：`93158F4F74DB76D46A84ABC2B95D384857F3E355D0E69FBB4A2DCBA95D5C4AFE`
 - 签名状态：APK Signature Scheme v2 (已验证通过)
@@ -1284,7 +1305,7 @@
 - `versionCode`: 94
 - `versionName`: 1.9.14
 - ABI：arm64-v8a
-- 单一产物：`D:\Agent\APP-烧\app\releases\Echo-v1.9.14-arm64-v8a.apk`
+- 单一产物：`D:\Agent\APP-Echo\app\releases\Echo-v1.9.14-arm64-v8a.apk`
 - 文件大小：15,856,173 字节 (约 15.12 MB)
 - SHA-256：`64BA8D91B9601B2EF67E079826FAA4A7788C082328DD28E1BCF2B9AF327FE7EE`
 - 签名状态：APK Signature Scheme v2 (已验证通过)
@@ -1311,7 +1332,7 @@
 - `versionCode`: 93
 - `versionName`: 1.9.13
 - ABI：arm64-v8a
-- 单一产物：`D:\Agent\APP-烧\app\releases\Echo-v1.9.13-arm64-v8a.apk`
+- 单一产物：`D:\Agent\APP-Echo\app\releases\Echo-v1.9.13-arm64-v8a.apk`
 - 文件大小：15,856,177 字节 (约 15.12 MB)
 - SHA-256：`B5C43ED7687F1D49AD688F982E13A2C53603A69A45A8AEFC8F7EFD61592FAC21`
 - 签名状态：APK Signature Scheme v2 (已验证通过)
@@ -1336,7 +1357,7 @@
 - `versionCode`: 92
 - `versionName`: 1.9.12
 - ABI：arm64-v8a
-- 单一产物：`D:\Agent\APP-烧\app\releases\Echo-v1.9.12-arm64-v8a.apk`
+- 单一产物：`D:\Agent\APP-Echo\app\releases\Echo-v1.9.12-arm64-v8a.apk`
 - SHA-256：`0954D94F517FAB09903383208A62D829A19DD68EBF0237F6935FFC5699194ED5`
 
 ---
@@ -1363,7 +1384,7 @@
 - `versionCode`: 91
 - `versionName`: 1.9.11
 - ABI：arm64-v8a
-- 单一产物：`D:\Agent\APP-烧\app\releases\Echo-v1.9.11-arm64-v8a.apk`
+- 单一产物：`D:\Agent\APP-Echo\app\releases\Echo-v1.9.11-arm64-v8a.apk`
 
 ---
 
@@ -1386,7 +1407,7 @@
 - `versionCode`: 88
 - `versionName`: 1.9.8
 - ABI：arm64-v8a
-- 单一产物：`D:\Agent\APP-烧\app\releases\Echo-v1.9.8-arm64-v8a.apk`
+- 单一产物：`D:\Agent\APP-Echo\app\releases\Echo-v1.9.8-arm64-v8a.apk`
 - SHA-256：`6D8DF338D764301C855503611E559D7C938C80CE6A86CFA0392BB6C7BEF0488F`
 
 ---
@@ -1404,7 +1425,7 @@
 - `versionCode`: 87
 - `versionName`: 1.9.7
 - ABI：arm64-v8a
-- 单一产物：`D:\Agent\APP-烧\app\releases\Echo-v1.9.7-arm64-v8a.apk`
+- 单一产物：`D:\Agent\APP-Echo\app\releases\Echo-v1.9.7-arm64-v8a.apk`
 - SHA-256：`CDFA1B97B3C7EA07082FCF21921CA29A4CA1AFD517EADCA2166FDF3D0F4D034F`
 
 ---
@@ -1426,7 +1447,7 @@
 - `versionName`: 1.9.2
 - Room 数据库版本：19
 - ABI：arm64-v8a
-- 单一产物：`D:\Agent\APP-烧\app\releases\Echo-v1.9.2-arm64-v8a.apk`
+- 单一产物：`D:\Agent\APP-Echo\app\releases\Echo-v1.9.2-arm64-v8a.apk`
 - SHA-256：`AE400C9EE00916EE77D64675FF8BA8792FA7415076D78434C3832FFC694B12E6`
 
 ---

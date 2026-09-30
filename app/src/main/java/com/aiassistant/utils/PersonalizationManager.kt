@@ -151,6 +151,25 @@ class PersonalizationManager(private val context: Context) {
         """.trimIndent()
     }
 
+    fun getApiConfigOrder(): List<Long> {
+        val raw = prefs.getString(KEY_API_CONFIG_ORDER, null) ?: return emptyList()
+        return raw.split(",")
+            .mapNotNull { it.trim().toLongOrNull() }
+    }
+
+    fun saveApiConfigOrder(order: List<Long>): Boolean {
+        val raw = order.joinToString(",")
+        return prefs.edit().putString(KEY_API_CONFIG_ORDER, raw).commit()
+    }
+
+    fun isContextFallbackPermanentlyIgnored(conversationId: Long): Boolean {
+        return prefs.getBoolean(KEY_IGNORE_CONTEXT_FALLBACK_PREFIX + conversationId, false)
+    }
+
+    fun setContextFallbackPermanentlyIgnored(conversationId: Long, ignored: Boolean): Boolean {
+        return prefs.edit().putBoolean(KEY_IGNORE_CONTEXT_FALLBACK_PREFIX + conversationId, ignored).commit()
+    }
+
     companion object {
         private const val KEY_GLOBAL_PROMPT = "global_prompt"
         private const val KEY_GLOBAL_ROLEPLAY_PROMPT = "global_roleplay_prompt"
@@ -183,6 +202,8 @@ class PersonalizationManager(private val context: Context) {
         private const val KEY_AUTO_COMPRESSION_THRESHOLD_L2 = "auto_compression_threshold_l2"
         private const val KEY_AUTO_COMPRESSION_THRESHOLD_L3 = "auto_compression_threshold_l3"
         private const val KEY_AUTO_COMPRESSION_THRESHOLD_L4 = "auto_compression_threshold_l4"
+        private const val KEY_API_CONFIG_ORDER = "api_config_order"
+        private const val KEY_IGNORE_CONTEXT_FALLBACK_PREFIX = "ignore_context_fallback_conv_"
 
         const val DEFAULT_AUXILIARY_MEMORY_PROMPT = "你是一个专业的记忆与设定提炼助手。请阅读以下对话内容，判断是否包含值得长期记住的人物画像、长期偏好、重要事实、剧情设定或行为约束（如称呼要求、绝对禁忌、输出规范等）。\n" +
             "【沉浸感最高准则（铁律）】：\n" +

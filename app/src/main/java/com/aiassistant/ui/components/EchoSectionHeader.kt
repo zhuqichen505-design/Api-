@@ -12,7 +12,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.sp
 import com.aiassistant.ui.theme.EchoTokens
 
 /**
@@ -20,7 +22,7 @@ import com.aiassistant.ui.theme.EchoTokens
  * 统一设置页、侧边栏、弹窗内分区标题的视觉规范。
  *
  * 设计决策：
- * - 使用 labelMedium 样式 + primary 颜色，形成清晰的视觉层级
+ * - 使用 titleSmall + SemiBold + 15sp，保证分区标题可读性（此前 labelMedium 12sp 过小）
  * - 支持可选的副标题说明
  * - 上间距使用 sectionGap (20dp)，与卡片组形成呼吸感
  */
@@ -44,7 +46,11 @@ fun EchoSectionHeader(
         ) {
             Text(
                 text = title,
-                style = MaterialTheme.typography.labelMedium,
+                style = MaterialTheme.typography.titleSmall.copy(
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 15.sp,
+                    letterSpacing = 0.2.sp
+                ),
                 color = MaterialTheme.colorScheme.primary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis

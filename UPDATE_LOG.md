@@ -2,6 +2,118 @@
 
 本文档按照工作流规范记录每次版本更新、需求变更与复核结果。
 
+## [2026-09-30] - v2.6.0 弱网上下文回退选择、设定与时间线长按编辑、连接失败胶囊优化与供应商拖拽排序
+
+### 1. 用户需求
+1. 因为网络连接不畅等问题导致的上下文回退，需要弹出窗口给用户选择。选择包括回退，忽略，（当前对话）永久忽略。
+2. 在时间线和设定提取及变更时，弹出的窗口应该可以直接长按编辑文字（即设定和时间线），编辑后可以选择取消或者应用。
+3. 当模型连接失败时，胶囊内就不要显示模型消耗了多少Token，直接显示为模型连接失败。同时连接失败的胶囊下方有红色的错误提示报告时，应该可以点击胶囊的展开和收起键，控制错误提示报告的展开和收起。
+4. 当长按拖动模型顺序或者APi Key的顺序时，在两者重合判定交换成功的交界处，会造成手机马达反复响动，体验很不好，请关闭震动反馈。
+5. 设置里的模型供应商修改成也可以长按拖动改变顺序。
+完成以上需求并构建APK。
+
+### 2. 问题与实现
+1. **弱网上下文回退用户选择弹窗（需求 1）**：
+   - 领域模型新增 `ContextFallbackChoice { FALLBACK, IGNORE, PERMANENTLY_IGNORE }` 与 `ContextFallbackPromptState`；
+   - `PersonalizationManager` 与 `AiRepository` 增加对话级 `isContextFallbackPermanentlyIgnored(conversationId)` / `setContextFallbackPermanentlyIgnored(...)` 持久化；
+   - 底层请求遭遇连接受阻/空响应触发上下文回退时，通过挂起协程触发 `onContextFallbackPrompt`，在 `ChatScreen` 弹出专属 Material 3 对话框，由用户选择「回退」（裁剪历史继续重试）、「忽略」（保持当前上下文）或「（当前对话）永久忽略」（持久化标记该会话不再执行回退）；
+2. **设定与时间线待确认卡片长按编辑（需求 2）**：
+   - `pendingMemoryCandidate` 候选记忆卡片：文字区域支持长按手势（`combinedClickable`）直接就地展开为 `OutlinedTextField` 多行编辑框；编辑状态提供明确「取消」（恢复原内容并退出编辑态）和「应用」（调用 `viewModel.acceptPendingMemory("session", editedMemoryContent)` 即刻入库）；
+   - `pendingTimelineProposal` 时间线提案卡片：时空推进与事件文本区域支持长按手势就地进入编辑模式，可微调时空标签、事件时间节点与事件详情，底部提供「取消」与「应用」按钮，调用 `viewModel.applyTimelineProposal`；
+3. **连接失败胶囊视觉与错误报告折叠控制（需求 3）**：
+   - `ChatMessageComponents.kt`：连接失败/报错状态下，胶囊彻底隐藏 Token 消耗（不再呈现诸如“吃掉了你xx token”或 0 Token 误显），统一显示纯净文案「模型连接失败」；
+   - 报错状态下胶囊右侧显示动态折叠指示箭头（`ExpandLess` / `ExpandMore`），点击胶囊即可自由切换 `isErrorReportExpanded`，将下方红色错误提示报告收起或展开；
+4. **拖拽排序交换震动反馈移除（需求 4）**：
+   - `SmoothReorderState.kt`：移除 `onDragDelta` 中向上与向下跨越 0.42f 身位阈值交换判定成功时的震动反馈，彻底解决拖拽模型或 API Key 跨越交界点时手机马达反复抖动的体验痛点；
+5. **设置中模型供应商列表拖动排序（需求 5）**：
+   - `SettingsScreen.kt` `ApiConfigTab`：引入 `SmoothReorderState`，为 `ApiConfigCard` 左侧增加六点拖动手柄，支持用户长按上下拖动调整服务商顺序；
+   - `PersonalizationManager` 与 `AiRepository` 新增 `KEY_API_CONFIG_ORDER` 持久化存储与 `saveApiConfigOrder(...)`，并通过 `MutableStateFlow` 触发器使全应用响应式即刻同步新排序；
+6. **版本与发布**：
+   - 版本递增至 `versionName = "2.6.0"`, `versionCode = 156`；
+   - 构建生成 Release APK，复制到发布路径 `D:\Agent\APP-Echo\app\releases\Echo-v2.6.0.apk`。
+
+### 3. 验证结果
+- `./gradlew.bat compileDebugKotlin --no-daemon` Exit Code 0
+- `./gradlew.bat testDebugUnitTest --no-daemon` Exit Code 0（73 测试文件，458 项全通）
+- `./gradlew.bat lintDebug --no-daemon` Exit Code 0
+- `git diff --check` Exit Code 0
+- `./gradlew.bat assembleRelease --no-daemon` Exit Code 0
+- APK 验证：
+  - 路径：`D:\Agent\APP-Echo\app\releases\Echo-v2.6.0.apk`
+  - 大小：16,667,501 字节 (~15.89 MB)
+  - SHA256：`CF38591EC6083249588ED24A713E77FBDB46F95F38E963E33A23A8C3FF0BCBC7`
+  - 签名：`apksigner verify` 通过（证书 DN: CN=Android Debug, SHA-256: 939638f6d3e9af7f8a980e62af52d275fee73381f2130cc4e20a0d349f98e21f）
+
+---
+
+## [2026-09-30] - 工作流文档体系优化（未发版，仅文档）
+
+### 1. 用户需求
+审查整个项目，按项目实际情况和实际生产过程优化工作流，要求简洁、清晰、直观、正确、严谨，作为 agent 每次工作的正确指导。
+
+### 2. 改动要点
+- 根目录 `AGENTS.md` 由约 590 行一次性任务书重写为约 90 行常驻准则（最高准则、项目事实卡、标准工作流、版本/数据库规则、APK 发布铁律、文档留痕、Git 规则、环境注意）；原始任务书归档至 `APP改进\审核\AGENTS-原始任务书-全项目完善-20260930存档.md`。
+- 消除双份维护漂移：根目录 `CLAUDE.md`、`WORKFLOW_GUIDELINES.md`、`UPDATE_LOG.md` 改为指针文件，唯一权威移至仓库内（此前 v2.5.9 两份记录曾一度矛盾：一处"未发版"、一处"发版"）。
+- 仓库内 `WORKFLOW_GUIDELINES.md` 重写为每任务 A–F 执行清单模板（基线/实现/验证/留痕/发布/Git），并保留 v2.5.9 执行记录；显式记录遗留项：v2.5.9 改动未提交、标签 v2.5.8/v2.5.9 漏打、push 未成功。
+- `PROJECT.md` 事实修正：数据库版本 29→**30**（19 个实体清单重列，以 `AppDatabase.kt` 为准）；维护规则指向 AGENTS.md；构建命令修正为已核验的 Git Bash 命令与当前路径（旧命令中的 `d:/Agent/app/AiApiAssistant` 路径已失效，且无需手动 export JAVA_HOME）。
+- `PROJECT_OPTIMIZATION_PLAN.md`（v2.5.4 基线的一次性审计方案）归档至 `APP改进\审核\`。
+
+### 3. 验证
+- `./gradlew.bat --version` Exit Code 0（Gradle 8.11.1，Daemon JVM = D:\Java\jdk-17.0.2，确认无需手动 JAVA_HOME）。
+- `./gradlew.bat compileDebugKotlin --no-daemon` Exit Code 0（工作流标准命令实测可用）。
+- 仅文档改动：未递增版本号、未构建 APK、未执行发布（用户未要求，符合最高准则 2）。
+
+### 4. 改动文件
+- 仓库内：`WORKFLOW_GUIDELINES.md`（重写）、`PROJECT.md`（事实修正）、`UPDATE_LOG.md`（本条目）。
+- 工作区根（不入库）：`AGENTS.md`（重写）、`CLAUDE.md` / `WORKFLOW_GUIDELINES.md` / `UPDATE_LOG.md`（指针化）、`APP改进\审核\`（新增两份归档）。
+
+## [2026-09-30] - v2.5.9 UI 细节统一修复（发版）：连接提示、分区标题、拖拽动画与模型排序
+
+### 1. 需求
+UI 重构后统一审查并修复细节问题（用户明确提出四项 + 同类延伸）：
+1. 连接超时提示超过 10 秒即出现且挤在连接胶囊右侧，观感差；
+2. 设置页「核心」「智能」等分区标题字号过小，可读性差；
+3. API 配置长按拖动交换 Key 位置时动画生硬难看；
+4. API 配置中希望也能长按拖动模型，调整列表顺序。
+
+### 2. 问题与修复
+1. **连接等待提示（P1）**：阈值由 8s/20s 调整为 **30s/60s**（60s 后升级 error 色）；提示从连接胶囊**右侧**移至**胶囊正下方**（Column 包裹胶囊 + 提示），宽度约束与胶囊一致，不再横向挤占。
+2. **分区/表单标题可读性（P1）**：
+   - `EchoSectionHeader`：`labelMedium` 12sp → `titleSmall` SemiBold 15sp（设置页「核心 / 智能 / 数据」）；
+   - `SettingsInputField` 标题：12sp → 14sp SemiBold；
+   - `PlotActionBar` 分区标题（推进与改写 / 模式与对白 / 分支与记忆 / 自定义指令 / 剧情操作）：12sp → 14sp SemiBold；
+   - 角色扮演引导步骤标题：`labelMedium` → `titleSmall`。
+3. **拖拽动画美化（P1）**：重写 `SmoothReorderState` 视觉层——
+   - 新增 lift 抬升量（0→1 tween 160ms）平滑驱动缩放与阴影，消除瞬间跳变；
+   - 相邻项换位由弹簧过冲改为 FastOutSlowIn tween 220ms，松手归位 200ms，无弹跳；
+   - 高度记录支持按 key，避免高度不等条目交换时阈值错位；
+   - 动画 Job 取消重入，避免连滑时动画互相打架。
+4. **模型列表拖拽排序（P1）**：
+   - 「已配置模型」卡片左侧新增拖动手柄，长按上下拖动调整顺序；
+   - 搜索过滤时禁用拖拽（防下标错位）并给出提示；
+   - 顺序写入 `availableModels` → `SelectedModel.sortOrder`，与 Key 列表同级持久化；
+   - `cleanModelNames` 保序去重，排序结果不被打乱。
+
+### 3. 改动文件清单
+- `ChatMessageComponents.kt`：连接提示阈值与位置
+- `EchoSectionHeader.kt`：分区标题字号
+- `SettingsScreen.kt`：表单标题字号
+- `PlotActionBar.kt` / `RoleplayStudioScreen.kt`：分区/引导标题字号
+- `SmoothReorderState.kt`：拖拽抬升/换位/归位动画重构
+- `SettingsApiConfigDialog.kt`：模型拖拽排序与手柄
+- `app/lint.xml`：禁用因 Kotlin 2.2 Metadata 与旧 Compose Lint 不兼容而崩溃的 Compose 探测器（工具链问题，其余规则全开）
+- `UiPolishRegressionTest.kt`（新增）：模型顺序保持 + 抬升量/按 key 高度回归
+- `UPDATE_LOG.md` / `CHANGELOG.md` / `walkthrough.md`：留痕
+
+### 4. 验证
+- `compileDebugKotlin`：Exit Code 0。
+- `testDebugUnitTest`：**456** 项全部通过、0 失败（Exit Code 0），含新增 5 项 UI 回归。
+- `lintDebug`：Exit Code 0（Compose 元数据崩溃探测器已隔离说明，其余检查全量运行）。
+- 版本递增：versionCode **155** / versionName **2.5.9**。
+- APK：`assembleRelease` 后增量输出 `D:\Agent\APP-Echo\app\releases\Echo-v2.5.9.apk`（历史包全部保留）。
+
+---
+
 ## [2026-09-30] - v2.5.8 源码修订（未发版）：厂商思考档位请求链路修复与过时残留清理
 
 ### 1. 需求
@@ -100,10 +212,10 @@
 - **版本号**：v2.5.7 (versionCode: 153)
 - **编译与测试**：416 个单元测试全部执行通过（`BUILD SUCCESSFUL`）
 - **打包任务**：`assembleRelease` 成功（Exit Code 0）
-- **APK 输出路径**：`D:\Agent\APP-烧\app\releases\Echo-v2.5.7.apk`
+- **APK 输出路径**：`D:\Agent\APP-Echo\app\releases\Echo-v2.5.7.apk`
 - **文件大小**：16,356,373 字节 (~15.60 MB)
 - **SHA256 校验和**：`59ADEB9D02DD4EA80A99FC6A21D003963FB9C6C64E28787BB2E5D025DD22970D`
-- **历史包保留策略**：`D:\Agent\APP-烧\app\releases` 目录下所有历史版本完好无损完整保留，仅增量交付 `Echo-v2.5.7.apk`。
+- **历史包保留策略**：`D:\Agent\APP-Echo\app\releases` 目录下所有历史版本完好无损完整保留，仅增量交付 `Echo-v2.5.7.apk`。
 
 ---
 
@@ -151,7 +263,7 @@
 
 ### 5. 版本与产物
 - versionCode 154 / versionName 2.5.8；CHANGELOG 已记 v2.5.8；README/PROJECT 已同步；
-- APK：`assembleRelease` 构建后增量输出 `D:\Agent\APP-烧ppeleases\Echo-v2.5.8.apk`（历史包全部保留），SHA256 见交付说明；
+- APK：`assembleRelease` 构建后增量输出 `D:\Agent\APP-Echoppeleases\Echo-v2.5.8.apk`（历史包全部保留），SHA256 见交付说明；
 - 本版本自 v2.5.7 起累计包含：时间线与流式稳定性（v2.5.7 已含）、动效轮（EchoMotion/生成链路动效/菜单与状态过渡/按压反馈）、检查报告修复（A1-A6/P2-1/P3-1~4）、本条压缩与适配功能。
 
 ---
@@ -277,7 +389,7 @@ compileDebugKotlin 通过；MotionRoundTests 16/16 PASSED；全量 testDebugUnit
    - **单元测试核验**：在 `V205FeaturesTest.kt` 中新增单对话全量导出（含时间线与专属设定）及多别名反序列化单元测试，全量单元测试执行验证 100% 通过（`BUILD SUCCESSFUL`）。
 3. **版本迭代**：
    - 版本号递增至 `v2.5.6`，`versionCode = 152`；
-   - 增量发布 Release 安装包 `Echo-v2.5.6.apk` 至 `D:\Agent\APP-烧\app\releases`。
+   - 增量发布 Release 安装包 `Echo-v2.5.6.apk` 至 `D:\Agent\APP-Echo\app\releases`。
 
 ### 2. 改动文件清单
 - `app/src/main/java/com/aiassistant/utils/BackupManager.kt`：导出与恢复双向接入 `sessionMemories`，支持多别名与开关保障
@@ -394,7 +506,7 @@ compileDebugKotlin 通过；MotionRoundTests 16/16 PASSED；全量 testDebugUnit
 
 ### 1. 冗余资产排查与无损清理整合
 1. **安装包唯一路径归并**：
-   - 严格遵循 APK 永久保留铁律，确认 `D:\Agent\APP-烧\app\releases` 中完整保留从 `MiMo-v1.3.0` 至 `Echo-v2.5.4` 全部 161 个历史版本，未删除任何独特版本；
+   - 严格遵循 APK 永久保留铁律，确认 `D:\Agent\APP-Echo\app\releases` 中完整保留从 `MiMo-v1.3.0` 至 `Echo-v2.5.4` 全部 161 个历史版本，未删除任何独特版本；
    - 清理工程内重复存放的 `AiApiAssistant/releases/`（7 个重复 APK，释放 113.6 MB 磁盘占用），彻底根除发布路径分歧；
 2. **中间废弃与缓存清理**：
    - 清理 `tmp_old_apk`（18.76 MB）、`backup_src_1.9.3`（1.86 MB 源码快照）、`.tmp` 构建缓存以及空 `.git/`、`.agents/`、`.codex/` 目录；
@@ -513,7 +625,7 @@ compileDebugKotlin 通过；MotionRoundTests 16/16 PASSED；全量 testDebugUnit
 ### 4. 产物与测试验证
 - **全量单元测试**：`testDebugUnitTest` 398 项用例 100% 全部通过；
 - **发布构建**：`assembleRelease` 编译成功；
-- **APK 输出路径**：`D:\Agent\APP-烧\app\releases\Echo-v2.5.3.apk`（增量输出，保留全部 158 项历史版本，当前共 159 项）；
+- **APK 输出路径**：`D:\Agent\APP-Echo\app\releases\Echo-v2.5.3.apk`（增量输出，保留全部 158 项历史版本，当前共 159 项）；
 - **APK 文件大小**：16,336,893 字节 (~15.58 MB)；
 - **SHA-256**：`72CF2E06812038110EE2D136A133A3130658F958646D29404F5BCF5DF4A38873`；
 - **签名校验**：`apksigner verify -v` 通过，Scheme v2 正常；
@@ -563,7 +675,7 @@ compileDebugKotlin 通过；MotionRoundTests 16/16 PASSED；全量 testDebugUnit
 ### 4. 产物与测试验证
 - **全量单元测试**：`testDebugUnitTest` 395 项用例 100% 全部通过；
 - **发布构建**：`assembleRelease` 编译成功；
-- **APK 输出路径**：`D:\Agent\APP-烧\app\releases\Echo-v2.5.2.apk`（增量输出，保留全部 157 项历史版本，当前共 158 项）；
+- **APK 输出路径**：`D:\Agent\APP-Echo\app\releases\Echo-v2.5.2.apk`（增量输出，保留全部 157 项历史版本，当前共 158 项）；
 - **APK 文件大小**：16,336,893 字节 (~15.58 MB)；
 - **SHA-256**：`192FB854A121AF37F0B5CD616A150050B1FA0B24CB581642B18FBCB2EC86FFC9`；
 - **签名校验**：`apksigner verify -v` 通过，Scheme v2 正常；
@@ -578,7 +690,7 @@ compileDebugKotlin 通过；MotionRoundTests 16/16 PASSED；全量 testDebugUnit
 - **核心目标**：
   1. 会话发生超限自动降级到 32K 后，用户依然可以在对话内随时手动调大上下文上限（例如选 64K、128K、1M 或自定义数值），或者点击“跟随模型”一键恢复模型原生上限；
   2. 解决降级后 UI 状态（`_tempSettings`、`conversation` 实体、`modelDefaultContextTokens`）未即时同步导致用户无法识别降级状态或无法正确重置的问题；
-  3. 需求落实后，执行正式 APK 构建并输出至 `D:\Agent\APP-烧\app\releases`。
+  3. 需求落实后，执行正式 APK 构建并输出至 `D:\Agent\APP-Echo\app\releases`。
 
 ### 2. 技术设计与解决方案落地
 1. **模型原生上限透传 (`modelDefaultContextTokens`)**：
@@ -709,7 +821,7 @@ compileDebugKotlin 通过；MotionRoundTests 16/16 PASSED；全量 testDebugUnit
      - 对话弹窗从“会话滚动摘要”更名为“会话历史梳理与记忆”。
 5. **版本递增与无后缀标准发布**：
    - `versionCode = 146`, `versionName = "2.5.0"`；
-   - 增量输出唯一定名安装包 `Echo-v2.5.0.apk` 至 `D:\Agent\APP-烧\app\releases`；
+   - 增量输出唯一定名安装包 `Echo-v2.5.0.apk` 至 `D:\Agent\APP-Echo\app\releases`；
    - 严格杜绝任何 `-arm64-v8a` 等架构后缀命名，永久保留该目录下所有 156 个历史版本（总计 157 个）。
 
 ---
@@ -739,7 +851,7 @@ compileDebugKotlin 通过；MotionRoundTests 16/16 PASSED；全量 testDebugUnit
    - **提炼超时进一步放宽**：手动生成放宽至 150 秒，后台维护放宽至 90 秒，给 DeepSeek-R1 / QwQ 等长思考链模型留足充裕生成窗口。
 4. **版本递增与无后缀标准发布**：
    - `versionCode = 145`, `versionName = "2.4.0"`；
-   - 增量输出唯一定名安装包 `Echo-v2.4.0.apk` 至 `D:\Agent\APP-烧\app\releases`；
+   - 增量输出唯一定名安装包 `Echo-v2.4.0.apk` 至 `D:\Agent\APP-Echo\app\releases`；
    - 严格杜绝任何 `-arm64-v8a` 等架构后缀命名，永久保留该目录下所有历史版本。
 
 ### 2. 自动化测试与工程核验
@@ -749,13 +861,13 @@ compileDebugKotlin 通过；MotionRoundTests 16/16 PASSED；全量 testDebugUnit
   - `testIsSummarySubstantiallyComplete_validatesCompletenessCorrectly PASSED`
   - `testBuildStructuredSummaryPrompt_containsClarityAndCompletenessDirectives PASSED`
 - **构建输出**：
-  - 文件路径：`D:\Agent\APP-烧\app\releases\Echo-v2.4.0.apk`
+  - 文件路径：`D:\Agent\APP-Echo\app\releases\Echo-v2.4.0.apk`
   - 文件大小：`16,336,893 字节 (~15.58 MB)`
   - SHA256：`145D552DF437FBBC5A0CD736CE81ADF36C0FB5EAB74E161B9D83D6DB057457F7`
   - 签名方案：`v2 scheme (APK Signature Scheme v2): true`
   - 证书指纹：`939638F6D3E9AF7F8A980E62AF52D275FEE73381F2130CC4E20A0D349F98E21F`
   - 包名与版本：`package: name='com.aiassistant' versionCode='145' versionName='2.4.0'`
-  - 历史包策略：`D:\Agent\APP-烧\app\releases` 目录下所有历史版本（包含早期版本至 `Echo-v2.3.9.apk` 等共 155 个历史文件）永久完整保留，本次仅增量输出 `Echo-v2.4.0.apk`（当前目录总计 156 个文件），严格杜绝任何 `-arm64-v8a` 等架构后缀。
+  - 历史包策略：`D:\Agent\APP-Echo\app\releases` 目录下所有历史版本（包含早期版本至 `Echo-v2.3.9.apk` 等共 155 个历史文件）永久完整保留，本次仅增量输出 `Echo-v2.4.0.apk`（当前目录总计 156 个文件），严格杜绝任何 `-arm64-v8a` 等架构后缀。
 
 ---
 
@@ -784,13 +896,13 @@ compileDebugKotlin 通过；MotionRoundTests 16/16 PASSED；全量 testDebugUnit
   - `testBuildStructuredSummaryPrompt_memoryDeduplicationDirectives PASSED`
   - `testExtractiveStructuredSummary_deduplicatesKnownPreferences PASSED`
 - **构建输出**：
-  - 文件路径：`D:\Agent\APP-烧\app\releases\Echo-v2.3.9.apk`
+  - 文件路径：`D:\Agent\APP-Echo\app\releases\Echo-v2.3.9.apk`
   - 文件大小：`16,336,893 字节 (~15.58 MB)`
   - SHA256：`60E592C4F42463F06E7367991272F0EAAC97BF6ED1B647B9240E18B4B6D69D6D`
   - 签名方案：`v2 scheme (APK Signature Scheme v2): true`
   - 证书指纹：`939638F6D3E9AF7F8A980E62AF52D275FEE73381F2130CC4E20A0D349F98E21F`
   - 包名与版本：`package: name='com.aiassistant' versionCode='144' versionName='2.3.9'`
-  - 历史包策略：`D:\Agent\APP-烧\app\releases` 目录下所有历史版本（从早期版本至 `Echo-v2.3.8.apk` 等共 153 个历史文件）永久完整保留，本次仅增量输出 `Echo-v2.3.9.apk`（当前目录总计 154 个文件），严格杜绝任何 `-arm64-v8a` 等架构后缀。
+  - 历史包策略：`D:\Agent\APP-Echo\app\releases` 目录下所有历史版本（从早期版本至 `Echo-v2.3.8.apk` 等共 153 个历史文件）永久完整保留，本次仅增量输出 `Echo-v2.3.9.apk`（当前目录总计 154 个文件），严格杜绝任何 `-arm64-v8a` 等架构后缀。
 
 ---
 
@@ -815,18 +927,18 @@ compileDebugKotlin 通过；MotionRoundTests 16/16 PASSED；全量 testDebugUnit
    - 在 `AdvancedMemoryEngine.generateExtractiveStructuredSummary` 中，抽取范围严格收敛至最近 30 条对话以内，全链路杜绝开篇陈旧事实混入近期摘要。
 5. **版本递增与无后缀标准发布**：
    - `versionCode = 143`, `versionName = "2.3.8"`；
-   - 增量输出唯一定名安装包 `Echo-v2.3.8.apk` 至 `D:\Agent\APP-烧\app\releases`；
+   - 增量输出唯一定名安装包 `Echo-v2.3.8.apk` 至 `D:\Agent\APP-Echo\app\releases`；
    - 严格杜绝任何 `-arm64-v8a` 等架构后缀命名，永久保留该目录下所有历史版本。
 
 ### 2. 自动化测试与工程核验
 - **单元测试**：全量执行 `testDebugUnitTest`，全部测试用例通过 (BUILD SUCCESSFUL，0 failed)。
 - **构建输出**：
-  - 文件路径：`D:\Agent\APP-烧\app\releases\Echo-v2.3.8.apk`
+  - 文件路径：`D:\Agent\APP-Echo\app\releases\Echo-v2.3.8.apk`
   - 文件大小：`16,320,509 字节 (~15.56 MB)`
   - SHA256：`E77E4830D0E81B166E6CA7653BB64A28030DD2D608865A1C48531FB3F3E9E4C5`
   - 签名方案：`v2 scheme (APK Signature Scheme v2): true`
   - 包名与版本：`package: name='com.aiassistant' versionCode='143' versionName='2.3.8'`
-  - 历史包策略：`D:\Agent\APP-烧\app\releases` 目录下所有历史版本（包含 `Echo-v2.3.7.apk` 等共 153 个历史文件）永久完整保留，本次仅增量输出 `Echo-v2.3.8.apk`（当前目录总计 154 个文件），严格杜绝任何 `-arm64-v8a` 等架构后缀。
+  - 历史包策略：`D:\Agent\APP-Echo\app\releases` 目录下所有历史版本（包含 `Echo-v2.3.7.apk` 等共 153 个历史文件）永久完整保留，本次仅增量输出 `Echo-v2.3.8.apk`（当前目录总计 154 个文件），严格杜绝任何 `-arm64-v8a` 等架构后缀。
 
 ---
 
@@ -857,18 +969,18 @@ compileDebugKotlin 通过；MotionRoundTests 16/16 PASSED；全量 testDebugUnit
    - 超时放宽：手动提炼放宽至 90 秒，后台自动归约放宽至 30 秒；AI 调用失败时如实反馈并保留已有高质量摘要，彻底杜绝残缺文本静默覆盖。
 4. **版本递增与无后缀标准发布**：
    - `versionCode = 142`, `versionName = "2.3.7"`；
-   - 增量输出唯一定名安装包 `Echo-v2.3.7.apk` 至 `D:\Agent\APP-烧\app\releases`；
+   - 增量输出唯一定名安装包 `Echo-v2.3.7.apk` 至 `D:\Agent\APP-Echo\app\releases`；
    - 严格杜绝任何 `-arm64-v8a` 等架构后缀命名，永久保留该目录下所有历史版本。
 
 ### 2. 自动化测试与工程核验
 - **单元测试**：全量执行 `testDebugUnitTest`，共计 **367 项测试全部通过 (367 passed, 0 failed, BUILD SUCCESSFUL)**。
 - **构建输出**：
-  - 文件路径：`D:\Agent\APP-烧\app\releases\Echo-v2.3.7.apk`
+  - 文件路径：`D:\Agent\APP-Echo\app\releases\Echo-v2.3.7.apk`
   - 文件大小：`16,320,509 字节 (~15.56 MB)`
   - SHA256：`03971DC621E2723836A6222A83C1F55830E78088231D8C3308CB1C8234B6B585`
   - 签名方案：`v2 scheme (APK Signature Scheme v2): true`
   - 包名与版本：`package: name='com.aiassistant' versionCode='142' versionName='2.3.7'`
-  - 历史包策略：`D:\Agent\APP-烧\app\releases` 目录下所有历史版本（包含 `Echo-v2.3.6.apk` 等共 152 个文件）永久完整保留，本次仅增量输出 `Echo-v2.3.7.apk`，严格杜绝任何 `-arm64-v8a` 等架构后缀。
+  - 历史包策略：`D:\Agent\APP-Echo\app\releases` 目录下所有历史版本（包含 `Echo-v2.3.6.apk` 等共 152 个文件）永久完整保留，本次仅增量输出 `Echo-v2.3.7.apk`，严格杜绝任何 `-arm64-v8a` 等架构后缀。
 
 ---
 
@@ -906,18 +1018,18 @@ compileDebugKotlin 通过；MotionRoundTests 16/16 PASSED；全量 testDebugUnit
    - 彻底移除 `ChatInputComponents.kt` 中“完成”按钮左侧的 `badgeText` 与“原生推理架构...适配”角标组件。
 8. **版本与规范化发布（需求 8）**：
    - `versionCode = 141`, `versionName = "2.3.6"`；
-   - 增量输出唯一定名安装包 `Echo-v2.3.6.apk` 至 `D:\Agent\APP-烧\app\releases`；
+   - 增量输出唯一定名安装包 `Echo-v2.3.6.apk` 至 `D:\Agent\APP-Echo\app\releases`；
    - 永久保留该目录下所有 150 个历史版本，绝无 `-arm64-v8a` 后缀。
 
 ### 2. 自动化测试与工程核验
 - **单元测试**：全量执行 `testDebugUnitTest`，共计 **362 项测试全部通过 (362 passed, 0 failed, BUILD SUCCESSFUL)**。
 - **构建输出**：
-  - 文件路径：`D:\Agent\APP-烧\app\releases\Echo-v2.3.6.apk`
+  - 文件路径：`D:\Agent\APP-Echo\app\releases\Echo-v2.3.6.apk`
   - 文件大小：`16,320,509 字节 (~15.56 MB)`
   - SHA256：`3D526B821AFB245A056294E676B04FD856BAD8C4C9E977AA8D218B79B4387595`
   - 签名方案：`v2 scheme (APK Signature Scheme v2): true`
   - 包名与版本：`package: name='com.aiassistant' versionCode='141' versionName='2.3.6'`
-  - 历史包策略：`D:\Agent\APP-烧\app\releases` 目录下所有历史版本（包含 `Echo-v2.3.5.apk` 等共 150 个文件）永久完整保留，本次仅增量输出 `Echo-v2.3.6.apk`，严格杜绝任何 `-arm64-v8a` 等架构后缀。
+  - 历史包策略：`D:\Agent\APP-Echo\app\releases` 目录下所有历史版本（包含 `Echo-v2.3.5.apk` 等共 150 个文件）永久完整保留，本次仅增量输出 `Echo-v2.3.6.apk`，严格杜绝任何 `-arm64-v8a` 等架构后缀。
 
 ---
 
@@ -947,12 +1059,12 @@ compileDebugKotlin 通过；MotionRoundTests 16/16 PASSED；全量 testDebugUnit
 ### 2. 自动化测试与工程核验
 - **单元测试**：全量执行 `testDebugUnitTest`，共计 **356 项测试全部通过 (356 passed, 0 failed, BUILD SUCCESSFUL)**。
 - **构建输出**：
-  - 文件路径：`D:\Agent\APP-烧\app\releases\Echo-v2.3.5.apk`
+  - 文件路径：`D:\Agent\APP-Echo\app\releases\Echo-v2.3.5.apk`
   - 文件大小：`16,320,509 字节 (~15.56 MB)`
   - SHA256：`7E44A873873A3235CA061E22BA262D1E5A5C2A7AB56FD4E022E790A7C8124C03`
   - 签名方案：`v2 scheme (APK Signature Scheme v2): true`
   - 包名与版本：`package: name='com.aiassistant' versionCode='140' versionName='2.3.5'`
-  - 历史包策略：`D:\Agent\APP-烧\app\releases` 目录下所有历史版本（包含 `Echo-v2.3.4.apk` 等共 150 个文件）永久完整保留，本次仅增量输出 `Echo-v2.3.5.apk`，严格杜绝任何 `-arm64-v8a` 等架构后缀。
+  - 历史包策略：`D:\Agent\APP-Echo\app\releases` 目录下所有历史版本（包含 `Echo-v2.3.4.apk` 等共 150 个文件）永久完整保留，本次仅增量输出 `Echo-v2.3.5.apk`，严格杜绝任何 `-arm64-v8a` 等架构后缀。
 
 ---
 
@@ -984,12 +1096,12 @@ compileDebugKotlin 通过；MotionRoundTests 16/16 PASSED；全量 testDebugUnit
 ### 2. 自动化测试与工程核验
 - **单元测试**：全量执行 `testDebugUnitTest`，共计 **350 项测试全部通过 (350 passed, 0 failed, BUILD SUCCESSFUL)**。
 - **构建输出**：
-  - 文件路径：`D:\Agent\APP-烧\app\releases\Echo-v2.3.4.apk`
+  - 文件路径：`D:\Agent\APP-Echo\app\releases\Echo-v2.3.4.apk`
   - 文件大小：`16,320,509 字节 (~15.56 MB)`
   - SHA256：`72C5999F6FA093B9A374D2B3CD8411A0FCF0567A5105841DE2454D1ACBCB7691`
   - 签名方案：`v2 scheme (APK Signature Scheme v2): true`
   - 包名与版本：`package: name='com.aiassistant' versionCode='139' versionName='2.3.4'`
-  - 历史包策略：`D:\Agent\APP-烧\app\releases` 目录下所有历史版本（包含 `Echo-v2.3.3.apk` 等共 150 个文件）永久完整保留，本次仅增量输出 `Echo-v2.3.4.apk`，严格杜绝任何 `-arm64-v8a` 等架构后缀。
+  - 历史包策略：`D:\Agent\APP-Echo\app\releases` 目录下所有历史版本（包含 `Echo-v2.3.3.apk` 等共 150 个文件）永久完整保留，本次仅增量输出 `Echo-v2.3.4.apk`，严格杜绝任何 `-arm64-v8a` 等架构后缀。
 
 ---
 
@@ -1033,12 +1145,12 @@ compileDebugKotlin 通过；MotionRoundTests 16/16 PASSED；全量 testDebugUnit
 ### 2. 自动化测试与工程核验
 - **单元测试**：全量执行 `testDebugUnitTest`，共计 **347 项测试全部通过 (347 passed, 0 failed, BUILD SUCCESSFUL)**。
 - **构建输出**：
-  - 文件路径：`D:\Agent\APP-烧\app\releases\Echo-v2.3.3.apk`
+  - 文件路径：`D:\Agent\APP-Echo\app\releases\Echo-v2.3.3.apk`
   - 文件大小：`16,320,509 字节 (~15.56 MB)`
   - SHA256：`65B4D0DBDCE01E4304E822171E3696D20AEB36AB33F6FEAE105FD0A0C839A0A3`
   - 签名方案：`v2 scheme (APK Signature Scheme v2): true`
   - 包名与版本：`package: name='com.aiassistant' versionCode='138' versionName='2.3.3'`
-  - 历史包策略：`D:\Agent\APP-烧\app\releases` 目录下所有历史版本（包含 `Echo-v2.3.2.apk` 等）永久完整保留，本次仅增量输出 `Echo-v2.3.3.apk`，严格杜绝任何 `-arm64-v8a` 等架构后缀。
+  - 历史包策略：`D:\Agent\APP-Echo\app\releases` 目录下所有历史版本（包含 `Echo-v2.3.2.apk` 等）永久完整保留，本次仅增量输出 `Echo-v2.3.3.apk`，严格杜绝任何 `-arm64-v8a` 等架构后缀。
 
 ---
 
@@ -1084,12 +1196,12 @@ compileDebugKotlin 通过；MotionRoundTests 16/16 PASSED；全量 testDebugUnit
 ### 2. 自动化测试与工程核验
 - **单元测试**：全量执行 `testDebugUnitTest`，共计 **343 项测试全部通过 (343 passed, 0 failed, BUILD SUCCESSFUL)**。
 - **构建输出**：
-  - 文件路径：`D:\Agent\APP-烧\app\releases\Echo-v2.3.2.apk`
+  - 文件路径：`D:\Agent\APP-Echo\app\releases\Echo-v2.3.2.apk`
   - 文件大小：`16,320,509 字节 (~15.56 MB)`
   - SHA256：`9554993B06402614133725841BE845BF17916545D76B73CE8EAF0FB7BAFD52C4`
   - 签名方案：`v2 scheme (APK Signature Scheme v2): true`
   - 包名与版本：`package: name='com.aiassistant' versionCode='137' versionName='2.3.2'`
-  - 历史包策略：`D:\Agent\APP-烧\app\releases` 目录下所有历史版本永久完整保留，本次仅增量输出 `Echo-v2.3.2.apk`，未包含任何 `-arm64-v8a` 等冗余后缀。
+  - 历史包策略：`D:\Agent\APP-Echo\app\releases` 目录下所有历史版本永久完整保留，本次仅增量输出 `Echo-v2.3.2.apk`，未包含任何 `-arm64-v8a` 等冗余后缀。
 
 ---
 
@@ -1119,12 +1231,12 @@ compileDebugKotlin 通过；MotionRoundTests 16/16 PASSED；全量 testDebugUnit
 ### 2. 自动化测试与工程核验
 - **单元测试**：全量执行 `testDebugUnitTest`，共计 **337 项测试全部通过 (337 passed, 0 failed, BUILD SUCCESSFUL)**。
 - **构建输出**：
-  - 文件路径：`D:\Agent\APP-烧\app\releases\Echo-v2.3.1.apk`
+  - 文件路径：`D:\Agent\APP-Echo\app\releases\Echo-v2.3.1.apk`
   - 文件大小：`16,304,125 字节 (~15.55 MB)`
   - SHA256：`38C92D984D74FEC28DA9231A598F3DFA3A60C45DCE775334D290924AE8BE142D`
   - 签名方案：`v2 scheme (APK Signature Scheme v2): true`
   - 包名与版本：`package: name='com.aiassistant' versionCode='136' versionName='2.3.1'`
-  - 历史包策略：`D:\Agent\APP-烧\app\releases` 目录下所有历史版本永久完整保留，本次仅增量输出 `Echo-v2.3.1.apk`，未包含任何 `-arm64-v8a` 等冗余后缀。
+  - 历史包策略：`D:\Agent\APP-Echo\app\releases` 目录下所有历史版本永久完整保留，本次仅增量输出 `Echo-v2.3.1.apk`，未包含任何 `-arm64-v8a` 等冗余后缀。
 
 ---
 
@@ -1157,12 +1269,12 @@ compileDebugKotlin 通过；MotionRoundTests 16/16 PASSED；全量 testDebugUnit
 ### 2. 自动化测试与工程核验
 - **单元测试**：全量执行 `testDebugUnitTest`，共计 334 项单元测试 100% 全部通过 (334 passed, 0 failed)。
 - **构建输出**：
-  - 文件路径：`D:\Agent\APP-烧\app\releases\Echo-v2.3.0.apk`
+  - 文件路径：`D:\Agent\APP-Echo\app\releases\Echo-v2.3.0.apk`
   - 文件大小：`16,304,125 字节 (~15.55 MB)`
   - SHA256：`9BB0F67133B718DE180EA90D1A4A5E1D461FCF8FC104B7E75AC77FD8F9442FDA`
   - 签名方案：`v2 scheme (APK Signature Scheme v2): true`
   - 包名与版本：`package: name='com.aiassistant' versionCode='135' versionName='2.3.0'`
-  - 历史包策略：`D:\Agent\APP-烧\app\releases` 目录下所有历史版本永久完整保留，本次仅增量输出 `Echo-v2.3.0.apk`，未包含任何 `-arm64-v8a` 等冗余后缀。
+  - 历史包策略：`D:\Agent\APP-Echo\app\releases` 目录下所有历史版本永久完整保留，本次仅增量输出 `Echo-v2.3.0.apk`，未包含任何 `-arm64-v8a` 等冗余后缀。
 
 ---
 
@@ -1242,12 +1354,12 @@ compileDebugKotlin 通过；MotionRoundTests 16/16 PASSED；全量 testDebugUnit
 
 ### 2. 自动化测试与工程交付
 - **单元测试**：`TimelineArchitectureAndOptimizationTest`（6 项测试全部通过）与 `TimelineMemoryTest`（11 项测试全部通过），命令退出码 0。
-- **发布安装包**：`D:\Agent\APP-烧\app\releases\Echo-v2.2.9.apk`
+- **发布安装包**：`D:\Agent\APP-Echo\app\releases\Echo-v2.2.9.apk`
   - SHA256: `1D02B30D501A3BFBEA4A037ED9BA60AD0F87E1A36F932E5C31A5C1759C330284`
   - 文件大小: `16,304,125 字节 (~15.55 MB)`
   - 签名验证: `Verified using v2 scheme (APK Signature Scheme v2): true`
   - 应用包名: `com.aiassistant` | `versionCode: 134` | `versionName: 2.2.9`
-  - 历史版本永久保留在 `D:\Agent\APP-烧\app\releases`，无带有架构后缀的多余包。
+  - 历史版本永久保留在 `D:\Agent\APP-Echo\app\releases`，无带有架构后缀的多余包。
 
 ---
 
@@ -1323,7 +1435,7 @@ compileDebugKotlin 通过；MotionRoundTests 16/16 PASSED；全量 testDebugUnit
 - **Release APK 构建与发布**：
   - 用户明确提出“构建apk”要求，严格执行 Release 打包流程并一次性构建成功；
   - 安装包命名：`Echo-v2.2.7.apk`（严禁带有任何 `-arm64-v8a` 后缀）；
-  - 发布输出路径：统一且仅输出到 `D:\Agent\APP-烧\app\releases\Echo-v2.2.7.apk`；
+  - 发布输出路径：统一且仅输出到 `D:\Agent\APP-Echo\app\releases\Echo-v2.2.7.apk`；
   - 历史安装包保护准则：严格遵守铁律，未删除、覆盖或清理任何历史版本，目录内历史安装包由 142 个增量累进至 143 个；
   - 文件大小：16,271,357 字节（~15.52 MB）；
   - SHA256 校验和：`1D75AC9C1B40DA0A3746E59BA212DD1D0EE605393604D48374A6CB4B7C6091BD`。
@@ -2376,7 +2488,7 @@ compileDebugKotlin 通过；MotionRoundTests 16/16 PASSED；全量 testDebugUnit
 ### 4. 历史安装包永久保留准则（最高铁律）
 - 构建前历史版本：103 个，构建后增至 104 个，严格遵守历史包永久保留最高铁律，未执行任何删除/清理操作；
 - 增量输出安装包：`Echo-v1.9.25-arm64-v8a.apk`
-  - 路径：`D:\Agent\APP-烧\app\releases\Echo-v1.9.25-arm64-v8a.apk`
+  - 路径：`D:\Agent\APP-Echo\app\releases\Echo-v1.9.25-arm64-v8a.apk`
   - 体积：16,025,597 字节 (~15.28 MB)
   - SHA-256：`07A66778E35B934FCCB7183BDDB7F3262A77B9A1F23A3E412327BE51715A7501`
 
@@ -2431,7 +2543,7 @@ compileDebugKotlin 通过；MotionRoundTests 16/16 PASSED；全量 testDebugUnit
 ### 4. 历史安装包永久保留准则（最高铁律）
 - 构建前历史版本：102 个，构建后增至 103 个，严格遵守历史包永久保留最高铁律，未执行任何删除/清理操作；
 - 增量输出安装包：`Echo-v1.9.24-arm64-v8a.apk`
-  - 路径：`D:\Agent\APP-烧\app\releases\Echo-v1.9.24-arm64-v8a.apk`
+  - 路径：`D:\Agent\APP-Echo\app\releases\Echo-v1.9.24-arm64-v8a.apk`
   - 体积：16,025,597 字节 (~15.28 MB)
   - SHA-256：`8A5E8CC61F4A35FDD106FA51DB45358627DFCE781974BEA5287A9BFCD2C36EF2`
 
@@ -2475,7 +2587,7 @@ compileDebugKotlin 通过；MotionRoundTests 16/16 PASSED；全量 testDebugUnit
 ### 3. 历史安装包永久保留准则（最高铁律）
 - 构建前历史版本：102 个，构建后增至 103 个，严格遵守历史包永久保留最高铁律，未执行任何删除/清理操作；
 - 增量输出安装包：`Echo-v1.9.23-arm64-v8a.apk`
-  - 路径：`D:\Agent\APP-烧\app\releases\Echo-v1.9.23-arm64-v8a.apk`
+  - 路径：`D:\Agent\APP-Echo\app\releases\Echo-v1.9.23-arm64-v8a.apk`
   - 体积：16,025,597 字节 (~15.28 MB)
   - SHA-256：`5E5E07FDEF9AEDACF1EC0236324472FEDE1F9F64D071532FBB77D3056B27A621`
 
@@ -2534,7 +2646,7 @@ compileDebugKotlin 通过；MotionRoundTests 16/16 PASSED；全量 testDebugUnit
 ### 3. 历史安装包永久保留准则（最高铁律）
 - 构建前历史版本：100 个，构建后增至 101 个，无任何历史安装包被删除或清理；
 - 增量输出安装包：`Echo-v1.9.21-arm64-v8a.apk`
-  - 路径：`D:\Agent\APP-烧\app\releases\Echo-v1.9.21-arm64-v8a.apk`
+  - 路径：`D:\Agent\APP-Echo\app\releases\Echo-v1.9.21-arm64-v8a.apk`
   - 体积：16,009,213 字节 (~15.27 MB)
   - SHA-256：`65C924E48B5D2BA1515D17F58EA5EE7A335FC01CADEF8EC41A369822F7FA8BC4`
 
@@ -2647,7 +2759,7 @@ compileDebugKotlin 通过；MotionRoundTests 16/16 PASSED；全量 testDebugUnit
    - 构建前历史版本：46 个，构建后增加至 47 个，所有历史版本完整保留；
    - 增量输出：`Echo-v1.9.18-arm64-v8a.apk`（体积：15,959,813 字节，SHA-256：`465718F8530442D12D0ED4BCAA472DB6F862AD478DD951638D47275632242149`）。
 8. **发布目录唯一整合**：
-   - 彻底排查清理历史冗余目录（移除了根目录 `releases` 与 Git 仓库内误建的 `pass releases`），将所有历史安装包统一整合保留至唯一官方规范目录 `D:\Agent\APP-烧\app\releases`；
+   - 彻底排查清理历史冗余目录（移除了根目录 `releases` 与 Git 仓库内误建的 `pass releases`），将所有历史安装包统一整合保留至唯一官方规范目录 `D:\Agent\APP-Echo\app\releases`；
    - 完整保留从 v1.1.0 到 v1.9.18 的全部 97 个历史 APK，无损释放约 942 MB 冗余磁盘占用。
 
 ## [v1.9.16] - 2026-09-07
@@ -2679,7 +2791,7 @@ compileDebugKotlin 通过；MotionRoundTests 16/16 PASSED；全量 testDebugUnit
    - 严格保护全部 44+ 历史 APK，绝对严禁删除；新增唯一定名构建 `Echo-v1.9.16-arm64-v8a.apk`。
 
 ### 2. 产物与交付验证
-- **单一安装包**：`D:\Agent\APP-烧\app\releases\Echo-v1.9.16-arm64-v8a.apk`
+- **单一安装包**：`D:\Agent\APP-Echo\app\releases\Echo-v1.9.16-arm64-v8a.apk`
 - **SHA-256**：`FFE5404CA65790B0FFC0D084E1AEBD1993F0F76F8BD7486BB347286B11940235`
 - **文件大小**：15,927,045 字节 (约 15.19 MB)
 - **架构**：`arm64-v8a`，`versionCode: 96`，`versionName: 1.9.16`
@@ -2708,7 +2820,7 @@ compileDebugKotlin 通过；MotionRoundTests 16/16 PASSED；全量 testDebugUnit
 6. **历史版本安装包永久保留**：严格保护全部 43+ 历史 APK，新增唯一构建 `Echo-v1.9.15-arm64-v8a.apk`。
 
 ### 2. 产物与交付验证
-- **单一安装包**：`D:\Agent\APP-烧\app\releases\Echo-v1.9.15-arm64-v8a.apk`
+- **单一安装包**：`D:\Agent\APP-Echo\app\releases\Echo-v1.9.15-arm64-v8a.apk`
 - **SHA-256**：`93158F4F74DB76D46A84ABC2B95D384857F3E355D0E69FBB4A2DCBA95D5C4AFE`
 - **文件大小**：15,890,949 字节 (约 15.15 MB)
 - **架构**：`arm64-v8a`，`versionCode: 95`，`versionName: 1.9.15`
@@ -2756,7 +2868,7 @@ compileDebugKotlin 通过；MotionRoundTests 16/16 PASSED；全量 testDebugUnit
     - 全局优化 `DropdownMenu`，通过 `background(..., RoundedCornerShape(18.dp))` 彻底消除外围 4dp 默认矩形轮廓。
 
 ### 2. 产物与交付验证
-- **单一安装包**：`D:\Agent\APP-烧\app\releases\Echo-v1.9.9-arm64-v8a.apk`
+- **单一安装包**：`D:\Agent\APP-Echo\app\releases\Echo-v1.9.9-arm64-v8a.apk`
 - **SHA-256**：`DDE3D5C205D37C6364C8AAF6BAB3046FE71562852E98505FAE7BB3E863952AFE`
 - **文件大小**：15,841,156 字节 (约 15.11 MB)
 - **架构**：`arm64-v8a`，`versionCode: 89`，`versionName: 1.9.9`
@@ -2785,7 +2897,7 @@ compileDebugKotlin 通过；MotionRoundTests 16/16 PASSED；全量 testDebugUnit
    - 在 `"${message.tokenCount} tokens"` 标签右侧实时展示例如 `"50.2 tokens/s"` 的速率数值。
 
 ### 2. 产物与交付验证
-- **单一安装包**：`D:\Agent\APP-烧\app\releases\Echo-v1.9.7-arm64-v8a.apk`
+- **单一安装包**：`D:\Agent\APP-Echo\app\releases\Echo-v1.9.7-arm64-v8a.apk`
 - **SHA-256**：`CDFA1B97B3C7EA07082FCF21921CA29A4CA1AFD517EADCA2166FDF3D0F4D034F`
 - **文件大小**：15,808,392 字节 (约 15.08 MB)
 - **架构**：`arm64-v8a`，`versionCode: 87`，`versionName: 1.9.7`
@@ -2821,7 +2933,7 @@ compileDebugKotlin 通过；MotionRoundTests 16/16 PASSED；全量 testDebugUnit
      5. **底部保存全部设定**：一键保存全局提示词与偏好设定并持久化至 DataStore/SharedPreferences。
 
 ### 2. 产物与交付验证
-- **单一安装包**：`D:\Agent\APP-烧\app\releases\Echo-v1.9.6-arm64-v8a.apk`
+- **单一安装包**：`D:\Agent\APP-Echo\app\releases\Echo-v1.9.6-arm64-v8a.apk`
 - **SHA-256**：`CFFD6589452DBC6F377D5B073099873C82CF51DBADA31B249A90BA692D4F4D8E`
 - **文件大小**：15,808,388 字节 (约 15.08 MB)
 - **架构**：`arm64-v8a`，`versionCode: 86`，`versionName: 1.9.6`
@@ -2864,7 +2976,7 @@ compileDebugKotlin 通过；MotionRoundTests 16/16 PASSED；全量 testDebugUnit
     - 在 `SettingsScreen.kt` 的 `CurrentFeatureHighlights` 与 `CurrentVersionUserUpdates` 中全面同步更新 v1.9.5 的 11 项核心特性与升级日志。
 
 ### 2. 产物与交付验证
-- **单一安装包**：`D:\Agent\APP-烧\app\releases\Echo-v1.9.5-arm64-v8a.apk`
+- **单一安装包**：`D:\Agent\APP-Echo\app\releases\Echo-v1.9.5-arm64-v8a.apk`
 - **SHA-256**：`06EA5DB9D7AA4948C3C91BF5750A1FE3412FD038E0B6F30DFE1BA861CDAAAB2E`
 - **文件大小**：15,808,392 字节 (约 15.08 MB)
 - **架构**：`arm64-v8a`，`versionCode: 85`，`versionName: 1.9.5`
@@ -2890,10 +3002,10 @@ compileDebugKotlin 通过；MotionRoundTests 16/16 PASSED；全量 testDebugUnit
 4. **异常中断处理双重保存防抖保护**：
    - **优化落地**：在 `sendMessageInternal` 的 `catch (e: Exception)` 块中加入 `!isMessageSaved` 状态双重判断，杜绝因 `onError` 与异常同时触发导致的重复保存与状态错乱。
 5. **代码备份落实**：
-   - 已将当前源代码全量备份至 `D:\Agent\APP-烧\app\backup_src_1.9.3`。
+   - 已将当前源代码全量备份至 `D:\Agent\APP-Echo\app\backup_src_1.9.3`。
 
 ### 2. 产物与交付验证
-- **单一安装包**：`D:\Agent\APP-烧\app\releases\Echo-v1.9.4-arm64-v8a.apk`
+- **单一安装包**：`D:\Agent\APP-Echo\app\releases\Echo-v1.9.4-arm64-v8a.apk`
 - **SHA-256**：`9B59304479581FBBA152258FB6E7683ABF5E2D7A76EF978DA690DD22EBE3C35F`
 - **文件大小**：15,792,004 字节 (约 15.06 MB)
 - **架构**：`arm64-v8a`，`versionCode: 84`，`versionName: 1.9.4`
@@ -2941,7 +3053,7 @@ compileDebugKotlin 通过；MotionRoundTests 16/16 PASSED；全量 testDebugUnit
     - 在底部操作栏新增“识别输入补充设定”快捷入口；在识别到可补充的新人物或世界观时，通过 `EditableSettingProposalDialog` 在线展示提取出的全字段设定，用户可直接进行二次编辑、修改或剔除，并自主决定“决定添加并融合”或“放弃”。
 
 ### 2. 产物与交付验证
-- **单一安装包**：`D:\Agent\APP-烧\app\releases\Echo-v1.9.3-arm64-v8a.apk`
+- **单一安装包**：`D:\Agent\APP-Echo\app\releases\Echo-v1.9.3-arm64-v8a.apk`
 - **SHA-256**：`4E564CDA5397D690DC1DFD9E4152A6B79924AE09F4215FB691E14985C0770898`
 - **文件大小**：15,775,620 字节 (约 15.04 MB)
 - **架构**：`arm64-v8a`，`versionCode: 83`，`versionName: 1.9.3`
@@ -2974,7 +3086,7 @@ compileDebugKotlin 通过；MotionRoundTests 16/16 PASSED；全量 testDebugUnit
     - 在底层液态玻璃 `EchoGlassDialog` 中规范化尺寸约束（`Modifier.fillMaxWidth(0.94f).widthIn(max = 420.dp).heightIn(max = 580.dp)`），全应用弹窗风格高度和谐统一。
 
 ### 2. 产物与交付验证
-- **单一安装包**：`D:\Agent\APP-烧\app\releases\Echo-v1.9.2-arm64-v8a.apk`
+- **单一安装包**：`D:\Agent\APP-Echo\app\releases\Echo-v1.9.2-arm64-v8a.apk`
 - **SHA-256**：`AE400C9EE00916EE77D64675FF8BA8792FA7415076D78434C3832FFC694B12E6`
 - **文件大小**：15,742,756 字节 (约 15.01 MB)
 - **架构**：`arm64-v8a`，`versionCode: 82`，`versionName: 1.9.2`
@@ -2994,7 +3106,7 @@ compileDebugKotlin 通过；MotionRoundTests 16/16 PASSED；全量 testDebugUnit
    - 全面摒弃构建过程中的手动轮询定时器，改由系统事件与反应式唤醒机制原生驱动，构建过程顺畅丝滑、即时响应。
 
 ### 2. 产物与交付验证
-- **单一安装包**：`D:\Agent\APP-烧\app\releases\Echo-v1.9.1-arm64-v8a.apk`
+- **单一安装包**：`D:\Agent\APP-Echo\app\releases\Echo-v1.9.1-arm64-v8a.apk`
 - **SHA-256**：`A5C5C081430AA11D33614E6B0FC512E9ADD5C318E2DE3033C0DEDF36514309AD`
 - **文件大小**：15,726,376 字节 (约 15.00 MB)
 - **架构**：`arm64-v8a`，`versionCode: 81`，`versionName: 1.9.1`
@@ -3029,7 +3141,7 @@ compileDebugKotlin 通过；MotionRoundTests 16/16 PASSED；全量 testDebugUnit
     - 对话页、首页及工作室的所有 `DropdownMenu` 均增加 `Modifier.heightIn(max = 280.dp)`，杜绝菜单过长，向下平滑展开配合流畅滑动条。
 
 ### 2. 产物与交付验证
-- **单一安装包**：`D:\Agent\APP-烧\app\releases\Echo-v1.9.0-arm64-v8a.apk`
+- **单一安装包**：`D:\Agent\APP-Echo\app\releases\Echo-v1.9.0-arm64-v8a.apk`
 - **SHA-256**：`E32D00953237D0D225E1782C082A56C2DCA367416B552C11393A9E15CE66D989`
 - **文件大小**：15,742,760 字节 (约 15.0 MB)
 - **架构**：`arm64-v8a`，`versionCode: 80`，`versionName: 1.9.0`
@@ -3078,13 +3190,13 @@ compileDebugKotlin 通过；MotionRoundTests 16/16 PASSED；全量 testDebugUnit
 ## [v1.8.6] - 2026-08-16
 ### 1. 本次深度改进与问题解决
 1. **液态玻璃渲染体系重构（根除错位、重叠与覆盖异常）**：
-   - 彻底重构 [EchoGlassCard.kt](file:///d:/Agent/APP-烧/app/AiApiAssistant/app/src/main/java/com/aiassistant/ui/components/EchoGlassCard.kt) 与 [EchoHaze.kt](file:///d:/Agent/APP-烧/app/AiApiAssistant/app/src/main/java/com/aiassistant/ui/components/EchoHaze.kt)。对动态滚动列表（`ConversationCard`、角色卡片）采用高性能单 Pass 45° 漫反射光学折射高光渲染，杜绝在 `LazyColumn` 快速滚动时 Haze 节点坐标滞后导致的遮罩错位、拖影与重叠色块。
+   - 彻底重构 [EchoGlassCard.kt](file:///d:/Agent/APP-Echo/app/AiApiAssistant/app/src/main/java/com/aiassistant/ui/components/EchoGlassCard.kt) 与 [EchoHaze.kt](file:///d:/Agent/APP-Echo/app/AiApiAssistant/app/src/main/java/com/aiassistant/ui/components/EchoHaze.kt)。对动态滚动列表（`ConversationCard`、角色卡片）采用高性能单 Pass 45° 漫反射光学折射高光渲染，杜绝在 `LazyColumn` 快速滚动时 Haze 节点坐标滞后导致的遮罩错位、拖影与重叠色块。
    - 移除所有双重边框绘制逻辑，保证卡片与背景晶莹剔透、边界干净。
 2. **对话页顶部导航栏与错误提示气泡去除白边/边框**：
    - 顶部胶囊导航栏开启 `showBorder = false`，实现真正一体化无边框悬浮玻璃胶囊。
    - API 不存在的错误提示气泡全面转用无边框悬浮 `Surface`，彻底删除边缘白色/透明边框，确保未来任何错误状态绝不再出现多余边框。
 3. **首页 ECHO 艺术字全面升级**：
-   - 重新设计并绘制现代轻奢风格矢量艺术字 [echo_wordmark_art.xml](file:///d:/Agent/APP-烧/app/AiApiAssistant/app/src/main/res/drawable/echo_wordmark_art.xml)，采用流光渐变与精准字形比例，大幅提升首页视觉质感。
+   - 重新设计并绘制现代轻奢风格矢量艺术字 [echo_wordmark_art.xml](file:///d:/Agent/APP-Echo/app/AiApiAssistant/app/src/main/res/drawable/echo_wordmark_art.xml)，采用流光渐变与精准字形比例，大幅提升首页视觉质感。
 
 ---
 
@@ -3102,14 +3214,14 @@ compileDebugKotlin 通过；MotionRoundTests 16/16 PASSED；全量 testDebugUnit
 ## [v1.8.4] - 2026-08-16
 ### 1. 本次升级重点 (模块一 & 模块二落地)
 1. **全 App UI 风格统一化与设计系统 (Design System)**：
-   - 建立单例设计令牌系统 [EchoDesignTokens.kt](file:///d:/Agent/APP-烧/app/AiApiAssistant/app/src/main/java/com/aiassistant/ui/theme/EchoDesignTokens.kt)，全局收拢间距、圆角与毛玻璃透明度规范。
-   - 封装标准化脚手架 [EchoScaffold.kt](file:///d:/Agent/APP-烧/app/AiApiAssistant/app/src/main/java/com/aiassistant/ui/components/EchoScaffold.kt) 与标准组件族 [EchoGlassCard.kt](file:///d:/Agent/APP-烧/app/AiApiAssistant/app/src/main/java/com/aiassistant/ui/components/EchoGlassCard.kt)、[EchoControls.kt](file:///d:/Agent/APP-烧/app/AiApiAssistant/app/src/main/java/com/aiassistant/ui/components/EchoControls.kt)。
+   - 建立单例设计令牌系统 [EchoDesignTokens.kt](file:///d:/Agent/APP-Echo/app/AiApiAssistant/app/src/main/java/com/aiassistant/ui/theme/EchoDesignTokens.kt)，全局收拢间距、圆角与毛玻璃透明度规范。
+   - 封装标准化脚手架 [EchoScaffold.kt](file:///d:/Agent/APP-Echo/app/AiApiAssistant/app/src/main/java/com/aiassistant/ui/components/EchoScaffold.kt) 与标准组件族 [EchoGlassCard.kt](file:///d:/Agent/APP-Echo/app/AiApiAssistant/app/src/main/java/com/aiassistant/ui/components/EchoGlassCard.kt)、[EchoControls.kt](file:///d:/Agent/APP-Echo/app/AiApiAssistant/app/src/main/java/com/aiassistant/ui/components/EchoControls.kt)。
    - 消除各页面的硬编码尺寸与原生粗糙卡片，统一全 App 视觉语言。
 2. **液态玻璃 (Liquid Glass) 渲染稳定性与底层重构**：
-   - 落地 **异步预模糊壁纸缓存系统** [WallpaperBlurCache.kt](file:///d:/Agent/APP-烧/app/AiApiAssistant/app/src/main/java/com/aiassistant/utils/WallpaperBlurCache.kt)，从底层消除列表快速滑动时的 GPU 纹理拖影与实时模糊开销。
-   - 重构 [EchoHaze.kt](file:///d:/Agent/APP-烧/app/AiApiAssistant/app/src/main/java/com/aiassistant/ui/components/EchoHaze.kt)，落实单源采样与绝对坐标计算，根除动画与滚动错位 Bug。
+   - 落地 **异步预模糊壁纸缓存系统** [WallpaperBlurCache.kt](file:///d:/Agent/APP-Echo/app/AiApiAssistant/app/src/main/java/com/aiassistant/utils/WallpaperBlurCache.kt)，从底层消除列表快速滑动时的 GPU 纹理拖影与实时模糊开销。
+   - 重构 [EchoHaze.kt](file:///d:/Agent/APP-Echo/app/AiApiAssistant/app/src/main/java/com/aiassistant/ui/components/EchoHaze.kt)，落实单源采样与绝对坐标计算，根除动画与滚动错位 Bug。
 3. **页面全面对齐**：
-   - [HomeScreen.kt](file:///d:/Agent/APP-烧/app/AiApiAssistant/app/src/main/java/com/aiassistant/ui/screens/home/HomeScreen.kt) + [ChatScreen.kt](file:///d:/Agent/APP-烧/app/AiApiAssistant/app/src/main/java/com/aiassistant/ui/screens/chat/ChatScreen.kt) + [RoleplayStudioScreen.kt](file:///d:/Agent/APP-烧/app/AiApiAssistant/app/src/main/java/com/aiassistant/ui/screens/roleplay/RoleplayStudioScreen.kt) + [SettingsScreen.kt](file:///d:/Agent/APP-烧/app/AiApiAssistant/app/src/main/java/com/aiassistant/ui/screens/settings/SettingsScreen.kt)。
+   - [HomeScreen.kt](file:///d:/Agent/APP-Echo/app/AiApiAssistant/app/src/main/java/com/aiassistant/ui/screens/home/HomeScreen.kt) + [ChatScreen.kt](file:///d:/Agent/APP-Echo/app/AiApiAssistant/app/src/main/java/com/aiassistant/ui/screens/chat/ChatScreen.kt) + [RoleplayStudioScreen.kt](file:///d:/Agent/APP-Echo/app/AiApiAssistant/app/src/main/java/com/aiassistant/ui/screens/roleplay/RoleplayStudioScreen.kt) + [SettingsScreen.kt](file:///d:/Agent/APP-Echo/app/AiApiAssistant/app/src/main/java/com/aiassistant/ui/screens/settings/SettingsScreen.kt)。
 
 ---
 
@@ -3125,12 +3237,12 @@ compileDebugKotlin 通过；MotionRoundTests 16/16 PASSED；全量 testDebugUnit
 8. 对话页错误提示气泡（如 API 不存在时）位置下移至顶部胶囊导航栏下方，防止重合。
 
 ### 2. 技术实现与修改文件
-- **艺术字图片**：[echo_wordmark_art.xml](file:///d:/Agent/APP-烧/app/AiApiAssistant/app/src/main/res/drawable/echo_wordmark_art.xml) + [HomeScreen.kt](file:///d:/Agent/APP-烧/app/AiApiAssistant/app/src/main/java/com/aiassistant/ui/screens/home/HomeScreen.kt)
-- **导航条重构与避让**：[SideAnchorNavigator.kt](file:///d:/Agent/APP-烧/app/AiApiAssistant/app/src/main/java/com/aiassistant/ui/components/SideAnchorNavigator.kt) + [HomeScreen.kt](file:///d:/Agent/APP-烧/app/AiApiAssistant/app/src/main/java/com/aiassistant/ui/screens/home/HomeScreen.kt) + [ChatScreen.kt](file:///d:/Agent/APP-烧/app/AiApiAssistant/app/src/main/java/com/aiassistant/ui/screens/chat/ChatScreen.kt)
-- **对话页顶部避让与错误气泡**：[ChatScreen.kt](file:///d:/Agent/APP-烧/app/AiApiAssistant/app/src/main/java/com/aiassistant/ui/screens/chat/ChatScreen.kt)
-- **角色扮演智能分析引擎**：[RoleplaySmartAnalyzer.kt](file:///d:/Agent/APP-烧/app/AiApiAssistant/app/src/main/java/com/aiassistant/utils/RoleplaySmartAnalyzer.kt)
-- **工作室一级入口与引导体系**：[RoleplayStudioScreen.kt](file:///d:/Agent/APP-烧/app/AiApiAssistant/app/src/main/java/com/aiassistant/ui/screens/roleplay/RoleplayStudioScreen.kt) + [RoleplayViewModel.kt](file:///d:/Agent/APP-烧/app/AiApiAssistant/app/src/main/java/com/aiassistant/ui/screens/roleplay/RoleplayViewModel.kt)
-- **规范与构建配置**：[WORKFLOW_GUIDELINES.md](file:///d:/Agent/APP-烧/WORKFLOW_GUIDELINES.md) + [claude.md](file:///d:/Agent/APP-烧/claude.md) + [build.gradle.kts](file:///d:/Agent/APP-烧/app/AiApiAssistant/app/build.gradle.kts)
+- **艺术字图片**：[echo_wordmark_art.xml](file:///d:/Agent/APP-Echo/app/AiApiAssistant/app/src/main/res/drawable/echo_wordmark_art.xml) + [HomeScreen.kt](file:///d:/Agent/APP-Echo/app/AiApiAssistant/app/src/main/java/com/aiassistant/ui/screens/home/HomeScreen.kt)
+- **导航条重构与避让**：[SideAnchorNavigator.kt](file:///d:/Agent/APP-Echo/app/AiApiAssistant/app/src/main/java/com/aiassistant/ui/components/SideAnchorNavigator.kt) + [HomeScreen.kt](file:///d:/Agent/APP-Echo/app/AiApiAssistant/app/src/main/java/com/aiassistant/ui/screens/home/HomeScreen.kt) + [ChatScreen.kt](file:///d:/Agent/APP-Echo/app/AiApiAssistant/app/src/main/java/com/aiassistant/ui/screens/chat/ChatScreen.kt)
+- **对话页顶部避让与错误气泡**：[ChatScreen.kt](file:///d:/Agent/APP-Echo/app/AiApiAssistant/app/src/main/java/com/aiassistant/ui/screens/chat/ChatScreen.kt)
+- **角色扮演智能分析引擎**：[RoleplaySmartAnalyzer.kt](file:///d:/Agent/APP-Echo/app/AiApiAssistant/app/src/main/java/com/aiassistant/utils/RoleplaySmartAnalyzer.kt)
+- **工作室一级入口与引导体系**：[RoleplayStudioScreen.kt](file:///d:/Agent/APP-Echo/app/AiApiAssistant/app/src/main/java/com/aiassistant/ui/screens/roleplay/RoleplayStudioScreen.kt) + [RoleplayViewModel.kt](file:///d:/Agent/APP-Echo/app/AiApiAssistant/app/src/main/java/com/aiassistant/ui/screens/roleplay/RoleplayViewModel.kt)
+- **规范与构建配置**：[WORKFLOW_GUIDELINES.md](file:///d:/Agent/APP-Echo/WORKFLOW_GUIDELINES.md) + [claude.md](file:///d:/Agent/APP-Echo/claude.md) + [build.gradle.kts](file:///d:/Agent/APP-Echo/app/AiApiAssistant/app/build.gradle.kts)
 
 ---
 

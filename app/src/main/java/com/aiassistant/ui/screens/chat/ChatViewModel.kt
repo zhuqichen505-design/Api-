@@ -89,6 +89,16 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
     private val _pendingMemoryCandidate = MutableStateFlow<com.aiassistant.domain.model.PendingMemoryCandidate?>(null)
     val pendingMemoryCandidate: StateFlow<com.aiassistant.domain.model.PendingMemoryCandidate?> = _pendingMemoryCandidate.asStateFlow()
 
+    // 网络波动与上下文回退提示
+    private val _pendingContextFallbackPrompt = MutableStateFlow<com.aiassistant.domain.model.ContextFallbackPromptState?>(null)
+    val pendingContextFallbackPrompt: StateFlow<com.aiassistant.domain.model.ContextFallbackPromptState?> = _pendingContextFallbackPrompt.asStateFlow()
+
+    fun handleContextFallbackDecision(choice: com.aiassistant.domain.model.ContextFallbackChoice) {
+        val prompt = _pendingContextFallbackPrompt.value
+        _pendingContextFallbackPrompt.value = null
+        prompt?.onDecision?.invoke(choice)
+    }
+
     // 思考链翻译状态
     private val _translatingMessageIds = MutableStateFlow<Set<Long>>(emptySet())
     val translatingMessageIds: StateFlow<Set<Long>> = _translatingMessageIds.asStateFlow()
@@ -1149,6 +1159,23 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                                 _currentResponse.value = ""
                                 _currentThinking.value = ""
                             }
+                        },
+                        onContextFallbackPrompt = { reason ->
+                            kotlinx.coroutines.suspendCancellableCoroutine { cont ->
+                                _pendingContextFallbackPrompt.value = com.aiassistant.domain.model.ContextFallbackPromptState(
+                                    conversationId = conversationId,
+                                    reason = reason,
+                                    onDecision = { choice ->
+                                        _pendingContextFallbackPrompt.value = null
+                                        if (cont.isActive) {
+                                            cont.resumeWith(Result.success(choice))
+                                        }
+                                    }
+                                )
+                                cont.invokeOnCancellation {
+                                    _pendingContextFallbackPrompt.value = null
+                                }
+                            }
                         }
                     )
                 }
@@ -1213,6 +1240,8 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
 
     fun stopGeneration() {
         isUserStopping = true
+        _pendingContextFallbackPrompt.value?.onDecision?.invoke(com.aiassistant.domain.model.ContextFallbackChoice.IGNORE)
+        _pendingContextFallbackPrompt.value = null
         repository.cancelActiveRequest(conversationId)
         generationJob?.cancel(CancellationException("用户暂停生成"))
         _isGenerating.value = false
@@ -1525,12 +1554,13 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
         createBranch(messageId, sourceMessages) { newId, _ -> onCompleteLegacy(newId) }
     }
 
-    fun acceptPendingMemory(scope: String) {
+    fun acceptPendingMemory(scope: String, customContent: String? = null) {
         val candidate = _pendingMemoryCandidate.value ?: return
+        val finalContent = customContent?.trim()?.ifBlank { null } ?: candidate.distilledContent
         viewModelScope.launch {
             val targetScope = if (scope == "session" || scope == "conversation") "conversation" else "user"
             repository.saveConfirmedMemory(
-                content = candidate.distilledContent,
+                content = finalContent,
                 scope = targetScope,
                 conversationId = if (targetScope == "conversation") candidate.conversationId else null,
                 sourceMessageId = candidate.sourceMessageId

@@ -15,6 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.aiassistant.domain.model.PlotAction
 import com.aiassistant.ui.components.EchoGlassCard
 import com.aiassistant.ui.components.EchoGlassDialog
@@ -39,7 +40,7 @@ fun PlotActionBar(
         ) {
             Text(
                 text = "剧情操作",
-                style = MaterialTheme.typography.labelMedium,
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold, fontSize = 14.sp),
                 color = MaterialTheme.colorScheme.primary
             )
             Spacer(modifier = Modifier.height(8.dp))
@@ -196,7 +197,7 @@ fun PlotActionDialog(
                 }
 
                 item {
-                    Text("🚀 推进与改写", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text("🚀 推进与改写", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold, fontSize = 14.sp), color = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.height(4.dp))
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -211,7 +212,7 @@ fun PlotActionDialog(
                 }
 
                 item {
-                    Text("🎭 模式与对白", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text("🎭 模式与对白", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold, fontSize = 14.sp), color = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.height(4.dp))
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -226,7 +227,7 @@ fun PlotActionDialog(
                 }
 
                 item {
-                    Text("🌿 分支与记忆", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text("🌿 分支与记忆", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold, fontSize = 14.sp), color = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.height(4.dp))
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -240,7 +241,7 @@ fun PlotActionDialog(
                 }
 
                 item {
-                    Text("✍️ 自定义指令", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text("✍️ 自定义指令", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold, fontSize = 14.sp), color = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.height(4.dp))
                     ActionChip(action = PlotAction.CUSTOM) { showCustomDialog = true }
                 }

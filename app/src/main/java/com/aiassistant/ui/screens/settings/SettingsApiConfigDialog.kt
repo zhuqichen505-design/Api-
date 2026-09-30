@@ -169,6 +169,7 @@ fun ApiConfigDialog(
         }
     }
     val keyReorderState = rememberSmoothReorderState()
+    val modelReorderState = rememberSmoothReorderState()
     var keyVisibilityList by remember {
         mutableStateOf(List(16) { false })
     }
@@ -191,6 +192,8 @@ fun ApiConfigDialog(
         if (modelSearchQuery.isBlank()) availableModels
         else availableModels.filter { it.contains(modelSearchQuery.trim(), ignoreCase = true) }
     }
+    // 搜索过滤时禁用拖拽，避免 filtered 下标与完整列表错位
+    val canReorderModels = modelSearchQuery.isBlank() && availableModels.size > 1
     var isLoadingModels by remember { mutableStateOf(false) }
     var selectedApiAvatarUri by remember { mutableStateOf<android.net.Uri?>(null) }
     var pendingCropAvatarUri by remember { mutableStateOf<android.net.Uri?>(null) }
@@ -755,9 +758,20 @@ fun ApiConfigDialog(
                     }
                 }
 
-                // 区域 1：已配置模型 (支持收起/展开与精细化自定义)
+                // 区域 1：已配置模型 (支持收起/展开、长按拖动排序与精细化自定义)
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (availableModels.size > 1) {
+                            Text(
+                                text = if (modelSearchQuery.isBlank()) {
+                                    "提示：按住模型左侧手柄上下拖动，可调整模型在列表中的顺序。"
+                                } else {
+                                    "搜索过滤时暂不可拖动排序，清空搜索后可调整顺序。"
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
+                            )
+                        }
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -919,13 +933,31 @@ fun ApiConfigDialog(
                                         )
                                     }
 
-                                    filteredModels.forEach { model ->
+                                    val modelsToShow = if (canReorderModels) availableModels else filteredModels
+                                    modelsToShow.forEachIndexed { index, model ->
+                                        val modelItemId = model
+                                        val isModelDragActive = canReorderModels && modelReorderState.isItemActive(index)
                                         ModelCustomSettingCard(
                                             model = model,
                                             checked = enabledModelNames.contains(model),
                                             selected = modelName == model,
                                             capability = modelCapabilities[model] ?: "auto",
                                             customSettings = modelCustomSettings[model],
+                                            reorderState = if (canReorderModels) modelReorderState else null,
+                                            reorderIndex = index,
+                                            reorderKey = modelItemId,
+                                            reorderKeys = { availableModels.toList() },
+                                            reorderListSize = { availableModels.size },
+                                            onReorderMove = { fromIdx, toIdx ->
+                                                if (fromIdx in availableModels.indices && toIdx in availableModels.indices && fromIdx != toIdx) {
+                                                    val updated = availableModels.toMutableList()
+                                                    val temp = updated[fromIdx]
+                                                    updated[fromIdx] = updated[toIdx]
+                                                    updated[toIdx] = temp
+                                                    availableModels = updated
+                                                }
+                                            },
+                                            isDragActive = isModelDragActive,
                                             onCheckedChange = { isChecked ->
                                                 enabledModelNames = if (isChecked) enabledModelNames + model else enabledModelNames - model
                                             },
@@ -1265,7 +1297,14 @@ private fun ModelCustomSettingCard(
     onSelectAsDefault: () -> Unit,
     onRemove: () -> Unit,
     onResetCustomSettings: () -> Unit = {},
-    onCustomSettingsChange: (ModelCustomSettings) -> Unit
+    onCustomSettingsChange: (ModelCustomSettings) -> Unit,
+    reorderState: com.aiassistant.ui.components.SmoothReorderState? = null,
+    reorderIndex: Int = 0,
+    reorderKey: Any = model,
+    reorderKeys: () -> List<Any> = { listOf(model) },
+    reorderListSize: () -> Int = { 1 },
+    onReorderMove: (Int, Int) -> Unit = { _, _ -> },
+    isDragActive: Boolean = false
 ) {
     var expanded by remember { mutableStateOf(false) }
     val cardShape = RoundedCornerShape(16.dp)
@@ -1282,10 +1321,17 @@ private fun ModelCustomSettingCard(
         )
     }
 
+    val baseModifier = Modifier
+        .fillMaxWidth()
+        .padding(vertical = 3.dp)
+    val dragModifier = if (reorderState != null) {
+        baseModifier.reorderItem(reorderState, reorderIndex, reorderKey, shape = cardShape)
+    } else {
+        baseModifier
+    }
+
     Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 3.dp),
+        modifier = dragModifier,
         shape = cardShape,
         color = if (checked) glass.control.copy(alpha = 0.65f) else glass.control.copy(alpha = 0.32f),
         border = BorderStroke(
@@ -1298,6 +1344,35 @@ private fun ModelCustomSettingCard(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                if (reorderState != null) {
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(
+                                if (isDragActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
+                                else Color.Transparent
+                            )
+                            .reorderDragHandle(
+                                state = reorderState,
+                                index = { reorderIndex },
+                                key = { reorderKey },
+                                keys = reorderKeys,
+                                listSize = reorderListSize,
+                                onMove = onReorderMove
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DragIndicator,
+                            contentDescription = "按住上下拖动调整模型顺序",
+                            tint = if (isDragActive) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(2.dp))
+                }
                 Checkbox(
                     checked = checked,
                     onCheckedChange = onCheckedChange,

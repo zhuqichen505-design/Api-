@@ -2,8 +2,8 @@ package com.aiassistant.ui.components
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.runtime.*
@@ -20,6 +20,7 @@ import androidx.compose.ui.zIndex
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.Shape
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
@@ -29,10 +30,10 @@ import com.aiassistant.ui.theme.EchoTokens
  * 平滑拖拽与重排序状态控制器 (SmoothReorderState)
  * 支持：
  * 1. 按住六点手柄实时位移跟随手指 (translationY 连续渲染)
- * 2. 拖拽条目放大与悬浮阴影 (scale = 1.02f, zIndex = 10f)
+ * 2. 拖拽条目放大与悬浮阴影 (平滑 lift 过渡，避免瞬间跳变)
  * 3. 跨越相邻项时平滑无缝数据交换，手势不中断并伴随触觉反馈
- * 4. 相邻被挤开项弹簧动画平滑让位 (spring animation)
- * 5. 松手/取消时弹簧平滑吸附归位 (spring snap on release)
+ * 4. 相邻被挤开项平滑让位 (tween 缓动，无过冲弹跳)
+ * 5. 松手/取消时平滑吸附归位
  * 6. 箭头按钮点击时双向对流平滑换位动画
  */
 @Stable
@@ -52,10 +53,15 @@ class SmoothReorderState(
     var isReleasing by mutableStateOf(false)
         private set
 
+    // 拖拽悬浮抬升量 0f~1f（驱动缩放与阴影平滑过渡，消除瞬间跳变）
+    private val liftAnim = Animatable(0f)
+
     // 记录各条目由于交换产生的位置平滑补间动画（由 itemKey 索引）
     private val itemAnimMap = mutableMapOf<Any, Animatable<Float, AnimationVector1D>>()
+    private val itemAnimJobs = mutableMapOf<Any, Job>()
 
-    // 记录各条目的实测高度（像素）
+    // 记录各条目的实测高度（像素）：优先按 key，回退按 index
+    private val itemHeightByKey = mutableMapOf<Any, Float>()
     private val itemHeightMap = mutableMapOf<Int, Float>()
 
     fun setItemHeight(index: Int, height: Float) {
@@ -64,9 +70,24 @@ class SmoothReorderState(
         }
     }
 
+    fun setItemHeight(key: Any, height: Float) {
+        if (height > 0f) {
+            itemHeightByKey[key] = height
+        }
+    }
+
     fun getItemHeight(index: Int): Float {
         return itemHeightMap[index] ?: 180f
     }
+
+    fun getItemHeight(key: Any, fallbackIndex: Int): Float {
+        return itemHeightByKey[key] ?: itemHeightMap[fallbackIndex] ?: 180f
+    }
+
+    /**
+     * 拖拽抬升量 0f~1f，用于平滑驱动缩放与阴影
+     */
+    fun getItemLift(): Float = liftAnim.value
 
     /**
      * 获取指定 key 和 index 的平滑位移动画偏移
@@ -94,6 +115,13 @@ class SmoothReorderState(
             isReleasing = false
             dragOffsetY = 0f
             draggingIndex = index
+            liftAnim.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(
+                    durationMillis = LIFT_DURATION_MS,
+                    easing = FastOutSlowInEasing
+                )
+            )
         }
     }
 
@@ -110,7 +138,12 @@ class SmoothReorderState(
         val currentIndex = draggingIndex ?: return
         dragOffsetY += deltaY
 
-        val itemHeight = getItemHeight(currentIndex)
+        val currentKey = keys.getOrNull(currentIndex)
+        val itemHeight = if (currentKey != null) {
+            getItemHeight(currentKey, currentIndex)
+        } else {
+            getItemHeight(currentIndex)
+        }
         val threshold = itemHeight * 0.42f
 
         // 向下拖动超过半个身位，且未到底部
@@ -118,14 +151,14 @@ class SmoothReorderState(
             val targetIndex = currentIndex + 1
             val targetKey = keys.getOrNull(targetIndex)
 
-            haptic?.performHapticFeedback(HapticFeedbackType.LongPress)
+            // 交换判定成功：关闭震动反馈，杜绝交界处手机马达反复响动
             onMove(currentIndex, targetIndex)
 
             // 正在拖拽项补偿位移，视觉位置无缝保持在手指下方
             dragOffsetY -= itemHeight
             draggingIndex = targetIndex
 
-            // 被交换项启动平滑滑动动画：视觉位置瞬间保持在原处，然后平滑弹簧滑向 0f
+            // 被交换项启动平滑滑动动画：视觉位置瞬间保持在原处，然后平滑滑向 0f
             if (targetKey != null) {
                 animateItemTransition(targetKey, itemHeight)
             }
@@ -135,14 +168,14 @@ class SmoothReorderState(
             val targetIndex = currentIndex - 1
             val targetKey = keys.getOrNull(targetIndex)
 
-            haptic?.performHapticFeedback(HapticFeedbackType.LongPress)
+            // 交换判定成功：关闭震动反馈，杜绝交界处手机马达反复响动
             onMove(currentIndex, targetIndex)
 
             // 正在拖拽项补偿位移，视觉位置无缝保持在手指下方
             dragOffsetY += itemHeight
             draggingIndex = targetIndex
 
-            // 被交换项启动平滑滑动动画：视觉位置瞬间保持在原处，然后平滑弹簧滑向 0f
+            // 被交换项启动平滑滑动动画：视觉位置瞬间保持在原处，然后平滑滑向 0f
             if (targetKey != null) {
                 animateItemTransition(targetKey, -itemHeight)
             }
@@ -153,20 +186,38 @@ class SmoothReorderState(
      * 手势松开或取消
      */
     fun onDragFinish() {
-        val currentIndex = draggingIndex ?: return
+        if (draggingIndex == null && !isReleasing) {
+            coroutineScope.launch {
+                liftAnim.animateTo(
+                    targetValue = 0f,
+                    animationSpec = tween(
+                        durationMillis = LIFT_DURATION_MS,
+                        easing = FastOutSlowInEasing
+                    )
+                )
+            }
+            return
+        }
         isReleasing = true
         coroutineScope.launch {
             releaseAnim.snapTo(dragOffsetY)
             releaseAnim.animateTo(
                 targetValue = 0f,
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                    stiffness = Spring.StiffnessMedium
+                animationSpec = tween(
+                    durationMillis = SETTLE_DURATION_MS,
+                    easing = FastOutSlowInEasing
                 )
             )
             draggingIndex = null
             dragOffsetY = 0f
             isReleasing = false
+            liftAnim.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(
+                    durationMillis = LIFT_DURATION_MS,
+                    easing = FastOutSlowInEasing
+                )
+            )
         }
     }
 
@@ -179,7 +230,7 @@ class SmoothReorderState(
         fromIndex: Int,
         toIndex: Int
     ) {
-        val itemHeight = getItemHeight(fromIndex)
+        val itemHeight = getItemHeight(fromKey, fromIndex)
         val direction = if (toIndex > fromIndex) 1f else -1f
         // fromKey 移向新位置
         animateItemTransition(fromKey, -direction * itemHeight)
@@ -188,17 +239,27 @@ class SmoothReorderState(
     }
 
     private fun animateItemTransition(key: Any, startOffset: Float) {
-        coroutineScope.launch {
+        itemAnimJobs[key]?.cancel()
+        itemAnimJobs[key] = coroutineScope.launch {
             val anim = itemAnimMap.getOrPut(key) { Animatable(0f) }
             anim.snapTo(startOffset)
             anim.animateTo(
                 targetValue = 0f,
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioLowBouncy,
-                    stiffness = Spring.StiffnessMedium
+                animationSpec = tween(
+                    durationMillis = SWAP_DURATION_MS,
+                    easing = FastOutSlowInEasing
                 )
             )
         }
+    }
+
+    companion object {
+        // 抬升/落座过渡：快速切入、柔和收尾
+        private const val LIFT_DURATION_MS = 160
+        // 相邻项换位位移：略长于抬升，保证挤开感连贯
+        private const val SWAP_DURATION_MS = 220
+        // 松手归位：与换位节奏一致，避免过冲弹跳
+        private const val SETTLE_DURATION_MS = 200
     }
 }
 
@@ -210,6 +271,7 @@ fun rememberSmoothReorderState(): SmoothReorderState {
 
 /**
  * 拖拽项的外层容器修饰符
+ * 抬升量驱动缩放与阴影平滑过渡，消除长按拖动交换时的瞬间跳变
  */
 fun Modifier.reorderItem(
     state: SmoothReorderState,
@@ -223,23 +285,21 @@ fun Modifier.reorderItem(
 ): Modifier = this
     .onSizeChanged { size ->
         state.setItemHeight(index, size.height.toFloat())
+        state.setItemHeight(key, size.height.toFloat())
     }
     .zIndex(if (state.isItemActive(index)) 10f else 0f)
     .graphicsLayer {
         val offsetY = state.getItemOffsetY(key, index)
         translationY = offsetY
         this.shape = shape
-        if (state.isItemActive(index)) {
-            scaleX = 1.02f
-            scaleY = 1.02f
-            shadowElevation = activeShadowElevation.toPx()
-            ambientShadowColor = activeAmbientShadow
-            spotShadowColor = activeSpotShadow
-        } else {
-            scaleX = 1.0f
-            scaleY = 1.0f
-            shadowElevation = 0f
-        }
+        // lift 0→1 平滑驱动，拖起与放下都连续过渡
+        val lift = state.getItemLift()
+        val scale = 1f + 0.018f * lift
+        scaleX = scale
+        scaleY = scale
+        shadowElevation = activeShadowElevation.toPx() * lift
+        ambientShadowColor = activeAmbientShadow.copy(alpha = activeAmbientShadow.alpha * lift)
+        spotShadowColor = activeSpotShadow.copy(alpha = activeSpotShadow.alpha * lift)
     }
 
 /**

@@ -21,6 +21,7 @@ import androidx.compose.foundation.text.BasicTextField
 import com.aiassistant.domain.model.ChatModelOption
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -559,7 +560,10 @@ fun SettingsInputField(
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(
             text = title,
-            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+            style = MaterialTheme.typography.titleSmall.copy(
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 14.sp
+            ),
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         OutlinedTextField(
@@ -987,7 +991,12 @@ fun ApiConfigTab(
     val repository = AiAssistantApp.instance.repository
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
-    val configs by repository.getAllApiConfigs().collectAsState(initial = emptyList())
+    val configsFromDb by repository.getAllApiConfigs().collectAsState(initial = emptyList())
+    var localConfigs by remember { mutableStateOf<List<ApiConfig>>(emptyList()) }
+    LaunchedEffect(configsFromDb) {
+        localConfigs = configsFromDb
+    }
+    val providerReorderState = rememberSmoothReorderState()
 
     var showAddDialog by remember { mutableStateOf(false) }
     var editingConfig by remember { mutableStateOf<ApiConfig?>(null) }
@@ -1004,7 +1013,7 @@ fun ApiConfigTab(
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         item {
-            val defaultConfig = configs.firstOrNull { it.isDefault } ?: configs.firstOrNull()
+            val defaultConfig = localConfigs.firstOrNull { it.isDefault } ?: localConfigs.firstOrNull()
             SettingsGlassCard(hazeState = hazeState) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -1026,7 +1035,7 @@ fun ApiConfigTab(
                         )
                     }
                 }
-                if (configs.isNotEmpty()) {
+                if (localConfigs.isNotEmpty()) {
                     Text(
                         "点击直接切换新对话默认生效的服务商：",
                         style = MaterialTheme.typography.labelSmall,
@@ -1036,7 +1045,7 @@ fun ApiConfigTab(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        configs.forEach { cfg ->
+                        localConfigs.forEach { cfg ->
                             FilterChip(
                                 selected = cfg.isDefault,
                                 onClick = {
@@ -1063,17 +1072,76 @@ fun ApiConfigTab(
         }
 
         item {
-            Text(
-                text = "API配置管理",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "API配置管理",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
+                )
+                if (localConfigs.size > 1) {
+                    Text(
+                        text = "按住手柄上下拖动可调整排序",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
+                    )
+                }
+            }
         }
 
-        items(configs) { config ->
+        itemsIndexed(localConfigs, key = { _, cfg -> cfg.id }) { index, config ->
+            val isDragActive = providerReorderState.isItemActive(index)
             ApiConfigCard(
                 hazeState = hazeState,
                 config = config,
+                modifier = Modifier.reorderItem(
+                    state = providerReorderState,
+                    index = index,
+                    key = config.id,
+                    shape = SettingsPanelShape
+                ),
+                reorderHandle = if (localConfigs.size > 1) {
+                    {
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(
+                                    if (isDragActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
+                                    else Color.Transparent
+                                )
+                                .reorderDragHandle(
+                                    state = providerReorderState,
+                                    index = { index },
+                                    key = { config.id },
+                                    keys = { localConfigs.map { it.id } },
+                                    listSize = { localConfigs.size },
+                                    onMove = { fromIdx, toIdx ->
+                                        if (fromIdx in localConfigs.indices && toIdx in localConfigs.indices && fromIdx != toIdx) {
+                                            val updated = localConfigs.toMutableList()
+                                            val temp = updated[fromIdx]
+                                            updated[fromIdx] = updated[toIdx]
+                                            updated[toIdx] = temp
+                                            localConfigs = updated
+                                            repository.saveApiConfigOrder(updated.map { it.id })
+                                        }
+                                    }
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.DragIndicator,
+                                contentDescription = "按住上下拖动调整模型供应商顺序",
+                                tint = if (isDragActive) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                } else null,
                 onEdit = { editingConfig = it },
                 onDelete = {
                     scope.launch {
@@ -1153,6 +1221,8 @@ fun ApiConfigTab(
 fun ApiConfigCard(
     hazeState: dev.chrisbanes.haze.HazeState,
     config: ApiConfig,
+    modifier: Modifier = Modifier,
+    reorderHandle: (@Composable () -> Unit)? = null,
     onEdit: (ApiConfig) -> Unit,
     onDelete: () -> Unit,
     onSetDefault: () -> Unit,
@@ -1161,7 +1231,7 @@ fun ApiConfigCard(
     var showDeleteDialog by remember { mutableStateOf(false) }
     val contentAlpha = if (config.isEnabled) 1f else 0.62f
 
-    SettingsGlassCard(hazeState = hazeState) {
+    SettingsGlassCard(hazeState = hazeState, modifier = modifier) {
         Column(modifier = Modifier.fillMaxWidth()) {
             // 第一行：名称 + 状态徽章 + EchoSwitch（§5.1：消除单行 4 控件挤压，S-4）
             Row(
@@ -1173,6 +1243,10 @@ fun ApiConfigCard(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.weight(1f).alpha(contentAlpha)
                 ) {
+                    if (reorderHandle != null) {
+                        reorderHandle()
+                        Spacer(modifier = Modifier.width(6.dp))
+                    }
                     Text(
                         text = config.name,
                         style = MaterialTheme.typography.titleMedium,

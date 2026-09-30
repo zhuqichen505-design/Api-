@@ -1,27 +1,59 @@
-# 全流程留痕与构建前复核工作流规范 (Workflow Guidelines)
+# 每任务执行清单与留痕规范 (Workflow Guidelines)
 
-## 零、核心交互与执行准则 (最高准则)
-1. **未明确要求不主动修改项目**：用户没有明确提出修改要求时，绝不主动修改项目的任何代码、配置或文档；
-2. **未明确要求构建 APK 不执行打包发布**：用户没有明确要求构建 APK 时，无需执行测试打包、APK 编译构建和发布流程。
+> 常驻准则见根目录 `D:\Agent\APP-Echo\AGENTS.md`（最高准则、事实卡、发布铁律、Git 规则）。
+> 本文件是**每次任务的执行清单模板 + 最近一次执行记录**，随代码一并提交留痕；更早的执行历史见 `UPDATE_LOG.md`。
 
-## 一、留痕规范
-每一次针对用户需求迭代与版本发布，必须严格在以下文件中进行变更留痕：
-1. `UPDATE_LOG.md`：记录当前版本编号、改动需求列表、文件修改清单与产物哈希；
-2. `CHANGELOG.md`：记录面向用户的发布日志，包含新增特性、优化项与修复项；
-3. `PROJECT.md`：同步最新架构状态、版本号及当前主要组件能力；
-4. `README.md`：更新版本号、最新功能清单与构建运行指引；
-5. `walkthrough.md`：生成详尽的改动走查与验证记录。
+## 一、每任务执行清单（交付前逐项勾选，未执行项必须如实标注"未执行 + 原因"）
 
-## 二、构建前复核清单 (Pre-Build Review Checklist)
-在触发 Gradle APK 构建前，必须逐项核对：
-- [x] 1. 用户提出的全部需求点 100% 落实；
-- [x] 2. 检查代码语法与 Compose 闭包作用域无异常；
-- [x] 3. 检查 `app/build.gradle.kts` 中 `splits.abi` 与 `versionCode` 设置正确；
-- [x] 4. 执行单元测试，确保测试全部通过；
-- [x] 5. 确保统一只发布在 `D:\Agent\APP-烧\app\releases` 目录下输出唯一定名的单一安装包（统一格式：`Echo-v<version>.apk`，如 `Echo-v2.2.5.apk`；**明确以后不再构建或输出带有 `-arm64-v8a` 命名后缀的安装包，严禁发布至其他路径**）。
+### A. 基线确认
+- [ ] `git status` / `git log --oneline -3`：分支正确、已有未提交改动已向用户说明，未混入本次任务
+- [ ] 确认当前 versionName / versionCode（`app/build.gradle.kts`）与 AppDatabase version（`AppDatabase.kt`）
 
-## 三、交付验收标准
-- 经过完整编译（`compileDebugKotlin` / `compileReleaseKotlin`）；
-- 通过全部单元测试验证；
-- 产出 Release APK 安装包并校验 SHA256；
-- 检查 Git 工作区，无敏感信息泄漏，完成代码提交。
+### B. 实现
+- [ ] 只实现用户明确要求的内容；同类问题已全仓排查
+- [ ] 未做无关重构；未修改与需求无关的文件
+
+### C. 验证（记录每条命令的退出码）
+- [ ] `./gradlew.bat compileDebugKotlin --no-daemon`
+- [ ] `./gradlew.bat testDebugUnitTest --no-daemon`
+- [ ] `./gradlew.bat lintDebug --no-daemon`
+- [ ] `git diff --check`
+
+### D. 留痕（均在仓库内更新，根目录同名文件为指针不改）
+- [ ] `UPDATE_LOG.md` 新条目置顶
+- [ ] `PROJECT.md` 版本 / DB / 功能 / 构建命令（有变化时）
+- [ ] `README.md` 版本与功能清单（发版时）
+- [ ] `CHANGELOG.md`（发版时）
+- [ ] `walkthrough.md`（发版时）+ 本文件「最近一次执行记录」
+
+### E. 发布（仅当用户要求 APK）
+- [ ] versionName / versionCode 已递增；`splits.abi` 仅 `arm64-v8a`、`isUniversalApk = false`
+- [ ] `./gradlew.bat assembleRelease --no-daemon`
+- [ ] 复制为 `D:\Agent\APP-Echo\app\releases\Echo-v<version>.apk`（增量输出，严禁删除/覆盖历史包，严禁架构后缀命名）
+- [ ] SHA256 + `apksigner verify --print-certs` 已记录；已如实标注签名性质（echo-release.jks 为 Android Debug DN，非正式生产签名）
+- [ ] 未声称设备安装/启动验证（除非确已执行），已给人工验收步骤
+
+### F. Git
+- [ ] 提交前确认无密钥、local.properties、APK、构建产物、用户数据
+- [ ] 只提交本次真实修改；发版时打 `v<version>` 标签（不要遗漏：v2.5.8/v2.5.9 曾漏打）
+- [ ] push 并 `git ls-remote origin main` 核验；失败时如实报告本地领先数与原因
+
+## 二、最近一次执行记录
+
+### [2026-09-30] v2.6.0 上下文回退选择、设定时间线编辑、连接失败胶囊优化与供应商拖拽排序（发版）
+- **需求**：
+  1. 弱网连接不畅或空响应导致上下文回退时弹窗提供「回退 / 忽略 / （当前对话）永久忽略」选择；
+  2. 时间线与设定提取/变更待确认卡片支持长按文字直接进入编辑模式，编辑后提供「取消」与「应用」；
+  3. 模型连接失败时胶囊不显示消耗 Token，直接显示「模型连接失败」，点击胶囊可自由折叠/展开红框错误报告；
+  4. 拖动模型或 API Key 排序时关闭交换边界处的震动反馈；
+  5. 设置里的模型供应商支持长按手柄拖动排序并持久化记住。
+- **版本**：versionCode 156 / versionName 2.6.0 / Room v30。
+- **文件**：`ChatScreen.kt`、`ChatMessageComponents.kt`、`ChatViewModel.kt`、`AiRepository.kt`、`Models.kt`、`PersonalizationManager.kt`、`SmoothReorderState.kt`、`SettingsScreen.kt`、`SettingsApiConfigDialog.kt`、`UiPolishRegressionTest.kt`、`build.gradle.kts` 及相关文档。
+- **验证**：
+  - `compileDebugKotlin`: Exit Code 0
+  - `testDebugUnitTest`: Exit Code 0 (73 测试文件，458 项全通)
+  - `lintDebug`: Exit Code 0
+  - `git diff --check`: Exit Code 0
+  - `assembleRelease`: Exit Code 0
+  - Release APK 输出至 `D:\Agent\APP-Echo\app\releases\Echo-v2.6.0.apk` (SHA256: `CF38591EC6083249588ED24A713E77FBDB46F95F38E963E33A23A8C3FF0BCBC7`)
+- **详情**：见 `UPDATE_LOG.md` 与 `walkthrough.md`。
