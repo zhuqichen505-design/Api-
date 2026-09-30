@@ -2,6 +2,40 @@
 
 本文档按照工作流规范记录每次版本更新、需求变更与复核结果。
 
+## [2026-10-01] - v2.6.4 生成中删除回复静默取消、统计新时间范围、热力看板铺满、token/缓存真实性与 TPS
+
+### 1. 用户需求
+1. 在模型连接时删除回复，仍会出现多个回复窗口的问题（正在连接的模型回复后又会和上面的回复合并）。
+2. 使用统计中给出更多维度的时间范围供选择，比如 4 小时、8 小时、3 天等。
+3. 优化请求健康时间线的展示效果：无论什么时间范围，看板都应该被铺满（不能铺满时可多显示一点过去的数据）。
+4. 检查缓存命中率、token 计算等数据的真实性，对数据获取和真实性做出优化；数据看板添加 TPS 维度（可以删除峰值维度）。
+完成以上需求并构建 APK。
+
+### 2. 问题与实现
+1. **生成中删除回复 → 静默取消当前生成（需求 1）**：
+   - 根因：`deleteMessage` 只删库不取消进行中的生成——连接中的请求继续执行，完成后照常落库（幽灵回复窗口）；重新生成场景下新回复还会并入被删回复所在 variant 组，表现为"和上面的回复合并"；
+   - 修复：`ChatViewModel` 新增 `cancelGenerationIfDeletingActiveTurn`——当被删消息属于当前生成轮次（assistant 消息、触发本轮的 user 消息或本轮开始后的消息）时，静默取消生成（置 `isUserStopping` 阻断错误占位落库、取消活动请求与协程、移除生成会话、清空流式/重连/实时报错状态），**不落任何「回复已停止/请求失败」占位消息**；删除无关历史消息不影响进行中的生成；`deleteMessagesFrom` 同样接入。
+2. **统计新时间范围（需求 2）**：`StatsPeriod` 新增 **4小时 / 8小时 / 3天** 三档（分桶数 16/24/36），周期选择器共 8 档（1小时、4小时、8小时、1天、3天、7天、30天、90天），环比对比、趋势图、热力看板全量适配。
+3. **热力看板铺满（需求 3）**：各周期热力格数全部重新定义为**网格列数 14 的整数倍**（1h=14 / 4h=28 / 8h=56 / 1d=56 / 3d=70 / 7d=84 / 30d=112 / 90d=112），任意时间范围下网格均被完整铺满，不再出现末行空缺；时间窗口保持精确等于所选周期。
+4. **token/缓存真实性优化 + TPS（需求 4）**：
+   - 审计发现并修复三处统计失真：
+     a. **Anthropic 缓存口径错误**：Anthropic 的 `input_tokens` 不含缓存读写部分，此前直接当输入用 → 缓存命中率可能超 100%、总量偏低。现对齐 OpenAI 口径（输入 = input_tokens + cache_read + cache_creation，命中量仅计 cache_read），message_start 与 message_delta 两处统一；
+     b. **Anthropic thinking 双重计入**：`output_tokens` 已包含 thinking，此前又叠加估算的思考量 → 总量虚高。现从输出中扣除估算思考量，total 保持 API 真实值，四项指标自洽（input + output + thinking = total）；
+     c. **OpenAI `<think>` 文本双计**：API 未返回 reasoning_tokens 但正文含 `<think>` 内容时，completion_tokens 已含思考文本却又叠加估算思考量。现同样从输出中扣除估算值（API 已拆分 reasoning_tokens 的行为不变）；
+   - 其余核验项确认无问题：OpenAI 流式已请求 `stream_options.include_usage=true`（真实 usage 优先于估算）；DeepSeek 顶层 `prompt_cache_hit_tokens` 已在缓存提取链中；读取端缓存钳制 `cachedTokens ≤ inputTokens` 在新口径下成立；
+   - **TPS 维度**：概览卡「峰值单段」替换为「**生成速度**」（平均 TPS = 输出 Token 总量 ÷ 有耗时报请求的总秒数，`formatTps` 自适应显示）；模型明细表每行新增 TPS 标签并新增第 5 个排序维度「**速度**」（降序），排序高亮同步生效；无耗时报文/无输出的记录不参与计算，避免污染。
+5. **版本与发布**：版本递增至 `versionName = "2.6.4"`, `versionCode = 160`；构建 Release APK 复制到 `D:\Agent\APP-Echo\app\releases\Echo-v2.6.4.apk`。
+
+### 3. 验证结果
+- `./gradlew.bat compileDebugKotlin --no-daemon` Exit Code 0
+- `./gradlew.bat testDebugUnitTest --no-daemon` Exit Code 0（73 测试文件，490 项全通，较 v2.6.3 新增 4 项：TPS 概览/格式化/模型维度、新时间范围、热力格 14 倍数铺满校验）
+- `./gradlew.bat lintDebug --no-daemon` Exit Code 0
+- `git diff --check` Exit Code 0
+- `./gradlew.bat assembleRelease --no-daemon` Exit Code 0
+- APK：`D:\Agent\APP-Echo\app\releases\Echo-v2.6.4.apk`，16,683,885 字节 (~15.91 MB)，SHA256 `4080DC76731F8B590AD8730C1F7D4F56DEFC7A1ADDF390DACED398FD02BD92B0`，`apksigner verify` 通过（CN=Android Debug，**非正式生产签名**）
+
+---
+
 ## [2026-10-01] - v2.6.3 连接失败胶囊显示具体原因（修复"不显示原因"回归）
 
 ### 1. 用户需求

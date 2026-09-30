@@ -12,9 +12,11 @@ import com.aiassistant.ui.screens.stats.donutSweepDegrees
 import com.aiassistant.ui.screens.stats.formatDeltaPct
 import com.aiassistant.ui.screens.stats.formatMillis
 import com.aiassistant.ui.screens.stats.formatNumber
+import com.aiassistant.ui.screens.stats.formatTps
 import com.aiassistant.ui.screens.stats.toFailureSlices
 import com.aiassistant.ui.screens.stats.toHourSlices
 import com.aiassistant.ui.screens.stats.toModelDonutSlices
+import com.aiassistant.ui.screens.stats.toModelRows
 import com.aiassistant.ui.screens.stats.toProviderShares
 import com.aiassistant.ui.screens.stats.toSummary
 import org.junit.Assert.assertEquals
@@ -74,6 +76,7 @@ class StatsDashboardTest {
         assertEquals("总 Token 应为 900", 900, summary.totalTokens)
         assertEquals("缓存命中应为 100/300", 100f / 300f, summary.cacheHitRate, 0.0001f)
         assertEquals("平均响应应为 600ms", 600L, summary.avgResponseTime)
+        assertEquals("TPS 应为 600 输出 / 1.8s", 600f / 1.8f, summary.avgTps, 0.01f)
     }
 
     @Test
@@ -84,6 +87,55 @@ class StatsDashboardTest {
         assertEquals(0f, summary.successRate, 0.0001f)
         assertEquals(0L, summary.avgResponseTime)
         assertEquals(0f, summary.cacheHitRate, 0.0001f)
+        assertEquals("无耗时报数据时 TPS 应为 0（显示 —）", 0f, summary.avgTps, 0.0001f)
+    }
+
+    // ==================== 生成速度 TPS（v2.6.4 需求 4） ====================
+
+    @Test
+    fun testFormatTps() {
+        assertEquals("12.3 t/s", formatTps(12.34f))
+        assertEquals("—", formatTps(0f))
+        assertEquals("—", formatTps(-1f))
+    }
+
+    @Test
+    fun testToModelRows_tpsPerModel() {
+        val rows = listOf(
+            row(timestamp = 1L, modelName = "fast", outputTokens = 300, responseTime = 1000L),
+            row(timestamp = 2L, modelName = "fast", outputTokens = 300, responseTime = 1000L),
+            row(timestamp = 3L, modelName = "slow", outputTokens = 100, responseTime = 4000L),
+            row(timestamp = 4L, modelName = "slow", outputTokens = 100, responseTime = 0L)
+        )
+        val modelRows = rows.toModelRows()
+        val fast = modelRows.first { it.modelName == "fast" }
+        val slow = modelRows.first { it.modelName == "slow" }
+        assertEquals("fast 模型 TPS 应为 600/2s = 300", 300f, fast.tps, 0.01f)
+        assertEquals(
+            "slow 模型 TPS 应为 100/4s = 25（无耗时的请求不参与分子与分母）", 25f, slow.tps, 0.01f
+        )
+    }
+
+    // ==================== 时间范围与热力格铺满（v2.6.4 需求 2/3） ====================
+
+    @Test
+    fun testStatsPeriod_newRangesAvailable() {
+        val labels = StatsPeriod.entries.map { it.label }
+        assertTrue("应提供 4 小时范围", labels.contains("4小时"))
+        assertTrue("应提供 8 小时范围", labels.contains("8小时"))
+        assertTrue("应提供 3 天范围", labels.contains("3天"))
+        assertEquals("4 小时周期时长", 4L * 60 * 60 * 1000, StatsPeriod.entries.first { it.label == "4小时" }.durationMillis)
+    }
+
+    @Test
+    fun testStatsPeriod_heatmapCellsFillGrid() {
+        val columns = 14
+        StatsPeriod.entries.forEach { period ->
+            assertTrue(
+                "${period.label} 的热力格数必须是列数 ${columns} 的整数倍，保证看板铺满",
+                period.heatmapCells % columns == 0 && period.heatmapCells > 0
+            )
+        }
     }
 
     // ==================== 24 小时分布 ====================

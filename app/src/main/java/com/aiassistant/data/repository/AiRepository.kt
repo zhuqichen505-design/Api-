@@ -1968,8 +1968,15 @@ class AiRepository(
                     Log.w(tag, "流式响应结束但缺少 finish_reason 或 [DONE] (finished: false, finishReason: $lastFinishReason, hasDone: $hasReceivedDone, streamException: ${streamReadException?.message}), 内容正常保留输出 (${fullContent.length} 字符)")
                 }
 
-                val finalThinkingTokens = thinkingTokens.takeIf { it > 0 } ?: estimateTokenCount(fullThinking.orEmpty())
-                val finalOutputTokens = outputTokens.takeIf { it > 0 } ?: estimateTokenCount(fullContent)
+                // v2.6.4 真实性：API 已给出 reasoning_tokens 时 output 已扣除思考量直接使用；
+                // 否则思考量为估算值，需从 completion_tokens（含思考文本）中扣除，避免总量双重计入
+                val apiReportedThinking = thinkingTokens > 0
+                val finalThinkingTokens = if (apiReportedThinking) thinkingTokens else estimateTokenCount(fullThinking.orEmpty())
+                val finalOutputTokens = when {
+                    outputTokens <= 0 -> estimateTokenCount(fullContent)
+                    apiReportedThinking -> outputTokens
+                    else -> (outputTokens - finalThinkingTokens).coerceAtLeast(0)
+                }
                 val finalInputTokens = inputTokens.takeIf { it > 0 }
                     ?: chatMessages.sumOf { estimateTokenCount(it.content.toString()) }
                 val finalTotalTokens = totalTokens.takeIf { it > 0 }
@@ -2188,8 +2195,13 @@ class AiRepository(
                                     when (event.type) {
                                         "message_start" -> {
                                             event.message?.usage?.let { usage ->
-                                                inputTokens = usage.input_tokens ?: inputTokens
-                                                cachedTokens = (usage.cache_read_input_tokens ?: 0) + (usage.cache_creation_input_tokens ?: 0)
+                                                // v2.6.4 真实性：Anthropic 的 input_tokens 不含缓存读写部分，
+                                                // 与 OpenAI（prompt_tokens 含缓存）对齐，将缓存读/写并入输入口径，
+                                                // 修复缓存命中率可能超过 100% 与总量偏低的问题；命中量仅计 cache_read
+                                                inputTokens = (usage.input_tokens ?: 0) +
+                                                    (usage.cache_read_input_tokens ?: 0) +
+                                                    (usage.cache_creation_input_tokens ?: 0)
+                                                cachedTokens = usage.cache_read_input_tokens ?: 0
                                             }
                                         }
                                         "content_block_delta" -> {
@@ -2206,7 +2218,13 @@ class AiRepository(
                                         }
                                         "message_delta" -> {
                                             event.usage?.let { usage ->
-                                                inputTokens = usage.input_tokens ?: inputTokens
+                                                // 与 message_start 同口径：输入含缓存读/写，命中量仅计 cache_read
+                                                val recomputedInput = (usage.input_tokens ?: 0) +
+                                                    (usage.cache_read_input_tokens ?: 0) +
+                                                    (usage.cache_creation_input_tokens ?: 0)
+                                                if (recomputedInput > 0) {
+                                                    inputTokens = recomputedInput
+                                                }
                                                 outputTokens = usage.output_tokens ?: outputTokens
                                                 cachedTokens = usage.cache_read_input_tokens ?: cachedTokens
                                                 totalTokens = inputTokens + outputTokens
@@ -2274,8 +2292,15 @@ class AiRepository(
                     anthropicStreamReadException?.let { throw it }
                     throw ApiException(500, "Anthropic 模型回复内容为空 (empty response detected)，可能触发限制或API Key异常")
                 }
-                val finalThinkingTokens = estimateTokenCount(fullThinking.orEmpty())
-                val finalOutputTokens = outputTokens.takeIf { it > 0 } ?: estimateTokenCount(fullContent)
+                // v2.6.4 真实性：Anthropic 的 output_tokens 已包含 thinking，而思考量此处为估算值——
+                // 从输出中扣除估算思考量，避免「输出 + 思考」双重计入总量；total 保持 API 真实值
+                val estimatedThinkingTokens = estimateTokenCount(fullThinking.orEmpty())
+                val finalThinkingTokens = estimatedThinkingTokens
+                val finalOutputTokens = when {
+                    outputTokens <= 0 -> estimateTokenCount(fullContent)
+                    estimatedThinkingTokens > 0 -> (outputTokens - estimatedThinkingTokens).coerceAtLeast(0)
+                    else -> outputTokens
+                }
                 val finalInputTokens = inputTokens.takeIf { it > 0 }
                     ?: anthropicMessages.sumOf { estimateTokenCount(it.content.toString()) }
                 val finalTotalTokens = totalTokens.takeIf { it > 0 }

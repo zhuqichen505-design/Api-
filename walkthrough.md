@@ -1,3 +1,43 @@
+# Echo v2.6.4 构建走查与验收报告 (Walkthrough)
+
+## 一、本次构建与需求概述
+- **发布版本**：v2.6.4 (`versionCode: 160`)
+- **构建类型**：Release APK
+- **交付目标文件**：`D:\Agent\APP-Echo\app\releases\Echo-v2.6.4.apk`
+- **核心需求**：
+  1. 模型连接时删除回复仍出现多个回复窗口（连接中的回复完成后与上方回复合并）；
+  2. 统计时间范围新增 4小时/8小时/3天；
+  3. 请求健康时间线任意范围均铺满；
+  4. 缓存命中率/token 计算真实性优化 + 新增 TPS 维度（移除峰值单段）。
+
+## 二、逐项实现走查
+| 需求 | 根因/实现 |
+| :--- | :--- |
+| 1 删除回复 | 根因：`deleteMessage` 只删库不取消生成 → 请求继续执行并照常落库（幽灵窗口），重新生成场景新回复并入被删回复 variant 组（"合并"）。修复：`cancelGenerationIfDeletingActiveTurn`——被删消息属于当前生成轮次（assistant / 触发本轮 user / 本轮开始后）时静默取消：置 `isUserStopping` 阻断占位落库、取消请求与协程、移除会话、清空流式状态，不落任何占位消息；删除无关历史不影响生成 |
+| 2 时间范围 | `StatsPeriod` 新增 4小时(16桶)/8小时(24桶)/3天(36桶)，共 8 档；环比/趋势/热力全适配 |
+| 3 铺满 | 各周期热力格数全部取列数 14 的整数倍（14/28/56/56/70/84/112/112），任意范围网格无末行空缺，窗口精确等于所选周期 |
+| 4 真实性+TPS | 修复三处失真：① Anthropic `input_tokens` 不含缓存读/写却直接当输入（命中率可超 100%、总量偏低）→ 对齐 OpenAI 口径（输入含 cache_read+cache_creation，命中仅计 cache_read）；② Anthropic `output_tokens` 含 thinking 又叠加估算思考量 → 从输出扣除，total 保持 API 真实值；③ OpenAI 兼容端点 `<think>` 文本被 completion_tokens 包含又叠加估算 → 同样扣除。核验：`stream_options.include_usage=true` 已开启（真实 usage 优先）、DeepSeek `prompt_cache_hit_tokens` 已在提取链。TPS：概览「生成速度」（输出 Tokens÷有耗时请求总秒数）替换「峰值单段」；模型表新增 TPS 标签与「速度」排序（第 5 维），高亮同步 |
+
+## 三、构建与验证复核清单
+- [x] `compileDebugKotlin --no-daemon`：Exit Code 0
+- [x] `testDebugUnitTest --no-daemon`：Exit Code 0（73 文件，490 项全通，新增 4 项）
+- [x] `lintDebug --no-daemon`：Exit Code 0
+- [x] `git diff --check`：Exit Code 0
+- [x] `assembleRelease --no-daemon`：Exit Code 0
+- [x] APK：`Echo-v2.6.4.apk`，16,683,885 字节，SHA256 `4080DC76731F8B590AD8730C1F7D4F56DEFC7A1ADDF390DACED398FD02BD92B0`，签名校验通过（CN=Android Debug，非正式生产签名）
+
+## 四、人工验收步骤
+1. 安装 v2.6.4 覆盖升级；
+2. 删除回复验收：发送消息后在连接/生成过程中长按删除当前回复（或上一次失败占位回复）——应立即取消生成、无任何新占位气泡出现；随后正常发送不再出现合并/多窗口；
+3. 统计范围验收：进入使用统计，确认周期栏出现 4小时/8小时/3天 且各档图表与环比正常；
+4. 热力看板验收：逐个切换 8 个时间范围，确认健康时间线网格均被完整铺满（无末行空缺）；
+5. TPS 验收：概览第三行显示「生成速度 x.x t/s」；模型明细表出现 TPS 标签，切换「速度」排序时 TPS 高亮且排序生效；
+6. 真实性抽查：Anthropic 供应商长对话（含缓存）下，缓存命中率应回到 0~100% 合理区间，总 Token 与供应商后台量级一致。
+
+---
+
+---
+
 # Echo v2.6.3 构建走查与验收报告 (Walkthrough)
 
 ## 一、本次构建与需求概述

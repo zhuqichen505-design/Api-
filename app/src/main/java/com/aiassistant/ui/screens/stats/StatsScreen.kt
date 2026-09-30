@@ -126,9 +126,6 @@ fun StatsScreen(
     val buckets = remember(filteredStats, selectedPeriod, refreshKey) {
         buildBuckets(filteredStats, selectedPeriod, System.currentTimeMillis())
     }
-    val peakBucket = remember(buckets) {
-        buckets.maxByOrNull { it.totalTokens }?.takeIf { it.totalTokens > 0 }
-    }
     val modelRows = remember(filteredStats) { filteredStats.toModelRows() }
     val hourSlices = remember(filteredStats) { filteredStats.toHourSlices() }
     val providerShares = remember(filteredStats) { filteredStats.toProviderShares() }
@@ -219,7 +216,6 @@ fun StatsScreen(
                         hasPreviousData = hasPreviousData,
                         tokensDelta = tokensDelta,
                         requestsDelta = requestsDelta,
-                        peakBucket = peakBucket,
                         readableBackdrop = readableBackdrop
                     )
                 }
@@ -493,7 +489,6 @@ private fun HeroSummaryCard(
     hasPreviousData: Boolean,
     tokensDelta: Float?,
     requestsDelta: Float?,
-    peakBucket: Bucket?,
     readableBackdrop: Color
 ) {
     val glass = echoGlassPalette()
@@ -667,8 +662,8 @@ private fun HeroSummaryCard(
                     )
                     MetricPill(
                         icon = Icons.Default.Bolt,
-                        label = if (peakBucket != null) "峰值·${peakBucket.label}" else "峰值单段",
-                        value = if (peakBucket != null) formatNumber(peakBucket.totalTokens) else "—",
+                        label = "生成速度",
+                        value = formatTps(summary.avgTps),
                         contentColor = content,
                         iconTint = MaterialTheme.colorScheme.tertiary,
                         modifier = Modifier.weight(1f)
@@ -1925,7 +1920,7 @@ private fun ModernModelStatsTable(
         background = tint,
         fallbackSurface = readableBackdrop
     )
-    var sortMode by remember { mutableIntStateOf(0) } // 0: Tokens, 1: 请求数, 2: 成功率, 3: 平均耗时
+    var sortMode by remember { mutableIntStateOf(0) } // 0: Tokens, 1: 请求数, 2: 成功率, 3: 平均耗时, 4: 生成速度
 
     val sortedRows = remember(rows, sortMode) {
         when (sortMode) {
@@ -1933,6 +1928,7 @@ private fun ModernModelStatsTable(
             1 -> rows.sortedByDescending { it.requestCount }
             2 -> rows.sortedByDescending { it.successRate }
             3 -> rows.sortedBy { if (it.avgResponseTime <= 0) Long.MAX_VALUE else it.avgResponseTime }
+            4 -> rows.sortedByDescending { it.tps }
             else -> rows
         }
     }
@@ -1986,7 +1982,7 @@ private fun ModernModelStatsTable(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    listOf("Tokens", "请求数", "成功率", "耗时").forEachIndexed { idx, title ->
+                    listOf("Tokens", "请求数", "成功率", "耗时", "速度").forEachIndexed { idx, title ->
                         val isSelected = sortMode == idx
                         val chipShape = RoundedCornerShape(8.dp)
                         Box(
@@ -2156,6 +2152,14 @@ private fun ModernModelStatsTable(
                                         label = formatMillis(row.avgResponseTime),
                                         tint = content.copy(alpha = 0.78f),
                                         isHighlighted = sortMode == 3
+                                    )
+                                }
+                                if (row.tps > 0f) {
+                                    MiniStatsChip(
+                                        icon = Icons.Default.Bolt,
+                                        label = formatTps(row.tps),
+                                        tint = chartColors.tertiary,
+                                        isHighlighted = sortMode == 4
                                     )
                                 }
                                 if (row.cachedTokens > 0) {
@@ -2338,6 +2342,9 @@ internal fun List<UsageRow>.toSummary(): UsageSummary {
     val cached = sumOf { it.cachedTokens }
     val successCount = count { it.success }
     val timedRows = filter { it.responseTime > 0 }
+    // v2.6.4 TPS：生成速度 = 输出 Token 总量 / 有耗时记录请求的总耗时（秒）
+    val timedOutput = timedRows.sumOf { it.outputTokens }
+    val timedSeconds = timedRows.sumOf { it.responseTime } / 1000.0
     return UsageSummary(
         totalTokens = sumOf { it.totalTokens },
         inputTokens = input,
@@ -2348,7 +2355,8 @@ internal fun List<UsageRow>.toSummary(): UsageSummary {
         failedCount = count { !it.success },
         cacheHitRate = if (input > 0) cached.toFloat() / input else 0f,
         successRate = if (isNotEmpty()) successCount.toFloat() / size else 0f,
-        avgResponseTime = if (timedRows.isNotEmpty()) timedRows.map { it.responseTime }.average().toLong() else 0L
+        avgResponseTime = if (timedRows.isNotEmpty()) timedRows.map { it.responseTime }.average().toLong() else 0L,
+        avgTps = if (timedSeconds > 0) timedOutput / timedSeconds.toFloat() else 0f
     )
 }
 
@@ -2357,6 +2365,9 @@ internal fun List<UsageRow>.toModelRows(): List<ModelRow> {
         .map { (key, rows) ->
             val input = rows.sumOf { it.inputTokens }
             val cached = rows.sumOf { it.cachedTokens }
+            val timedRows = rows.filter { it.responseTime > 0 }
+            val timedOutput = timedRows.sumOf { it.outputTokens }
+            val timedSeconds = timedRows.sumOf { it.responseTime } / 1000.0
             ModelRow(
                 provider = key.first,
                 modelName = key.second,
@@ -2369,7 +2380,8 @@ internal fun List<UsageRow>.toModelRows(): List<ModelRow> {
                 failedCount = rows.count { !it.success },
                 avgResponseTime = if (rows.isNotEmpty()) rows.map { it.responseTime }.average().toLong() else 0L,
                 cacheHitRate = if (input > 0) cached.toFloat() / input else 0f,
-                successRate = if (rows.isNotEmpty()) rows.count { it.success }.toFloat() / rows.size else 0f
+                successRate = if (rows.isNotEmpty()) rows.count { it.success }.toFloat() / rows.size else 0f,
+                tps = if (timedSeconds > 0) timedOutput / timedSeconds.toFloat() else 0f
             )
         }
         .sortedByDescending { it.totalTokens }
@@ -2607,6 +2619,11 @@ internal fun formatMillis(ms: Long): String {
     }
 }
 
+/** TPS（tokens per second）格式化：无数据显示 — */
+internal fun formatTps(tps: Float): String {
+    return if (tps <= 0f) "—" else String.format(Locale.US, "%.1f t/s", tps)
+}
+
 internal fun formatPercent(value: Float): String {
     return "${(value.coerceIn(0f, 1f) * 100).toInt()}%"
 }
@@ -2623,14 +2640,20 @@ internal enum class StatsPeriod(
     val durationMillis: Long,
     val bucketCount: Int,
     val labelPattern: String,
-    /** 请求健康时间线热力格数量（按周期定制，格宽自适应） */
+    /**
+     * 请求健康时间线热力格数量：v2.6.4 起全部取 14（网格列数）的整数倍，
+     * 保证任意时间范围下看板都被完整铺满，不出现末行空缺
+     */
     val heatmapCells: Int
 ) {
-    Hour("1小时", 60L * 60L * 1000L, 12, "HH:mm", 12),
-    Day("1天", 24L * 60L * 60L * 1000L, 24, "HH:mm", 48),
+    Hour("1小时", 60L * 60L * 1000L, 12, "HH:mm", 14),
+    Hour4("4小时", 4L * 60L * 60L * 1000L, 16, "HH:mm", 28),
+    Hour8("8小时", 8L * 60L * 60L * 1000L, 24, "HH:mm", 56),
+    Day("1天", 24L * 60L * 60L * 1000L, 24, "HH:mm", 56),
+    Day3("3天", 3L * 24L * 60L * 60L * 1000L, 36, "MM-dd", 70),
     Week("7天", 7L * 24L * 60L * 60L * 1000L, 7, "MM-dd", 84),
-    Month("30天", 30L * 24L * 60L * 60L * 1000L, 30, "MM-dd", 60),
-    Quarter("90天", 90L * 24L * 60L * 60L * 1000L, 30, "MM-dd", 90)
+    Month("30天", 30L * 24L * 60L * 60L * 1000L, 30, "MM-dd", 112),
+    Quarter("90天", 90L * 24L * 60L * 60L * 1000L, 30, "MM-dd", 112)
 }
 
 private data class StatsReadResult(
@@ -2663,7 +2686,8 @@ internal data class UsageSummary(
     val failedCount: Int = 0,
     val cacheHitRate: Float,
     val successRate: Float,
-    val avgResponseTime: Long = 0L
+    val avgResponseTime: Long = 0L,
+    val avgTps: Float = 0f
 )
 
 internal data class Bucket(
@@ -2690,7 +2714,8 @@ internal data class ModelRow(
     val failedCount: Int = 0,
     val avgResponseTime: Long,
     val cacheHitRate: Float,
-    val successRate: Float
+    val successRate: Float,
+    val tps: Float = 0f
 )
 
 internal data class HourSlice(

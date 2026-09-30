@@ -40,6 +40,14 @@
 
 ## 二、最近一次执行记录
 
+### [2026-10-01] v2.6.4 生成中删除回复静默取消、统计新时间范围、热力看板铺满、token 真实性与 TPS（发版）
+- **需求**：①连接中删除回复的多窗口/合并问题；②新增 4小时/8小时/3天 范围；③健康时间线任意范围铺满；④token/缓存真实性优化 + TPS 维度（移除峰值）。
+- **版本**：versionCode 160 / versionName 2.6.4 / Room v31（无变更）。
+- **实现要点**：`cancelGenerationIfDeletingActiveTurn` 静默取消（不落占位）；`StatsPeriod` 8 档 + 热力格数全取 14 倍数；修复 Anthropic 缓存口径（input 含 cache_read+creation、命中仅计 cache_read）与 thinking 双计（Anthropic/OpenAI `<think>` 扣除估算）；`avgTps` 概览指标 + 模型表 TPS 标签与「速度」排序。
+- **文件**：`ChatViewModel.kt`、`AiRepository.kt`、`StatsScreen.kt`、`StatsDashboardTest.kt`、`build.gradle.kts` 及文档。
+- **验证**：compile/test(490)/lint/diff --check/assembleRelease 全部 Exit Code 0；APK `Echo-v2.6.4.apk` (SHA256 `4080DC76731F8B590AD8730C1F7D4F56DEFC7A1ADDF390DACED398FD02BD92B0`)。
+- **详情**：见 `UPDATE_LOG.md` 与 `walkthrough.md`。
+
 ### [2026-10-01] v2.6.3 连接失败胶囊显示具体原因（发版）
 - **需求**：用户截图反馈生成中连接失败只显示「模型连接失败」标题、看不到原因。
 - **根因**：胶囊文案 `isConnectionFailed` 分支硬编码标题，替换掉了含具体原因的重连状态文本。

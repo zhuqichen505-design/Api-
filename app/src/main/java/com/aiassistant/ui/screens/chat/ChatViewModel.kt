@@ -1476,14 +1476,49 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
     // 删除单条消息
     fun deleteMessage(message: Message) {
         viewModelScope.launch {
+            cancelGenerationIfDeletingActiveTurn(message)
             repository.deleteMessage(message)
         }
     }
 
     fun deleteMessagesFrom(message: Message) {
         viewModelScope.launch {
+            cancelGenerationIfDeletingActiveTurn(message)
             repository.deleteMessagesFrom(conversationId, message.createdAt)
         }
+    }
+
+    /**
+     * 需求 v2.6.4-1：生成/连接进行中删除回复时，静默取消当前生成——
+     * 不落任何「回复已停止/请求失败」占位消息，杜绝删除后仍出现多个回复窗口，
+     * 以及重新生成场景下新回复并入上方回复 variant 组造成的“合并”问题。
+     * 仅当被删消息属于当前生成轮次（assistant 消息、触发本轮的 user 消息或本轮开始后的消息）时取消，
+     * 删除无关历史消息不影响进行中的生成。
+     */
+    private fun cancelGenerationIfDeletingActiveTurn(message: Message) {
+        if (!_isGenerating.value) return
+        val session = ChatGenerationManager.getSession(conversationId) ?: return
+        val belongsToActiveTurn = message.role == "assistant" ||
+            message.id == session.userMessageId ||
+            message.createdAt >= session.requestStartTime
+        if (!belongsToActiveTurn) return
+
+        isUserStopping = true // onError/异常路径视为用户主动停止，不再落错误占位
+        _pendingContextFallbackPrompt.value?.onDecision?.invoke(com.aiassistant.domain.model.ContextFallbackChoice.IGNORE)
+        _pendingContextFallbackPrompt.value = null
+        repository.cancelActiveRequest(conversationId)
+        generationJob?.cancel(kotlinx.coroutines.CancellationException("删除回复，取消生成"))
+        session.markFinished()
+        ChatGenerationManager.removeSession(conversationId)
+        _isGenerating.value = false
+        isMessageSaved = true
+        activeAssistantVariantGroupId = null
+        activeAssistantVariantIndex = 1
+        _currentResponse.value = ""
+        _currentThinking.value = ""
+        _reconnectStatus.value = null
+        _keyAttemptErrors.value = emptyList()
+        _error.value = null
     }
 
     // 重命名对话标题
