@@ -1107,9 +1107,9 @@ internal fun ThinkingParamsExplanationDialog(
                     badgeColor = EchoThinkingColors.none,
                     desc = "跳过思维链推演，以模型原生最高速度直接生成最终回复内容（强制思考模型保持原生工作）。",
                     params = listOf(
-                        "OpenAI / o系列" to "不传 reasoning_effort",
+                        "OpenAI GPT-5.6/6" to "不传 reasoning_effort",
                         "Claude / Anthropic" to "不启用 thinking 模块",
-                        "DeepSeek 官方" to "切换为 deepseek-chat 或原生运行"
+                        "DeepSeek V4" to "不传 reasoning_effort，原生极速直出"
                     )
                 )
 
@@ -1119,7 +1119,7 @@ internal fun ThinkingParamsExplanationDialog(
                     badgeColor = EchoThinkingColors.low,
                     desc = "分配精简思考预算进行关键逻辑检查，低延迟极速响应。",
                     params = listOf(
-                        "OpenAI / o系列" to "reasoning_effort = \"low\"",
+                        "OpenAI GPT-5.6/6" to "reasoning_effort = \"low\"",
                         "Claude / Anthropic" to "thinking.budget_tokens = 2048",
                         "通用兼容 API" to "thinking_effort = \"low\""
                     )
@@ -1131,7 +1131,7 @@ internal fun ThinkingParamsExplanationDialog(
                     badgeColor = EchoThinkingColors.medium,
                     desc = "投入适度思考预算，严密推演逻辑与代码设计（日常最佳平衡点）。",
                     params = listOf(
-                        "OpenAI / o系列" to "reasoning_effort = \"medium\"",
+                        "OpenAI GPT-5.6/6" to "reasoning_effort = \"medium\"",
                         "Claude / Anthropic" to "thinking.budget_tokens = 4096 / 8192",
                         "通用兼容 API" to "thinking_effort = \"medium\""
                     )
@@ -1143,7 +1143,7 @@ internal fun ThinkingParamsExplanationDialog(
                     badgeColor = EchoThinkingColors.high,
                     desc = "投入大量思考预算进行多步论证、边界检查与复杂代码推演。",
                     params = listOf(
-                        "OpenAI / o系列" to "reasoning_effort = \"high\"",
+                        "OpenAI GPT-5.6/6" to "reasoning_effort = \"high\"",
                         "Claude / Anthropic" to "thinking.budget_tokens = 8192 / 16384",
                         "通用兼容 API" to "thinking_effort = \"high\""
                     )
@@ -1155,7 +1155,7 @@ internal fun ThinkingParamsExplanationDialog(
                     badgeColor = EchoThinkingColors.max,
                     desc = "释放最大思考预算上限，全力攻坚高难算法、数学定理与复杂多维哲学推理。",
                     params = listOf(
-                        "OpenAI / o系列" to "reasoning_effort = \"high\" (严格兼容不报错)",
+                        "OpenAI GPT-6" to "reasoning_effort = \"max\"（原生支持 xhigh/max）",
                         "Claude / Anthropic" to "thinking.budget_tokens = 32768 / 64000 (满额)",
                         "通用兼容 API" to "thinking_effort = \"max\""
                     )

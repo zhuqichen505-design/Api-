@@ -596,8 +596,8 @@ class AiRepository(
             provider.contains("DeepSeek", ignoreCase = true) -> listOf(
                 "deepseek-flash",
                 "deepseek-v4-pro",
-                "deepseek-chat",
-                "deepseek-reasoner"
+                "deepseek-v4-flash",
+                "deepseek-chat-v4"
             )
             provider.contains("OpenAI", ignoreCase = true) -> listOf(
                 "gpt-6-astra",
@@ -2323,7 +2323,13 @@ class AiRepository(
     }
 
     private fun normalizeThinkingEffort(effort: String?, config: ApiConfig): String {
-        return normalizeThinkingEffort(effort, if (isDeepSeekConfig(config)) "deepseek" else "openai")
+        // 必须携带模型名走厂商档位映射（config.modelName 已在调用方合并会话级模型），
+        // 否则 ultra/max/xhigh 会在进入 mapThinkingGear 之前被历史安全映射降级为 high
+        return normalizeThinkingEffort(
+            effort,
+            if (isDeepSeekConfig(config)) "deepseek" else "openai",
+            config.modelName
+        )
     }
 
     private fun thinkingBudgetForEffort(effort: String?, configuredBudget: Int): Int {
@@ -2820,9 +2826,8 @@ class AiRepository(
             latestTimelineAnchor = latestTimelineAnchor,
             existingPreferencesAndConstraints = existingPreferencesAndConstraints
         )
-        // 预留合理充裕的生成 Token（兼顾思考模型与主流供应商限制）：
-        // DeepSeek 官方上限 8,192（>8192 报错 400），Anthropic 4096~8192，OpenAI 4096~8192。
-        // 设为 8,192（Haiku 为 4096）可完美包容思考过程同时绝不触发供应商 400 校验越界错误。
+        // 内部滚动摘要调用统一使用保守预算（与 2026 厂商输出上限无关，仅控制摘要生成长度）：
+        // 8,192（Anthropic Haiku 为 4,096）足以容纳完整摘要，并对仅支持旧上限的第三方网关保持兼容。
         val isHaiku = modelName.contains("haiku", ignoreCase = true)
         val completionTokens = when {
             config.apiType == "anthropic" -> if (isHaiku) 4096 else 8192

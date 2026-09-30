@@ -403,8 +403,8 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
             provider.contains("DeepSeek", ignoreCase = true) -> listOf(
                 "deepseek-flash",
                 "deepseek-v4-pro",
-                "deepseek-chat",
-                "deepseek-reasoner"
+                "deepseek-v4-flash",
+                "deepseek-chat-v4"
             )
             provider.contains("OpenAI", ignoreCase = true) -> listOf(
                 "gpt-6-astra",

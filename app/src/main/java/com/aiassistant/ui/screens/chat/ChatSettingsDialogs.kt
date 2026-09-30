@@ -274,8 +274,18 @@ fun ChatSettingsDialog(
         temperature = temperature.coerceIn(0f, tuningProfile.temperatureMax)
     }
     LaunchedEffect(enableThinking, tuningProfile.thinkingEfforts) {
-        if (enableThinking && tuningProfile.thinkingEfforts.isNotEmpty() && thinkingEffort !in tuningProfile.thinkingEfforts.map { it.value }) {
-            thinkingEffort = tuningProfile.thinkingEfforts.first().value
+        val options = tuningProfile.thinkingEfforts
+        if (enableThinking && options.isNotEmpty() && options.none { it.value.equals(thinkingEffort, ignoreCase = true) }) {
+            // 历史档位不在当前厂商档位列表内时，就近收敛到最接近档位（同距取更高档），而非粗暴回落最低档
+            val gearRank = listOf("low", "medium", "high", "xhigh", "ultra", "max")
+            val currentRank = gearRank.indexOfFirst { it.equals(thinkingEffort, ignoreCase = true) }.takeIf { it >= 0 } ?: 1
+            thinkingEffort = options
+                .minWithOrNull(
+                    compareBy(
+                        { option -> kotlin.math.abs(gearRank.indexOfFirst { it.equals(option.value, ignoreCase = true) } - currentRank) },
+                        { option -> -gearRank.indexOfFirst { it.equals(option.value, ignoreCase = true) } }
+                    )
+                )?.value ?: options.first().value
         }
     }
     var pendingCropUri by remember { mutableStateOf<Uri?>(null) }
@@ -390,7 +400,7 @@ fun ChatSettingsDialog(
                         ) {
                             Text("思考模式", style = MaterialTheme.typography.titleSmall, color = dialogContentColor)
                             Text(
-                                "支持时会传入真实思考参数；DeepSeek 官方 chat 会改用 reasoner",
+                                "支持时按厂商协议传入 reasoning_effort，档位与采样参数随模型自动适配",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = dialogSecondaryColor
                             )

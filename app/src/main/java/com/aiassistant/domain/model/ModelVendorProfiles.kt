@@ -239,7 +239,7 @@ object ModelVendorProfiles {
         val normalized = when (raw?.lowercase(Locale.ROOT)?.trim()) {
             null, "", "none", "off", "disabled" -> policy.defaultThinkingGear
             "fast", "minimal", "light", "low" -> "low"
-            "balanced", "medium", "mid" -> if ("medium" in gears) "medium" else gears.first()
+            "balanced", "medium", "mid" -> if ("medium" in gears) "medium" else "high"
             "deep", "high" -> "high"
             "xhigh", "very_high" -> if ("xhigh" in gears) "xhigh" else "high"
             "max", "ultra", "ultra_high", "highest" -> "max"

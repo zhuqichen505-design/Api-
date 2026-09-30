@@ -2,6 +2,40 @@
 
 本文档按照工作流规范记录每次版本更新、需求变更与复核结果。
 
+## [2026-09-30] - v2.5.8 源码修订（未发版）：厂商思考档位请求链路修复与过时残留清理
+
+### 1. 需求
+对「2026 模型厂商适配」提交（fddcd24）进行独立审核后修复所发现的缺陷：厂商思考档位在真实请求链路中失效（P0）、三档厂商 medium 映射错误（P2）、以及 o 系列 / deepseek-chat/reasoner 等过时模型残留（P3）。
+
+### 2. 问题与修复
+1. **P0 档位降级（请求链路失效）**：`resolveChatRequestOptions` 调用不带模型名的历史安全映射，把 UI 存储的最高档 `ultra`（对应厂商 `max`）与 `xhigh` 统一压成 `high`，导致 `mapThinkingGear` 收到的永远是已降级值——任何厂商选最高档实际都只发 `reasoning_effort = "high"`。修复：私有包装 `normalizeThinkingEffort(effort, config)` 现携带 `config.modelName` 走厂商档位映射（调用方已合并会话级模型名）；模型名完全缺失时保留历史安全映射兜底不变。
+2. **P2 medium 死代码**：`ModelVendorProfiles.mapThinkingGear` 中 `medium → gears.first()` 使「medium→high」回退分支永不可达，GLM-5.3/Kimi K3（仅 low/high/max 三档）选「平衡」被错发 `low`。修复：无 medium 档的厂商就近收敛为 `high`。
+3. **P2 档位重置粗暴回落**：聊天调参弹窗（ChatSettingsDialogs）在历史档位不在当前厂商档位列表时直接回落到最低档 `low`；角色扮演调参弹窗（StoryUnifiedSettingsDialog）则会出现「无选中项」。修复：两处统一改为「就近收敛、同距取更高档」。
+4. **P3 过时残留清理**：
+   - 预设模型列表（AiRepository / ChatViewModel 两处）移除 R1 时代命名 `deepseek-chat` / `deepseek-reasoner`，对齐 V4 世代（`deepseek-v4-flash` / `deepseek-chat-v4`）；
+   - 思考模式提示文案删除「DeepSeek 官方 chat 会改用 reasoner」（R1 时代行为，运行时切换早已移除）；
+   - 思考参数说明弹窗五处厂商标签「OpenAI / o系列」更新为「OpenAI GPT-5.6/6」，max 档说明由「降级为 high 严格兼容」更正为「GPT-6 原生支持 xhigh/max」；
+   - API 配置页默认模型占位示例 `deepseek-chat / gpt-4o` 更新为 `deepseek-v4-pro / gpt-6-astra`；
+   - 内部滚动摘要处的过时注释（「DeepSeek 官方上限 8,192」）更正为与厂商 2026 输出上限无关的内部保守预算说明（行为不变）。
+
+### 3. 改动文件清单
+- `app/src/main/java/com/aiassistant/data/repository/AiRepository.kt`：normalizeThinkingEffort 包装携带模型名；DeepSeek 预设列表对齐 V4；滚动摘要注释勘误
+- `app/src/main/java/com/aiassistant/domain/model/ModelVendorProfiles.kt`：mapThinkingGear 的 medium 回退改 high
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatSettingsDialogs.kt`：档位重置就近收敛；思考模式提示文案更新
+- `app/src/main/java/com/aiassistant/ui/screens/chat/story/StoryUnifiedSettingsDialog.kt`：新增档位就近收敛，消除无选中项
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatViewModel.kt`：DeepSeek 预设列表对齐 V4
+- `app/src/main/java/com/aiassistant/ui/screens/chat/ChatInputComponents.kt`：思考参数说明 o 系列标签与 max 档说明更新
+- `app/src/main/java/com/aiassistant/ui/screens/settings/SettingsApiConfigDialog.kt`：默认模型占位示例更新
+- `app/src/test/java/com/aiassistant/ModernModelAdaptation2026Test.kt`：新增 testRequestChainPreservesTopGearsAndMediumFallback 回归测试
+- `UPDATE_LOG.md` / `CHANGELOG.md`：留痕
+
+### 4. 验证
+- `compileDebugKotlin`：Exit Code 0。
+- `testDebugUnitTest`：451 项单元测试全部通过、0 失败（Exit Code 0），含新增回归测试。
+- 未构建 APK、未递增版本号（用户未要求打包；v2.5.8 修订随下一版本发布）。
+
+---
+
 ## [2026-09-29] - v2.5.7+ 模型厂商级适配（未发版）：GPT/MiniMax/Kimi/DeepSeek/Gemini/GLM/MiMo 思考档位与参数策略
 
 ### 1. 需求

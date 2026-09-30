@@ -744,7 +744,7 @@ fun ApiConfigDialog(
                             title = "此 API 的默认模型",
                             value = modelName,
                             onValueChange = { modelName = it },
-                            placeholder = "例如: deepseek-chat / gpt-4o"
+                            placeholder = "例如: deepseek-v4-pro / gpt-6-astra"
                         )
                         Text(
                             text = "新对话会先使用标记为“新对话默认API”的配置，再使用这里设置的默认模型。",

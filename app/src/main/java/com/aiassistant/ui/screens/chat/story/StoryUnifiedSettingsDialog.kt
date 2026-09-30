@@ -263,6 +263,21 @@ fun StoryUnifiedSettingsDialog(
     val tuningProfile = remember(currentOption, fallbackModel, enableThinking) {
         chatTuningProfile(currentOption, fallbackModel, enableThinking)
     }
+    LaunchedEffect(enableThinking, tuningProfile.thinkingEfforts) {
+        val options = tuningProfile.thinkingEfforts
+        if (enableThinking && options.isNotEmpty() && options.none { it.value.equals(thinkingEffort, ignoreCase = true) }) {
+            // 历史档位不在当前厂商档位列表内时，就近收敛到最接近档位（同距取更高档），避免出现无选中项
+            val gearRank = listOf("low", "medium", "high", "xhigh", "ultra", "max")
+            val currentRank = gearRank.indexOfFirst { it.equals(thinkingEffort, ignoreCase = true) }.takeIf { it >= 0 } ?: 1
+            thinkingEffort = options
+                .minWithOrNull(
+                    compareBy(
+                        { option -> kotlin.math.abs(gearRank.indexOfFirst { it.equals(option.value, ignoreCase = true) } - currentRank) },
+                        { option -> -gearRank.indexOfFirst { it.equals(option.value, ignoreCase = true) } }
+                    )
+                )?.value ?: options.first().value
+        }
+    }
 
     EchoGlassDialog(
         hazeState = hazeState,

@@ -108,6 +108,33 @@ class ModernModelAdaptation2026Test {
     }
 
     @Test
+    fun testRequestChainPreservesTopGearsAndMediumFallback() {
+        // P0 回归：UI 以 ultra 存储最高档，请求链路归一化（携带模型名）后必须保留厂商最高档，
+        // 不得在进入厂商映射前被历史安全映射降级为 high
+        assertEquals("max", TokenEstimationHelper.normalizeThinkingEffort("ultra", "openai", "gpt-6-astra"))
+        assertEquals("max", TokenEstimationHelper.normalizeThinkingEffort("ultra", "openai", "kimi-k3"))
+        assertEquals("max", TokenEstimationHelper.normalizeThinkingEffort("ultra", "openai", "glm-5.3"))
+        assertEquals("xhigh", TokenEstimationHelper.normalizeThinkingEffort("xhigh", "openai", "gpt-6-luna"))
+        assertEquals("high", TokenEstimationHelper.normalizeThinkingEffort("xhigh", "openai", "kimi-k3"))
+
+        // P2 回归：仅 low/high/max 三档厂商（GLM/Kimi）选「平衡(medium)」必须就近收敛为 high，而非 low
+        val glmPolicy = com.aiassistant.domain.model.ModelVendorProfiles.policyFor("glm-5.3")
+        assertEquals("high", com.aiassistant.domain.model.ModelVendorProfiles.mapThinkingGear("medium", glmPolicy))
+        assertEquals("high", TokenEstimationHelper.normalizeThinkingEffort("medium", "openai", "kimi-k3"))
+        assertEquals("high", TokenEstimationHelper.normalizeThinkingEffort("medium", "openai", "glm-5.3"))
+        // 四档厂商 medium 原样保留
+        assertEquals("medium", TokenEstimationHelper.normalizeThinkingEffort("medium", "openai", "deepseek-v4-pro"))
+
+        // 未识别模型名：默认统一方案（low/medium/high/max），最高档保留
+        assertEquals("max", TokenEstimationHelper.normalizeThinkingEffort("ultra", "openai", "some-unknown-model"))
+        assertEquals("medium", TokenEstimationHelper.normalizeThinkingEffort("medium", "openai", "some-unknown-model"))
+
+        // 完全无模型名：历史安全映射兜底不变（max/ultra→high）
+        assertEquals("high", TokenEstimationHelper.normalizeThinkingEffort("ultra", "openai"))
+        assertEquals("high", TokenEstimationHelper.normalizeThinkingEffort("xhigh", "openai"))
+    }
+
+    @Test
     fun testVisionSupportFor2026Models() {
         assertTrue(FileUtils.supportsImageInput("gpt-6-astra"))
         assertTrue(FileUtils.supportsImageInput("gemini-3.8-flash"))
