@@ -71,7 +71,7 @@ import androidx.compose.ui.platform.LocalUriHandler
 import com.aiassistant.ui.components.EchoDoubleArcRing
 import com.aiassistant.ui.components.EchoPulseRing
 import com.aiassistant.ui.components.EchoTextToolbar
-import com.aiassistant.ui.components.EchoWaveDots
+import com.aiassistant.ui.components.EchoThinkingDots
 import com.aiassistant.ui.components.EchoTextToolbarHost
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.painterResource
@@ -625,9 +625,10 @@ internal fun MessageBubble(
                     )
                 }
 
-                // 审核 A4：等待期（正文空白）由波浪点表达"活着"；流式期改由呼吸光标承担，避免双重指示
+                // 审核 A4：等待期（正文空白）由呼吸光环点表达"活着"；流式期改由呼吸光标承担，避免双重指示
+                // 配色与光标/脉冲环同源（generationAccentColor），不再使用正文文本色
                 if (isGenerating && message.content.isBlank()) {
-                    TypingIndicator(textColor = contentColor)
+                    TypingIndicator(accentColor = generationAccentColor)
                 }
             }
         }
@@ -1764,13 +1765,13 @@ internal fun ChatAvatar(
 
 @Composable
 fun TypingIndicator(
-    textColor: androidx.compose.ui.graphics.Color
+    accentColor: androidx.compose.ui.graphics.Color
 ) {
-    // P1-4 重写：三点波浪跳动（Canvas 绘制，一次组合、零重组、零字符串分配），
-    // 颜色消费调用方内容色，替代原「●○○」文本轮播的每 400ms 一次 Text 重组与硬编码色
-    EchoWaveDots(
-        color = textColor,
-        modifier = Modifier.width(30.dp).height(14.dp)
+    // 重新设计：呼吸光环点（Canvas 绘制，一次组合、零重组、零每帧分配），
+    // 配色消费 generationAccentColor，与流式光标/脉冲环同源；尺寸加大以容纳光环扩散
+    EchoThinkingDots(
+        color = accentColor,
+        modifier = Modifier.width(34.dp).height(18.dp)
     )
 }
 

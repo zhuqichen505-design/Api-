@@ -2,6 +2,28 @@
 
 本文档按照工作流规范记录每次版本更新、需求变更与复核结果。
 
+## [2026-10-01] - 流式等待加载动画重新设计：呼吸光环点（非发版）
+
+### 1. 用户需求
+用户反馈流式输出的加载动画不够好看，要求重新设计。
+
+### 2. 临时实施方案与实现
+- **现状与问题**：等待首 token 期间的加载动画为 `TypingIndicator → EchoWaveDots`——三个 3dp 圆点做简单的「上浮-回落」波浪（30dp×14dp），运动形态单一、无层次感，且使用正文文本色，与流式光标的强调色体系不一致；
+- **改动思路**：新设计「呼吸光环点」（`EchoThinkingDots`）——三个圆点按相位差（0.24）做呼吸脉冲：点亮时柔和放大（+38%）提亮（alpha 0.30→1.0），身后同步扩散一圈渐隐光环（1.4r→3.0r，alpha 0.26→0）；脉冲压缩在周期前 55%、后 45% 静息，节奏从容；配色改吃 `generationAccentColor`（思考模型取思考档位色、普通模型取 primary），与流式光标、脉冲环同源（P0-1②/P0-2②）；
+- **性能约束不变**：单 `InfiniteTransition` + Canvas 仅 draw 阶段读取动画值，零重组、零每帧分配（R-3/R-7）；reduced motion 退化为静态三点（alpha 0.30）；动画周期入 `EchoMotion.Cycle.thinkingDots = 1500` 令牌（替换 `typingDots`）；
+- **涉及文件**：`EchoConnectionIndicator.kt`（新增 `EchoThinkingDots`，移除仅被 TypingIndicator 使用的 `EchoWaveDots`）、`EchoMotion.kt`（Cycle 令牌）、`ChatMessageComponents.kt`（TypingIndicator 换组件换色、调用点传 generationAccentColor）；
+- **影响面**：仅「生成中且正文空白」等待期视觉；流式期呼吸光标逻辑不动；无 DB/版本变更；
+- **验证方式**：compile/test/lint/diff --check 四件套。
+
+### 3. 验证结果
+- `./gradlew.bat compileDebugKotlin --no-daemon` Exit Code 0
+- `./gradlew.bat testDebugUnitTest --no-daemon` Exit Code 0（全量通过，无新增测试——纯 Canvas 视觉组件，引用点全仓仅 3 处已逐一更新）
+- `./gradlew.bat lintDebug --no-daemon` Exit Code 0
+- `git diff --check` Exit Code 0
+- 未执行真机验证（无设备）；人工验收：发起新对话，观察首 token 到达前气泡内的三点呼吸光环动画（颜色 = 思考档位色或主题 primary），开启系统「移除动画」后应为静态三点。
+
+---
+
 ## [2026-10-01] - v2.6.6 修复新建对话发送消息闪退（LC 窗口空区间 coerceIn）并全仓加固同类风险
 
 ### 1. 用户需求

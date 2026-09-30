@@ -37,7 +37,7 @@ object EchoMotion {
     object Cycle {
         const val pulse = 1600        // 连接脉冲环呼吸周期
         const val reconnectArc = 1200 // 重连双弧旋转一圈
-        const val typingDots = 1200   // 打字点波浪周期
+        const val thinkingDots = 1500 // 思考等待「呼吸光环点」单点脉冲周期
         const val shimmer = 1500      // 骨架屏高光扫描周期
     }
 

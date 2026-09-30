@@ -41,6 +41,14 @@
 
 ## 二、最近一次执行记录
 
+### [2026-10-01] 流式等待加载动画重新设计：呼吸光环点（非发版）
+- **需求**：流式输出的加载动画不够好看，重新设计。
+- **版本**：versionCode 162 / versionName 2.6.6 / Room v31（均无变更，未发版）。
+- **实现要点**：`EchoWaveDots`（三点波浪、文本色）→ `EchoThinkingDots`（呼吸光环点）：相位错开呼吸脉冲（放大+38%、提亮、身后光环 1.4r→3.0r 扩散渐隐），脉冲占周期前 55%、余下静息；配色改吃 `generationAccentColor` 与光标/脉冲环同源；周期入 `EchoMotion.Cycle.thinkingDots=1500`；单 InfiniteTransition + Canvas 仅 draw 阶段读取、reduced motion 静态降级（R-3/R-7 不变）。
+- **文件**：`EchoConnectionIndicator.kt`、`EchoMotion.kt`、`ChatMessageComponents.kt` 及文档。
+- **验证**：compile/test/lint/diff --check 全部 Exit Code 0；无真机，人工验收：新对话首 token 前观察气泡内呼吸光环动画（思考档位色/primary），系统「移除动画」下为静态三点。
+- **详情**：见 `UPDATE_LOG.md`。
+
 ### [2026-10-01] v2.6.6 修复新建对话发送消息闪退（LC 窗口空区间 coerceIn）（发版）
 - **需求**：新建对话发送消息后应用直接闪退（严重 bug），立即修复并全仓排查同类问题。
 - **版本**：versionCode 162 / versionName 2.6.6 / Room v31（无变更）。

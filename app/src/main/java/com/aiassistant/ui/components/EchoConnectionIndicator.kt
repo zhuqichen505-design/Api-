@@ -112,48 +112,62 @@ fun EchoDoubleArcRing(
 }
 
 /**
- * Echo 思考档位波浪点（供 TypingIndicator 复用的绘制核）
- * 三个圆点按相位差做"上浮-回落"波浪，透明度同步呼吸——iMessage 风格。
- * 单 InfiniteTransition + Canvas：一次组合、零重组、零字符串分配（R-3/R-7）。
+ * Echo 思考等待指示器「呼吸光环点」（替代原波浪点，供 TypingIndicator 使用）
+ * 三个圆点按相位差做呼吸脉冲：点亮时柔和放大、提亮，身后同步扩散出一圈渐隐光环，
+ * 脉冲只占周期前 55%、余下时间静息，节奏从容，表达"正在思考/等待首 token"。
+ *
+ * 配色约定：消费 generationAccentColor（思考模型取思考档位色，否则 primary），
+ * 与流式光标、脉冲环同源（P0-1②/P0-2②）。
+ *
+ * 性能约束（R-3/R-7）：单 InfiniteTransition + Canvas，动画值仅在 draw 阶段读取，
+ * 零重组、零每帧对象分配。reduced motion 时退化为静态三点。
  */
 @Composable
-fun EchoWaveDots(
+fun EchoThinkingDots(
     color: Color,
     modifier: Modifier = Modifier,
-    dotRadius: Dp = 3.dp,
-    lift: Dp = 3.dp
+    dotRadius: Dp = 2.8.dp
 ) {
     val reduced = rememberReducedMotion()
-    // 检查报告 P3-2：reduced motion 下条件创建（t 固定 0.5f → 三点静止居中）
+    // 检查报告 P3-2：reduced motion 下条件创建 InfiniteTransition，避免帧回调空转
     val t: Float = if (reduced) {
-        0.5f
+        0f
     } else {
-        val transition = rememberInfiniteTransition(label = "echoWaveDots")
+        val transition = rememberInfiniteTransition(label = "echoThinkingDots")
         val v by transition.animateFloat(
             initialValue = 0f,
             targetValue = 1f,
-            animationSpec = EchoMotion.linearCycleSpec(EchoMotion.Cycle.typingDots),
+            animationSpec = EchoMotion.linearCycleSpec(EchoMotion.Cycle.thinkingDots),
             label = "dotPhase"
         )
         v
     }
     Canvas(modifier) {
         val r = dotRadius.toPx()
-        val liftPx = lift.toPx()
-        val gap = r * 2.8f
+        val gap = r * 3.4f
         val totalWidth = gap * 2
         val centerY = size.height / 2f
         repeat(3) { i ->
             val x = size.width / 2f - totalWidth / 2f + i * gap
-            val phase = (t - i * 0.18f).mod(1f)
-            // cos(2π·phase)：1→0→1，取反得 0→1→0 平滑上浮回落
-            val wave = 1f - (0.5f - 0.5f * cos((phase * 2.0 * PI).toFloat()))
-            val dotY = centerY - wave * liftPx
-            val alpha = 0.4f + 0.6f * (1f - wave)
+            // 相位错开：三点依次点亮；reduced 时 t=0 全部处于静息相位
+            val phase = (t - i * 0.24f).mod(1f)
+            // 呼吸窗：脉冲压缩在周期前 55%（0→1），后 45% 静息（固定 1，alpha 归零）
+            val pulsePhase = (phase / 0.55f).coerceIn(0f, 1f)
+            val wave = if (reduced) 0f else 0.5f - 0.5f * cos((pulsePhase * 2.0 * PI).toFloat())
+            // 光环：随脉冲进程线性扩散（1.4r→3.0r）、线性渐隐，静息相位 alpha 为 0 不绘制
+            val haloAlpha = 0.26f * (1f - pulsePhase)
+            if (haloAlpha > 0.004f) {
+                drawCircle(
+                    color = color.copy(alpha = haloAlpha),
+                    radius = r * (1.4f + 1.6f * pulsePhase),
+                    center = Offset(x, centerY)
+                )
+            }
+            // 主体点：呼吸式放大 + 提亮
             drawCircle(
-                color = color.copy(alpha = alpha),
-                radius = r,
-                center = Offset(x, dotY)
+                color = color.copy(alpha = 0.30f + 0.70f * wave),
+                radius = r * (1f + 0.38f * wave),
+                center = Offset(x, centerY)
             )
         }
     }
