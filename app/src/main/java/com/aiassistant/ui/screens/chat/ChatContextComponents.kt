@@ -359,7 +359,8 @@ internal fun ContextUsageDialog(
     onCompress: () -> Unit,
     onGenerateRollingSummary: () -> Unit = {},
     onEditRollingSummary: (() -> Unit)? = null,
-    onSelectCompressionTier: ((com.aiassistant.domain.model.CompressionTier, Int) -> Unit)? = null
+    onSelectCompressionTier: ((com.aiassistant.domain.model.CompressionTier, Int, Int) -> Unit)? = null,
+    onPreviewCompressionSettings: ((Int, Int) -> Unit)? = null
 ) {
     val usage = state.usage
 
@@ -413,7 +414,8 @@ internal fun ContextUsageDialog(
                     item {
                         ContextCompressionTierSelectorCard(
                             usage = usage,
-                            onApplyTier = onSelectCompressionTier
+                            onApplyTier = onSelectCompressionTier,
+                            onPreviewSettingsChanged = onPreviewCompressionSettings
                         )
                     }
                     if (onUpdateContextLimit != null) {
@@ -1152,14 +1154,26 @@ internal fun RollingSummaryEditDialog(
 @Composable
 internal fun ContextCompressionTierSelectorCard(
     usage: com.aiassistant.domain.model.ConversationContextUsage,
-    onApplyTier: ((com.aiassistant.domain.model.CompressionTier, Int) -> Unit)?
+    onApplyTier: ((com.aiassistant.domain.model.CompressionTier, Int, Int) -> Unit)?,
+    onPreviewSettingsChanged: ((Int, Int) -> Unit)? = null
 ) {
     var selectedTier by remember(usage.compressionTier) { mutableStateOf(usage.compressionTier) }
     var l2Rounds by remember(usage.compressionRecentRounds) { mutableIntStateOf(usage.compressionRecentRounds) }
+    var customPercent by remember(usage.compressionCustomPercent) {
+        mutableIntStateOf(
+            usage.compressionCustomPercent.coerceIn(
+                com.aiassistant.domain.model.CompressionTierPolicy.MIN_CUSTOM_RETAIN_PERCENT,
+                com.aiassistant.domain.model.CompressionTierPolicy.MAX_CUSTOM_RETAIN_PERCENT
+            )
+        )
+    }
     var confirmedTier by remember(usage.compressionTier) { mutableStateOf(usage.compressionTier) }
     var confirmedRounds by remember(usage.compressionRecentRounds) { mutableIntStateOf(usage.compressionRecentRounds) }
+    var confirmedPercent by remember(usage.compressionCustomPercent) { mutableIntStateOf(usage.compressionCustomPercent) }
 
-    val hasPendingChange = selectedTier != confirmedTier || (selectedTier == com.aiassistant.domain.model.CompressionTier.L2 && l2Rounds != confirmedRounds)
+    val hasPendingChange = selectedTier != confirmedTier ||
+        (selectedTier == com.aiassistant.domain.model.CompressionTier.L2 && l2Rounds != confirmedRounds) ||
+        (selectedTier == com.aiassistant.domain.model.CompressionTier.LC && customPercent != confirmedPercent)
     val currentPreview = usage.tierPreviews.firstOrNull { it.tier == selectedTier }
 
     Surface(
@@ -1335,8 +1349,55 @@ internal fun ContextCompressionTierSelectorCard(
                                     Slider(
                                         value = l2Rounds.toFloat(),
                                         onValueChange = { l2Rounds = it.toInt() },
+                                        onValueChangeFinished = {
+                                            onPreviewSettingsChanged?.invoke(l2Rounds, customPercent)
+                                        },
                                         valueRange = 4f..32f,
                                         steps = 27,
+                                        modifier = Modifier.fillMaxWidth().heightIn(min = 36.dp)
+                                    )
+                                }
+                            }
+
+                            // LC 自定义比例档：保留原文的百分比滑动选择 (10~90，步长 5)
+                            if (tier == com.aiassistant.domain.model.CompressionTier.LC && isSelected) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 6.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "保留原文百分比：",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        Text(
+                                            text = "保留 $customPercent% 原文（约压缩 ${100 - customPercent}%）",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                    Slider(
+                                        value = customPercent.toFloat(),
+                                        onValueChange = { value ->
+                                            customPercent = (Math.round(value / com.aiassistant.domain.model.CompressionTierPolicy.STEP_CUSTOM_RETAIN_PERCENT) *
+                                                com.aiassistant.domain.model.CompressionTierPolicy.STEP_CUSTOM_RETAIN_PERCENT)
+                                                .coerceIn(
+                                                    com.aiassistant.domain.model.CompressionTierPolicy.MIN_CUSTOM_RETAIN_PERCENT,
+                                                    com.aiassistant.domain.model.CompressionTierPolicy.MAX_CUSTOM_RETAIN_PERCENT
+                                                )
+                                        },
+                                        onValueChangeFinished = {
+                                            onPreviewSettingsChanged?.invoke(l2Rounds, customPercent)
+                                        },
+                                        valueRange = com.aiassistant.domain.model.CompressionTierPolicy.MIN_CUSTOM_RETAIN_PERCENT.toFloat()
+                                            ..com.aiassistant.domain.model.CompressionTierPolicy.MAX_CUSTOM_RETAIN_PERCENT.toFloat(),
                                         modifier = Modifier.fillMaxWidth().heightIn(min = 36.dp)
                                     )
                                 }
@@ -1360,40 +1421,60 @@ internal fun ContextCompressionTierSelectorCard(
                 ) {
                     Column(
                         modifier = Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Text(
-                            text = "前后对比预览（确认后生效）",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-
                         Row(
                             modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                text = "原档位：${usage.compressionTier.displayName} (~${usage.estimatedInputTokens} Tokens)",
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                            Text(
-                                text = "新档位：${selectedTier.displayName} (~${currentPreview?.estimatedTokens ?: 0} Tokens)",
-                                style = MaterialTheme.typography.bodySmall,
+                                text = "前后对比预览（确认后生效）",
+                                style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.primary
                             )
+                            if ((currentPreview?.tokensSaved ?: 0) > 0) {
+                                Surface(
+                                    shape = RoundedCornerShape(999.dp),
+                                    color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.15f)
+                                ) {
+                                    Text(
+                                        text = "预计释放 ~${currentPreview?.tokensSaved} T (-${((currentPreview?.savingsPercent ?: 0f) * 100).toInt()}%)",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.tertiary,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
                         }
 
-                        if ((currentPreview?.tokensSaved ?: 0) > 0) {
-                            Text(
-                                text = "预计释放约 ${currentPreview?.tokensSaved} Tokens (约 -${((currentPreview?.savingsPercent ?: 0f) * 100).toInt()}%)",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.tertiary,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
+                        // 双条形对比：当前档位 vs 新档位（长度按基线归一化，直观呈现压缩幅度）
+                        val baselineTokens = usage.estimatedInputTokens.coerceAtLeast(1)
+                        ComparisonBarRow(
+                            label = "当前 · ${usage.compressionTier.displayName}",
+                            tokens = usage.estimatedInputTokens,
+                            fraction = 1f,
+                            barColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.75f),
+                            valueColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
+                        )
+                        ComparisonBarRow(
+                            label = "新档 · ${selectedTier.displayName}",
+                            tokens = currentPreview?.estimatedTokens ?: 0,
+                            fraction = ((currentPreview?.estimatedTokens ?: 0).toFloat() / baselineTokens)
+                                .coerceIn(0.03f, 1f),
+                            barColor = MaterialTheme.colorScheme.primary,
+                            valueColor = MaterialTheme.colorScheme.primary,
+                            highlight = true
+                        )
 
+                        Text(
+                            text = "保留策略：${currentPreview?.retainedRoundsDesc ?: selectedTier.shortDesc}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontWeight = FontWeight.Medium
+                        )
                         Text(
                             text = "修剪策略：${selectedTier.detailLossNote}",
                             style = MaterialTheme.typography.bodySmall,
@@ -1406,9 +1487,10 @@ internal fun ContextCompressionTierSelectorCard(
                         ) {
                             Button(
                                 onClick = {
-                                    onApplyTier?.invoke(selectedTier, l2Rounds)
+                                    onApplyTier?.invoke(selectedTier, l2Rounds, customPercent)
                                     confirmedTier = selectedTier
                                     confirmedRounds = l2Rounds
+                                    confirmedPercent = customPercent
                                 },
                                 shape = RoundedCornerShape(8.dp),
                                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
@@ -1421,6 +1503,57 @@ internal fun ContextCompressionTierSelectorCard(
                     }
                 }
             }
+        }
+    }
+}
+
+/** 前后对比预览的单行对比条：标签 + 归一化长度条 + Token 数 */
+@Composable
+private fun ComparisonBarRow(
+    label: String,
+    tokens: Int,
+    fraction: Float,
+    barColor: Color,
+    valueColor: Color,
+    highlight: Boolean = false
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = if (highlight) FontWeight.Bold else FontWeight.Normal,
+                color = valueColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "~$tokens T",
+                style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.SansSerif),
+                fontWeight = if (highlight) FontWeight.Bold else FontWeight.Medium,
+                color = valueColor
+            )
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(7.dp)
+                .clip(RoundedCornerShape(3.5.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(fraction)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(3.5.dp))
+                    .background(barColor)
+            )
         }
     }
 }

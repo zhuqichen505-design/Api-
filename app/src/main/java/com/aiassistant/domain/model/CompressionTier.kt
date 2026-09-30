@@ -39,6 +39,12 @@ enum class CompressionTier(
         displayName = "极限压缩",
         shortDesc = "保留系统提示 + 记忆/固定事实 + 最近 8 轮原文",
         detailLossNote = "仅保留系统提示词、会话记忆与固定事实，并仅保留最近 8 轮原文。"
+    ),
+    LC(
+        level = 5,
+        displayName = "自定义比例",
+        shortDesc = "保留最近 X% 消息原文，其余合并为摘要",
+        detailLossNote = "按自定义百分比保留最近一段消息原文（预算内尽可能保留），更早历史交由摘要承载。"
     );
 
     companion object {
@@ -47,6 +53,7 @@ enum class CompressionTier(
             2 -> L2
             3 -> L3
             4 -> L4
+            5 -> LC
             else -> L0
         }
     }
@@ -73,6 +80,12 @@ object CompressionTierPolicy {
     const val DEFAULT_L2_RECENT_ROUNDS = 8
     const val MIN_L2_RECENT_ROUNDS = 4
     const val MAX_L2_RECENT_ROUNDS = 32
+
+    /** LC 自定义比例档：保留原文的消息条数占总消息数的百分比（10~90，步长 5） */
+    const val DEFAULT_CUSTOM_RETAIN_PERCENT = 30
+    const val MIN_CUSTOM_RETAIN_PERCENT = 10
+    const val MAX_CUSTOM_RETAIN_PERCENT = 90
+    const val STEP_CUSTOM_RETAIN_PERCENT = 5
 
     const val DEFAULT_THRESHOLD_L2 = 0.75f
     const val DEFAULT_THRESHOLD_L3 = 0.85f
@@ -120,6 +133,7 @@ object CompressionTierPolicy {
             CompressionTier.L1 -> CompressionTier.L2
             CompressionTier.L2 -> CompressionTier.L3
             CompressionTier.L3 -> CompressionTier.L4
+            CompressionTier.LC -> CompressionTier.L4 // 自定义比例档仍溢出时按既定阶梯降到极限档
             CompressionTier.L4 -> null // 已是极限档位
         }
     }
@@ -127,13 +141,18 @@ object CompressionTierPolicy {
     /**
      * 获取指定档位推荐保留的轮数描述
      */
-    fun getRetainedRoundsDesc(tier: CompressionTier, l2Rounds: Int = DEFAULT_L2_RECENT_ROUNDS): String {
+    fun getRetainedRoundsDesc(
+        tier: CompressionTier,
+        l2Rounds: Int = DEFAULT_L2_RECENT_ROUNDS,
+        customRetainPercent: Int = DEFAULT_CUSTOM_RETAIN_PERCENT
+    ): String {
         return when (tier) {
             CompressionTier.L0 -> "全部轮次完整保留"
             CompressionTier.L1 -> "全部轮次保留（轻量修剪）"
             CompressionTier.L2 -> "保留最近 $l2Rounds 轮原文"
             CompressionTier.L3 -> "保留最近 16 轮原文"
             CompressionTier.L4 -> "保留最近 8 轮原文"
+            CompressionTier.LC -> "保留最近 $customRetainPercent% 消息原文（预算内尽量保留）"
         }
     }
 }

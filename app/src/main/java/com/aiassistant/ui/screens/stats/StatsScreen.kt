@@ -6,6 +6,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
@@ -29,6 +30,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -131,6 +133,13 @@ fun StatsScreen(
     val hourSlices = remember(filteredStats) { filteredStats.toHourSlices() }
     val providerShares = remember(filteredStats) { filteredStats.toProviderShares() }
     val failureSlices = remember(filteredStats) { filteredStats.toFailureSlices() }
+    val modelDonutSlices = remember(filteredStats) { filteredStats.toModelDonutSlices() }
+    val modelTokenSeries = remember(filteredStats, selectedPeriod, refreshKey) {
+        buildModelTokenSeries(filteredStats, selectedPeriod, System.currentTimeMillis())
+    }
+    val healthCells = remember(filteredStats, selectedPeriod, refreshKey) {
+        buildHealthCells(filteredStats, selectedPeriod, System.currentTimeMillis())
+    }
 
     EchoWallpaperBackground(
         backgroundBitmap = statsBackgroundBitmap,
@@ -224,33 +233,30 @@ fun StatsScreen(
                         )
                     }
                 } else {
-                    // 4. Token 构成环形图
+                    // 4. Token 构成环形图（Token 类型 / 模型占比双视图）
                     item {
                         TokenDonutCard(
                             hazeState = hazeState,
                             summary = summary,
+                            modelSlices = modelDonutSlices,
                             readableBackdrop = readableBackdrop
                         )
                     }
 
-                    // 5. Token 消耗可视化堆叠条形图
+                    // 5. 每模型 Token 消耗趋势（平滑折线）
                     item {
                         ChartCard(
                             hazeState = hazeState,
                             title = if (selectedModelFilter != null) "$selectedModelFilter · Token 消耗趋势" else "Token 消耗趋势",
-                            subtitle = "按时间分段统计输入、输出与思考 Token 分布",
-                            readableBackdrop = readableBackdrop,
-                            legend = { chartColors ->
-                                listOf(
-                                    "输入 Token" to chartColors.primary,
-                                    "输出 Token" to chartColors.secondary,
-                                    "思考 Token" to chartColors.tertiary
-                                )
-                            }
+                            subtitle = "按模型分色的平滑曲线，展示各时间分段的 Token 消耗走势",
+                            readableBackdrop = readableBackdrop
                         ) { chartContentColor ->
-                            ModernTokenBars(
+                            ModelTokenTrendChart(
+                                series = modelTokenSeries,
                                 buckets = buckets,
-                                maxToken = niceAxisMax(buckets.maxOfOrNull { it.totalTokens } ?: 0),
+                                maxToken = niceAxisMax(
+                                    modelTokenSeries.flatMap { it.values }.maxOrNull() ?: 0
+                                ),
                                 labelColor = chartContentColor.copy(alpha = 0.72f)
                             )
                         }
@@ -274,7 +280,17 @@ fun StatsScreen(
                         }
                     }
 
-                    // 7. 24 小时调用分布
+                    // 7. 请求健康时间线（热力矩形看板，点击方格查看局部时段明细）
+                    item {
+                        HealthTimelineCard(
+                            hazeState = hazeState,
+                            cells = healthCells,
+                            period = selectedPeriod,
+                            readableBackdrop = readableBackdrop
+                        )
+                    }
+
+                    // 8. 24 小时调用分布
                     item {
                         HourActivityCard(
                             hazeState = hazeState,
@@ -283,7 +299,7 @@ fun StatsScreen(
                         )
                     }
 
-                    // 8. 供应商 Token 占比
+                    // 9. 供应商 Token 占比
                     item {
                         ProviderShareCard(
                             hazeState = hazeState,
@@ -292,7 +308,7 @@ fun StatsScreen(
                         )
                     }
 
-                    // 9. 失败原因归纳（仅存在失败记录时展示）
+                    // 10. 失败原因归纳（仅存在失败记录时展示）
                     if (failureSlices.isNotEmpty()) {
                         item {
                             FailureAnalysisCard(
@@ -304,7 +320,7 @@ fun StatsScreen(
                     }
                 }
 
-                // 10. 模型明细表格
+                // 11. 模型明细表格
                 item {
                     Text(
                         text = "模型统计明细",
@@ -719,6 +735,7 @@ private fun DeltaHintChip(text: String, textColor: Color) {
 private fun TokenDonutCard(
     hazeState: dev.chrisbanes.haze.HazeState,
     summary: UsageSummary,
+    modelSlices: List<DonutSlice>,
     readableBackdrop: Color
 ) {
     val glass = echoGlassPalette()
@@ -728,8 +745,10 @@ private fun TokenDonutCard(
         fallbackSurface = readableBackdrop
     )
     val chartColors = rememberEchoChartColors()
-    val donutSlices = remember(summary) { buildDonutSlices(summary) }
     val paletteColors = listOf(chartColors.primary, chartColors.secondary, chartColors.tertiary, chartColors.quaternary)
+    var donutMode by remember { mutableIntStateOf(0) } // 0: Token 类型构成 1: 模型占比
+    val typeSlices = remember(summary) { buildDonutSlices(summary) }
+    val donutSlices = if (donutMode == 0) typeSlices else modelSlices
     val sweeps = remember(donutSlices) { donutSweepDegrees(donutSlices.map { it.value }) }
     val total = donutSlices.sumOf { it.value }
 
@@ -749,26 +768,66 @@ private fun TokenDonutCard(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Default.PieChart,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Column {
-                    Text(
-                        text = "Token 构成",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = content
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.weight(1f, fill = false)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PieChart,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
                     )
-                    Text(
-                        text = "输入、输出、思考与其他 Token 的占比分布",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = content.copy(alpha = 0.70f)
-                    )
+                    Column {
+                        Text(
+                            text = if (donutMode == 0) "Token 构成" else "Token 构成 · 模型占比",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = content
+                        )
+                        Text(
+                            text = if (donutMode == 0) "输入、输出、思考与其他 Token 的占比分布"
+                            else "各模型消耗的 Token 占比（Top 4 + 其他）",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = content.copy(alpha = 0.70f)
+                        )
+                    }
+                }
+
+                // 维度切换：Token 类型 / 模型占比
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    listOf("Token 类型", "模型占比").forEachIndexed { idx, title ->
+                        val isSelected = donutMode == idx
+                        val chipShape = RoundedCornerShape(8.dp)
+                        Box(
+                            modifier = Modifier
+                                .clip(chipShape)
+                                .background(if (isSelected) glass.controlSelected else glass.control.copy(alpha = 0.6f))
+                                .border(
+                                    BorderStroke(
+                                        if (isSelected) 1.dp else 0.6.dp,
+                                        if (isSelected) glass.outlineSelected else glass.outline.copy(alpha = 0.6f)
+                                    ),
+                                    chipShape
+                                )
+                                .echoShapeClick(chipShape) { donutMode = idx }
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = title,
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                ),
+                                color = if (isSelected) MaterialTheme.colorScheme.primary else content.copy(alpha = 0.72f)
+                            )
+                        }
+                    }
                 }
             }
 
@@ -785,16 +844,18 @@ private fun TokenDonutCard(
                         val stroke = 20.dp.toPx()
                         val inset = stroke / 2f + 2.dp.toPx()
                         val arcSize = Size(size.width - inset * 2f, size.height - inset * 2f)
-                        // 底环：先铺底，彩色切片后画（Compose Canvas 后画者在上）
-                        drawArc(
-                            color = content.copy(alpha = 0.06f),
-                            startAngle = 0f,
-                            sweepAngle = 360f,
-                            useCenter = false,
-                            topLeft = Offset(inset, inset),
-                            size = arcSize,
-                            style = Stroke(width = stroke, cap = StrokeCap.Butt)
-                        )
+                        // 仅在无任何数据时绘制中性底环；有数据时切片连续无缝，杜绝灰色间隔
+                        if (total <= 0) {
+                            drawArc(
+                                color = content.copy(alpha = 0.06f),
+                                startAngle = 0f,
+                                sweepAngle = 360f,
+                                useCenter = false,
+                                topLeft = Offset(inset, inset),
+                                size = arcSize,
+                                style = Stroke(width = stroke, cap = StrokeCap.Butt)
+                            )
+                        }
                         var startAngle = -90f
                         donutSlices.forEachIndexed { index, slice ->
                             val sweep = sweeps.getOrNull(index) ?: 0f
@@ -809,7 +870,7 @@ private fun TokenDonutCard(
                                     style = Stroke(width = stroke, cap = StrokeCap.Butt)
                                 )
                             }
-                            startAngle += sweep + DonutGapDegrees
+                            startAngle += sweep
                         }
                     }
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -850,7 +911,9 @@ private fun TokenDonutCard(
                                 text = slice.label,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = content.copy(alpha = 0.72f),
-                                maxLines = 1
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
                             )
                             Spacer(modifier = Modifier.weight(1f))
                             Text(
@@ -996,18 +1059,36 @@ private fun LegendDot(text: String, color: Color, textColor: Color) {
     }
 }
 
+/** 每模型 Token 消耗趋势：平滑折线（v2.7.0 取代混合柱状样式，参照每日 Token 趋势图设计） */
 @Composable
-private fun ModernTokenBars(buckets: List<Bucket>, maxToken: Int, labelColor: Color) {
-    val chartColors = rememberEchoChartColors() // C-7：深浅双套，深色模式不再刺眼
-    val inputColor = chartColors.primary // 淡天蓝
-    val outputColor = chartColors.secondary // 淡青蓝
-    val thinkingColor = chartColors.tertiary // 淡珊瑚粉
-    val otherColor = chartColors.quaternary // 淡紫
+private fun ModelTokenTrendChart(
+    series: List<ModelTokenSeries>,
+    buckets: List<Bucket>,
+    maxToken: Int,
+    labelColor: Color
+) {
+    val chartColors = rememberEchoChartColors()
+    val palette = listOf(chartColors.primary, chartColors.secondary, chartColors.tertiary, chartColors.quaternary)
     val gridColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
     val plotBackground = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-    val emptyBarColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.20f)
+    val otherColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.9f)
 
     Column {
+        // 顶部图例：模型名 + 颜色点（与每日 Token 趋势图一致）
+        if (series.isNotEmpty()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                series.forEachIndexed { index, s ->
+                    val color = if (s.modelName == "其他") otherColor else palette[index % palette.size]
+                    LegendDot(s.modelName, color, labelColor)
+                }
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+        }
         Row(modifier = Modifier.fillMaxWidth()) {
             AxisLabels(
                 labels = listOf(formatNumber(maxToken), formatNumber(maxToken / 2), "0"),
@@ -1019,85 +1100,73 @@ private fun ModernTokenBars(buckets: List<Bucket>, maxToken: Int, labelColor: Co
                     .weight(1f)
                     .height(180.dp)
             ) {
-                // 背景区域
                 drawRoundRect(
                     color = plotBackground,
                     topLeft = Offset.Zero,
                     size = size,
                     cornerRadius = CornerRadius(14.dp.toPx(), 14.dp.toPx())
                 )
-                // 横向刻度网格线
+                // 横向虚线网格
                 repeat(4) { line ->
                     val y = size.height * line / 3f
-                    drawLine(gridColor, Offset(0f, y), Offset(size.width, y), strokeWidth = 0.8.dp.toPx())
+                    drawLine(
+                        color = gridColor,
+                        start = Offset(0f, y),
+                        end = Offset(size.width, y),
+                        strokeWidth = 0.8.dp.toPx(),
+                        pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
+                            floatArrayOf(8.dp.toPx(), 6.dp.toPx())
+                        )
+                    )
                 }
 
-                if (buckets.isEmpty()) return@Canvas
-                val slot = size.width / buckets.size.coerceAtLeast(1)
-                val barWidth = (slot * 0.60f).coerceIn(8.dp.toPx(), 28.dp.toPx())
-
-                buckets.forEachIndexed { index, bucket ->
-                    val left = slot * index + (slot - barWidth) / 2f
-                    val total = bucket.totalTokens.coerceAtLeast(0)
-
-                    // 空数据绘制微型基准胶囊
-                    if (total <= 0) {
-                        drawRoundRect(
-                            color = emptyBarColor,
-                            topLeft = Offset(left, size.height - 3.dp.toPx()),
-                            size = Size(barWidth, 3.dp.toPx()),
-                            cornerRadius = CornerRadius(1.5.dp.toPx(), 1.5.dp.toPx())
-                        )
-                        return@forEachIndexed
-                    }
-
-                    val fullHeight = (size.height * total / maxToken.coerceAtLeast(1).toFloat())
-                        .coerceIn(4.dp.toPx(), size.height)
-                    var bottom = size.height
-
-                    // 依次堆叠绘制柱体段（带渐变、圆角胶囊帽和光晕）
-                    fun drawBarSegment(value: Int, color: Color, isTopSegment: Boolean) {
-                        if (value <= 0) return
-                        val segmentHeight = (fullHeight * value / total.toFloat()).coerceAtLeast(2.dp.toPx())
-                        val top = bottom - segmentHeight
-                        val corner = if (isTopSegment) CornerRadius(barWidth / 2f, barWidth / 2f) else CornerRadius.Zero
-
-                        drawRoundRect(
-                            brush = Brush.verticalGradient(
-                                colors = listOf(color.copy(alpha = 0.95f), color.copy(alpha = 0.72f)),
-                                startY = top,
-                                endY = top + segmentHeight
-                            ),
-                            topLeft = Offset(left, top),
-                            size = Size(barWidth, segmentHeight),
-                            cornerRadius = corner
-                        )
-
-                        if (isTopSegment) {
-                            // 顶部胶囊帽微光晕
-                            drawCircle(
-                                color = color.copy(alpha = 0.30f),
-                                radius = barWidth * 0.55f,
-                                center = Offset(left + barWidth / 2f, top + (barWidth / 4f).coerceAtMost(segmentHeight / 2f))
-                            )
-                        }
-                        bottom -= segmentHeight
-                    }
-
-                    val hasInput = bucket.inputTokens > 0
-                    val hasOutput = bucket.outputTokens > 0
-                    val hasThinking = bucket.thinkingTokens > 0
-                    val hasOther = bucket.otherTokens > 0
-
-                    drawBarSegment(bucket.otherTokens, otherColor, isTopSegment = !hasInput && !hasOutput && !hasThinking)
-                    drawBarSegment(bucket.thinkingTokens, thinkingColor, isTopSegment = !hasInput && !hasOutput)
-                    drawBarSegment(bucket.outputTokens, outputColor, isTopSegment = !hasInput)
-                    drawBarSegment(bucket.inputTokens, inputColor, isTopSegment = true)
+                series.forEachIndexed { index, s ->
+                    val color = if (s.modelName == "其他") otherColor else palette[index % palette.size]
+                    drawSmoothTokenCurve(s.values, color, maxToken)
                 }
             }
         }
         XAxisLabels(buckets = buckets)
     }
+}
+
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawSmoothTokenCurve(
+    values: List<Int>,
+    color: Color,
+    maxToken: Int
+) {
+    if (values.isEmpty() || maxToken <= 0) return
+    val allZero = values.all { it <= 0 }
+    val points = values.mapIndexed { index, value ->
+        val x = if (values.size == 1) size.width / 2f else size.width * index / (values.size - 1)
+        // 全零序列贴底绘制基准线；否则按比例映射
+        val fraction = if (allZero) 0f else (value.toFloat() / maxToken).coerceIn(0f, 1f)
+        val y = size.height * (1f - fraction)
+        Offset(x, y.coerceIn(1.dp.toPx(), size.height - 1.dp.toPx()))
+    }
+
+    val path = Path()
+    points.forEachIndexed { index, point ->
+        if (index == 0) {
+            path.moveTo(point.x, point.y)
+        } else {
+            val prev = points[index - 1]
+            val midX = (prev.x + point.x) / 2f
+            path.cubicTo(midX, prev.y, midX, point.y, point.x, point.y)
+        }
+    }
+
+    // 发光底层 + 主线条（与成功率曲线同一平滑手法）
+    drawPath(
+        path = path,
+        color = color.copy(alpha = 0.20f),
+        style = Stroke(width = 6.dp.toPx(), cap = StrokeCap.Round)
+    )
+    drawPath(
+        path = path,
+        color = color,
+        style = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round)
+    )
 }
 
 @Composable
@@ -1533,9 +1602,280 @@ private fun FailureAnalysisCard(
     }
 }
 
+/** 请求健康时间线：热力矩形看板（v2.7.0 需求 4e），点选方格查看局部时段的请求数、成功率与 Token 消耗 */
 @Composable
-private fun AxisLabels(labels: List<String>, height: androidx.compose.ui.unit.Dp, color: Color) {
-    Column(
+private fun HealthTimelineCard(
+    hazeState: dev.chrisbanes.haze.HazeState,
+    cells: List<HealthCell>,
+    period: StatsPeriod,
+    readableBackdrop: Color
+) {
+    val glass = echoGlassPalette()
+    val tint = glass.panelStrong
+    val content = readableTextColorFor(
+        background = tint,
+        fallbackSurface = readableBackdrop
+    )
+    val chartColors = rememberEchoChartColors()
+
+    // 健康状态配色（GitHub 贡献图式，深浅主题通用）
+    val healthyColor = Color(0xFF22C55E)
+    val goodColor = Color(0xFFA3E635)
+    val warnColor = Color(0xFFFBBF24)
+    val badColor = Color(0xFFEF4444)
+    val emptyColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.30f)
+
+    var heatMode by remember { mutableIntStateOf(0) } // 0: 健康状态 1: Token 热度
+    var selectedCellIndex by remember(cells) { mutableIntStateOf(-1) }
+    val selectedBorderColor = MaterialTheme.colorScheme.primary
+
+    val columns = 14
+    val rowCount = (cells.size + columns - 1) / columns
+    val cellGap = 3.dp
+    val maxTokens = remember(cells) { cells.maxOfOrNull { it.totalTokens } ?: 0 }
+
+    fun cellColor(cell: HealthCell): Color {
+        if (cell.requestCount <= 0) return emptyColor
+        return if (heatMode == 1) {
+            val t = if (maxTokens > 0) (cell.totalTokens.toFloat() / maxTokens).coerceIn(0f, 1f) else 0f
+            chartColors.primary.copy(alpha = 0.15f + 0.85f * t.pow(0.6f))
+        } else {
+            val rate = 1f - cell.failedCount.toFloat() / cell.requestCount
+            when {
+                rate >= 0.99f -> healthyColor
+                rate >= 0.9f -> goodColor
+                rate >= 0.75f -> warnColor
+                else -> badColor
+            }
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .echoHazePanel(
+                hazeState = hazeState,
+                shape = EchoGlassPagePanelShape,
+                tint = tint,
+                blurRadius = 18.dp
+            )
+            .background(tint, EchoGlassPagePanelShape)
+            .border(BorderStroke(1.dp, glass.outline), EchoGlassPagePanelShape)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.weight(1f, fill = false)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.GridView,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Column {
+                        Text(
+                            text = "请求健康时间线",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = content
+                        )
+                        Text(
+                            text = "${period.label} · 点选方格查看局部时段明细",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = content.copy(alpha = 0.70f)
+                        )
+                    }
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    listOf("健康状态", "Token 热度").forEachIndexed { idx, title ->
+                        val isSelected = heatMode == idx
+                        val chipShape = RoundedCornerShape(8.dp)
+                        Box(
+                            modifier = Modifier
+                                .clip(chipShape)
+                                .background(if (isSelected) glass.controlSelected else glass.control.copy(alpha = 0.6f))
+                                .border(
+                                    BorderStroke(
+                                        if (isSelected) 1.dp else 0.6.dp,
+                                        if (isSelected) glass.outlineSelected else glass.outline.copy(alpha = 0.6f)
+                                    ),
+                                    chipShape
+                                )
+                                .echoShapeClick(chipShape) { heatMode = idx }
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = title,
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                ),
+                                color = if (isSelected) MaterialTheme.colorScheme.primary else content.copy(alpha = 0.72f)
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (cells.isEmpty()) {
+                Text(
+                    text = "当前筛选条件下暂无统计记录",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = content.copy(alpha = 0.6f)
+                )
+            } else {
+                // 热力方格画布（14 列自适应换行）
+                androidx.compose.foundation.layout.BoxWithConstraints(
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    val cellSize = ((maxWidth - cellGap * (columns - 1)) / columns).coerceAtLeast(6.dp)
+                    val gridHeight = cellSize * rowCount + cellGap * (rowCount - 1)
+                    val cellSizePx = with(androidx.compose.ui.platform.LocalDensity.current) { cellSize.toPx() }
+                    val gapPx = with(androidx.compose.ui.platform.LocalDensity.current) { cellGap.toPx() }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(gridHeight)
+                            .pointerInput(cells, heatMode) {
+                                detectTapGestures { offset ->
+                                    val col = (offset.x / (cellSizePx + gapPx)).toInt()
+                                    val row = (offset.y / (cellSizePx + gapPx)).toInt()
+                                    val index = if (col in 0 until columns && row in 0 until rowCount) {
+                                        row * columns + col
+                                    } else -1
+                                    selectedCellIndex = if (index in cells.indices) {
+                                        if (selectedCellIndex == index) -1 else index
+                                    } else -1
+                                }
+                            }
+                    ) {
+                        Canvas(modifier = Modifier.fillMaxSize()) {
+                            cells.forEachIndexed { index, cell ->
+                                val row = index / columns
+                                val col = index % columns
+                                val left = col * (cellSizePx + gapPx)
+                                val top = row * (cellSizePx + gapPx)
+                                val color = cellColor(cell)
+                                drawRoundRect(
+                                    color = color,
+                                    topLeft = Offset(left, top),
+                                    size = Size(cellSizePx, cellSizePx),
+                                    cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx())
+                                )
+                                if (index == selectedCellIndex) {
+                                    drawRoundRect(
+                                        color = selectedBorderColor,
+                                        topLeft = Offset(left, top),
+                                        size = Size(cellSizePx, cellSizePx),
+                                        cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx()),
+                                        style = Stroke(width = 2.dp.toPx())
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 图例
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (heatMode == 1) {
+                        LegendDot("无请求", emptyColor, content.copy(alpha = 0.7f))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "消耗少",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = content.copy(alpha = 0.7f)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(width = 42.dp, height = 9.dp)
+                                    .clip(RoundedCornerShape(4.5.dp))
+                                    .background(
+                                        Brush.horizontalGradient(
+                                            listOf(
+                                                chartColors.primary.copy(alpha = 0.15f),
+                                                chartColors.primary
+                                            )
+                                        )
+                                    )
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "消耗多",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = content.copy(alpha = 0.7f)
+                            )
+                        }
+                    } else {
+                        LegendDot("成功率 ≥99%", healthyColor, content.copy(alpha = 0.7f))
+                        LegendDot("≥90%", goodColor, content.copy(alpha = 0.7f))
+                        LegendDot("≥75%", warnColor, content.copy(alpha = 0.7f))
+                        LegendDot("<75%", badColor, content.copy(alpha = 0.7f))
+                        LegendDot("无请求", emptyColor, content.copy(alpha = 0.7f))
+                    }
+                }
+
+                // 选中方格的局部时段明细
+                androidx.compose.animation.AnimatedVisibility(visible = selectedCellIndex in cells.indices) {
+                    val cell = cells.getOrNull(selectedCellIndex) ?: return@AnimatedVisibility
+                    val rate = if (cell.requestCount > 0) {
+                        formatPercent(1f - cell.failedCount.toFloat() / cell.requestCount)
+                    } else "—"
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
+                        border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = formatHealthCellRange(cell),
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = content
+                            )
+                            if (cell.requestCount <= 0) {
+                                Text(
+                                    text = "该时段暂无请求",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = content.copy(alpha = 0.7f)
+                                )
+                            } else {
+                                Text(
+                                    text = "请求数 ${cell.requestCount} 次 · 成功率 $rate · Token 消耗 ${formatNumber(cell.totalTokens)}" +
+                                        if (cell.failedCount > 0) " · 失败 ${cell.failedCount} 次" else "",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = content.copy(alpha = 0.85f)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AxisLabels(labels: List<String>, height: androidx.compose.ui.unit.Dp, color: Color) {    Column(
         modifier = Modifier
             .width(44.dp)
             .height(height)
@@ -1729,7 +2069,19 @@ private fun ModernModelStatsTable(
                                 Text(
                                     text = "${formatNumber(row.totalTokens)} Tokens",
                                     style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                                    color = MaterialTheme.colorScheme.primary
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = if (sortMode == 0) {
+                                        Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.16f))
+                                            .border(
+                                                BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)),
+                                                RoundedCornerShape(6.dp)
+                                            )
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    } else {
+                                        Modifier
+                                    }
                                 )
                             }
 
@@ -1782,12 +2134,14 @@ private fun ModernModelStatsTable(
                                 MiniStatsChip(
                                     icon = Icons.AutoMirrored.Filled.Send,
                                     label = "${row.requestCount}次请求",
-                                    tint = content.copy(alpha = 0.78f)
+                                    tint = content.copy(alpha = 0.78f),
+                                    isHighlighted = sortMode == 1
                                 )
                                 MiniStatsChip(
                                     icon = Icons.Default.CheckCircle,
                                     label = "成功率 ${formatPercent(row.successRate)}",
-                                    tint = chartColors.secondary
+                                    tint = chartColors.secondary,
+                                    isHighlighted = sortMode == 2
                                 )
                                 if (row.failedCount > 0) {
                                     MiniStatsChip(
@@ -1800,7 +2154,8 @@ private fun ModernModelStatsTable(
                                     MiniStatsChip(
                                         icon = Icons.Default.Timer,
                                         label = formatMillis(row.avgResponseTime),
-                                        tint = content.copy(alpha = 0.78f)
+                                        tint = content.copy(alpha = 0.78f),
+                                        isHighlighted = sortMode == 3
                                     )
                                 }
                                 if (row.cachedTokens > 0) {
@@ -1830,26 +2185,38 @@ private fun ModernModelStatsTable(
 private fun MiniStatsChip(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
-    tint: Color
+    tint: Color,
+    isHighlighted: Boolean = false
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(3.dp),
         modifier = Modifier
             .clip(RoundedCornerShape(6.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f))
+            .background(
+                if (isHighlighted) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)
+            )
+            .border(
+                BorderStroke(
+                    if (isHighlighted) 1.dp else 0.dp,
+                    if (isHighlighted) MaterialTheme.colorScheme.primary.copy(alpha = 0.55f) else Color.Transparent
+                ),
+                RoundedCornerShape(6.dp)
+            )
             .padding(horizontal = 6.dp, vertical = 2.5.dp)
     ) {
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = tint,
+            tint = if (isHighlighted) MaterialTheme.colorScheme.primary else tint,
             modifier = Modifier.size(11.dp)
         )
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.SansSerif),
-            color = tint,
+            color = if (isHighlighted) MaterialTheme.colorScheme.primary else tint,
+            fontWeight = if (isHighlighted) FontWeight.Bold else FontWeight.Normal,
             maxLines = 1
         )
     }
@@ -2099,20 +2466,113 @@ internal fun buildDonutSlices(summary: UsageSummary): List<DonutSlice> {
     )
 }
 
-internal const val DonutGapDegrees = 3f
+/** Token 构成 · 模型占比视图：Top N 模型 + 其余合并为「其他」 */
+internal fun List<UsageRow>.toModelDonutSlices(topN: Int = 4): List<DonutSlice> {
+    if (isEmpty() || sumOf { it.totalTokens } <= 0) return emptyList()
+    val byModel = groupBy { it.modelName.ifBlank { "unknown" } }
+        .map { (name, rows) -> name to rows.sumOf { it.totalTokens } }
+        .sortedByDescending { it.second }
+    if (byModel.size <= topN) {
+        return byModel.map { DonutSlice(it.first, it.second) }
+    }
+    val top = byModel.take(topN)
+    val restTokens = byModel.drop(topN).sumOf { it.second }
+    return top.map { DonutSlice(it.first, it.second) } + DonutSlice("其他", restTokens)
+}
+
+/** 每模型 Token 趋势序列：Top N 模型 + 其余合并为「其他」，values 与分桶一一对应 */
+internal data class ModelTokenSeries(
+    val modelName: String,
+    val values: List<Int>,
+    val totalTokens: Int
+)
+
+internal fun buildModelTokenSeries(
+    rows: List<UsageRow>,
+    period: StatsPeriod,
+    endTime: Long,
+    topN: Int = 4
+): List<ModelTokenSeries> {
+    val bucketSize = period.durationMillis / period.bucketCount
+    val startTime = endTime - period.durationMillis
+
+    fun bucketIndexOf(timestamp: Long): Int {
+        if (timestamp < startTime) return 0
+        val idx = ((timestamp - startTime) / bucketSize).toInt()
+        return idx.coerceIn(0, period.bucketCount - 1)
+    }
+
+    val byModel = rows.groupBy { it.modelName.ifBlank { "unknown" } }
+        .mapValues { (_, modelRows) ->
+            val values = IntArray(period.bucketCount)
+            modelRows.forEach { values[bucketIndexOf(it.timestamp)] += it.totalTokens }
+            values
+        }
+        .toList()
+        .sortedByDescending { (_, values) -> values.sum() }
+
+    val topEntries = byModel.take(topN)
+    val rest = byModel.drop(topN)
+    val series = mutableListOf<ModelTokenSeries>()
+    series.addAll(topEntries.map { (name, values) ->
+        ModelTokenSeries(modelName = name, values = values.toList(), totalTokens = values.sum())
+    })
+    if (rest.isNotEmpty()) {
+        val restValues = IntArray(period.bucketCount)
+        rest.forEach { (_, values) ->
+            values.forEachIndexed { idx, v -> restValues[idx] += v }
+        }
+        series.add(ModelTokenSeries(modelName = "其他", values = restValues.toList(), totalTokens = restValues.sum()))
+    }
+    return series
+}
+
+/** 请求健康时间线单元格：一段连续时间的请求健康与消耗聚合 */
+internal data class HealthCell(
+    val startTs: Long,
+    val endTs: Long,
+    val requestCount: Int,
+    val failedCount: Int,
+    val totalTokens: Int
+)
+
+/** 按周期定制的热力格数量聚合请求结果（成功/失败/Token 消耗） */
+internal fun buildHealthCells(rows: List<UsageRow>, period: StatsPeriod, endTime: Long): List<HealthCell> {
+    val cellCount = period.heatmapCells
+    val cellSize = period.durationMillis / cellCount
+    val startTime = endTime - period.durationMillis
+    val cells = Array(cellCount) { idx ->
+        val cellStart = startTime + cellSize * idx
+        val cellEnd = if (idx == cellCount - 1) endTime else cellStart + cellSize
+        HealthCell(startTs = cellStart, endTs = cellEnd, requestCount = 0, failedCount = 0, totalTokens = 0)
+    }
+    rows.forEach { row ->
+        if (row.timestamp < startTime || row.timestamp > endTime) return@forEach
+        val idx = (((row.timestamp - startTime) / cellSize).toInt()).coerceIn(0, cellCount - 1)
+        val old = cells[idx]
+        cells[idx] = old.copy(
+            requestCount = old.requestCount + 1,
+            failedCount = old.failedCount + if (row.success) 0 else 1,
+            totalTokens = old.totalTokens + row.totalTokens
+        )
+    }
+    return cells.toList()
+}
+
+internal fun formatHealthCellRange(cell: HealthCell): String {
+    val formatter = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
+    return "${formatter.format(Date(cell.startTs))} ~ ${formatter.format(Date(cell.endTs))}"
+}
 
 /**
- * 环形图各切片扫过角度：非零切片之间留 gapDegrees 间隙，总扫角 + 间隙 = 360°。
+ * 环形图各切片扫过角度：切片连续无缝（v2.7.0 修复切片间灰色间隔），总扫角恒为 360°。
  * 全零输入返回空列表；零值切片扫角为 0（绘制层跳过）。
  */
-internal fun donutSweepDegrees(values: List<Int>, gapDegrees: Float = DonutGapDegrees): List<Float> {
+internal fun donutSweepDegrees(values: List<Int>): List<Float> {
     val total = values.sumOf { it.coerceAtLeast(0) }
     if (total <= 0) return emptyList()
-    val nonZeroCount = values.count { it > 0 }
-    if (nonZeroCount == 0) return emptyList()
-    val usable = (360f - gapDegrees * nonZeroCount).coerceAtLeast(0f)
     return values.map { value ->
-        if (value <= 0) 0f else usable * value / total
+        if (value <= 0) 0f else 360f * value / total
     }
 }
 
@@ -2153,7 +2613,8 @@ internal fun formatPercent(value: Float): String {
 
 private fun bucketAxisLabels(buckets: List<Bucket>): List<String> {
     if (buckets.isEmpty()) return emptyList()
-    val indices = listOf(0, buckets.lastIndex / 2, buckets.lastIndex).distinct()
+    val n = buckets.size
+    val indices = listOf(0, (n - 1) / 4, (n - 1) / 2, (3 * (n - 1)) / 4, n - 1).distinct()
     return indices.map { buckets[it].label }
 }
 
@@ -2161,13 +2622,15 @@ internal enum class StatsPeriod(
     val label: String,
     val durationMillis: Long,
     val bucketCount: Int,
-    val labelPattern: String
+    val labelPattern: String,
+    /** 请求健康时间线热力格数量（按周期定制，格宽自适应） */
+    val heatmapCells: Int
 ) {
-    Hour("1小时", 60L * 60L * 1000L, 12, "HH:mm"),
-    Day("1天", 24L * 60L * 60L * 1000L, 24, "HH:mm"),
-    Week("7天", 7L * 24L * 60L * 60L * 1000L, 7, "MM-dd"),
-    Month("30天", 30L * 24L * 60L * 60L * 1000L, 30, "MM-dd"),
-    Quarter("90天", 90L * 24L * 60L * 60L * 1000L, 30, "MM-dd")
+    Hour("1小时", 60L * 60L * 1000L, 12, "HH:mm", 12),
+    Day("1天", 24L * 60L * 60L * 1000L, 24, "HH:mm", 48),
+    Week("7天", 7L * 24L * 60L * 60L * 1000L, 7, "MM-dd", 84),
+    Month("30天", 30L * 24L * 60L * 60L * 1000L, 30, "MM-dd", 60),
+    Quarter("90天", 90L * 24L * 60L * 60L * 1000L, 30, "MM-dd", 90)
 }
 
 private data class StatsReadResult(

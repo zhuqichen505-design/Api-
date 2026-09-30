@@ -170,6 +170,8 @@ fun ChatScreen(
     val uiState by viewModel.uiState.collectAsState()
     val messages by viewModel.messages.collectAsState()
     val isGenerating by viewModel.isGenerating.collectAsState()
+    // 实时 Key 尝试报错明细：生成过程中无需手动暂停即可直接看到各次连接失败的具体原因
+    val liveKeyErrors by viewModel.keyAttemptErrors.collectAsState()
     // P0-2① 合帧消费（R-1 红线）：流式 token 经 33ms 窗口合并（≈30fps 上限），
     // 杜绝逐 token 全屏重组；长度收缩（重置/重发清空）时立即发射，避免旧文本滞留。
     // StateFlow conflate 特性天然丢弃中间态，无积压风险。
@@ -1214,6 +1216,7 @@ fun ChatScreen(
                                     assistantApiConfigId = currentModelOption?.apiConfigId,
                                     assistantModelName = currentAssistantModelName,
                                     reconnectStatus = reconnectStatus,
+                                    liveKeyErrors = liveKeyErrors,
                                     variantInfo = VariantInfo(
                                         groupId = streamingBranchGroupId!!,
                                         currentIndex = totalVariantsWithStreaming,
@@ -1368,6 +1371,7 @@ fun ChatScreen(
                                     assistantApiConfigId = currentModelOption?.apiConfigId,
                                     assistantModelName = currentAssistantModelName,
                                     reconnectStatus = reconnectStatus,
+                                    liveKeyErrors = liveKeyErrors,
                                     translatingThinking = false,
                                     onTranslateThinking = null,
                                     onCopy = {
@@ -1406,6 +1410,7 @@ fun ChatScreen(
                                 assistantApiConfigId = currentModelOption?.apiConfigId,
                                 assistantModelName = currentAssistantModelName,
                                 reconnectStatus = reconnectStatus,
+                                liveKeyErrors = liveKeyErrors,
                                 onCopy = {
                                     clipboardManager.setText(AnnotatedString(currentResponse))
                                 },
@@ -2152,8 +2157,11 @@ fun ChatScreen(
             onCompress = { viewModel.compressContextNow() },
             onGenerateRollingSummary = { viewModel.generateRollingSummaryNow() },
             onEditRollingSummary = { showRollingSummaryDialog = true },
-            onSelectCompressionTier = { tier, rounds ->
-                viewModel.setCompressionTier(tier, rounds)
+            onSelectCompressionTier = { tier, rounds, percent ->
+                viewModel.setCompressionTier(tier, rounds, percent)
+            },
+            onPreviewCompressionSettings = { rounds, percent ->
+                viewModel.previewCompressionSettings(rounds, percent)
             }
         )
     }

@@ -191,6 +191,13 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
     private var isPrivateConversation = false
     private var privateExitHandled = false
 
+    /**
+     * 实时 Key 尝试报错明细（需求 v2.7.0-3）：
+     * 生成过程中每个 Key 失败即刻入流，流式气泡下方实时渲染错误明细，无需手动暂停后才能看到
+     */
+    private val _keyAttemptErrors = MutableStateFlow<List<String>>(emptyList())
+    val keyAttemptErrors: StateFlow<List<String>> = _keyAttemptErrors.asStateFlow()
+
     init {
         loadConversation()
         loadPromptTemplates()
@@ -575,16 +582,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                     _tempSettings.update { it.copy(contextWindowTokens = dbTokens) }
                 }
             }
-            val modelName = _currentModel.value ?: conversation?.modelName ?: _uiState.value.modelName
-            val maxTokens = (_useTempSettings.value)
-                .takeIf { it }
-                ?.let { _tempSettings.value.maxTokens }
-                ?: conversation?.maxTokens
-                ?: apiConfig?.maxTokens
-            val contextOverride = (_useTempSettings.value)
-                .takeIf { it }
-                ?.let { _tempSettings.value.contextWindowTokens }
-                ?: conversation?.contextWindowTokens
+            val (modelName, maxTokens, contextOverride) = resolveUsageQueryOverrides()
             val usage = repository.getConversationContextUsage(
                 conversationId = conversationId,
                 modelNameOverride = modelName,
@@ -722,13 +720,24 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
 
     fun getCurrentRollingSummary(): String = conversation?.rollingSummary.orEmpty()
 
-    fun setCompressionTier(tier: com.aiassistant.domain.model.CompressionTier, recentRounds: Int = 8) {
+    fun setCompressionTier(
+        tier: com.aiassistant.domain.model.CompressionTier,
+        recentRounds: Int = 8,
+        customPercent: Int? = null
+    ) {
         viewModelScope.launch {
             val safeRounds = recentRounds.coerceIn(
                 com.aiassistant.domain.model.CompressionTierPolicy.MIN_L2_RECENT_ROUNDS,
                 com.aiassistant.domain.model.CompressionTierPolicy.MAX_L2_RECENT_ROUNDS
             )
-            repository.updateConversationCompressionTier(conversationId, tier, safeRounds)
+            val safePercent = (customPercent
+                ?: conversation?.compressionCustomPercent
+                ?: com.aiassistant.domain.model.CompressionTierPolicy.DEFAULT_CUSTOM_RETAIN_PERCENT)
+                .coerceIn(
+                    com.aiassistant.domain.model.CompressionTierPolicy.MIN_CUSTOM_RETAIN_PERCENT,
+                    com.aiassistant.domain.model.CompressionTierPolicy.MAX_CUSTOM_RETAIN_PERCENT
+                )
+            repository.updateConversationCompressionTier(conversationId, tier, safeRounds, safePercent)
             conversation = repository.getConversationById(conversationId) ?: conversation
 
             if (_isGenerating.value) {
@@ -745,6 +754,38 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                 }
             }
         }
+    }
+
+    /**
+     * 滑杆调整未保存时的实时预览：用覆盖值即时重算压缩快照（含各档位预估 Token），不落库
+     */
+    fun previewCompressionSettings(recentRounds: Int, customPercent: Int) {
+        viewModelScope.launch {
+            val (modelName, maxTokens, contextOverride) = resolveUsageQueryOverrides()
+            val usage = repository.getConversationContextUsage(
+                conversationId = conversationId,
+                modelNameOverride = modelName,
+                maxOutputTokens = maxTokens,
+                contextWindowOverrideTokens = contextOverride,
+                l2RoundsOverride = recentRounds,
+                customPercentOverride = customPercent
+            )
+            _contextUsage.update { it.copy(usage = usage) }
+        }
+    }
+
+    private fun resolveUsageQueryOverrides(): Triple<String?, Int?, Int?> {
+        val modelName = _currentModel.value ?: conversation?.modelName ?: _uiState.value.modelName
+        val maxTokens = (_useTempSettings.value)
+            .takeIf { it }
+            ?.let { _tempSettings.value.maxTokens }
+            ?: conversation?.maxTokens
+            ?: apiConfig?.maxTokens
+        val contextOverride = (_useTempSettings.value)
+            .takeIf { it }
+            ?.let { _tempSettings.value.contextWindowTokens }
+            ?: conversation?.contextWindowTokens
+        return Triple(modelName, maxTokens, contextOverride)
     }
 
     fun applyPendingAutoCompression() {
@@ -1021,6 +1062,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
             _currentThinking.value = ""
             _error.value = null
             currentKeyAttemptErrors.clear()
+            _keyAttemptErrors.value = emptyList()
             val currentCallingModel = selectedOption.modelName
             val requestStartTime = System.currentTimeMillis()
             runtimeMessageModelMap[requestStartTime] = currentCallingModel
@@ -1110,6 +1152,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                         },
                         onKeyAttemptError = { keyIndex, keyMasked, errorMsg ->
                             currentKeyAttemptErrors.add("Key #$keyIndex ($keyMasked)：$errorMsg")
+                            _keyAttemptErrors.update { it + "Key #$keyIndex ($keyMasked)：$errorMsg" }
                         },
                         onResetBuffer = {
                             session.resetBuffer()

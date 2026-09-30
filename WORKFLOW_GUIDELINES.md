@@ -40,6 +40,23 @@
 
 ## 二、最近一次执行记录
 
+### [2026-10-01] v2.6.2 自定义比例压缩档、对比预览完善、连接报错实时可见与数据看板修复增强（发版）
+- **需求**：
+  1. 压缩支持自定义百分比条数（L2-L4 对长对话压缩 97%+ 过狠）；
+  2. 前后对比预览 UI 完善；
+  3. 连接报错无需手动暂停即可见；
+  4. 看板 a-e：环形图灰色间隔 / 模型占比视图 / 平滑折线趋势 / 排序高亮 / 热力矩形看板。
+- **版本**：versionCode 158 / versionName 2.6.2 / Room **v31**（MIGRATION_30_31 新增 conversations.compressionCustomPercent，非破坏性）。
+- **实现要点**：新增 `CompressionTier.LC`（默认 30%，10~90 步长 5）；LC 窗口=ceil(总数×百分比)、预算内尽量保留、置顶与最近 1 轮强制保留；预览滑杆经 `getConversationContextUsage` 覆盖参数实时重算；`keyAttemptErrors` StateFlow + MessageBubble 实时明细卡；`donutSweepDegrees` 无缝化、`toModelDonutSlices`、`buildModelTokenSeries`+`ModelTokenTrendChart`、排序高亮、`buildHealthCells`+`HealthTimelineCard`。
+- **验证**：
+  - `compileDebugKotlin`: Exit Code 0
+  - `testDebugUnitTest`: Exit Code 0 (73 测试文件，486 项全通，新增 10 项)
+  - `lintDebug`: Exit Code 0
+  - `git diff --check`: Exit Code 0
+  - `assembleRelease`: Exit Code 0
+  - Release APK 输出至 `D:\Agent\APP-Echo\app\releases\Echo-v2.6.2.apk` (SHA256: `4CEAC42E7981586AC4866C770DC8BB2F29BA01DB3B85E450D913CC102FE6C5E2`)
+- **详情**：见 `UPDATE_LOG.md` 与 `walkthrough.md`。
+
 ### [2026-09-30] v2.6.1 流式输出重复/错位修复与使用统计看板全面改版（发版）
 - **需求**：
   1. 修复流式输出偶现「两个相同回复同时进行流式输出」或「回复位置错误」（回复结束后恢复正常）；

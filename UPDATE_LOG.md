@@ -2,6 +2,52 @@
 
 本文档按照工作流规范记录每次版本更新、需求变更与复核结果。
 
+## [2026-10-01] - v2.6.2 自定义比例压缩档、对比预览完善、连接报错实时可见与数据看板修复增强
+
+### 1. 用户需求
+1. 上下文压缩对长对话效果不好，L2-L4 都压缩了 97% 以上的对话；希望不仅可自定义最近轮数压缩，也给一个自定义百分比条数的压缩选项。
+2. 前后对比预览的 UI 显示不完善。
+3. 模型连接报错无法直接弹出错误信息，手动暂停后才能看到错误信息。
+4. 数据看板多项问题：a. Token 构成饼图颜色之间有灰色间隔；b. Token 构成希望也能看到不同模型之间的占比；c. Token 消耗趋势图样式混杂（弧线边缘/矩形/错误阴影），改为平滑折线图；d. 模型统计明细四个排序选项没有显示区别；e. 添加热力矩形看板，点选小方块可查看局部时间段的请求数、成功率和 Token 消耗。
+完成以上需求并构建 APK。
+
+### 2. 问题与实现
+1. **LC 自定义比例压缩档（需求 1）**：
+   - 领域层：`CompressionTier` 新增 `LC`（level 5，「自定义比例」），语义为「保留最近 X% 消息原文，其余合并为摘要」；`CompressionTierPolicy` 新增百分比常量（默认 30%，范围 10~90%，步长 5）与描述/降档规则（LC 溢出自动降到 L4）；
+   - 装配层：`ChatContextAssemblyHelper.assembleTieredContextMessages` 新增 `customRetainPercent` 参数，LC 窗口 = ceil(消息总数 × 百分比) 且至少保留最近 1 轮；窗口内消息为"尽量保留"（受 recentBudget 裁剪），置顶与最近 1 轮仍无条件保留，绝不硬性溢出；摘要注入沿用滚动摘要优先策略；
+   - 数据层：Room **v30 → v31**，conversations 表新增 `compressionCustomPercent`（INTEGER NOT NULL DEFAULT 30），新增 `MIGRATION_30_31`（addColumnIfMissing）并接入迁移链；`updateCompressionTier` DAO 同步扩展；**无 destructive migration**；
+   - Repository：`buildContextUsageSnapshot` / `buildContextBundle` 全链路传递百分比，LC 纳入结构化摘要生成条件；`getConversationContextUsage` 新增轮数/百分比覆盖参数（供预览实时重算，不落库）；
+   - UI：上下文管理弹窗新增 LC 档位单选项与「保留原文百分比」滑杆（10~90 步长 5），松手触发实时预览重算。
+2. **前后对比预览完善（需求 2）**：
+   - 重写预览卡：新增**双条形对比**（当前档位 vs 新档位，长度按基线 Token 归一化，直观看压缩幅度）；展示「保留策略」描述（含 LC 百分比）；释放 Token 改为徽标；修复原「原档位/新档位」同行排版在窄屏的挤压问题；
+   - 修复滑杆调整后预览不刷新的问题（原预览为打开弹窗时的静态快照）：滑杆 `onValueChangeFinished` 触发 `previewCompressionSettings` 用覆盖值即时重算各档位预估 Token。
+3. **连接报错实时可见（需求 3）**：
+   - 根因：`currentKeyAttemptErrors`（每个 Key 的失败明细）此前仅在**手动暂停**时写入消息（【连接异常信息记录】），生成过程中只显示滚动的状态胶囊；
+   - 修复：`ChatViewModel` 新增 `keyAttemptErrors: StateFlow<List<String>>`，`onKeyAttemptError` 即刻入流；流式气泡（原位/内联/底部兜底三处）传入 `liveKeyErrors`，`MessageBubble` 在胶囊下方渲染**「连接异常 · 实时明细」红色可折叠卡片**（默认展开，逐条列出 Key #N 掩码 + 具体报错，附自动重试提示），无需手动暂停即可看到每次连接失败的具体原因。
+4. **数据看板修复与增强（需求 4）**：
+   - a（灰色间隔）：`donutSweepDegrees` 去除切片间隙常量，切片连续无缝铺满 360°；中性底环仅在无任何数据时绘制；
+   - b（模型占比）：Token 构成卡新增「Token 类型 / 模型占比」双视图切换；模型视图按消耗 Top 4 + 其他聚合（`toModelDonutSlices`），图例含数值与占比；
+   - c（折线趋势）：堆叠柱状图整卡替换为**每模型平滑折线图**（`buildModelTokenSeries` Top4 + 其他；中点贝塞尔平滑曲线与成功率曲线同一手法；虚线网格；顶部模型图例横滑；Y 轴自适应；X 轴升级为 5 刻度）；
+   - d（排序区别）：模型明细表四排序模式下，对应行内指标即时高亮（主色底 + 描边 + 加粗）：Tokens 模式高亮总量文本、请求数/成功率/耗时模式高亮对应标签，切换排序一眼可见；
+   - e（热力矩形看板）：新增**「请求健康时间线」**卡片——按周期定制格数（1小时 12 格 / 1天 48 格 / 7天 84 格 / 30天 60 格 / 90天 90 格），Canvas 14 列自适应网格；「健康状态」视图（≥99% 绿 / ≥90% 黄绿 / ≥75% 橙 / <75% 红 / 无请求灰）与「Token 热度」视图（蓝色深浅）切换；点选方格高亮并展开局部时段明细（时间范围、请求数、成功率、Token 消耗、失败次数）；附图例。
+5. **版本与发布**：
+   - 版本递增至 `versionName = "2.6.2"`, `versionCode = 158`；AppDatabase v31；
+   - 构建生成 Release APK，复制到发布路径 `D:\Agent\APP-Echo\app\releases\Echo-v2.6.2.apk`。
+
+### 3. 验证结果
+- `./gradlew.bat compileDebugKotlin --no-daemon` Exit Code 0
+- `./gradlew.bat testDebugUnitTest --no-daemon` Exit Code 0（73 测试文件，486 项全通，较 v2.6.1 新增 10 项：LC 档位映射/降档/装配窗口/预算裁剪、迁移 30→31 注册、无缝环形图、模型占比切片、模型趋势序列、健康时间线聚合与越界忽略）
+- `./gradlew.bat lintDebug --no-daemon` Exit Code 0
+- `git diff --check` Exit Code 0
+- `./gradlew.bat assembleRelease --no-daemon` Exit Code 0
+- APK 验证：
+  - 路径：`D:\Agent\APP-Echo\app\releases\Echo-v2.6.2.apk`
+  - 大小：16,683,885 字节 (~15.91 MB)
+  - SHA256：`4CEAC42E7981586AC4866C770DC8BB2F29BA01DB3B85E450D913CC102FE6C5E2`
+  - 签名：`apksigner verify` 通过（证书 DN: CN=Android Debug, SHA-256: 939638f6d3e9af7f8a980e62af52d275fee73381f2130cc4e20a0d349f98e21f）——**非正式生产签名**
+
+---
+
 ## [2026-09-30] - v2.6.1 流式输出重复/错位修复与使用统计看板全面改版
 
 ### 1. 用户需求

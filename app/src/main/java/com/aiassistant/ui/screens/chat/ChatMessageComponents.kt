@@ -360,6 +360,8 @@ internal fun MessageBubble(
     assistantApiConfigId: Long? = null,
     assistantModelName: String = "AI",
     reconnectStatus: String? = null,
+    /** 实时 Key 尝试报错明细（仅流式气泡传入）：生成过程中直接展示每次连接失败的具体原因，无需手动暂停 */
+    liveKeyErrors: List<String> = emptyList(),
     variantInfo: VariantInfo? = null,
     onVariantSelected: (String, Int) -> Unit = { _, _ -> },
     translatingThinking: Boolean = false,
@@ -975,6 +977,72 @@ internal fun MessageBubble(
                             }
                         }
                     }
+                    }
+                }
+
+                // 实时连接异常明细：每个 Key 尝试失败即刻展示（v2.7.0 需求 3，无需手动暂停）
+                if (liveKeyErrors.isNotEmpty()) {
+                    var isLiveErrorsExpanded by remember(message.id) { mutableStateOf(true) }
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 4.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .echoShapeClick(RoundedCornerShape(12.dp)) {
+                                isLiveErrorsExpanded = !isLiveErrorsExpanded
+                            },
+                        color = MaterialTheme.colorScheme.error.copy(alpha = 0.08f),
+                        contentColor = MaterialTheme.colorScheme.error,
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.4f))
+                    ) {
+                        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ErrorOutline,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Text(
+                                    text = "连接异常 · 实时明细（${liveKeyErrors.size} 次尝试失败）",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Icon(
+                                    imageVector = if (isLiveErrorsExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                    contentDescription = if (isLiveErrorsExpanded) "收起实时报错明细" else "展开实时报错明细",
+                                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
+                                    modifier = Modifier.size(15.dp)
+                                )
+                            }
+                            androidx.compose.animation.AnimatedVisibility(visible = isLiveErrorsExpanded) {
+                                Column(
+                                    modifier = Modifier.padding(top = 5.dp),
+                                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                                ) {
+                                    liveKeyErrors.forEach { errorLine ->
+                                        Text(
+                                            text = "• $errorLine",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.error.copy(alpha = 0.9f),
+                                            maxLines = 3,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    Text(
+                                        text = "正在按 Key 顺序自动重试，可继续等待或点击停止按钮结束本次生成。",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
 

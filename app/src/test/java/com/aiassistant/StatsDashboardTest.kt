@@ -5,6 +5,8 @@ import com.aiassistant.ui.screens.stats.UsageRow
 import com.aiassistant.ui.screens.stats.UsageSummary
 import com.aiassistant.ui.screens.stats.buildBuckets
 import com.aiassistant.ui.screens.stats.buildDonutSlices
+import com.aiassistant.ui.screens.stats.buildHealthCells
+import com.aiassistant.ui.screens.stats.buildModelTokenSeries
 import com.aiassistant.ui.screens.stats.computeDeltaPct
 import com.aiassistant.ui.screens.stats.donutSweepDegrees
 import com.aiassistant.ui.screens.stats.formatDeltaPct
@@ -12,6 +14,7 @@ import com.aiassistant.ui.screens.stats.formatMillis
 import com.aiassistant.ui.screens.stats.formatNumber
 import com.aiassistant.ui.screens.stats.toFailureSlices
 import com.aiassistant.ui.screens.stats.toHourSlices
+import com.aiassistant.ui.screens.stats.toModelDonutSlices
 import com.aiassistant.ui.screens.stats.toProviderShares
 import com.aiassistant.ui.screens.stats.toSummary
 import org.junit.Assert.assertEquals
@@ -183,20 +186,19 @@ class StatsDashboardTest {
     // ==================== 环形图 ====================
 
     @Test
-    fun testDonutSweepDegrees_proportionalWithGaps() {
+    fun testDonutSweepDegrees_contiguousWithoutGaps() {
         val sweeps = donutSweepDegrees(listOf(50, 25, 25, 0))
         assertEquals("4 个输入对应 4 个扫角", 4, sweeps.size)
         assertEquals("零值切片扫角为 0", 0f, sweeps[3], 0.0001f)
-        assertEquals("50% 切片应占一半可用角度", (360f - DonutGapDegreesForTest * 3f) / 2f, sweeps[0], 0.01f)
-        val totalSweep = sweeps.sum() + DonutGapDegreesForTest * 3f
-        assertEquals("扫角 + 间隙应恰好铺满 360°", 360f, totalSweep, 0.01f)
+        assertEquals("50% 切片应占半个圆", 180f, sweeps[0], 0.01f)
+        assertEquals("切片连续无缝：总扫角应恰好 360°", 360f, sweeps.sum(), 0.01f)
     }
 
     @Test
     fun testDonutSweepDegrees_emptyAndSingle() {
         assertTrue("全零输入返回空", donutSweepDegrees(listOf(0, 0, 0, 0)).isEmpty())
         val single = donutSweepDegrees(listOf(0, 100, 0, 0))
-        assertEquals("单一非零切片应铺满除间隙外的整圆", 360f - DonutGapDegreesForTest, single[1], 0.0001f)
+        assertEquals("单一非零切片应铺满整圆（无灰色间隔）", 360f, single[1], 0.0001f)
     }
 
     @Test
@@ -213,6 +215,104 @@ class StatsDashboardTest {
         val slices = buildDonutSlices(summary)
         assertEquals("其他 Token 应为残差 100", 100, slices[3].value)
         assertEquals("四个切片总和应等于总量", 1000, slices.sumOf { it.value })
+    }
+
+    // ==================== Token 构成 · 模型占比视图（v2.7.0 需求 4b） ====================
+
+    @Test
+    fun testToModelDonutSlices_topNPlusOthers() {
+        val rows = listOf(
+            row(timestamp = 1L, modelName = "glm-a", inputTokens = 500, outputTokens = 0),
+            row(timestamp = 2L, modelName = "glm-b", inputTokens = 300, outputTokens = 0),
+            row(timestamp = 3L, modelName = "glm-c", inputTokens = 150, outputTokens = 0),
+            row(timestamp = 4L, modelName = "glm-d", inputTokens = 30, outputTokens = 0),
+            row(timestamp = 5L, modelName = "glm-e", inputTokens = 20, outputTokens = 0)
+        )
+        val slices = rows.toModelDonutSlices(topN = 4)
+        assertEquals("Top4 + 其他", 5, slices.size)
+        assertEquals("切片应按消耗降序", "glm-a", slices[0].label)
+        assertEquals("尾部应合并为其他", "其他", slices[4].label)
+        assertEquals("其他应聚合未进 Top4 的 glm-e（20 Token）", 20, slices[4].value)
+        assertEquals("切片总和应守恒", 1000, slices.sumOf { it.value })
+    }
+
+    @Test
+    fun testToModelDonutSlices_emptyAndWithinTopN() {
+        assertTrue("空数据返回空", emptyList<UsageRow>().toModelDonutSlices().isEmpty())
+        val two = listOf(
+            row(timestamp = 1L, modelName = "m1", inputTokens = 10),
+            row(timestamp = 2L, modelName = "m2", inputTokens = 5)
+        ).toModelDonutSlices(topN = 4)
+        assertEquals("不足 TopN 时不生成其他", 2, two.size)
+    }
+
+    // ==================== 每模型 Token 趋势序列（v2.7.0 需求 4c） ====================
+
+    @Test
+    fun testBuildModelTokenSeries_bucketsAndOthers() {
+        val endTime = 1_700_000_000_000L
+        val period = StatsPeriod.Day
+        val bucketSize = period.durationMillis / period.bucketCount
+        val startTime = endTime - period.durationMillis
+
+        val rows = listOf(
+            row(timestamp = startTime + 100L, modelName = "glm-a", inputTokens = 100, outputTokens = 0),
+            row(timestamp = startTime + bucketSize * 3 + 10L, modelName = "glm-a", inputTokens = 50, outputTokens = 0),
+            row(timestamp = startTime + bucketSize + 10L, modelName = "glm-b", inputTokens = 80, outputTokens = 0),
+            row(timestamp = startTime + bucketSize * 2 + 10L, modelName = "glm-c", inputTokens = 10, outputTokens = 0),
+            row(timestamp = startTime + bucketSize * 2 + 20L, modelName = "glm-d", inputTokens = 10, outputTokens = 0),
+            row(timestamp = startTime + bucketSize * 2 + 30L, modelName = "glm-e", inputTokens = 10, outputTokens = 0)
+        )
+
+        val series = buildModelTokenSeries(rows, period, endTime, topN = 2)
+        assertEquals("Top2 + 其他", 3, series.size)
+        assertEquals("按消耗降序：glm-a 第一", "glm-a", series[0].modelName)
+        assertEquals("glm-a 总量 150", 150, series[0].totalTokens)
+        assertEquals("glm-a 第 0 桶 100", 100, series[0].values[0])
+        assertEquals("glm-a 第 3 桶 50", 50, series[0].values[3])
+        assertEquals("glm-b 第 1 桶 80", 80, series[1].values[1])
+        assertEquals("其他合并为一条序列", "其他", series[2].modelName)
+        assertEquals("其他第 2 桶聚合 c/d/e 共 30", 30, series[2].values[2])
+        assertEquals("序列总量守恒", 260, series.sumOf { it.totalTokens })
+        assertEquals("每条序列必须与分桶等长", period.bucketCount, series[0].values.size)
+    }
+
+    // ==================== 请求健康时间线（v2.7.0 需求 4e） ====================
+
+    @Test
+    fun testBuildHealthCells_countsFailuresAndTokens() {
+        val endTime = 1_700_000_000_000L
+        val period = StatsPeriod.Day // 48 格 × 30 分钟
+        val cellSize = period.durationMillis / period.heatmapCells
+        val startTime = endTime - period.durationMillis
+
+        val rows = listOf(
+            row(timestamp = startTime + 100L, inputTokens = 100, outputTokens = 50, success = true),
+            row(timestamp = startTime + 200L, inputTokens = 10, outputTokens = 0, success = false, errorMessage = "HTTP 429"),
+            row(timestamp = startTime + cellSize + 100L, inputTokens = 7, outputTokens = 3, success = true)
+        )
+
+        val cells = buildHealthCells(rows, period, endTime)
+        assertEquals("必须返回固定数量的格子", period.heatmapCells, cells.size)
+        assertEquals("第 0 格应聚合 2 次请求", 2, cells[0].requestCount)
+        assertEquals("第 0 格应含 1 次失败", 1, cells[0].failedCount)
+        assertEquals("第 0 格 Token 应为 160", 160, cells[0].totalTokens)
+        assertEquals("第 1 格应聚合 1 次请求", 1, cells[1].requestCount)
+        assertEquals("第 2 格应无请求", 0, cells[2].requestCount)
+        assertEquals("总请求数应守恒", 3, cells.sumOf { it.requestCount })
+        assertEquals("总 Token 应守恒", 170, cells.sumOf { it.totalTokens })
+    }
+
+    @Test
+    fun testBuildHealthCells_outOfWindowIgnored() {
+        val endTime = 1_700_000_000_000L
+        val period = StatsPeriod.Hour
+        val cells = buildHealthCells(
+            listOf(row(timestamp = endTime - period.durationMillis - 5_000L, inputTokens = 100)),
+            period,
+            endTime
+        )
+        assertEquals("窗口外记录不得计入任何格子", 0, cells.sumOf { it.requestCount })
     }
 
     // ==================== 分桶与格式化 ====================
@@ -242,9 +342,5 @@ class StatsDashboardTest {
         assertEquals("999", formatNumber(999))
         assertEquals("1.5K", formatNumber(1_500))
         assertEquals("2.0M", formatNumber(2_000_000))
-    }
-
-    private companion object {
-        const val DonutGapDegreesForTest = 3f
     }
 }

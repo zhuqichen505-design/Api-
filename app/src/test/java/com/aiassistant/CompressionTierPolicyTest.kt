@@ -188,4 +188,94 @@ class CompressionTierPolicyTest {
         assertEquals(29, migration.startVersion)
         assertEquals(30, migration.endVersion)
     }
+
+    // ==================== LC 自定义比例档（v2.7.0 需求 1） ====================
+
+    @Test
+    fun testCustomTier_levelMappingAndDescriptions() {
+        assertEquals("level 5 必须映射到 LC 自定义比例档", CompressionTier.LC, CompressionTier.fromLevel(5))
+        assertEquals(5, CompressionTier.LC.level)
+        val desc = CompressionTierPolicy.getRetainedRoundsDesc(CompressionTier.LC, 8, 40)
+        assertTrue("描述必须包含自定义百分比 40%", desc.contains("40%"))
+    }
+
+    @Test
+    fun testFallbackOnContextOverflow_customTierFallsToL4() {
+        assertEquals(
+            "LC 档仍溢出时按阶梯降到 L4",
+            CompressionTier.L4,
+            CompressionTierPolicy.fallbackOnContextOverflow(CompressionTier.LC, 5000, 2000)
+        )
+        assertNull("LC 档未溢出时不降档", CompressionTierPolicy.fallbackOnContextOverflow(CompressionTier.LC, 1000, 2000))
+    }
+
+    @Test
+    fun testAssembleTieredContext_customPercentWindow() {
+        val messages = mutableListOf<Message>()
+        for (i in 1..40) {
+            messages.add(
+                Message(
+                    id = i.toLong(),
+                    conversationId = 1L,
+                    role = if (i % 2 == 1) "user" else "assistant",
+                    content = "对话消息序号 $i",
+                    isPinned = (i == 5)
+                )
+            )
+        }
+
+        // 40 条消息保留 30% → 窗口 12 条 (id 29..40)，更早历史交由摘要承载
+        val result = ChatContextAssemblyHelper.assembleTieredContextMessages(
+            tier = CompressionTier.LC,
+            usableMessages = messages,
+            recentBudget = 100_000,
+            existingRollingSummary = "较早历史的滚动摘要",
+            customRetainPercent = 30
+        )
+        assertEquals("LC 档必须注入滚动/结构化摘要", "较早历史的滚动摘要", result.injectedSummary)
+        val ids = result.activeMessages.map { it.id }.toSet()
+        assertTrue("LC 必须保留最近 1 轮 (id=40)", ids.contains(40L))
+        assertTrue("LC 必须保留最近 1 轮 (id=39)", ids.contains(39L))
+        assertTrue("LC 窗口应覆盖 30% 起点 (id=29)", ids.contains(29L))
+        assertTrue("LC 必须无条件保留 isPinned 消息 (id=5)", ids.contains(5L))
+        assertFalse("LC 窗口外未置顶消息应退休 (id=10)", ids.contains(10L))
+        assertEquals("LC 激活消息数应为窗口 12 条 + 置顶 1 条", 13, result.activeMessages.size)
+    }
+
+    @Test
+    fun testAssembleTieredContext_customPercentBudgetAware() {
+        val messages = mutableListOf<Message>()
+        for (i in 1..40) {
+            messages.add(
+                Message(
+                    id = i.toLong(),
+                    conversationId = 1L,
+                    role = if (i % 2 == 1) "user" else "assistant",
+                    content = "对话消息序号 $i",
+                    isPinned = (i == 5)
+                )
+            )
+        }
+
+        // 预算紧张时：LC 窗口内消息允许被裁剪，但置顶与最近 1 轮必须保留（绝不硬性溢出）
+        val result = ChatContextAssemblyHelper.assembleTieredContextMessages(
+            tier = CompressionTier.LC,
+            usableMessages = messages,
+            recentBudget = 120,
+            existingRollingSummary = null,
+            customRetainPercent = 90
+        )
+        val ids = result.activeMessages.map { it.id }.toSet()
+        assertTrue("预算紧张时 isPinned 仍必须保留", ids.contains(5L))
+        assertTrue("预算紧张时最近 1 轮仍必须保留 (id=40)", ids.contains(40L))
+        assertTrue("预算紧张时激活消息数必须小于窗口理论值", result.activeMessages.size < 38)
+    }
+
+    @Test
+    fun testDatabaseMigration30To31Registered() {
+        val migration = com.aiassistant.data.local.AppDatabase.MIGRATION_30_31
+        assertNotNull("MIGRATION_30_31 必须存在", migration)
+        assertEquals(30, migration.startVersion)
+        assertEquals(31, migration.endVersion)
+    }
 }

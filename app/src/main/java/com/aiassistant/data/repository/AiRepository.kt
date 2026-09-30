@@ -991,7 +991,9 @@ class AiRepository(
         conversationId: Long,
         modelNameOverride: String? = null,
         maxOutputTokens: Int? = null,
-        contextWindowOverrideTokens: Int? = null
+        contextWindowOverrideTokens: Int? = null,
+        l2RoundsOverride: Int? = null,
+        customPercentOverride: Int? = null
     ): ConversationContextUsage = withContext(Dispatchers.IO) {
         val conversation = getConversationById(conversationId) ?: return@withContext ConversationContextUsage()
         val messages = getMessagesList(conversationId).collapseVariantsForHistory()
@@ -999,8 +1001,18 @@ class AiRepository(
             ?.takeIf { it.isNotBlank() }
             ?: conversation.modelName
 
+        // 预览覆盖：滑杆调整未保存时，用覆盖值即时重算快照（不落库）
+        val effectiveConversation = if (l2RoundsOverride != null || customPercentOverride != null) {
+            conversation.copy(
+                compressionRecentRounds = l2RoundsOverride ?: conversation.compressionRecentRounds,
+                compressionCustomPercent = customPercentOverride ?: conversation.compressionCustomPercent
+            )
+        } else {
+            conversation
+        }
+
         buildContextUsageSnapshot(
-            conversation = conversation,
+            conversation = effectiveConversation,
             messages = messages,
             modelName = modelName,
             maxOutputTokens = maxOutputTokens,
@@ -1168,7 +1180,8 @@ class AiRepository(
     suspend fun updateConversationCompressionTier(
         conversationId: Long,
         tier: com.aiassistant.domain.model.CompressionTier,
-        recentRounds: Int
+        recentRounds: Int,
+        customPercent: Int = com.aiassistant.domain.model.CompressionTierPolicy.DEFAULT_CUSTOM_RETAIN_PERCENT
     ) = withContext(Dispatchers.IO) {
         conversationDao.updateCompressionTier(
             id = conversationId,
@@ -1176,6 +1189,10 @@ class AiRepository(
             recentRounds = recentRounds.coerceIn(
                 com.aiassistant.domain.model.CompressionTierPolicy.MIN_L2_RECENT_ROUNDS,
                 com.aiassistant.domain.model.CompressionTierPolicy.MAX_L2_RECENT_ROUNDS
+            ),
+            customPercent = customPercent.coerceIn(
+                com.aiassistant.domain.model.CompressionTierPolicy.MIN_CUSTOM_RETAIN_PERCENT,
+                com.aiassistant.domain.model.CompressionTierPolicy.MAX_CUSTOM_RETAIN_PERCENT
             )
         )
     }
@@ -2557,6 +2574,10 @@ class AiRepository(
             com.aiassistant.domain.model.CompressionTierPolicy.MIN_L2_RECENT_ROUNDS,
             com.aiassistant.domain.model.CompressionTierPolicy.MAX_L2_RECENT_ROUNDS
         )
+        val customPercent = (conversation.compressionCustomPercent).coerceIn(
+            com.aiassistant.domain.model.CompressionTierPolicy.MIN_CUSTOM_RETAIN_PERCENT,
+            com.aiassistant.domain.model.CompressionTierPolicy.MAX_CUSTOM_RETAIN_PERCENT
+        )
 
         // 基础 L0 组装结果
         val l0Res = ChatContextAssemblyHelper.assembleTieredContextMessages(
@@ -2564,7 +2585,8 @@ class AiRepository(
             usableMessages = usableMessages,
             recentBudget = recentBudget,
             l2RecentRounds = l2Rounds,
-            existingRollingSummary = conversation.rollingSummary
+            existingRollingSummary = conversation.rollingSummary,
+            customRetainPercent = customPercent
         )
         val baselineTokens = (
             SYSTEM_PROMPT_TOKEN_RESERVE +
@@ -2572,7 +2594,7 @@ class AiRepository(
                 memoryTokens.coerceAtMost(memoryBudget)
         ).coerceAtLeast(0)
 
-        // 计算 5 个档位的对比预览快照
+        // 计算各档位的对比预览快照
         val previews = com.aiassistant.domain.model.CompressionTier.values().map { t ->
             val res = if (t == com.aiassistant.domain.model.CompressionTier.L0) l0Res else {
                 ChatContextAssemblyHelper.assembleTieredContextMessages(
@@ -2580,7 +2602,8 @@ class AiRepository(
                     usableMessages = usableMessages,
                     recentBudget = recentBudget,
                     l2RecentRounds = l2Rounds,
-                    existingRollingSummary = conversation.rollingSummary
+                    existingRollingSummary = conversation.rollingSummary,
+                    customRetainPercent = customPercent
                 )
             }
             val tierTokens = (
@@ -2596,7 +2619,7 @@ class AiRepository(
                 baselineTokens = baselineTokens,
                 tokensSaved = tokensSaved,
                 savingsPercent = savingsPercent,
-                retainedRoundsDesc = com.aiassistant.domain.model.CompressionTierPolicy.getRetainedRoundsDesc(t, l2Rounds),
+                retainedRoundsDesc = com.aiassistant.domain.model.CompressionTierPolicy.getRetainedRoundsDesc(t, l2Rounds, customPercent),
                 lossNote = t.detailLossNote
             )
         }
@@ -2612,7 +2635,8 @@ class AiRepository(
                 usableMessages = usableMessages,
                 recentBudget = recentBudget,
                 l2RecentRounds = l2Rounds,
-                existingRollingSummary = conversation.rollingSummary
+                existingRollingSummary = conversation.rollingSummary,
+                customRetainPercent = customPercent
             )
         }
 
@@ -2634,6 +2658,7 @@ class AiRepository(
             canCompress = activeRes.canCompress,
             compressionTier = currentTier,
             compressionRecentRounds = l2Rounds,
+            compressionCustomPercent = customPercent,
             tierPreviews = previews
         )
     }
@@ -2688,8 +2713,16 @@ class AiRepository(
             com.aiassistant.domain.model.CompressionTierPolicy.MIN_L2_RECENT_ROUNDS,
             com.aiassistant.domain.model.CompressionTierPolicy.MAX_L2_RECENT_ROUNDS
         )
+        val customRetainPercent = (conversation?.compressionCustomPercent ?: com.aiassistant.domain.model.CompressionTierPolicy.DEFAULT_CUSTOM_RETAIN_PERCENT).coerceIn(
+            com.aiassistant.domain.model.CompressionTierPolicy.MIN_CUSTOM_RETAIN_PERCENT,
+            com.aiassistant.domain.model.CompressionTierPolicy.MAX_CUSTOM_RETAIN_PERCENT
+        )
 
-        val structuredSummary = if (activeTier == com.aiassistant.domain.model.CompressionTier.L2 || activeTier == com.aiassistant.domain.model.CompressionTier.L3) {
+        val structuredSummary = if (
+            activeTier == com.aiassistant.domain.model.CompressionTier.L2 ||
+            activeTier == com.aiassistant.domain.model.CompressionTier.L3 ||
+            activeTier == com.aiassistant.domain.model.CompressionTier.LC
+        ) {
             conversation?.rollingSummary?.takeIf { it.isNotBlank() }
                 ?: runCatching {
                     com.aiassistant.utils.AdvancedMemoryEngine.generateExtractiveStructuredSummary(usableMessages).toPromptBlock()
@@ -2702,7 +2735,8 @@ class AiRepository(
             recentBudget = recentBudget,
             l2RecentRounds = l2Rounds,
             existingRollingSummary = conversation?.rollingSummary,
-            structuredSummary = structuredSummary
+            structuredSummary = structuredSummary,
+            customRetainPercent = customRetainPercent
         )
 
         // 溢出安全回退：若当前档位组装后仍超 promptBudget 上限，自动降一档，直到 L4
@@ -2718,7 +2752,8 @@ class AiRepository(
                 recentBudget = recentBudget,
                 l2RecentRounds = l2Rounds,
                 existingRollingSummary = conversation?.rollingSummary,
-                structuredSummary = structuredSummary
+                structuredSummary = structuredSummary,
+                customRetainPercent = customRetainPercent
             )
             totalEstimated = SYSTEM_PROMPT_TOKEN_RESERVE + tieredResult.recentTokens + memoryTokensCost
         }

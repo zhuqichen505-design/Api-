@@ -172,11 +172,12 @@ interface ConversationDao {
         timestamp: Long = System.currentTimeMillis()
     )
 
-    @Query("UPDATE conversations SET compressionTier = :tier, compressionRecentRounds = :recentRounds, updatedAt = :timestamp WHERE id = :id")
+    @Query("UPDATE conversations SET compressionTier = :tier, compressionRecentRounds = :recentRounds, compressionCustomPercent = :customPercent, updatedAt = :timestamp WHERE id = :id")
     suspend fun updateCompressionTier(
         id: Long,
         tier: Int,
         recentRounds: Int,
+        customPercent: Int,
         timestamp: Long = System.currentTimeMillis()
     )
 }

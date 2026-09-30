@@ -1,3 +1,111 @@
+# Echo v2.6.2 构建走查与验收报告 (Walkthrough)
+
+## 一、本次构建与需求概述
+- **发布版本**：v2.6.2 (`versionCode: 158`)
+- **构建类型**：Release APK
+- **交付目标文件**：`D:\Agent\APP-Echo\app\releases\Echo-v2.6.2.apk`
+- **核心需求与修复**：
+  1. 压缩对长对话效果差（L2-L4 均压缩 97%+），新增自定义百分比条数压缩选项（保留原有最近轮数自定义）；
+  2. 压缩前后对比预览 UI 完善；
+  3. 模型连接报错无需手动暂停即可直接看到错误信息；
+  4. 数据看板修复与增强：a. 环形图灰色间隔；b. Token 构成增加模型占比；c. Token 趋势改平滑折线图；d. 模型明细排序选项可见区别；e. 新增热力矩形看板（点选查看局部时段请求数/成功率/Token）。
+
+---
+
+## 二、逐项实现走查
+
+### 1. LC 自定义比例压缩档（需求 1）
+| 层 | 实现详情 |
+| :--- | :--- |
+| 领域 | `CompressionTier.LC`（level 5「自定义比例」）；`CompressionTierPolicy` 百分比常量（默认 30%、范围 10~90%、步长 5）、`getRetainedRoundsDesc` LC 分支、`fallbackOnContextOverflow` LC→L4 |
+| 装配 | `assembleTieredContextMessages` 新增 `customRetainPercent`：LC 窗口 = ceil(消息总数×百分比)、至少保留最近 1 轮；窗口内"尽量保留"（预算裁剪），置顶/最近 1 轮无条件保留；摘要注入沿用滚动摘要优先 |
+| 数据 | Room **v30→v31**：conversations 新增 `compressionCustomPercent`（DEFAULT 30），`MIGRATION_30_31`（addColumnIfMissing，非破坏性）并接入迁移链；DAO `updateCompressionTier` 扩展 |
+| 仓库 | 快照与请求组装全链路传参；`getConversationContextUsage` 新增轮数/百分比覆盖（预览实时重算不落库） |
+| UI | 档位卡新增 LC 单选项 + 百分比滑杆；`ChatViewModel.setCompressionTier(tier, rounds, percent)` 三参落库 |
+
+### 2. 前后对比预览完善（需求 2）
+- 双条形对比行（当前档位灰条 vs 新档位主色条，长度按基线 Token 归一化）+ 保留策略说明 + 释放徽标；
+- 修复滑杆调整后预览不刷新（原为静态快照）：`onValueChangeFinished → viewModel.previewCompressionSettings(rounds, percent)` 即时重算 tierPreviews。
+
+### 3. 连接报错实时可见（需求 3）
+- 根因：Key 尝试失败明细（`currentKeyAttemptErrors`）仅在手写暂停路径写入消息，生成过程不可见；
+- 修复：`ChatViewModel.keyAttemptErrors: StateFlow<List<String>>` 实时入流；三处流式气泡传入 `liveKeyErrors`；`MessageBubble` 渲染「连接异常 · 实时明细」红色可折叠卡片（默认展开，逐条 Key #N 掩码 + 报错，附自动重试提示）。
+
+### 4. 数据看板修复与增强（需求 4）
+| 项 | 实现详情 |
+| :--- | :--- |
+| a 灰色间隔 | `donutSweepDegrees` 去除切片间隙，连续铺满 360°；底环仅无数据时绘制 |
+| b 模型占比 | Token 构成卡「Token 类型 / 模型占比」双视图；`toModelDonutSlices` Top4 + 其他；图例含数值/占比 |
+| c 折线趋势 | `buildModelTokenSeries`（Top4+其他，与分桶等长）+ `ModelTokenTrendChart`：中点贝塞尔平滑曲线、虚线网格、顶部横滑图例、5 刻度 X 轴；替换堆叠柱状图 |
+| d 排序区别 | 排序模式对应行内指标高亮（主色底+描边+加粗）：Tokens 高亮总量文本，请求数/成功率/耗时高亮对应标签 |
+| e 热力矩形 | 「请求健康时间线」卡：`buildHealthCells`（周期定制格数 12/48/84/60/90），Canvas 14 列网格 + 点击选中；「健康状态」（绿/黄绿/橙/红/灰）与「Token 热度」双视图；选中展开局部时段明细（范围/请求数/成功率/Token/失败） |
+
+---
+
+## 三、构建与验证复核清单
+- [x] 1. `compileDebugKotlin --no-daemon`：Exit Code 0
+- [x] 2. `testDebugUnitTest --no-daemon`：Exit Code 0（73 测试文件，486 项全通 / 0 失败 / 0 错误，较 v2.6.1 新增 10 项）
+- [x] 3. `lintDebug --no-daemon`：Exit Code 0
+- [x] 4. `git diff --check`：Exit Code 0（仅 CRLF 提示）
+- [x] 5. `assembleRelease --no-daemon`：Exit Code 0
+- [x] 6. 发布 APK 输出至 `D:\Agent\APP-Echo\app\releases\Echo-v2.6.2.apk`（历史包 100% 保留，增量输出）
+
+---
+
+## 四、APK 产物技术元数据
+
+| 项目 | 参数 / 校验值 |
+| :--- | :--- |
+| **文件名称** | `Echo-v2.6.2.apk` |
+| **绝对路径** | `D:\Agent\APP-Echo\app\releases\Echo-v2.6.2.apk` |
+| **文件大小** | 16,683,885 字节 (约 15.91 MB) |
+| **Package ID** | `com.aiassistant` |
+| **Version Name** | `2.6.2` |
+| **Version Code** | `158` |
+| **Room 数据库版本** | `31`（MIGRATION_30_31，非破坏性新增列） |
+| **Target ABI** | `arm64-v8a` |
+| **Min SDK / Target SDK** | `26` / `34` |
+| **SHA-256 校验和** | `4CEAC42E7981586AC4866C770DC8BB2F29BA01DB3B85E450D913CC102FE6C5E2` |
+| **签名机制** | APK Signature Scheme v2（`apksigner verify` 通过） |
+| **签名证书 DN** | `C=US, O=Android, CN=Android Debug` |
+| **签名证书指纹 (SHA-256)** | `93:96:38:f6:d3:e9:af:7f:8a:98:0e:62:af:52:d2:75:fe:e7:33:81:f2:13:0c:c4:e2:0a:0d:34:9f:98:e2:1f` |
+
+> **签名说明**：使用项目内 `keystore/echo-release.jks`（alias `androiddebugkey`）签名，证书 DN 为 Android Debug（与历史版本指纹一致），**非正式生产上传密钥**。
+
+---
+
+## 五、Git 状态
+本次改动 14 个源文件（含 2 个测试文件）+ 版本/文档同步，详见提交记录。
+
+### 修改文件
+1. `app/build.gradle.kts`（versionCode 158 / versionName 2.6.2）
+2. `domain/model/CompressionTier.kt`（LC 档 + 策略常量/描述/降档）
+3. `domain/model/Models.kt`（Conversation/ConversationContextUsage 新增 compressionCustomPercent）
+4. `data/local/AppDatabase.kt`（v31）+ `data/local/migrations/AppDatabaseMigrations.kt`（MIGRATION_30_31）+ `data/local/Daos.kt`
+5. `data/repository/helpers/ChatContextAssemblyHelper.kt`（LC 装配）
+6. `data/repository/AiRepository.kt`（快照/组装/覆盖参数/档位更新）
+7. `ui/screens/chat/ChatViewModel.kt`（三参档位设置、实时预览重算、keyAttemptErrors 流）
+8. `ui/screens/chat/ChatContextComponents.kt`（LC 滑杆 + 预览改版）
+9. `ui/screens/chat/ChatScreen.kt`（回调接线 + liveKeyErrors）
+10. `ui/screens/chat/ChatMessageComponents.kt`（实时报错明细块）
+11. `ui/screens/stats/StatsScreen.kt`（看板 a-e）
+12. `test/.../CompressionTierPolicyTest.kt`（+5 项）与 `test/.../StatsDashboardTest.kt`（+5 项、改 2 项）
+
+---
+
+## 六、剩余风险与人工验收
+1. **安装验证**：本机无真机/模拟器，**未执行安装与启动验证**。人工验收步骤：
+   - 安装 `Echo-v2.6.2.apk` 覆盖升级（Room v30→v31 自动迁移，数据无损）；
+   - 压缩档位：打开长对话 → 上下文管理 → 选「LC 自定义比例」拖动百分比滑杆，确认预估 Token 实时变化、双条形对比正常；确认应用后长对话不再被压缩 97%+；
+   - 连接报错：故意填错 API 地址后发送，确认流式回复下方直接出现「连接异常 · 实时明细」卡片并逐条列出报错，无需手动暂停；
+   - 数据看板：进入使用统计逐项核对——环形图无灰色间隔且可切换模型占比；Token 趋势为平滑折线并带模型图例；健康时间线可点选方格查看时段明细；模型明细切换排序时对应指标高亮。
+2. **LC 档预算行为**：预算极紧张时 LC 窗口会被裁剪（置顶与最近 1 轮仍保留），实际保留比例可能低于设定值；此为防溢出的既定设计。
+3. **Lint 工具链**：沿用 v2.5.9 起的已知隔离方案（Compose Lint 元数据崩溃探测器），其余规则全部有效。
+
+---
+
+---
+
 # Echo v2.6.1 构建走查与验收报告 (Walkthrough)
 
 ## 一、本次构建与需求概述
