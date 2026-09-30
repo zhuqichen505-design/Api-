@@ -40,6 +40,24 @@
 
 ## 二、最近一次执行记录
 
+### [2026-09-30] v2.6.1 流式输出重复/错位修复与使用统计看板全面改版（发版）
+- **需求**：
+  1. 修复流式输出偶现「两个相同回复同时进行流式输出」或「回复位置错误」（回复结束后恢复正常）；
+  2. 全面更新使用统计界面，优化美观度与数据可视化，提供更丰富的数据看板。
+- **版本**：versionCode 157 / versionName 2.6.1 / Room v30（无 DB 实体变更，仅查询补次级排序键）。
+- **实现要点**：
+  1. 根因：`ChatScreen.kt` 分支流式挂载判定中 `pairedVariantGroupId` 对 `reply_*` 命名返回 `null`，与未分组消息项的 `null` groupId 构成 `null == null` 判等，导致每个未分组消息后多渲染一份相同流式气泡；`isStreamingBranchHostItem` 显式空值防护后统一两处判定；`MessageDao` 补 `id ASC` 次级排序；
+  2. 统计看板改版：环比对比芯片、3×3 指标网格（新增失败次数/缓存命中率/平均响应/峰值单段）、Token 构成环形图、24 小时调用分布、供应商消耗占比、失败原因归纳、模型明细表增强、图例按卡片配置、空态收敛；纯逻辑 internal 化。
+- **文件**：`ChatScreen.kt`、`ChatMessageComponents.kt`、`Daos.kt`、`StatsScreen.kt`、`RegenerateVariantSwitcherTest.kt`、`StatsDashboardTest.kt`（新增）、`build.gradle.kts` 及相关文档。
+- **验证**：
+  - `compileDebugKotlin`: Exit Code 0
+  - `testDebugUnitTest`: Exit Code 0 (73 测试文件，476 项全通，新增 18 项)
+  - `lintDebug`: Exit Code 0
+  - `git diff --check`: Exit Code 0
+  - `assembleRelease`: Exit Code 0
+  - Release APK 输出至 `D:\Agent\APP-Echo\app\releases\Echo-v2.6.1.apk` (SHA256: `E59449093D1FB039F9D8489E89A1F338DD7BE8D7A2F468863BC331D01A2AB495`)
+- **详情**：见 `UPDATE_LOG.md` 与 `walkthrough.md`。
+
 ### [2026-09-30] v2.6.0 上下文回退选择、设定时间线编辑、连接失败胶囊优化与供应商拖拽排序（发版）
 - **需求**：
   1. 弱网连接不畅或空响应导致上下文回退时弹窗提供「回退 / 忽略 / （当前对话）永久忽略」选择；

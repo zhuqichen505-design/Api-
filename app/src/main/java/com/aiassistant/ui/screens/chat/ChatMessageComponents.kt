@@ -312,6 +312,23 @@ internal fun pairedVariantGroupId(groupId: String): String? {
     }
 }
 
+/**
+ * 判定某条显示消息项是否可作为流式分支气泡的内联挂载点（挂载点 = 与流式分支配对的 user 消息项）。
+ *
+ * 约束：streamingBranchGroupId 为 "reply_*" 等非成对命名时 pairedVariantGroupId 返回 null，
+ * 相等判定必须先确认 pairedId 非空——否则会与所有未分组消息项的 null groupId 相等，
+ * 导致每个未分组消息后都多渲染一份相同的流式气泡（多份回复同时流式输出 + 位置错乱）。
+ */
+internal fun isStreamingBranchHostItem(
+    itemGroupId: String?,
+    streamingBranchGroupId: String,
+    messageId: Long
+): Boolean {
+    val pairedId = pairedVariantGroupId(streamingBranchGroupId)
+    return (pairedId != null && itemGroupId == pairedId) ||
+        streamingBranchGroupId.startsWith("turn_${messageId}_")
+}
+
 internal fun isErrorMessage(content: String): Boolean {
     val trimmed = content.trim()
     return trimmed.startsWith("请求失败") ||

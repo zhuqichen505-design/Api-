@@ -184,10 +184,10 @@ interface ConversationDao {
 // ============ 消息 DAO ============
 @Dao
 interface MessageDao {
-    @Query("SELECT * FROM messages WHERE conversationId = :conversationId ORDER BY createdAt ASC")
+    @Query("SELECT * FROM messages WHERE conversationId = :conversationId ORDER BY createdAt ASC, id ASC")
     fun getMessagesByConversation(conversationId: Long): Flow<List<Message>>
 
-    @Query("SELECT * FROM messages WHERE conversationId = :conversationId ORDER BY createdAt ASC")
+    @Query("SELECT * FROM messages WHERE conversationId = :conversationId ORDER BY createdAt ASC, id ASC")
     suspend fun getMessagesList(conversationId: Long): List<Message>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)

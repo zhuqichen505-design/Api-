@@ -2,6 +2,48 @@
 
 本文档按照工作流规范记录每次版本更新、需求变更与复核结果。
 
+## [2026-09-30] - v2.6.1 流式输出重复/错位修复与使用统计看板全面改版
+
+### 1. 用户需求
+1. 应用流式输出时偶现出现两个相同回复同时进行流式输出或回复位置错误等现象（回复结束后会恢复正常），请修复。
+2. 全面更新使用统计界面，优化美观度和数据可视化，同时提供更丰富的数据看板。
+完成以上需求并构建 APK。
+
+### 2. 问题与实现
+1. **流式回复重复/错位根因修复（需求 1）**：
+   - 根因定位：`ChatScreen.kt` 分支流式气泡内联挂载判定中，`displayItem.groupId == pairedVariantGroupId(streamingBranchGroupId)` 在 `streamingBranchGroupId` 为 `reply_<id>`（重新生成无分组历史消息时的兜底命名）时，`pairedVariantGroupId` 返回 `null`，与所有**未分组**消息项的 `null` groupId 构成 `null == null` 判等命中——每个未分组消息后都会额外渲染一份相同的流式气泡，表现为「多个相同回复同时流式输出」且「位置错乱」；回复结束后流式气泡统一消失、落库消息接管，故"恢复正常"。同一缺陷也存在于 `isBranchStreamingMounted` 挂载检查中（会让底部兜底气泡被误判为已挂载而消失）；
+   - 修复：`ChatMessageComponents.kt` 新增纯函数 `isStreamingBranchHostItem(itemGroupId, streamingBranchGroupId, messageId)`，显式要求 `pairedId != null` 才参与相等判定；`ChatScreen.kt` 内联挂载与挂载检查两处统一改用该函数；
+   - 修复后行为矩阵：普通发送 → 底部兜底气泡（仅一份）；重生成无分组消息 → 底部兜底气泡（仅一份，修复前为 N 份错位气泡）；编辑重发/重生成带分组消息 → 配对 user 消息项之后原位内联气泡（仅一份）；
+   - 次要加固：`MessageDao` 两条消息查询补 `id ASC` 次级排序键，同毫秒入库消息的列表顺序不再依赖 SQLite 隐式顺序，杜绝偶发位置漂移；
+   - 回归测试：`RegenerateVariantSwitcherTest` 新增 4 项 `isStreamingBranchHostItem` 判定测试。
+2. **使用统计看板全面改版（需求 2）**（`StatsScreen.kt` 重写，保留玻璃拟态设计语言与 SQLite 只读容错查询层）：
+   - 核心概览升级：总消耗大数字 + 周期/筛选标题；新增**环比上一周期**对比芯片（Token 消耗、调用量，▲/▼ 走向与正负着色；读取窗口扩大一倍一次取回双周期）；指标网格扩展为 3×3：总请求数、调用成功率、**失败次数**、输入/输出/思考 Token、**缓存命中率**、**平均响应**（ms/s/min 自适应）、**峰值单段**（附时段标注）；
+   - 新增 **Token 构成环形图**：输入/输出/思考/其他四切片 Canvas 环形图，切片间 3° 间隙，中心显示总量，右侧图例逐项展示数值与占比；
+   - 新增 **24 小时调用分布直方图**：按本地时区 0-23 时聚合调用次数，柱体亮度随频次增强，副标题直接给出「最活跃时段 X 时 · N 次调用」；
+   - 新增 **供应商消耗占比**：按 provider 聚合 Token 占比横条（Top 6），含调用量与百分比；
+   - 新增 **失败原因归纳**：失败记录按错误首行文案归组，Top 4 高频原因 + 计数徽标（无失败时整卡隐藏）；
+   - 既有图表保留并修正：Token 堆叠柱状图与成功率走势曲线维持原视觉；修复成功率卡片底部误挂 Token 图例的问题（图例改为按卡片配置）；
+   - 模型明细表增强：每行新增「失败 N」「缓存 N%」标签（有数据时显示），耗时统一 `formatMillis` 自适应格式；
+   - 空态优化：筛选后无数据时仅展示概览 + 空态卡，不再渲染全部空图表；
+   - 统计纯逻辑（聚合/分桶/占比/失败归纳/环比/环形角度/格式化）收敛为 `internal` 纯函数，新增 `StatsDashboardTest.kt` 领域套件 14 项测试覆盖。
+3. **版本与发布**：
+   - 版本递增至 `versionName = "2.6.1"`, `versionCode = 157`；
+   - 构建生成 Release APK，复制到发布路径 `D:\Agent\APP-Echo\app\releases\Echo-v2.6.1.apk`。
+
+### 3. 验证结果
+- `./gradlew.bat compileDebugKotlin --no-daemon` Exit Code 0
+- `./gradlew.bat testDebugUnitTest --no-daemon` Exit Code 0（73 测试文件，476 项全通，较 v2.6.0 新增 18 项）
+- `./gradlew.bat lintDebug --no-daemon` Exit Code 0
+- `git diff --check` Exit Code 0
+- `./gradlew.bat assembleRelease --no-daemon` Exit Code 0
+- APK 验证：
+  - 路径：`D:\Agent\APP-Echo\app\releases\Echo-v2.6.1.apk`
+  - 大小：16,667,501 字节 (~15.89 MB)
+  - SHA256：`E59449093D1FB039F9D8489E89A1F338DD7BE8D7A2F468863BC331D01A2AB495`
+  - 签名：`apksigner verify` 通过（证书 DN: CN=Android Debug, SHA-256: 939638f6d3e9af7f8a980e62af52d275fee73381f2130cc4e20a0d349f98e21f）——**非正式生产签名**
+
+---
+
 ## [2026-09-30] - v2.6.0 弱网上下文回退选择、设定与时间线长按编辑、连接失败胶囊优化与供应商拖拽排序
 
 ### 1. 用户需求

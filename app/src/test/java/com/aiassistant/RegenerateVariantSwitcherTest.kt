@@ -2,6 +2,7 @@ package com.aiassistant
 
 import com.aiassistant.domain.model.Message
 import com.aiassistant.ui.screens.chat.buildDisplayMessages
+import com.aiassistant.ui.screens.chat.isStreamingBranchHostItem
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -160,5 +161,56 @@ class RegenerateVariantSwitcherTest {
         assertEquals(2, contextMessages.size)
         assertEquals("前置背景", contextMessages[0].content)
         assertEquals("请帮我写个大纲", contextMessages[1].content)
+    }
+
+    // ==================== 流式气泡内联挂载点判定（isStreamingBranchHostItem） ====================
+    // 回归背景：旧实现 `displayItem.groupId == pairedVariantGroupId(streamingBranchGroupId)` 在
+    // streamingBranchGroupId 为 "reply_*"（重生成无分组消息）时退化为 null == null，
+    // 所有未分组消息项全部命中，造成多份相同回复同时流式输出且位置错乱。
+
+    @Test
+    fun testStreamingHost_replyGroupMustNotMatchUngroupedItems() {
+        // 重生成无分组消息：streamingBranchGroupId = "reply_2"，列表中存在未分组的 user/assistant 消息
+        assertFalse(
+            "reply_* 流式分支不得把未分组消息项判定为挂载点（null == null 回归）",
+            isStreamingBranchHostItem(itemGroupId = null, streamingBranchGroupId = "reply_2", messageId = 1L)
+        )
+        assertFalse(
+            "reply_* 流式分支不得把未分组 assistant 消息项判定为挂载点",
+            isStreamingBranchHostItem(itemGroupId = null, streamingBranchGroupId = "reply_2", messageId = 2L)
+        )
+        // 无任何挂载点时应由底部兜底气泡（streaming_assistant_message）承接，保证仅一份流式回复
+    }
+
+    @Test
+    fun testStreamingHost_pairedUserGroupMatches() {
+        // 编辑重发：streamingBranchGroupId = "turn_5_assistant"，配对 user 分组项 turn_5_user 必须命中
+        assertTrue(
+            "配对 user 分组项（turn_5_user）应作为内联挂载点",
+            isStreamingBranchHostItem(itemGroupId = "turn_5_user", streamingBranchGroupId = "turn_5_assistant", messageId = 7L)
+        )
+        // 反向配对同样成立
+        assertTrue(
+            "配对 assistant 分组项（turn_5_assistant）应作为内联挂载点",
+            isStreamingBranchHostItem(itemGroupId = "turn_5_assistant", streamingBranchGroupId = "turn_5_user", messageId = 7L)
+        )
+    }
+
+    @Test
+    fun testStreamingHost_turnPrefixMatchesUngroupedUserMessage() {
+        // 未分组 user 消息（id=5）：groupId 嵌入 turn_ 前缀时命中，气泡挂在正确位置
+        assertTrue(
+            "turn_ 前缀内嵌消息 id 的未分组消息项应作为内联挂载点",
+            isStreamingBranchHostItem(itemGroupId = null, streamingBranchGroupId = "turn_5_assistant", messageId = 5L)
+        )
+        assertFalse(
+            "id 不匹配的未分组消息项不得作为挂载点",
+            isStreamingBranchHostItem(itemGroupId = null, streamingBranchGroupId = "turn_5_assistant", messageId = 9L)
+        )
+        // groupId 相同但非成对命名（如自定义分支组）不通过 paired 判定，只能靠 turn_ 前缀
+        assertFalse(
+            "groupId 非配对命名时不得命中 paired 判定",
+            isStreamingBranchHostItem(itemGroupId = "branch_custom", streamingBranchGroupId = "turn_5_assistant", messageId = 9L)
+        )
     }
 }

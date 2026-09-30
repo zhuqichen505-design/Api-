@@ -1348,8 +1348,7 @@ fun ChatScreen(
                             if (
                                 !hasAssistantItemForThisTurn &&
                                 streamingBranchGroupId != null &&
-                                (displayItem.groupId == pairedVariantGroupId(streamingBranchGroupId!!) ||
-                                 streamingBranchGroupId!!.startsWith("turn_${displayItem.message.id}_")) &&
+                                isStreamingBranchHostItem(displayItem.groupId, streamingBranchGroupId!!, displayItem.message.id) &&
                                 (isGenerating || currentResponse.isNotEmpty() || currentThinking.isNotEmpty())
                             ) {
                                 Spacer(modifier = Modifier.height(14.dp))
@@ -1386,8 +1385,7 @@ fun ChatScreen(
                     // 检查当前流式分支是否在消息列表中成功挂载
                     val isBranchStreamingMounted = streamingBranchGroupId != null && displayMessages.any { item ->
                         item.groupId == streamingBranchGroupId ||
-                        item.groupId == pairedVariantGroupId(streamingBranchGroupId!!) ||
-                        streamingBranchGroupId!!.startsWith("turn_${item.message.id}_")
+                        isStreamingBranchHostItem(item.groupId, streamingBranchGroupId!!, item.message.id)
                     }
 
                     // 当前正在生成的内容（若为常规生成，或分支宿主不存在/被删除时，在底部稳妥兜底渲染，绝不丢失流式气泡）

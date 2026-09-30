@@ -36,6 +36,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.aiassistant.ui.theme.EchoChartPalette
 import com.aiassistant.ui.theme.rememberEchoChartColors
 import com.aiassistant.ui.components.EchoGlassPagePanelShape
 import com.aiassistant.ui.components.EchoWallpaperBackground
@@ -53,9 +54,23 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.pow
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
+/**
+ * 使用统计 · 数据看板（v2.6.1 全面改版）
+ *
+ * 在原有「概览 + Token 趋势 + 成功率走势 + 模型明细」基础上新增：
+ * 1. 核心概览升级：环比上一周期（Token/请求量增减）、失败次数、缓存命中率、平均响应、峰值单段；
+ * 2. Token 构成环形图（输入/输出/思考/其他占比）；
+ * 3. 24 小时调用分布直方图（定位最活跃时段）；
+ * 4. 供应商 Token 占比横条；
+ * 5. 失败原因 Top 归纳（仅在有失败记录时出现）。
+ *
+ * 纯统计逻辑（聚合/分桶/占比/格式化）保持 internal 纯函数，供 StatsDashboardTest 覆盖；
+ * SQLite 只读查询层保留 v2.5.x 的容错设计（表结构不满足时优雅降级）。
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StatsScreen(
@@ -72,13 +87,16 @@ fun StatsScreen(
     var selectedModelFilter by remember { mutableStateOf<String?>(null) }
     var refreshKey by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var stats by remember { mutableStateOf<List<UsageRow>>(emptyList()) }
+    var previousStats by remember { mutableStateOf<List<UsageRow>>(emptyList()) }
     var statusText by remember { mutableStateOf("正在读取统计") }
 
+    // 一次读取覆盖「当前周期 + 上一周期」两个窗口，用于环比对比
     LaunchedEffect(selectedPeriod, refreshKey) {
         val endTime = System.currentTimeMillis()
         val startTime = endTime - selectedPeriod.durationMillis
-        val result = readUsageRows(context, startTime, endTime)
-        stats = result.rows
+        val result = readUsageRows(context, startTime - selectedPeriod.durationMillis, endTime)
+        stats = result.rows.filter { it.timestamp >= startTime }
+        previousStats = result.rows.filter { it.timestamp < startTime }
         statusText = result.message
     }
 
@@ -89,12 +107,30 @@ fun StatsScreen(
     val filteredStats = remember(stats, selectedModelFilter) {
         if (selectedModelFilter == null) stats else stats.filter { it.modelName == selectedModelFilter }
     }
+    val filteredPrevious = remember(previousStats, selectedModelFilter) {
+        if (selectedModelFilter == null) previousStats else previousStats.filter { it.modelName == selectedModelFilter }
+    }
 
     val summary = remember(filteredStats) { filteredStats.toSummary() }
+    val previousSummary = remember(filteredPrevious) { filteredPrevious.toSummary() }
+    val hasPreviousData = previousSummary.requestCount > 0
+    val tokensDelta = remember(summary.totalTokens, previousSummary.totalTokens) {
+        computeDeltaPct(summary.totalTokens.toLong(), previousSummary.totalTokens.toLong())
+    }
+    val requestsDelta = remember(summary.requestCount, previousSummary.requestCount) {
+        computeDeltaPct(summary.requestCount.toLong(), previousSummary.requestCount.toLong())
+    }
+
     val buckets = remember(filteredStats, selectedPeriod, refreshKey) {
         buildBuckets(filteredStats, selectedPeriod, System.currentTimeMillis())
     }
+    val peakBucket = remember(buckets) {
+        buckets.maxByOrNull { it.totalTokens }?.takeIf { it.totalTokens > 0 }
+    }
     val modelRows = remember(filteredStats) { filteredStats.toModelRows() }
+    val hourSlices = remember(filteredStats) { filteredStats.toHourSlices() }
+    val providerShares = remember(filteredStats) { filteredStats.toProviderShares() }
+    val failureSlices = remember(filteredStats) { filteredStats.toFailureSlices() }
 
     EchoWallpaperBackground(
         backgroundBitmap = statsBackgroundBitmap,
@@ -163,50 +199,112 @@ fun StatsScreen(
                     }
                 }
 
-                // 3. 统计核心概览卡片
+                // 3. 核心概览：总量 + 环比 + 九宫格指标
                 item {
-                    SummaryCard(
+                    HeroSummaryCard(
                         hazeState = hazeState,
                         summary = summary,
                         period = selectedPeriod,
                         selectedModel = selectedModelFilter,
                         statusText = statusText,
+                        hasPreviousData = hasPreviousData,
+                        tokensDelta = tokensDelta,
+                        requestsDelta = requestsDelta,
+                        peakBucket = peakBucket,
                         readableBackdrop = readableBackdrop
                     )
                 }
 
-                // 4. Token 消耗可视化堆叠条形图
-                item {
-                    ChartCard(
-                        hazeState = hazeState,
-                        title = if (selectedModelFilter != null) "$selectedModelFilter · Token 消耗趋势" else "Token 消耗趋势",
-                        subtitle = "按时间分段统计输入、输出与思考 Token 分布",
-                        readableBackdrop = readableBackdrop
-                    ) { chartContentColor ->
-                        ModernTokenBars(
-                            buckets = buckets,
-                            maxToken = niceAxisMax(buckets.maxOfOrNull { it.totalTokens } ?: 0),
-                            labelColor = chartContentColor.copy(alpha = 0.72f)
+                if (filteredStats.isEmpty()) {
+                    item {
+                        EmptyCard(
+                            hazeState = hazeState,
+                            text = "当前筛选条件下暂无统计记录",
+                            readableBackdrop = readableBackdrop
                         )
+                    }
+                } else {
+                    // 4. Token 构成环形图
+                    item {
+                        TokenDonutCard(
+                            hazeState = hazeState,
+                            summary = summary,
+                            readableBackdrop = readableBackdrop
+                        )
+                    }
+
+                    // 5. Token 消耗可视化堆叠条形图
+                    item {
+                        ChartCard(
+                            hazeState = hazeState,
+                            title = if (selectedModelFilter != null) "$selectedModelFilter · Token 消耗趋势" else "Token 消耗趋势",
+                            subtitle = "按时间分段统计输入、输出与思考 Token 分布",
+                            readableBackdrop = readableBackdrop,
+                            legend = { chartColors ->
+                                listOf(
+                                    "输入 Token" to chartColors.primary,
+                                    "输出 Token" to chartColors.secondary,
+                                    "思考 Token" to chartColors.tertiary
+                                )
+                            }
+                        ) { chartContentColor ->
+                            ModernTokenBars(
+                                buckets = buckets,
+                                maxToken = niceAxisMax(buckets.maxOfOrNull { it.totalTokens } ?: 0),
+                                labelColor = chartContentColor.copy(alpha = 0.72f)
+                            )
+                        }
+                    }
+
+                    // 6. 成功率走势曲线图
+                    item {
+                        ChartCard(
+                            hazeState = hazeState,
+                            title = "调用成功率走势",
+                            subtitle = "按时间分段统计 API 调用的成功率变化曲线",
+                            readableBackdrop = readableBackdrop,
+                            legend = { chartColors ->
+                                listOf("成功率" to chartColors.secondary)
+                            }
+                        ) { chartContentColor ->
+                            ModernTrendChart(
+                                buckets = buckets,
+                                labelColor = chartContentColor.copy(alpha = 0.72f)
+                            )
+                        }
+                    }
+
+                    // 7. 24 小时调用分布
+                    item {
+                        HourActivityCard(
+                            hazeState = hazeState,
+                            slices = hourSlices,
+                            readableBackdrop = readableBackdrop
+                        )
+                    }
+
+                    // 8. 供应商 Token 占比
+                    item {
+                        ProviderShareCard(
+                            hazeState = hazeState,
+                            shares = providerShares,
+                            readableBackdrop = readableBackdrop
+                        )
+                    }
+
+                    // 9. 失败原因归纳（仅存在失败记录时展示）
+                    if (failureSlices.isNotEmpty()) {
+                        item {
+                            FailureAnalysisCard(
+                                hazeState = hazeState,
+                                failures = failureSlices,
+                                readableBackdrop = readableBackdrop
+                            )
+                        }
                     }
                 }
 
-                // 5. 成功率走势曲线图
-                item {
-                    ChartCard(
-                        hazeState = hazeState,
-                        title = "调用成功率走势",
-                        subtitle = "按时间分段统计 API 调用的成功率变化曲线",
-                        readableBackdrop = readableBackdrop
-                    ) { chartContentColor ->
-                        ModernTrendChart(
-                            buckets = buckets,
-                            labelColor = chartContentColor.copy(alpha = 0.72f)
-                        )
-                    }
-                }
-
-                // 6. 模型明细表格
+                // 10. 模型明细表格
                 item {
                     Text(
                         text = "模型统计明细",
@@ -370,12 +468,16 @@ private fun ModelFilterChips(
 }
 
 @Composable
-private fun SummaryCard(
+private fun HeroSummaryCard(
     hazeState: dev.chrisbanes.haze.HazeState,
     summary: UsageSummary,
     period: StatsPeriod,
     selectedModel: String?,
     statusText: String,
+    hasPreviousData: Boolean,
+    tokensDelta: Float?,
+    requestsDelta: Float?,
+    peakBucket: Bucket?,
     readableBackdrop: Color
 ) {
     val glass = echoGlassPalette()
@@ -398,29 +500,74 @@ private fun SummaryCard(
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            // 标题行：周期 + 筛选
+            Text(
+                text = "${period.label}统计${if (selectedModel != null) " · $selectedModel" else ""}",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = content
+            )
+
+            // 总量主数字
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(
+                    text = formatNumber(summary.totalTokens),
+                    style = MaterialTheme.typography.titleLarge.copy(
+                        fontSize = 32.sp,
+                        fontFamily = FontFamily.SansSerif,
+                        fontWeight = FontWeight.Bold
+                    ),
+                    color = content
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "Tokens 总消耗",
+                    modifier = Modifier.padding(bottom = 4.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = content.copy(alpha = 0.68f)
+                )
+            }
+            Text(
+                text = statusText,
+                style = MaterialTheme.typography.bodySmall,
+                color = content.copy(alpha = 0.60f)
+            )
+
+            // 环比对比行
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
-                    Text(
-                        text = "${period.label}${if (selectedModel != null) " · $selectedModel" else ""} · ${formatNumber(summary.totalTokens)} Tokens",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = content
-                    )
-                    Text(
-                        text = statusText,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = content.copy(alpha = 0.72f)
-                    )
+                if (hasPreviousData) {
+                    if (tokensDelta != null) {
+                        DeltaChip(
+                            label = "Token 消耗",
+                            deltaPct = tokensDelta,
+                            riseColor = MaterialTheme.colorScheme.tertiary,
+                            fallColor = MaterialTheme.colorScheme.secondary,
+                            textColor = content
+                        )
+                    }
+                    if (requestsDelta != null) {
+                        DeltaChip(
+                            label = "调用量",
+                            deltaPct = requestsDelta,
+                            riseColor = MaterialTheme.colorScheme.tertiary,
+                            fallColor = MaterialTheme.colorScheme.secondary,
+                            textColor = content
+                        )
+                    }
+                } else {
+                    DeltaHintChip(text = "上一周期暂无调用，暂无环比对比", textColor = content)
                 }
             }
 
-            // 核心统计指标网格（扁平化渲染，杜绝滚动白影）
+            // 核心指标九宫格
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -440,6 +587,14 @@ private fun SummaryCard(
                         value = formatPercent(summary.successRate),
                         contentColor = content,
                         iconTint = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.weight(1f)
+                    )
+                    MetricPill(
+                        icon = Icons.Default.ErrorOutline,
+                        label = "失败次数",
+                        value = "${summary.failedCount} 次",
+                        contentColor = content,
+                        iconTint = if (summary.failedCount > 0) MaterialTheme.colorScheme.tertiary else content.copy(alpha = 0.55f),
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -472,6 +627,240 @@ private fun SummaryCard(
                         iconTint = MaterialTheme.colorScheme.tertiary,
                         modifier = Modifier.weight(1f)
                     )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    MetricPill(
+                        icon = Icons.Default.Cached,
+                        label = "缓存命中率",
+                        value = formatPercent(summary.cacheHitRate),
+                        contentColor = content,
+                        iconTint = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.weight(1f)
+                    )
+                    MetricPill(
+                        icon = Icons.Default.Speed,
+                        label = "平均响应",
+                        value = formatMillis(summary.avgResponseTime),
+                        contentColor = content,
+                        iconTint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.weight(1f)
+                    )
+                    MetricPill(
+                        icon = Icons.Default.Bolt,
+                        label = if (peakBucket != null) "峰值·${peakBucket.label}" else "峰值单段",
+                        value = if (peakBucket != null) formatNumber(peakBucket.totalTokens) else "—",
+                        contentColor = content,
+                        iconTint = MaterialTheme.colorScheme.tertiary,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DeltaChip(
+    label: String,
+    deltaPct: Float,
+    riseColor: Color,
+    fallColor: Color,
+    textColor: Color
+) {
+    val isRising = deltaPct > 0.01f
+    val isFalling = deltaPct < -0.01f
+    val arrow = when {
+        isRising -> "▲"
+        isFalling -> "▼"
+        else -> "—"
+    }
+    val tint = when {
+        isRising -> riseColor
+        isFalling -> fallColor
+        else -> textColor.copy(alpha = 0.6f)
+    }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(tint.copy(alpha = 0.14f))
+            .border(BorderStroke(0.6.dp, tint.copy(alpha = 0.35f)), RoundedCornerShape(999.dp))
+            .padding(horizontal = 8.dp, vertical = 3.5.dp)
+    ) {
+        Text(
+            text = arrow,
+            style = MaterialTheme.typography.labelSmall,
+            color = tint
+        )
+        Text(
+            text = "$label ${formatDeltaPct(deltaPct)}",
+            style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.SansSerif),
+            color = textColor.copy(alpha = 0.85f),
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun DeltaHintChip(text: String, textColor: Color) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelSmall,
+        color = textColor.copy(alpha = 0.55f)
+    )
+}
+
+@Composable
+private fun TokenDonutCard(
+    hazeState: dev.chrisbanes.haze.HazeState,
+    summary: UsageSummary,
+    readableBackdrop: Color
+) {
+    val glass = echoGlassPalette()
+    val tint = glass.panelStrong
+    val content = readableTextColorFor(
+        background = tint,
+        fallbackSurface = readableBackdrop
+    )
+    val chartColors = rememberEchoChartColors()
+    val donutSlices = remember(summary) { buildDonutSlices(summary) }
+    val paletteColors = listOf(chartColors.primary, chartColors.secondary, chartColors.tertiary, chartColors.quaternary)
+    val sweeps = remember(donutSlices) { donutSweepDegrees(donutSlices.map { it.value }) }
+    val total = donutSlices.sumOf { it.value }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .echoHazePanel(
+                hazeState = hazeState,
+                shape = EchoGlassPagePanelShape,
+                tint = tint,
+                blurRadius = 18.dp
+            )
+            .background(tint, EchoGlassPagePanelShape)
+            .border(BorderStroke(1.dp, glass.outline), EchoGlassPagePanelShape)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.PieChart,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Column {
+                    Text(
+                        text = "Token 构成",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = content
+                    )
+                    Text(
+                        text = "输入、输出、思考与其他 Token 的占比分布",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = content.copy(alpha = 0.70f)
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier.size(150.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        val stroke = 20.dp.toPx()
+                        val inset = stroke / 2f + 2.dp.toPx()
+                        val arcSize = Size(size.width - inset * 2f, size.height - inset * 2f)
+                        // 底环：先铺底，彩色切片后画（Compose Canvas 后画者在上）
+                        drawArc(
+                            color = content.copy(alpha = 0.06f),
+                            startAngle = 0f,
+                            sweepAngle = 360f,
+                            useCenter = false,
+                            topLeft = Offset(inset, inset),
+                            size = arcSize,
+                            style = Stroke(width = stroke, cap = StrokeCap.Butt)
+                        )
+                        var startAngle = -90f
+                        donutSlices.forEachIndexed { index, slice ->
+                            val sweep = sweeps.getOrNull(index) ?: 0f
+                            if (slice.value > 0 && sweep > 0f) {
+                                drawArc(
+                                    color = paletteColors[index % paletteColors.size],
+                                    startAngle = startAngle,
+                                    sweepAngle = sweep,
+                                    useCenter = false,
+                                    topLeft = Offset(inset, inset),
+                                    size = arcSize,
+                                    style = Stroke(width = stroke, cap = StrokeCap.Butt)
+                                )
+                            }
+                            startAngle += sweep + DonutGapDegrees
+                        }
+                    }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = formatNumber(total),
+                            style = MaterialTheme.typography.titleLarge.copy(
+                                fontFamily = FontFamily.SansSerif,
+                                fontWeight = FontWeight.Bold
+                            ),
+                            color = content
+                        )
+                        Text(
+                            text = "Tokens",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = content.copy(alpha = 0.65f)
+                        )
+                    }
+                }
+
+                // 图例（值 + 占比）
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(7.dp)
+                ) {
+                    donutSlices.forEachIndexed { index, slice ->
+                        if (slice.value <= 0) return@forEachIndexed
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(9.dp)
+                                    .clip(CircleShape)
+                                    .background(paletteColors[index % paletteColors.size])
+                            )
+                            Text(
+                                text = slice.label,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = content.copy(alpha = 0.72f),
+                                maxLines = 1
+                            )
+                            Spacer(modifier = Modifier.weight(1f))
+                            Text(
+                                text = "${formatNumber(slice.value)} · ${formatPercent(if (total > 0) slice.value.toFloat() / total else 0f)}",
+                                style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.SansSerif),
+                                color = content,
+                                maxLines = 1
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -535,6 +924,7 @@ private fun ChartCard(
     title: String,
     subtitle: String,
     readableBackdrop: Color,
+    legend: ((EchoChartPalette) -> List<Pair<String, Color>>)? = null,
     content: @Composable (Color) -> Unit
 ) {
     val glass = echoGlassPalette()
@@ -576,14 +966,17 @@ private fun ChartCard(
             content(contentColor)
 
             val chartColors = rememberEchoChartColors()
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                LegendDot("输入 Token", chartColors.primary, contentColor.copy(alpha = 0.85f))
-                LegendDot("输出 Token", chartColors.secondary, contentColor.copy(alpha = 0.85f))
-                LegendDot("思考 Token", chartColors.tertiary, contentColor.copy(alpha = 0.85f))
+            val legendItems = legend?.invoke(chartColors) ?: emptyList()
+            if (legendItems.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    legendItems.forEach { (label, color) ->
+                        LegendDot(label, color, contentColor.copy(alpha = 0.85f))
+                    }
+                }
             }
         }
     }
@@ -798,6 +1191,345 @@ private fun ModernTrendChart(
             }
         }
         XAxisLabels(buckets = buckets)
+    }
+}
+
+/** 24 小时调用分布直方图：定位一天中最活跃的调用时段 */
+@Composable
+private fun HourActivityCard(
+    hazeState: dev.chrisbanes.haze.HazeState,
+    slices: List<HourSlice>,
+    readableBackdrop: Color
+) {
+    val glass = echoGlassPalette()
+    val tint = glass.panelStrong
+    val content = readableTextColorFor(
+        background = tint,
+        fallbackSurface = readableBackdrop
+    )
+    val chartColors = rememberEchoChartColors()
+    val gridColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+    val plotBackground = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+    val peak = remember(slices) { slices.maxByOrNull { it.requestCount }?.takeIf { it.requestCount > 0 } }
+    val maxCount = remember(slices) { slices.maxOfOrNull { it.requestCount } ?: 0 }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .echoHazePanel(
+                hazeState = hazeState,
+                shape = EchoGlassPagePanelShape,
+                tint = tint,
+                blurRadius = 18.dp
+            )
+            .background(tint, EchoGlassPagePanelShape)
+            .border(BorderStroke(1.dp, glass.outline), EchoGlassPagePanelShape)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Schedule,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Column {
+                    Text(
+                        text = "24 小时调用分布",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = content
+                    )
+                    Text(
+                        text = if (peak != null) "最活跃时段 ${peak.hour} 时 · ${peak.requestCount} 次调用" else "统计周期内的按小时调用次数分布",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = content.copy(alpha = 0.70f)
+                    )
+                }
+            }
+
+            Column {
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    Spacer(modifier = Modifier.width(44.dp))
+                    Canvas(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(130.dp)
+                    ) {
+                        drawRoundRect(
+                            color = plotBackground,
+                            topLeft = Offset.Zero,
+                            size = size,
+                            cornerRadius = CornerRadius(12.dp.toPx(), 12.dp.toPx())
+                        )
+                        repeat(3) { line ->
+                            val y = size.height * line / 2f
+                            drawLine(gridColor, Offset(0f, y), Offset(size.width, y), strokeWidth = 0.8.dp.toPx())
+                        }
+
+                        if (slices.size == 24) {
+                            val slot = size.width / 24f
+                            val barWidth = (slot * 0.58f).coerceIn(2.dp.toPx(), 18.dp.toPx())
+                            slices.forEach { slice ->
+                                val left = slot * slice.hour + (slot - barWidth) / 2f
+                                if (slice.requestCount <= 0 || maxCount <= 0) {
+                                    drawRoundRect(
+                                        color = chartColors.primary.copy(alpha = 0.14f),
+                                        topLeft = Offset(left, size.height - 2.5.dp.toPx()),
+                                        size = Size(barWidth, 2.5.dp.toPx()),
+                                        cornerRadius = CornerRadius(1.25.dp.toPx(), 1.25.dp.toPx())
+                                    )
+                                } else {
+                                    val barHeight = (size.height * slice.requestCount / maxCount.toFloat())
+                                        .coerceIn(3.dp.toPx(), size.height - 4.dp.toPx())
+                                    val alpha = 0.35f + 0.65f * (slice.requestCount.toFloat() / maxCount)
+                                    drawRoundRect(
+                                        brush = Brush.verticalGradient(
+                                            colors = listOf(
+                                                chartColors.primary.copy(alpha = alpha),
+                                                chartColors.primary.copy(alpha = alpha * 0.6f)
+                                            ),
+                                            startY = size.height - barHeight,
+                                            endY = size.height
+                                        ),
+                                        topLeft = Offset(left, size.height - barHeight),
+                                        size = Size(barWidth, barHeight),
+                                        cornerRadius = CornerRadius(barWidth / 2f, barWidth / 2f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 44.dp, top = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    listOf("0时", "6时", "12时", "18时", "23时").forEach { label ->
+                        Text(
+                            text = label,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 供应商 Token 占比横条（Top 6） */
+@Composable
+private fun ProviderShareCard(
+    hazeState: dev.chrisbanes.haze.HazeState,
+    shares: List<ProviderShare>,
+    readableBackdrop: Color
+) {
+    val glass = echoGlassPalette()
+    val tint = glass.panelStrong
+    val content = readableTextColorFor(
+        background = tint,
+        fallbackSurface = readableBackdrop
+    )
+    val chartColors = rememberEchoChartColors()
+    val palette = listOf(chartColors.primary, chartColors.secondary, chartColors.tertiary, chartColors.quaternary)
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .echoHazePanel(
+                hazeState = hazeState,
+                shape = EchoGlassPagePanelShape,
+                tint = tint,
+                blurRadius = 18.dp
+            )
+            .background(tint, EchoGlassPagePanelShape)
+            .border(BorderStroke(1.dp, glass.outline), EchoGlassPagePanelShape)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Dns,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Column {
+                    Text(
+                        text = "供应商消耗占比",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = content
+                    )
+                    Text(
+                        text = "按供应商统计 Token 消耗分布",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = content.copy(alpha = 0.70f)
+                    )
+                }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                shares.forEachIndexed { index, share ->
+                    val color = palette[index % palette.size]
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.weight(1f, fill = false)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(9.dp)
+                                        .clip(CircleShape)
+                                        .background(color)
+                                )
+                                Text(
+                                    text = share.provider,
+                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                                    color = content,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            Text(
+                                text = "${formatNumber(share.totalTokens)} · ${formatPercent(share.share)} · ${share.requestCount}次",
+                                style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.SansSerif),
+                                color = content.copy(alpha = 0.75f),
+                                maxLines = 1
+                            )
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(glass.control.copy(alpha = 0.8f))
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .weight(share.share.coerceIn(0.02f, 1f))
+                                    .fillMaxHeight()
+                                    .background(
+                                        Brush.horizontalGradient(
+                                            listOf(color.copy(alpha = 0.9f), color.copy(alpha = 0.6f))
+                                        )
+                                    )
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 失败原因 Top 归纳 */
+@Composable
+private fun FailureAnalysisCard(
+    hazeState: dev.chrisbanes.haze.HazeState,
+    failures: List<FailureSlice>,
+    readableBackdrop: Color
+) {
+    val glass = echoGlassPalette()
+    val tint = glass.panelStrong
+    val content = readableTextColorFor(
+        background = tint,
+        fallbackSurface = readableBackdrop
+    )
+    val chartColors = rememberEchoChartColors()
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .echoHazePanel(
+                hazeState = hazeState,
+                shape = EchoGlassPagePanelShape,
+                tint = tint,
+                blurRadius = 18.dp
+            )
+            .background(tint, EchoGlassPagePanelShape)
+            .border(BorderStroke(1.dp, glass.outline), EchoGlassPagePanelShape)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.WarningAmber,
+                    contentDescription = null,
+                    tint = chartColors.tertiary,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Column {
+                    Text(
+                        text = "失败原因归纳",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = content
+                    )
+                    Text(
+                        text = "统计周期内调用失败的高频原因",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = content.copy(alpha = 0.70f)
+                    )
+                }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                failures.forEach { failure ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(glass.control.copy(alpha = 0.55f))
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(chartColors.tertiary.copy(alpha = 0.16f))
+                                .padding(horizontal = 7.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = "${failure.count} 次",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontFamily = FontFamily.SansSerif,
+                                    fontWeight = FontWeight.Bold
+                                ),
+                                color = chartColors.tertiary
+                            )
+                        }
+                        Text(
+                            text = failure.reason,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = content.copy(alpha = 0.85f),
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1057,11 +1789,25 @@ private fun ModernModelStatsTable(
                                     label = "成功率 ${formatPercent(row.successRate)}",
                                     tint = chartColors.secondary
                                 )
+                                if (row.failedCount > 0) {
+                                    MiniStatsChip(
+                                        icon = Icons.Default.ErrorOutline,
+                                        label = "失败 ${row.failedCount}",
+                                        tint = chartColors.tertiary
+                                    )
+                                }
                                 if (row.avgResponseTime > 0) {
                                     MiniStatsChip(
                                         icon = Icons.Default.Timer,
-                                        label = "${row.avgResponseTime}ms",
+                                        label = formatMillis(row.avgResponseTime),
                                         tint = content.copy(alpha = 0.78f)
+                                    )
+                                }
+                                if (row.cachedTokens > 0) {
+                                    MiniStatsChip(
+                                        icon = Icons.Default.Cached,
+                                        label = "缓存 ${formatPercent(row.cacheHitRate)}",
+                                        tint = chartColors.secondary
                                     )
                                 }
                                 if (row.thinkingTokens > 0) {
@@ -1133,7 +1879,7 @@ private fun EmptyCard(
             .background(tint, EchoGlassPagePanelShape),
         contentAlignment = Alignment.Center
     ) {
-        Text(text, color = content.copy(alpha = 0.70f))
+        Text(text, color = content.copy(alpha = 0.70f), textAlign = TextAlign.Center)
     }
 }
 
@@ -1184,7 +1930,7 @@ private fun queryUsageRows(db: SQLiteDatabase, startTime: Long, endTime: Long): 
     db.rawQuery(
         """
         SELECT provider, modelName, inputTokens, outputTokens, thinkingTokens,
-               totalTokens, cachedTokens, responseTime, success, timestamp
+               totalTokens, cachedTokens, responseTime, success, timestamp, errorMessage
         FROM api_usage_stats
         WHERE timestamp >= ? AND timestamp <= ?
         ORDER BY timestamp ASC
@@ -1210,19 +1956,21 @@ private fun queryUsageRows(db: SQLiteDatabase, startTime: Long, endTime: Long): 
                 cachedTokens = cursor.getInt(6).coerceIn(0, inputTokens),
                 responseTime = cursor.getLong(7).coerceAtLeast(0L),
                 success = cursor.getInt(8) == 1,
-                timestamp = cursor.getLong(9)
+                timestamp = cursor.getLong(9),
+                errorMessage = cursor.getString(10)
             )
         }
     }
     return rows
 }
 
-private fun List<UsageRow>.toSummary(): UsageSummary {
+internal fun List<UsageRow>.toSummary(): UsageSummary {
     val input = sumOf { it.inputTokens }
     val output = sumOf { it.outputTokens }
     val thinking = sumOf { it.thinkingTokens }
     val cached = sumOf { it.cachedTokens }
     val successCount = count { it.success }
+    val timedRows = filter { it.responseTime > 0 }
     return UsageSummary(
         totalTokens = sumOf { it.totalTokens },
         inputTokens = input,
@@ -1230,12 +1978,14 @@ private fun List<UsageRow>.toSummary(): UsageSummary {
         thinkingTokens = thinking,
         cachedTokens = cached,
         requestCount = size,
+        failedCount = count { !it.success },
         cacheHitRate = if (input > 0) cached.toFloat() / input else 0f,
-        successRate = if (isNotEmpty()) successCount.toFloat() / size else 0f
+        successRate = if (isNotEmpty()) successCount.toFloat() / size else 0f,
+        avgResponseTime = if (timedRows.isNotEmpty()) timedRows.map { it.responseTime }.average().toLong() else 0L
     )
 }
 
-private fun List<UsageRow>.toModelRows(): List<ModelRow> {
+internal fun List<UsageRow>.toModelRows(): List<ModelRow> {
     return groupBy { it.provider to it.modelName }
         .map { (key, rows) ->
             val input = rows.sumOf { it.inputTokens }
@@ -1249,6 +1999,7 @@ private fun List<UsageRow>.toModelRows(): List<ModelRow> {
                 cachedTokens = cached,
                 totalTokens = rows.sumOf { it.totalTokens },
                 requestCount = rows.size,
+                failedCount = rows.count { !it.success },
                 avgResponseTime = if (rows.isNotEmpty()) rows.map { it.responseTime }.average().toLong() else 0L,
                 cacheHitRate = if (input > 0) cached.toFloat() / input else 0f,
                 successRate = if (rows.isNotEmpty()) rows.count { it.success }.toFloat() / rows.size else 0f
@@ -1257,7 +2008,7 @@ private fun List<UsageRow>.toModelRows(): List<ModelRow> {
         .sortedByDescending { it.totalTokens }
 }
 
-private fun buildBuckets(rows: List<UsageRow>, period: StatsPeriod, endTime: Long): List<Bucket> {
+internal fun buildBuckets(rows: List<UsageRow>, period: StatsPeriod, endTime: Long): List<Bucket> {
     val bucketSize = period.durationMillis / period.bucketCount
     val startTime = endTime - period.durationMillis
     val formatter = SimpleDateFormat(period.labelPattern, Locale.getDefault())
@@ -1274,9 +2025,94 @@ private fun buildBuckets(rows: List<UsageRow>, period: StatsPeriod, endTime: Lon
             thinkingTokens = bucketRows.sumOf { it.thinkingTokens },
             otherTokens = bucketRows.sumOf { it.otherTokens },
             totalTokens = bucketRows.sumOf { it.totalTokens },
+            requestCount = bucketRows.size,
             cacheHitRate = if (input > 0) cached.toFloat() / input else 0f,
             successRate = if (bucketRows.isNotEmpty()) bucketRows.count { it.success }.toFloat() / bucketRows.size else 0f
         )
+    }
+}
+
+/** 按 0-23 小时聚合调用次数与 Token 消耗（使用设备本地时区） */
+internal fun List<UsageRow>.toHourSlices(): List<HourSlice> {
+    val counts = IntArray(24)
+    val tokens = IntArray(24)
+    val calendar = Calendar.getInstance()
+    forEach { row ->
+        calendar.timeInMillis = row.timestamp
+        val hour = calendar.get(Calendar.HOUR_OF_DAY).coerceIn(0, 23)
+        counts[hour] += 1
+        tokens[hour] += row.totalTokens
+    }
+    return (0 until 24).map { hour -> HourSlice(hour = hour, requestCount = counts[hour], totalTokens = tokens[hour]) }
+}
+
+/** 按供应商聚合 Token 占比（降序，含占比 0~1） */
+internal fun List<UsageRow>.toProviderShares(): List<ProviderShare> {
+    val total = sumOf { it.totalTokens }
+    if (total <= 0) return emptyList()
+    return groupBy { it.provider.ifBlank { "unknown" } }
+        .map { (provider, rows) ->
+            ProviderShare(
+                provider = provider,
+                totalTokens = rows.sumOf { it.totalTokens },
+                requestCount = rows.size,
+                share = rows.sumOf { it.totalTokens }.toFloat() / total
+            )
+        }
+        .sortedByDescending { it.totalTokens }
+        .take(6)
+}
+
+/** 失败原因 Top 归纳：按首行文案分组（截断 48 字），取出现频次前 4 */
+internal fun List<UsageRow>.toFailureSlices(): List<FailureSlice> {
+    return filter { !it.success }
+        .map { it.errorMessage?.trim().orEmpty() }
+        .filter { it.isNotEmpty() }
+        .groupBy { it.lineSequence().firstOrNull().orEmpty().take(48) }
+        .map { (reason, messages) -> FailureSlice(reason = reason, count = messages.size) }
+        .sortedWith(compareByDescending<FailureSlice> { it.count }.thenBy { it.reason })
+        .take(4)
+}
+
+/** 环比增减百分比（%）；上一周期无数据时返回 null */
+internal fun computeDeltaPct(current: Long, previous: Long): Float? {
+    if (previous <= 0L) return null
+    return ((current - previous).toFloat() / previous) * 100f
+}
+
+/** 环比百分比格式化：带符号、保留 1 位小数，例如 +12.3% / -8.0% / +0.0% */
+internal fun formatDeltaPct(deltaPct: Float): String {
+    return String.format(Locale.US, "%+.1f%%", deltaPct)
+}
+
+/** Token 构成切片（不含配色，配色由 UI 按序号映射） */
+internal data class DonutSlice(val label: String, val value: Int)
+
+internal fun buildDonutSlices(summary: UsageSummary): List<DonutSlice> {
+    val other = (summary.totalTokens - summary.inputTokens - summary.outputTokens - summary.thinkingTokens)
+        .coerceAtLeast(0)
+    return listOf(
+        DonutSlice("输入", summary.inputTokens),
+        DonutSlice("输出", summary.outputTokens),
+        DonutSlice("思考", summary.thinkingTokens),
+        DonutSlice("其他", other)
+    )
+}
+
+internal const val DonutGapDegrees = 3f
+
+/**
+ * 环形图各切片扫过角度：非零切片之间留 gapDegrees 间隙，总扫角 + 间隙 = 360°。
+ * 全零输入返回空列表；零值切片扫角为 0（绘制层跳过）。
+ */
+internal fun donutSweepDegrees(values: List<Int>, gapDegrees: Float = DonutGapDegrees): List<Float> {
+    val total = values.sumOf { it.coerceAtLeast(0) }
+    if (total <= 0) return emptyList()
+    val nonZeroCount = values.count { it > 0 }
+    if (nonZeroCount == 0) return emptyList()
+    val usable = (360f - gapDegrees * nonZeroCount).coerceAtLeast(0f)
+    return values.map { value ->
+        if (value <= 0) 0f else usable * value / total
     }
 }
 
@@ -1293,7 +2129,7 @@ private fun niceAxisMax(value: Int): Int {
     return nice * magnitude
 }
 
-private fun formatNumber(value: Int): String {
+internal fun formatNumber(value: Int): String {
     return when {
         value >= 1_000_000 -> String.format(Locale.getDefault(), "%.1fM", value / 1_000_000.0)
         value >= 1_000 -> String.format(Locale.getDefault(), "%.1fK", value / 1_000.0)
@@ -1301,7 +2137,17 @@ private fun formatNumber(value: Int): String {
     }
 }
 
-private fun formatPercent(value: Float): String {
+/** 响应耗时格式化：毫秒 / 秒 / 分钟自适应，0 或缺失显示 — */
+internal fun formatMillis(ms: Long): String {
+    return when {
+        ms <= 0L -> "—"
+        ms < 1_000L -> "${ms}ms"
+        ms < 60_000L -> String.format(Locale.US, "%.1fs", ms / 1_000.0)
+        else -> String.format(Locale.US, "%.1fmin", ms / 60_000.0)
+    }
+}
+
+internal fun formatPercent(value: Float): String {
     return "${(value.coerceIn(0f, 1f) * 100).toInt()}%"
 }
 
@@ -1311,7 +2157,7 @@ private fun bucketAxisLabels(buckets: List<Bucket>): List<String> {
     return indices.map { buckets[it].label }
 }
 
-private enum class StatsPeriod(
+internal enum class StatsPeriod(
     val label: String,
     val durationMillis: Long,
     val bucketCount: Int,
@@ -1329,7 +2175,7 @@ private data class StatsReadResult(
     val message: String
 )
 
-private data class UsageRow(
+internal data class UsageRow(
     val provider: String,
     val modelName: String,
     val inputTokens: Int,
@@ -1340,32 +2186,36 @@ private data class UsageRow(
     val cachedTokens: Int,
     val responseTime: Long,
     val success: Boolean,
-    val timestamp: Long
+    val timestamp: Long,
+    val errorMessage: String? = null
 )
 
-private data class UsageSummary(
+internal data class UsageSummary(
     val totalTokens: Int,
     val inputTokens: Int = 0,
     val outputTokens: Int = 0,
     val thinkingTokens: Int = 0,
     val cachedTokens: Int = 0,
     val requestCount: Int,
+    val failedCount: Int = 0,
     val cacheHitRate: Float,
-    val successRate: Float
+    val successRate: Float,
+    val avgResponseTime: Long = 0L
 )
 
-private data class Bucket(
+internal data class Bucket(
     val label: String,
     val inputTokens: Int,
     val outputTokens: Int,
     val thinkingTokens: Int,
     val otherTokens: Int,
     val totalTokens: Int,
+    val requestCount: Int = 0,
     val cacheHitRate: Float,
     val successRate: Float
 )
 
-private data class ModelRow(
+internal data class ModelRow(
     val provider: String,
     val modelName: String,
     val inputTokens: Int,
@@ -1374,7 +2224,26 @@ private data class ModelRow(
     val cachedTokens: Int,
     val totalTokens: Int,
     val requestCount: Int,
+    val failedCount: Int = 0,
     val avgResponseTime: Long,
     val cacheHitRate: Float,
     val successRate: Float
+)
+
+internal data class HourSlice(
+    val hour: Int,
+    val requestCount: Int,
+    val totalTokens: Int
+)
+
+internal data class ProviderShare(
+    val provider: String,
+    val totalTokens: Int,
+    val requestCount: Int,
+    val share: Float
+)
+
+internal data class FailureSlice(
+    val reason: String,
+    val count: Int
 )
