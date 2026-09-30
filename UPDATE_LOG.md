@@ -2,6 +2,28 @@
 
 本文档按照工作流规范记录每次版本更新、需求变更与复核结果。
 
+## [2026-10-01] - v2.6.3 连接失败胶囊显示具体原因（修复"不显示原因"回归）
+
+### 1. 用户需求
+用户反馈（附截图）：流式生成中连接失败时，红色胶囊只显示「模型连接失败」标题，看不到具体原因；v2.6.1 起即有此现象，v2.6.2 的实时明细卡之外胶囊本身仍隐藏原因。请修复。
+
+### 2. 问题与实现
+1. **根因**：`ChatMessageComponents.kt` 胶囊文案逻辑中，`isConnectionFailed || isMessageContentError` 分支**硬编码返回「模型连接失败」**——生成中 Key 报错/重试状态（如「当前 Key 异常 (HTTP 401...)，正在自动尝试备用 Key (2/2)...」）被整体替换为无原因标题，点击展开看到的也只是这个标题，具体原因永远不可见；
+2. **修复（需求本体）**：拆分分支——已落库错误消息（`isMessageContentError`）保持「模型连接失败」简洁标题（详情由下方红框报告承载，行为不变）；**生成中连接失败改为直接显示 `reconnectStatus` 的具体原因文本**（错误态样式支持 4 行换行、点击胶囊可展开至 16 行完整信息）；
+3. **连带修复**：`isConnectionFailed` 判定增加「仅连接阶段生效」守卫（`message.content.isBlank()`）——Key 重试失败后恢复成功时，残留的 reconnectStatus 不再让已开始流式输出的气泡持续显示失败态，胶囊正常回到思考/Token 统计文案；
+4. **实时明细清理**：首个正文/思考 token 到达（连接已恢复）时清空 `keyAttemptErrors` 实时流，避免成功流式输出后旧的失败明细卡片残留；
+5. **版本与发布**：版本递增至 `versionName = "2.6.3"`, `versionCode = 159`；构建 Release APK 复制到 `D:\Agent\APP-Echo\app\releases\Echo-v2.6.3.apk`。
+
+### 3. 验证结果
+- `./gradlew.bat compileDebugKotlin --no-daemon` Exit Code 0
+- `./gradlew.bat testDebugUnitTest --no-daemon` Exit Code 0（73 测试文件，486 项全通）
+- `./gradlew.bat lintDebug --no-daemon` Exit Code 0
+- `git diff --check` Exit Code 0
+- `./gradlew.bat assembleRelease --no-daemon` Exit Code 0
+- APK：`D:\Agent\APP-Echo\app\releases\Echo-v2.6.3.apk`，16,683,885 字节 (~15.91 MB)，SHA256 `18C5EB74A0BB2B4BEDB811AC840EF688C436B7D337F8E3488334D7F4B5E21AB9`，`apksigner verify` 通过（CN=Android Debug，**非正式生产签名**）
+
+---
+
 ## [2026-10-01] - v2.6.2 自定义比例压缩档、对比预览完善、连接报错实时可见与数据看板修复增强
 
 ### 1. 用户需求

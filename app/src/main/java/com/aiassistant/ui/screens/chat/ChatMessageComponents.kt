@@ -720,7 +720,9 @@ internal fun MessageBubble(
                     val isMessageContentError = !isUser && isErrorMessage(message.content)
                     val isConnecting = isGenerating && message.content.isBlank() && !hasThinking
                     val isThinkingActive = isGenerating && hasThinking && message.content.isBlank()
-                    val isConnectionFailed = isMessageContentError || (!reconnectStatus.isNullOrBlank() && (
+                    // 失败信号仅在连接阶段（尚无正文）生效：Key 重试失败后恢复成功时，
+                    // 残留的 reconnectStatus 不得让已开始流式输出的气泡继续显示失败态
+                    val isConnectionFailed = isMessageContentError || (!reconnectStatus.isNullOrBlank() && message.content.isBlank() && (
                         reconnectStatus.contains("异常") ||
                         reconnectStatus.contains("报错") ||
                         reconnectStatus.contains("失败") ||
@@ -742,8 +744,12 @@ internal fun MessageBubble(
                         personalizationSettings.thinkingCapsuleTemplate,
                         reconnectStatus
                     ) {
-                        if (isConnectionFailed || isMessageContentError) {
+                        if (isMessageContentError) {
+                            // 已落库错误消息：保持简洁标题，具体原因由下方红框报告承载
                             "模型连接失败"
+                        } else if (isConnectionFailed) {
+                            // 生成中连接失败：直接展示具体原因（Key 报错/重试状态），不再隐藏为无原因标题
+                            reconnectStatus?.takeIf { it.isNotBlank() } ?: "模型连接失败"
                         } else {
                             val rawModel = assistantModelName.ifBlank { "AI" }
                             val model = rawModel.displayModelShortName()

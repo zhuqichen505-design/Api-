@@ -1139,10 +1139,18 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                         assistantVariantGroupId = assistantVariantGroupId,
                         assistantVariantIndex = assistantVariantIndex,
                         onToken = { token ->
+                            // 连接已恢复（首个正文 token 到达）：清掉过期的实时失败明细，避免成功流式后残留
+                            if (session.currentResponse.value.isBlank() && _keyAttemptErrors.value.isNotEmpty()) {
+                                _keyAttemptErrors.value = emptyList()
+                            }
                             session.appendResponse(token)
                             _currentResponse.value = session.currentResponse.value
                         },
                         onThinkingToken = { token ->
+                            // 思考 token 同样代表连接已建立
+                            if (session.currentThinking.value.isBlank() && _keyAttemptErrors.value.isNotEmpty()) {
+                                _keyAttemptErrors.value = emptyList()
+                            }
                             session.appendThinking(token)
                             _currentThinking.value = session.currentThinking.value
                         },

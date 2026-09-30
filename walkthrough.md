@@ -1,3 +1,36 @@
+# Echo v2.6.3 构建走查与验收报告 (Walkthrough)
+
+## 一、本次构建与需求概述
+- **发布版本**：v2.6.3 (`versionCode: 159`)
+- **构建类型**：Release APK
+- **交付目标文件**：`D:\Agent\APP-Echo\app\releases\Echo-v2.6.3.apk`
+- **核心修复**：用户截图反馈——流式生成中连接失败时红色胶囊只显示「模型连接失败」标题、看不到具体原因。
+
+## 二、根因与修复走查
+| 项 | 详情 |
+| :--- | :--- |
+| 根因 | 胶囊文案逻辑 `isConnectionFailed \|\| isMessageContentError` 分支硬编码返回「模型连接失败」，把生成中 Key 报错/重试状态（具体原因）整体替换为无原因标题，点击展开看到的也只是该标题 |
+| 主修复 | 拆分分支：已落库错误消息保持简洁标题（红框报告承载详情）；**生成中连接失败直接显示 reconnectStatus 具体原因**（错误态 4 行换行 + 点击展开 16 行） |
+| 连带修复 | `isConnectionFailed` 增加 `message.content.isBlank()` 守卫：Key 重试失败后恢复成功时，残留 reconnectStatus 不再让已流式输出的气泡显示失败态 |
+| 明细清理 | 首个正文/思考 token 到达即清空 `keyAttemptErrors`，成功流式后旧明细卡不残留 |
+
+## 三、构建与验证复核清单
+- [x] `compileDebugKotlin --no-daemon`：Exit Code 0
+- [x] `testDebugUnitTest --no-daemon`：Exit Code 0（73 文件，486 项全通）
+- [x] `lintDebug --no-daemon`：Exit Code 0
+- [x] `git diff --check`：Exit Code 0
+- [x] `assembleRelease --no-daemon`：Exit Code 0
+- [x] APK：`Echo-v2.6.3.apk`，16,683,885 字节，SHA256 `18C5EB74A0BB2B4BEDB811AC840EF688C436B7D337F8E3488334D7F4B5E21AB9`，签名校验通过（CN=Android Debug，非正式生产签名）
+
+## 四、人工验收步骤
+1. 安装 v2.6.3 覆盖升级；
+2. 填入错误 API 地址/停用 Key 后发送消息：连接失败时红色胶囊应直接显示具体原因文本（而非仅「模型连接失败」），点击胶囊可展开完整信息；多 Key 配置下同时出现「连接异常 · 实时明细」卡片逐条列出各 Key 报错；
+3. 修好配置后重新发送：失败明细卡在开始输出后自动消失，胶囊恢复正常思考/Token 统计显示。
+
+---
+
+---
+
 # Echo v2.6.2 构建走查与验收报告 (Walkthrough)
 
 ## 一、本次构建与需求概述

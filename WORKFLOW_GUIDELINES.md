@@ -40,6 +40,15 @@
 
 ## 二、最近一次执行记录
 
+### [2026-10-01] v2.6.3 连接失败胶囊显示具体原因（发版）
+- **需求**：用户截图反馈生成中连接失败只显示「模型连接失败」标题、看不到原因。
+- **根因**：胶囊文案 `isConnectionFailed` 分支硬编码标题，替换掉了含具体原因的重连状态文本。
+- **修复**：生成中失败改为直接显示 reconnectStatus 原因文本（可展开）；`isConnectionFailed` 加 `content.isBlank()` 守卫防恢复后残留失败态；首个 token 到达清空实时失败明细。
+- **版本**：versionCode 159 / versionName 2.6.3 / Room v31（无变更）。
+- **文件**：`ChatMessageComponents.kt`、`ChatViewModel.kt`、`build.gradle.kts` 及文档。
+- **验证**：compile/test(486)/lint/diff --check/assembleRelease 全部 Exit Code 0；APK `Echo-v2.6.3.apk` (SHA256 `18C5EB74A0BB2B4BEDB811AC840EF688C436B7D337F8E3488334D7F4B5E21AB9`)。
+- **详情**：见 `UPDATE_LOG.md` 与 `walkthrough.md`。
+
 ### [2026-10-01] v2.6.2 自定义比例压缩档、对比预览完善、连接报错实时可见与数据看板修复增强（发版）
 - **需求**：
   1. 压缩支持自定义百分比条数（L2-L4 对长对话压缩 97%+ 过狠）；
