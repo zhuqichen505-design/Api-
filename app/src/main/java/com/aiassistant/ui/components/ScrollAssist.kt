@@ -186,8 +186,13 @@ fun TransientLazyListScrollbar(
                 val trackWidth = 4.dp.toPx()
                 val thumbWidth = 8.dp.toPx()
                 val minThumbHeight = 44.dp.toPx()
-                val thumbHeight = (size.height * (effectiveVisibleItems / totalItems.toFloat()))
-                    .coerceIn(minThumbHeight, size.height)
+                // v2.6.6：轨道高度小于拇指最小高度时旧 coerceIn(min, size.height) 构成空区间会抛
+                // IllegalArgumentException，改用 minOf/maxOf 组合保证任意轨道高度安全
+                //（轨道过矮时拇指填满轨道）
+                val thumbHeight = minOf(
+                    size.height,
+                    maxOf(minThumbHeight, size.height * (effectiveVisibleItems / totalItems.toFloat()))
+                )
                 val maxFirstIndex = (totalItems - effectiveVisibleItems).coerceAtLeast(1)
                 val progress = dragProgress
                     ?: (listState.firstVisibleItemIndex / maxFirstIndex.toFloat()).coerceIn(0f, 1f)

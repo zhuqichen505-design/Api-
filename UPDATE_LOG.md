@@ -2,6 +2,36 @@
 
 本文档按照工作流规范记录每次版本更新、需求变更与复核结果。
 
+## [2026-10-01] - v2.6.6 修复新建对话发送消息闪退（LC 窗口空区间 coerceIn）并全仓加固同类风险
+
+### 1. 用户需求
+用户反馈（v2.6.5 上发现）：新建对话并发送消息后应用直接闪退，属严重 bug，要求立即修复；同时核查所有可能导致闪退的类似问题并修复。
+
+### 2. 临时实施方案与实现
+- **问题根因**：v2.6.4 引入 LC 自定义比例档时，`ChatContextAssemblyHelper` 的 LC 窗口计算写作 `coerceIn(2, usableMessages.size)`。新建对话发出第一条消息后、助手回复尚未落库时 `usableMessages.size == 1`，`coerceIn(2, 1)` 下界大于上界构成**空区间**，抛 `IllegalArgumentException`。触发链：首条用户消息落库 → Room 流发射 → `loadConversation` 收集器调用 `refreshContextUsage()` → 档位预览遍历（含 LC）→ 崩溃闪退，与 v2.6.5 的锚点改动无关（v2.6.4 起即存在，本次定位修复）；
+- **改动思路**：窗口计算改用 `minOf(size, maxOf(2, window))` 组合——任意 size ≥ 1 均安全，语义不变（至少保留最近 1 轮、不超过消息总数）；同时按用户要求全仓排查同类模式；
+- **涉及文件**：`ChatContextAssemblyHelper.kt`（根因修复）、`ScrollAssist.kt`、`ReadableColors.kt`（同类加固）、`CompressionTierPolicyTest.kt`（+2 项回归）、`build.gradle.kts`；
+- **影响面**：仅崩溃修复与防御性加固，不改任何功能行为；
+- **验证方式**：compile/test/lint/diff --check + 新增「LC 档 1 条/2 条消息不崩」回归测试。
+
+### 3. 全仓同类问题排查结果（`coerceIn(动态下界, 动态上界)` 全量 121 处逐一核对）
+| 位置 | 结论 |
+| :--- | :--- |
+| `ChatContextAssemblyHelper.kt` LC 窗口 | **必崩**（size < 2 时空区间）→ 本次修复 |
+| `ScrollAssist.kt:190` 滚动拇指 `coerceIn(44.dp, size.height)` | **潜在崩溃**（轨道高度 < 44dp，如极矮窗口/分屏）→ 本次加固为 `minOf/maxOf` |
+| `ReadableColors.kt:90` 背景取样 `coerceIn(verticalStart, 1f)` | **潜在崩溃**（调用方传 verticalStart > 1f 时空区间）→ 本次先钳制参数再使用；第 92 行经复核安全（startY 已钳到 height-1） |
+| 其余 118 处 | 边界均为常量策略值（MIN<MAX 恒成立）或仅单侧钳制（coerceAtLeast/coerceAtMost 不可能抛异常），确认安全 |
+
+### 4. 验证结果
+- `./gradlew.bat compileDebugKotlin --no-daemon` Exit Code 0
+- `./gradlew.bat testDebugUnitTest --no-daemon` Exit Code 0（73 测试文件，495 项全通，新增 2 项：LC 档单条消息不崩、低百分比保留最近一轮）
+- `./gradlew.bat lintDebug --no-daemon` Exit Code 0
+- `git diff --check` Exit Code 0
+- `./gradlew.bat assembleRelease --no-daemon` Exit Code 0
+- APK：`D:\Agent\APP-Echo\app\releases\Echo-v2.6.6.apk`，16,683,885 字节 (~15.91 MB)，SHA256 `77A4A284D877A26D76E10B3DC2058DF6739FEAD3F95E4B82BCA62E3AEA3B069E`，`apksigner verify` 通过（CN=Android Debug，**非正式生产签名**）
+
+---
+
 ## [2026-10-01] - v2.6.5 修正删除回复行为：回滚误改 + 生成锚点钉住流式回复位置
 
 ### 1. 用户需求

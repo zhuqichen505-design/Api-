@@ -84,10 +84,13 @@ fun sampledBackgroundColor(
         return fallback
     }
 
-    val startY = (bitmap.height * verticalStart.coerceIn(0f, 1f))
+    // v2.6.6：先钳制 verticalStart 到 0..1，避免调用方传入 >1f 时下方 coerceIn(start, 1f)
+    // 构成空区间抛 IllegalArgumentException；startY 已被钳到 height-1，startY+1 <= height 恒成立
+    val clampedVerticalStart = verticalStart.coerceIn(0f, 1f)
+    val startY = (bitmap.height * clampedVerticalStart)
         .toInt()
         .coerceIn(0, bitmap.height - 1)
-    val endY = (bitmap.height * verticalEnd.coerceIn(verticalStart, 1f))
+    val endY = (bitmap.height * verticalEnd.coerceIn(clampedVerticalStart, 1f))
         .toInt()
         .coerceIn(startY + 1, bitmap.height)
     val sampleHeight = (endY - startY).coerceAtLeast(1)

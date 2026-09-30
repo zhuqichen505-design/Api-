@@ -41,6 +41,15 @@
 
 ## 二、最近一次执行记录
 
+### [2026-10-01] v2.6.6 修复新建对话发送消息闪退（LC 窗口空区间 coerceIn）（发版）
+- **需求**：新建对话发送消息后应用直接闪退（严重 bug），立即修复并全仓排查同类问题。
+- **版本**：versionCode 162 / versionName 2.6.6 / Room v31（无变更）。
+- **根因**：v2.6.4 LC 档窗口计算 `coerceIn(2, usableMessages.size)` 在消息数 < 2 时构成空区间抛 `IllegalArgumentException`；首发消息落库后 Room 流触发 `refreshContextUsage` 档位预览即崩。
+- **修复与加固**：LC 窗口改 `minOf(size, maxOf(2, window))`；`ScrollAssist` 滚动拇指与 `ReadableColors` 背景取样两处潜在同类崩溃加固（`minOf/maxOf` 或先钳制参数）；全仓 121 处 `coerceIn` 逐一核对，其余边界恒有效。
+- **文件**：`ChatContextAssemblyHelper.kt`、`ScrollAssist.kt`、`ReadableColors.kt`、`CompressionTierPolicyTest.kt`（+2 项）、`build.gradle.kts` 及文档。
+- **验证**：compile/test(495)/lint/diff --check/assembleRelease 全部 Exit Code 0；APK `Echo-v2.6.6.apk` (SHA256 `77A4A284D877A26D76E10B3DC2058DF6739FEAD3F95E4B82BCA62E3AEA3B069E`)。
+- **详情**：见 `UPDATE_LOG.md` 与 `walkthrough.md`。
+
 ### [2026-10-01] v2.6.5 删除回复不再影响正在生成的回复（回滚误改 + 生成锚点）（发版）
 - **需求**：修正 v2.6.4 误改（删除导致生成中回复消失）；删除同一位置的过去回复时，正在连接/输出的回复位置必须不变（此前会跳到上方/下方变成额外回复，结束后又合并回原位）。
 - **版本**：versionCode 161 / versionName 2.6.5 / Room v31（无变更）。

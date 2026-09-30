@@ -272,6 +272,39 @@ class CompressionTierPolicyTest {
     }
 
     @Test
+    fun testAssembleTieredContext_customPercentSingleMessageNoCrash() {
+        // v2.6.6 回归：新建对话首发消息后 usableMessages 仅 1 条，
+        // 旧实现窗口计算 coerceIn(2, 1) 构成空区间抛 IllegalArgumentException，
+        // 统计预览随 Room 流刷新即触发，应用直接闪退
+        val single = listOf(
+            Message(id = 1L, conversationId = 1L, role = "user", content = "第一条消息")
+        )
+        val result = ChatContextAssemblyHelper.assembleTieredContextMessages(
+            tier = CompressionTier.LC,
+            usableMessages = single,
+            recentBudget = 100_000,
+            customRetainPercent = 30
+        )
+        assertEquals("单条消息必须完整保留", 1, result.activeMessages.size)
+        assertEquals("消息内容不得被改写", "第一条消息", result.activeMessages[0].content)
+    }
+
+    @Test
+    fun testAssembleTieredContext_customPercentTwoMessagesKeepsLastRound() {
+        val two = listOf(
+            Message(id = 1L, conversationId = 1L, role = "user", content = "消息一"),
+            Message(id = 2L, conversationId = 1L, role = "assistant", content = "消息二")
+        )
+        val result = ChatContextAssemblyHelper.assembleTieredContextMessages(
+            tier = CompressionTier.LC,
+            usableMessages = two,
+            recentBudget = 100_000,
+            customRetainPercent = 10
+        )
+        assertEquals("低百分比下窗口仍至少保留最近一轮（2 条）", 2, result.activeMessages.size)
+    }
+
+    @Test
     fun testDatabaseMigration30To31Registered() {
         val migration = com.aiassistant.data.local.AppDatabase.MIGRATION_30_31
         assertNotNull("MIGRATION_30_31 必须存在", migration)

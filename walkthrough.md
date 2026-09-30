@@ -1,3 +1,37 @@
+# Echo v2.6.6 构建走查与验收报告 (Walkthrough)
+
+## 一、本次构建与需求概述
+- **发布版本**：v2.6.6 (`versionCode: 162`)
+- **构建类型**：Release APK
+- **交付目标文件**：`D:\Agent\APP-Echo\app\releases\Echo-v2.6.6.apk`
+- **核心修复**：新建对话并发送消息后应用直接闪退（严重 bug），并全仓排查加固同类崩溃风险。
+
+## 二、临时实施方案与根因走查
+| 项 | 详情 |
+| :--- | :--- |
+| 根因 | v2.6.4 LC 档引入的窗口计算 `coerceIn(2, usableMessages.size)`：新建对话首发消息落库后 `usableMessages.size == 1`，coerceIn 下界(2) > 上界(1) 构成空区间抛 `IllegalArgumentException`；触发链 = 消息落库 → Room 流发射 → `loadConversation` 收集器调 `refreshContextUsage()` → 档位预览遍历含 LC → 崩溃。与 v2.6.5 锚点改动无关（v2.6.4 起即存在） |
+| 修复 | 窗口改 `minOf(size, maxOf(2, window))`：任意 size ≥ 1 安全，语义不变（至少保留最近 1 轮、不超过总数） |
+| 同类排查 | 全仓 121 处 `coerceIn` 逐一核对：`ScrollAssist` 滚动拇指（轨道 < 44dp 潜在崩溃）、`ReadableColors` 背景取样（verticalStart > 1f 潜在崩溃）两处加固；ReadableColors 第 92 行与其余 118 处确认边界恒有效 |
+| 回归测试 | 新增 2 项：LC 档单条消息不崩且内容不变；低百分比（10%）保留最近一轮 |
+
+## 三、构建与验证复核清单
+- [x] `compileDebugKotlin --no-daemon`：Exit Code 0
+- [x] `testDebugUnitTest --no-daemon`：Exit Code 0（73 文件，495 项全通，新增 2 项）
+- [x] `lintDebug --no-daemon`：Exit Code 0
+- [x] `git diff --check`：Exit Code 0
+- [x] `assembleRelease --no-daemon`：Exit Code 0
+- [x] APK：`Echo-v2.6.6.apk`，16,683,885 字节，SHA256 `77A4A284D877A26D76E10B3DC2058DF6739FEAD3F95E4B82BCA62E3AEA3B069E`，签名校验通过（CN=Android Debug，非正式生产签名）
+
+## 四、人工验收步骤
+1. 安装 v2.6.6 覆盖升级；
+2. 新建对话 → 发送第一条消息：不再闪退，正常流式输出与落库；
+3. 新对话中切换压缩档位到「LC 自定义比例」再发送：正常；
+4. 长对话滚动辅助条、自定义首页/对话背景（含极端小图）回归观察无异常。
+
+---
+
+---
+
 # Echo v2.6.5 构建走查与验收报告 (Walkthrough)
 
 ## 一、本次构建与需求概述

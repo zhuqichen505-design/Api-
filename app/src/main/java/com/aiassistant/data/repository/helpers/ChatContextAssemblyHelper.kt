@@ -229,8 +229,11 @@ object ChatContextAssemblyHelper {
                     com.aiassistant.domain.model.CompressionTierPolicy.MIN_CUSTOM_RETAIN_PERCENT,
                     com.aiassistant.domain.model.CompressionTierPolicy.MAX_CUSTOM_RETAIN_PERCENT
                 )
-                ((usableMessages.size.toLong() * percent + 50) / 100L).toInt()
-                    .coerceIn(2, usableMessages.size)
+                val window = ((usableMessages.size.toLong() * percent + 50) / 100L).toInt()
+                // v2.6.6 修复：旧实现 coerceIn(2, usableMessages.size) 在消息数 < 2 时
+                //（新建对话首发消息后统计预览即触发）构成空区间，抛 IllegalArgumentException
+                // 直接闪退；改用 minOf/maxOf 组合，任意 size >= 1 均安全
+                minOf(usableMessages.size, maxOf(2, window))
             }
         }
 
