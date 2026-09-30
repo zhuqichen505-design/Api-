@@ -1,3 +1,44 @@
+# Echo v2.6.7 构建走查与验收报告 (Walkthrough)
+
+## 一、本次构建与需求概述
+- **发布版本**：v2.6.7 (`versionCode: 163`)
+- **构建类型**：Release APK
+- **交付目标文件**：`D:\Agent\APP-Echo\app\releases\Echo-v2.6.7.apk`
+- **核心内容**：连接胶囊对齐与连接计时修复（含追加要求"换 Key 重试可重新计时但原因必须可视"）、连接过程防误滚动、上下文压缩对比预览修复与"完成=确认生效"、使用统计七项改进（悬浮栏/速度标注/切换纵向/模型多选/成功率口径/热力行数+2/去重复标题）。
+
+## 二、根因走查与修复要点
+| 项 | 根因 | 修复 |
+| :--- | :--- | :--- |
+| 头像偏移 | 助手气泡头行 CenterVertically，等待提示与胶囊同 Column，提示出现使其变高，头像随居中下移 | 头像与胶囊顶对齐同行（头像 offset -1dp 保持视觉居中），提示移至行下独立渲染（start=46dp 对齐胶囊左缘），向下延展不影响头像 |
+| 计时消失重现/重置 | 计时器在 `if (generationState==Connecting)` 块内，状态闪断时整块离开组合 | 计时提升至气泡级 `LaunchedEffect(isGenerating, reconnectStatus)`：按"尝试阶段"计时，生成发起或重试状态变化（换 Key/重连）重新计时；提示改 AnimatedVisibility 含退场动画 |
+| 重试原因可视（追加要求） | 携带原因的重连态胶囊单行横向滚动截断 | 连接/重连等待期胶囊允许换行至 3 行；重连等待期提示同样显示"已等待 Ns"并注明原因见上方状态；实时 Key 报错明细保持逐条展示 |
+| 连接期屏幕误滑动 | LazyColumn 锚定（末项 index+偏移），连接期末项高度反复变化（胶囊 animateContentSize/实时报错明细/提示增减）把视口顶得上下位移 | 生成中且自动跟随态下，snapshotFlow 监听末项 index/size/总数变化，一变即重新钉底；手动上翻（autoFollowOutput=false）不干预 |
+| 压缩预览不弹/秒缩 | `customPercent/confirmedPercent`（及 rounds 对）以 `usage` 字段作 remember key，滑条松手后异步重算 usage 回流改写 key，confirmed 基线被重置 → hasPendingChange 瞬变 false | 四个状态移除 remember key（仅首组取初值）；tier 保留 key 以便应用后自愈；卡片经 `onRegisterApplyPending` 向宿主注册"应用待确认变更"动作 |
+| 完成键语义 | 右下角"完成"仅关闭对话框，未确认的变更被丢弃 | `ContextUsageDialog` "完成"键点击时先调用已注册动作（视同"确认应用并生效"）再关闭 |
+| 成功率不准 | 报错后用户主动暂停走取消路径，完全不写 api_usage_stats，失败请求缺失、成功率虚高 | `stopGeneration()` 在 hasErrors（本轮出现过报错/重连）时补记 `ApiUsageStat(success=false)`，随 shouldSave CAS 只记一次 |
+| 热力行数 | 各周期格数为 14 的 1~8 倍 | 各周期 +28（列数 14 不变，行数+2），`StatsDashboardTest` 补充逐周期行数断言 |
+| 统计页 UI | 顶栏为普通 TopAppBar、时间/模型为滚动芯片、单选模型、环形图切换横向、表格外重复标题 | 设置页同款真悬浮玻璃栏 + 同行两个悬浮下拉（可展开选项列表、遮罩点击收起）；模型多选（deselected 集合，空=全选）；切换 chip 纵向；速度标注"平均"；删除表格外重复"模型统计明细"标题 |
+
+## 三、构建与验证复核清单
+- [x] `compileDebugKotlin --no-daemon`：Exit Code 0
+- [x] `testDebugUnitTest --no-daemon`：Exit Code 0（495 项全通，含更新后的热力看板行数断言）
+- [x] `lintDebug --no-daemon`：Exit Code 0
+- [x] `git diff --check`：Exit Code 0
+- [x] `assembleRelease --no-daemon`：Exit Code 0
+- [x] APK：`Echo-v2.6.7.apk`，16,700,269 字节，SHA256 `d9b35ca9fa6955939ebf2542357777d260b5007352a505acd134824e47b05467`
+- [x] 签名校验：`apksigner verify --print-certs` 通过，证书 CN=Android Debug（**非正式生产签名**），证书 SHA-256 `939638f6d3e9af7f8a980e62af52d275fee73381f2130cc4e20a0d349f98e21f`，与 v2.6.6 完全一致，支持覆盖升级
+- [x] 历史版本完整性：`D:\Agent\APP-Echo\app\releases` 历史安装包 100% 完整保留，本次唯一定名增量输出
+
+## 四、人工验收步骤（无真机，未执行安装/启动验证）
+1. 安装 v2.6.7 覆盖升级，进入任一会话发送消息：
+   - 连接等待 30s 后出现"连接时间较长…（已等待 Ns）"提示，头像位置不因提示出现而移动；提示出现后胶囊变高仅向下延展；
+   - 若触发多 Key 重试：计时按新尝试重新开始，状态胶囊内重试原因完整换行可读，重连等待期 30s 后亦显示"已等待 Ns"；实时报错明细逐条可查；
+   - 连接期间不操作屏幕：列表保持钉底，不出现无故上下滑动；手动上翻阅读时不被拉回。
+2. 打开"上下文使用情况"→ 压缩档位选 LC 自定义比例并拖动百分比：前后对比预览稳定显示不回缩；点"确认应用并生效"或直接点右下角"完成"均应生效（完成后状态栏显示"已切换至…"）。
+3. 使用统计页：顶部悬浮玻璃栏与两枚同行下拉（时间范围/模型）穿透滚动正常；模型下拉支持全选/反选/取消全选，概览与趋势图标题随筛选变化；"平均生成速度"标注到位；Token 类型/模型占比切换纵向、标题单行；热力看板行数较上版 +2；模型统计明细仅卡片内一个标题；报错后暂停一次生成，刷新统计后成功率应下降（失败次数 +1）。
+
+---
+
 # Echo v2.6.6 构建走查与验收报告 (Walkthrough)
 
 ## 一、本次构建与需求概述

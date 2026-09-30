@@ -2,6 +2,46 @@
 
 本文档按照工作流规范记录每次版本更新、需求变更与复核结果。
 
+## [2026-10-01] - v2.6.7 连接胶囊对齐与计时修复、连接期防误滚动、压缩预览修复、使用统计七项改进
+
+### 1. 用户需求
+1. 模型头像与连接胶囊对齐后不再变化；胶囊因文字变多变高时只向下延展；
+2. 连接超时提示（"已等待 Ns"）不再消失后重现、计时不再被意外重置；追加要求：换 Key 重试允许重新计时，但重试原因必须可见；
+3. 模型连接过程中（尚无思考/正文输出）屏幕不再无故上下滑动；
+4. 上下文压缩百分比选择后前后对比预览稳定弹出；直接点右下角"完成"键视同确认并生效；
+5. 使用统计七项：a.顶部与筛选改设置页同款悬浮栏、时间/模型同行下拉；b.生成速度标明平均；c.环形图切换选项纵向排列；d.模型多选（全部模型默认全选、可反选单个、再点全部模型取消全选）；e.成功率修正（报错后主动暂停计为调用失败）；f.请求健康时间线列数不变、行数+2；g.模型统计明细去掉重复标题。构建 APK。
+
+### 2. 临时实施方案与实现
+- **头像偏移根因**：助手气泡头行为 `verticalAlignment=CenterVertically` 的 Row，连接等待提示与胶囊同处一个 Column，提示出现使 Column 变高，头像随垂直居中下移；胶囊多行变高时同样上下同时延展。
+  **修复**：头像与胶囊改为顶对齐同行（头像 36dp `offset(y=-1dp)` 与 34dp 胶囊保持视觉居中），等待提示移出该行置于其下（`padding(start=46.dp)` 与胶囊左缘对齐）——提示出现与胶囊变高都只向下延展。
+- **计时重置根因**：计时器 `remember` 与 `LaunchedEffect` 位于 `if (generationState==Connecting)` 块内，状态闪断（重连/重试状态切换）时整块离开组合，计时归零、提示消失后重现。
+  **修复**：计时状态提升至气泡级（`LaunchedEffect(isGenerating, reconnectStatus)`），按"尝试阶段"计时——生成发起或重试状态文案变化（换 Key/重连）时重新计时，状态闪断不再意外归零；提示改由 `AnimatedVisibility(visible=…)` 驱动（含退场动画）。**按用户追加要求**：重连等待期提示同样显示"已等待 Ns"并注明原因见上方状态；携带重试原因的连接/重连态胶囊允许换行至 3 行（不再横向滚动截断，原因完整可读），实时 Key 报错明细面板保持展示每次失败原因。
+- **连接期误滚动根因**：LazyColumn 滚动锚定在（末项 index+偏移），连接期间末条消息项高度反复变化（胶囊文案 animateContentSize、实时报错明细出入场、等待提示增减）把视口顶得上下位移。
+  **修复**：`ChatScreen` 新增 `snapshotFlow` 监听末项 index/size/总数，生成中且处于自动跟随态时末项尺寸一变即重新钉底（用户手动上翻后 autoFollowOutput=false 不干预）。
+- **压缩预览回缩根因**：`customPercent/confirmedPercent`（及 rounds 对应状态）以 `usage.compressionCustomPercent` 等作 remember key；滑条松手后 `previewCompressionSettings` 异步重算 usage 回流带新值 → key 变化 → confirmed 基线被重置为新值 → `hasPendingChange` 变 false → 预览刚弹出即缩回（重算快时根本来不及显示）。
+  **修复**：轮数/百分比及 confirmed 基线移除 remember key（仅首组取初值）；tier 保持 key 以便应用后自愈；卡片新增 `onRegisterApplyPending` 把"应用待确认变更"动作注册给宿主，`ContextUsageDialog` 右下角**"完成"键视同"确认应用并生效"**（有待确认变更则先应用再关闭）。
+- **使用统计**：
+  - a. 参照设置页重构为真悬浮栏：移除 Scaffold TopAppBar，改为 Box 覆盖式玻璃顶栏（返回/标题/刷新），LazyColumn 以 `contentPadding` 顶部让位、列表从栏下穿透滚动；其下同一行放「时间范围」「模型」两个悬浮玻璃下拉胶囊（`StatsFilterDropdown`，向下展开选项列表，含展开遮罩点击收起）；
+  - b. 主指标「生成速度」→「平均生成速度」；模型表速度 chip 标注"平均"、排序 chip 改「平均速度」；
+  - c. `TokenDonutCard` 右上「Token 类型/模型占比」两枚切换 chip 改纵向 `Column` 排列，标题不再跨行；
+  - d. 模型多选：状态改为 `deselectedModels: Set<String>`（空=全选，默认）；下拉内「全部模型」行在全选/全不选间切换，单个模型行点击切换勾选；概览与趋势图标题显示筛选摘要（单模型名/已选 N 个模型/未选择模型）；
+  - e. 成功率修正：`stopGeneration()` 在本轮出现过报错/重连（hasErrors）时补记一条 `ApiUsageStat(success=false, errorMessage="用户暂停生成（此前连接报错：…）")`，随 `shouldSave` CAS 保证只记一次——此前取消路径完全不写 api_usage_stats，失败请求缺失导致成功率虚高；
+  - f. `StatsPeriod.heatmapCells` 各周期 +28（列数恒 14，行数+2：1小时 1→3 行、4小时 2→4、8小时/1天 4→6、3天 5→7、7天 6→8、30天/90天 8→10）；
+  - g. 删除列表尾部独立「模型统计明细」Text 标题（表格卡片内已有同名标题，此前重复）。
+- **涉及文件**：`ChatMessageComponents.kt`（头像/胶囊/提示/计时）、`ChatScreen.kt`（防误滚动钉底）、`ChatContextComponents.kt`（压缩预览+完成键）、`StatsScreen.kt`（悬浮栏/下拉/多选/标签/热力格/去重复标题）、`ChatViewModel.kt`（失败统计补记）、`StatsDashboardTest.kt`（热力行数断言）、`app/build.gradle.kts`（版本 163/2.6.7）；
+- **影响面**：聊天生成等待期 UI 与滚动、上下文压缩对话框、使用统计页 UI 与成功率数据口径；无数据库结构变更（AppDatabase 仍为 v31）；`ChatAvatar` 新增可选 `modifier` 参数（默认值不影响既有调用）；
+- **验证方式**：compile/test/lint/diff --check 四件套 + 发版构建与签名校验。
+
+### 3. 验证结果
+- `./gradlew.bat compileDebugKotlin --no-daemon` Exit Code 0
+- `./gradlew.bat testDebugUnitTest --no-daemon` Exit Code 0（495 项全通，含更新后的热力看板行数断言）
+- `./gradlew.bat lintDebug --no-daemon` Exit Code 0
+- `git diff --check` Exit Code 0
+- `./gradlew.bat assembleRelease --no-daemon` Exit Code 0（见 walkthrough.md v2.6.7 节）
+- 未执行真机验证（无设备）；人工验收步骤见 walkthrough.md。
+
+---
+
 ## [2026-10-01] - 流式等待加载动画重新设计：呼吸光环点（非发版）
 
 ### 1. 用户需求

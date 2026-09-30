@@ -1392,6 +1392,31 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                 )
                 repository.saveMessage(message)
             }
+
+            // 使用统计修正（v2.6.7 需求 5e）：本轮出现过报错/重连后用户主动暂停，
+            // 同样属于一次失败的模型调用。此前取消路径完全不写 api_usage_stats，
+            // 失败请求缺失导致成功率虚高。随 shouldSave 的 CAS 保证只补记一次。
+            if (hasErrors) {
+                val failReason = connStatus ?: activeError
+                    ?: currentKeyAttemptErrors.lastOrNull() ?: "连接异常"
+                val statOption = _currentModelOption.value
+                AiAssistantApp.instance.applicationScope.launch {
+                    runCatching {
+                        AiAssistantApp.instance.database.usageStatDao().insertStat(
+                            ApiUsageStat(
+                                apiConfigId = statOption?.apiConfigId ?: apiConfig?.id ?: 0L,
+                                provider = statOption?.provider ?: apiConfig?.provider ?: "unknown",
+                                modelName = statOption?.modelName
+                                    ?: _currentModel.value?.ifBlank { null }
+                                    ?: conversation?.modelName
+                                    ?: "unknown",
+                                success = false,
+                                errorMessage = "用户暂停生成（此前连接报错：${failReason.take(160)}）"
+                            )
+                        )
+                    }
+                }
+            }
         }
         _currentResponse.value = ""
         _currentThinking.value = ""

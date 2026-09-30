@@ -448,6 +448,27 @@ fun ChatScreen(
         }
     }
 
+    // 连接/生成期间末条消息项高度反复变化（胶囊文案与等待提示增减、实时报错明细出入场），
+    // 滚动锚点固定在项首会把视口顶得上下位移，表现为"屏幕无故上下滑动"。
+    // 自动跟随态下末项尺寸一变即重新钉底；用户手动上翻后（autoFollowOutput=false）不干预
+    LaunchedEffect(isGenerating) {
+        if (!isGenerating) return@LaunchedEffect
+        snapshotFlow {
+            val layoutInfo = listState.layoutInfo
+            val lastItem = layoutInfo.visibleItemsInfo.lastOrNull()
+            Triple(lastItem?.index, lastItem?.size, layoutInfo.totalItemsCount)
+        }.collect { (_, _, totalCount) ->
+            if (!autoFollowOutput || preserveScrollForBranchGeneration || listState.isScrollInProgress) {
+                return@collect
+            }
+            if (totalCount > 0) {
+                try {
+                    listState.scrollToItem(totalCount - 1, scrollOffset = 100000)
+                } catch (_: Exception) {}
+            }
+        }
+    }
+
     // 审核 A3：落定信号接线——生成结束后捕获最新落库的 assistant 消息 id，
     // 对应持久化气泡以 settleSignal 入场播放收尾序列（光标淡出+落定脉冲）；
     // 1.6s 后撤销信号（防滚动回看重播）

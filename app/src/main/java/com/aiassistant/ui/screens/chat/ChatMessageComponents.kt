@@ -156,6 +156,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import com.aiassistant.ui.theme.EchoThinkingColors
 
@@ -499,6 +500,23 @@ internal fun MessageBubble(
         MaterialTheme.colorScheme.primary
     }
 
+    // 连接等待计时（气泡级）：以"尝试阶段"为计时窗口——生成发起或重试状态切换（换 Key/重连，
+    // 表现为 reconnectStatus 文案变化）时重新计时；计时器常驻气泡组合内，
+    // 不会因状态块离场而意外归零后"消失又重现"
+    var connectElapsedSec by remember { mutableIntStateOf(0) }
+    LaunchedEffect(isGenerating, reconnectStatus) {
+        if (!isGenerating) {
+            connectElapsedSec = 0
+            return@LaunchedEffect
+        }
+        connectElapsedSec = 0
+        val startedAt = System.currentTimeMillis()
+        while (isActive) {
+            kotlinx.coroutines.delay(1000)
+            connectElapsedSec = ((System.currentTimeMillis() - startedAt) / 1000L).toInt()
+        }
+    }
+
     activeCitation?.let { citation ->
         CitationDetailDialog(
             citation = citation,
@@ -719,20 +737,13 @@ internal fun MessageBubble(
                 val thinkingContentColor = glass.textPrimary
                 var isErrorReportExpanded by remember(message.id) { mutableStateOf(true) }
 
-                Row(
+                // 头像与胶囊顶对齐同行，连接等待提示在行下方独立渲染：
+                // 提示出现或胶囊因文字变高时只向下延展，头像与胶囊的相对位置固定不漂移
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(bottom = 6.dp)
                 ) {
-                    ChatAvatar(
-                        isUser = false,
-                        avatarRevision = assistantAvatarRevision,
-                        apiConfigId = assistantApiConfigId,
-                        customAvatarUri = customAvatarUri
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-
                     val personalizationSettings = remember {
                         AiAssistantApp.instance.personalizationManager.getSettings()
                     }
@@ -814,18 +825,29 @@ internal fun MessageBubble(
                     val canExpandStatus = hasDetailedExpandableContent || isStatusExpanded
                     val capsuleShape = RoundedCornerShape(16.dp)
                     val maxBubbleWidth = if (isStatusExpanded || isStatusError) 380.dp else 320.dp
+                    // 连接/重连等待期（尚无正文）携带重试原因：允许换行至多行展示，保证重试原因完整可读（不横向滚动截断）
+                    val isWaitingWithReason = isConnecting && !reconnectStatus.isNullOrBlank()
                     val maxLinesCount = when {
                         isStatusExpanded -> 16
                         isStatusError -> 4
+                        isWaitingWithReason -> 3
                         else -> 1
                     }
-                    val enableSoftWrap = isStatusExpanded || isStatusError
-                    // 胶囊 + 可选的连接等待提示：提示置于胶囊正下方，避免挤在连接胶囊右侧
-                    Column(
-                        modifier = Modifier.weight(1f, fill = false),
-                        horizontalAlignment = Alignment.Start
+                    val enableSoftWrap = isStatusExpanded || isStatusError || isWaitingWithReason
+                    // 头像与胶囊顶对齐同行：胶囊因文字变高时向下延展，头像相对胶囊位置固定
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.Top
                     ) {
-                    Surface(
+                        ChatAvatar(
+                            isUser = false,
+                            avatarRevision = assistantAvatarRevision,
+                            apiConfigId = assistantApiConfigId,
+                            customAvatarUri = customAvatarUri,
+                            modifier = Modifier.offset(y = (-1).dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Surface(
                         modifier = Modifier
                             .defaultMinSize(minHeight = 34.dp)
                             .widthIn(max = maxBubbleWidth)
@@ -967,41 +989,47 @@ internal fun MessageBubble(
                         }
                     }
 
+                }
+
                     // P0-1③ 连接等待计时：>30s 弱提示，>60s 升级 error 语义色（仅连接态；重连态由 reconnectStatus 文案承载）。
                     // A5：reduced motion 下保留提示信息（功能性），仅短路登场动画（装饰性）
-                    // 提示置于连接胶囊正下方，不再挤在胶囊右侧
-                    if (generationState == GenerationUiState.Connecting) {
-                        var elapsedSec by remember { mutableIntStateOf(0) }
-                        LaunchedEffect(Unit) {
-                            while (isActive) {
-                                kotlinx.coroutines.delay(1000)
-                                elapsedSec++
-                            }
-                        }
-                        if (elapsedSec >= 30) {
-                            val hintEnter = if (reducedMotion) {
-                                androidx.compose.animation.EnterTransition.None
-                            } else {
-                                fadeIn(com.aiassistant.ui.theme.EchoMotion.tweenSpec<Float>(com.aiassistant.ui.theme.EchoMotion.Duration.fast)) +
-                                    slideInVertically(
-                                        animationSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec<androidx.compose.ui.unit.IntOffset>(com.aiassistant.ui.theme.EchoMotion.Duration.fast),
-                                        initialOffsetY = { -it / 3 }
-                                    )
-                            }
-                            AnimatedVisibility(
-                                visible = true,
-                                enter = hintEnter,
-                                modifier = Modifier.padding(start = 2.dp, top = 4.dp)
-                            ) {
-                                Text(
-                                    text = "连接时间较长，正在等待 ${(assistantModelName.ifBlank { "AI" }).displayModelShortName()} 响应…（已等待 ${elapsedSec}s）",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = if (elapsedSec >= 60) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.widthIn(max = maxBubbleWidth)
-                                )
-                            }
-                        }
+                    // 提示置于头像+胶囊行正下方：出现/收起只影响下方空间，头像与胶囊对齐关系不变
+                    // 计时来自气泡级 connectElapsedSec（按生成会话累计），状态闪断不重置、提示不再消失重现
+                    val hintEnter = if (reducedMotion) {
+                        androidx.compose.animation.EnterTransition.None
+                    } else {
+                        fadeIn(com.aiassistant.ui.theme.EchoMotion.tweenSpec<Float>(com.aiassistant.ui.theme.EchoMotion.Duration.fast)) +
+                            slideInVertically(
+                                animationSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec<androidx.compose.ui.unit.IntOffset>(com.aiassistant.ui.theme.EchoMotion.Duration.fast),
+                                initialOffsetY = { -it / 3 }
+                            )
                     }
+                    val hintExit = if (reducedMotion) {
+                        androidx.compose.animation.ExitTransition.None
+                    } else {
+                        fadeOut(com.aiassistant.ui.theme.EchoMotion.tweenSpec<Float>(com.aiassistant.ui.theme.EchoMotion.Duration.fast)) +
+                            slideOutVertically(
+                                animationSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec<androidx.compose.ui.unit.IntOffset>(com.aiassistant.ui.theme.EchoMotion.Duration.fast),
+                                targetOffsetY = { -it / 3 }
+                            )
+                    }
+                    AnimatedVisibility(
+                        visible = (generationState == GenerationUiState.Connecting || generationState == GenerationUiState.Reconnecting) &&
+                            connectElapsedSec >= 30,
+                        enter = hintEnter,
+                        exit = hintExit,
+                        modifier = Modifier.padding(start = 46.dp, top = 4.dp)
+                    ) {
+                        Text(
+                            text = if (generationState == GenerationUiState.Reconnecting && !reconnectStatus.isNullOrBlank()) {
+                                "连接重试中（已等待 ${connectElapsedSec}s）· 重试原因见上方状态"
+                            } else {
+                                "连接时间较长，正在等待 ${(assistantModelName.ifBlank { "AI" }).displayModelShortName()} 响应…（已等待 ${connectElapsedSec}s）"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (connectElapsedSec >= 60) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.widthIn(max = maxBubbleWidth)
+                        )
                     }
                 }
 
@@ -1685,7 +1713,8 @@ internal fun ChatAvatar(
     isUser: Boolean,
     avatarRevision: Int = 0,
     apiConfigId: Long? = null,
-    customAvatarUri: String? = null
+    customAvatarUri: String? = null,
+    modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val userAvatarBitmap = if (isUser) remember(context) { AvatarManager.getAvatarBitmap(context) } else null
@@ -1708,7 +1737,7 @@ internal fun ChatAvatar(
     val foreground = if (isUser) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onPrimary
 
     Box(
-        modifier = Modifier
+        modifier = modifier
             .requiredSize(36.dp)
             .clip(CircleShape)
             .background(background),

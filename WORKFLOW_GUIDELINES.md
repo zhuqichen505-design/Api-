@@ -41,6 +41,17 @@
 
 ## 二、最近一次执行记录
 
+## 二、最近一次执行记录
+
+### [2026-10-01] v2.6.7 连接胶囊/计时/防误滚动/压缩预览修复 + 使用统计七项改进（发版）
+- **需求**：头像与连接胶囊对齐不漂移、胶囊只向下延展；连接计时提示不消失重现（追加：换 Key 重试可重新计时但原因必须可视）；连接过程防误滚动；压缩对比预览稳定弹出且"完成=确认生效"；使用统计七项（悬浮栏+同行下拉、速度标平均、切换纵向、模型多选、成功率口径修正、热力行数+2、去重复标题）。构建 APK。
+- **版本**：versionCode 163 / versionName 2.6.7 / Room v31（无 DB 变更）。
+- **实现要点**：头像+胶囊改顶对齐同行（Avatar 增可选 modifier 参数，offset -1dp），等待提示移至行下；计时提升至气泡级按尝试阶段计时（LaunchedEffect(isGenerating, reconnectStatus)），等待期胶囊 3 行换行、重连期提示带已等待；ChatScreen snapshotFlow 末项尺寸变化即钉底（autoFollowOutput 时）；压缩卡片四状态去 remember key + onRegisterApplyPending + 完成键应用待确认变更；统计页 Box 覆盖式悬浮栏（StatsFilterDropdown×2 同行）、deselectedModels 多选、heatmapCells 各周期 +28、成功率补记 ApiUsageStat(success=false)。
+- **文件**：ChatMessageComponents.kt、ChatScreen.kt、ChatContextComponents.kt、StatsScreen.kt、ChatViewModel.kt、StatsDashboardTest.kt、app/build.gradle.kts 及文档。
+- **验证**：compile/test（495 全通）/lint/diff --check 全部 Exit Code 0；assembleRelease Exit Code 0，Echo-v2.6.7.apk（16,700,269 字节，SHA256 d9b35ca9…b05467，CN=Android Debug 非正式生产签名，与 v2.6.6 证书一致）；历史包完整保留。
+- **未执行**：真机安装/启动验证（无设备），已给人工验收步骤（见 walkthrough.md v2.6.7 节）。
+- **详情**：见 `UPDATE_LOG.md` 与 `walkthrough.md`。
+
 ### [2026-10-01] 流式等待加载动画重新设计：呼吸光环点（非发版）
 - **需求**：流式输出的加载动画不够好看，重新设计。
 - **版本**：versionCode 162 / versionName 2.6.6 / Room v31（均无变更，未发版）。

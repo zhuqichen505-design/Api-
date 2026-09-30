@@ -2,6 +2,11 @@ package com.aiassistant.ui.screens.stats
 
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -9,6 +14,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
@@ -42,9 +48,6 @@ import com.aiassistant.ui.theme.EchoChartPalette
 import com.aiassistant.ui.theme.rememberEchoChartColors
 import com.aiassistant.ui.components.EchoGlassPagePanelShape
 import com.aiassistant.ui.components.EchoWallpaperBackground
-import com.aiassistant.ui.components.echoFilterChipBorder
-import com.aiassistant.ui.components.echoFilterChipColors
-import com.aiassistant.ui.components.echoFilterChipElevation
 import com.aiassistant.ui.components.echoGlassPalette
 import com.aiassistant.ui.components.echoHazePanel
 import com.aiassistant.ui.components.echoShapeClick
@@ -86,11 +89,15 @@ fun StatsScreen(
     val hazeState = rememberEchoHazeState()
     val readableBackdrop = rememberReadableBackdropColor(statsBackgroundBitmap)
     var selectedPeriod by remember { mutableStateOf(StatsPeriod.Day) }
-    var selectedModelFilter by remember { mutableStateOf<String?>(null) }
+    // 模型多选（v2.6.7 需求 5d）：记录被取消选择的模型集合，空集合 = 全部模型选中（默认）；
+    // 点击「全部模型」在全选/全不选间切换，点击单个模型行切换其选中态
+    var deselectedModels by remember { mutableStateOf(setOf<String>()) }
     var refreshKey by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var stats by remember { mutableStateOf<List<UsageRow>>(emptyList()) }
     var previousStats by remember { mutableStateOf<List<UsageRow>>(emptyList()) }
     var statusText by remember { mutableStateOf("正在读取统计") }
+    // 悬浮筛选栏的下拉展开状态：0=均收起 1=时间范围 2=模型
+    var expandedDropdown by remember { mutableStateOf(0) }
 
     // 一次读取覆盖「当前周期 + 上一周期」两个窗口，用于环比对比
     LaunchedEffect(selectedPeriod, refreshKey) {
@@ -106,11 +113,26 @@ fun StatsScreen(
         stats.map { it.modelName }.distinct().sorted()
     }
 
-    val filteredStats = remember(stats, selectedModelFilter) {
-        if (selectedModelFilter == null) stats else stats.filter { it.modelName == selectedModelFilter }
+    val filteredStats = remember(stats, deselectedModels) {
+        if (deselectedModels.isEmpty()) stats else stats.filter { it.modelName !in deselectedModels }
     }
-    val filteredPrevious = remember(previousStats, selectedModelFilter) {
-        if (selectedModelFilter == null) previousStats else previousStats.filter { it.modelName == selectedModelFilter }
+    val filteredPrevious = remember(previousStats, deselectedModels) {
+        if (deselectedModels.isEmpty()) previousStats else previousStats.filter { it.modelName !in deselectedModels }
+    }
+
+    // 筛选摘要标签：全部选中时为 null（标题不带筛选后缀）；单选显示模型名；多选/未选显示计数
+    val modelFilterLabel: String? = remember(availableModels, deselectedModels) {
+        when {
+            deselectedModels.isEmpty() -> null
+            else -> {
+                val selectedCount = availableModels.count { it !in deselectedModels }
+                when {
+                    selectedCount == 0 -> "未选择模型"
+                    selectedCount == 1 -> availableModels.first { it !in deselectedModels }
+                    else -> "已选 $selectedCount 个模型"
+                }
+            }
+        }
     }
 
     val summary = remember(filteredStats) { filteredStats.toSummary() }
@@ -142,76 +164,32 @@ fun StatsScreen(
         backgroundBitmap = statsBackgroundBitmap,
         hazeState = hazeState
     ) {
-        Scaffold(
-            containerColor = Color.Transparent,
-            topBar = {
-                TopAppBar(
-                    title = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            StatsHeaderIcon()
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Text(
-                                text = "使用统计",
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = onNavigateBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                        }
-                    },
-                    actions = {
-                        TextButton(onClick = { refreshKey = System.currentTimeMillis() }) {
-                            Text("刷新")
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = Color.Transparent,
-                        scrolledContainerColor = Color.Transparent
-                    )
-                )
-            }
-        ) { padding ->
+        // v2.6.7 需求 5a：与设置页同款真悬浮栏——列表从透明毛玻璃栏下方穿透滚动；
+        // 顶栏（返回/标题/刷新）下方同一行放「时间范围」「模型」两个悬浮下拉胶囊
+        val glass = echoGlassPalette()
+        val toolbarShape = RoundedCornerShape(22.dp)
+        val toolbarTint = glass.input
+        val toolbarContentColor = readableTextColorFor(
+            background = toolbarTint,
+            fallbackSurface = readableBackdrop
+        )
+        val topInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+        // 顶栏 56 + 外边距 6 + 选择器行约 40 + 间距 8 + 呼吸余量 16
+        val topBarsHeight = topInset + 56.dp + 6.dp + 40.dp + 8.dp + 16.dp
+
+        Box(modifier = Modifier.fillMaxSize()) {
             LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                contentPadding = PaddingValues(16.dp),
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topBarsHeight, bottom = 28.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                // 1. 时间跨度选择
-                item {
-                    PeriodTabs(
-                        hazeState = hazeState,
-                        selected = selectedPeriod,
-                        readableBackdrop = readableBackdrop,
-                        onSelected = {
-                            selectedPeriod = it
-                            refreshKey = System.currentTimeMillis()
-                        }
-                    )
-                }
-
-                // 2. 模型维度筛选器（横向滑动芯片栏）
-                if (availableModels.isNotEmpty()) {
-                    item {
-                        ModelFilterChips(
-                            models = availableModels,
-                            selectedModel = selectedModelFilter,
-                            onModelSelected = { selectedModelFilter = it }
-                        )
-                    }
-                }
-
-                // 3. 核心概览：总量 + 环比 + 九宫格指标
+                // 1. 核心概览：总量 + 环比 + 九宫格指标
                 item {
                     HeroSummaryCard(
                         hazeState = hazeState,
                         summary = summary,
                         period = selectedPeriod,
-                        selectedModel = selectedModelFilter,
+                        selectedModel = modelFilterLabel,
                         statusText = statusText,
                         hasPreviousData = hasPreviousData,
                         tokensDelta = tokensDelta,
@@ -243,7 +221,7 @@ fun StatsScreen(
                     item {
                         ChartCard(
                             hazeState = hazeState,
-                            title = if (selectedModelFilter != null) "$selectedModelFilter · Token 消耗趋势" else "Token 消耗趋势",
+                            title = if (modelFilterLabel != null) "$modelFilterLabel · Token 消耗趋势" else "Token 消耗趋势",
                             subtitle = "按模型分色的平滑曲线，展示各时间分段的 Token 消耗走势",
                             readableBackdrop = readableBackdrop
                         ) { chartContentColor ->
@@ -316,15 +294,7 @@ fun StatsScreen(
                     }
                 }
 
-                // 11. 模型明细表格
-                item {
-                    Text(
-                        text = "模型统计明细",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
+                // 11. 模型明细表格（v2.6.7 需求 5g：卡片内已自带「模型统计明细」标题，删去表格外重复标题）
                 if (modelRows.isEmpty()) {
                     item {
                         EmptyCard(
@@ -340,6 +310,140 @@ fun StatsScreen(
                             rows = modelRows,
                             readableBackdrop = readableBackdrop
                         )
+                    }
+                }
+            }
+
+            // 下拉展开时的点击遮罩：点击空白处收起下拉列表
+            if (expandedDropdown != 0) {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .pointerInput(expandedDropdown) {
+                            detectTapGestures {
+                                expandedDropdown = 0
+                            }
+                        }
+                )
+            }
+
+            // 顶部悬浮区：玻璃顶栏 + 同行悬浮下拉（时间范围 / 模型），列表从下方穿透滚动
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .echoHazePanel(
+                            hazeState = hazeState,
+                            shape = toolbarShape,
+                            tint = toolbarTint,
+                            blurRadius = 16.dp,
+                            highlightAlpha = 0.025f
+                        ),
+                    shape = toolbarShape,
+                    color = Color.Transparent,
+                    contentColor = toolbarContentColor,
+                    border = BorderStroke(1.dp, glass.outline),
+                    tonalElevation = 0.dp,
+                    shadowElevation = 0.dp
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp)
+                            .padding(horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(onClick = onNavigateBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        }
+                        StatsHeaderIcon()
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "使用统计",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(onClick = { refreshKey = System.currentTimeMillis() }) {
+                            Text("刷新")
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // 时间范围 + 模型：同一行两个悬浮下拉胶囊（可向下展开为列表）
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    StatsFilterDropdown(
+                        modifier = Modifier.weight(1f),
+                        label = "时间范围",
+                        value = selectedPeriod.label,
+                        expanded = expandedDropdown == 1,
+                        onToggle = { expandedDropdown = if (expandedDropdown == 1) 0 else 1 },
+                        hazeState = hazeState,
+                        readableBackdrop = readableBackdrop
+                    ) {
+                        StatsPeriod.entries.forEach { period ->
+                            DropdownOptionRow(
+                                text = period.label,
+                                selected = period == selectedPeriod,
+                                contentColor = toolbarContentColor,
+                                onClick = {
+                                    selectedPeriod = period
+                                    refreshKey = System.currentTimeMillis()
+                                    expandedDropdown = 0
+                                }
+                            )
+                        }
+                    }
+
+                    StatsFilterDropdown(
+                        modifier = Modifier.weight(1f),
+                        label = "模型",
+                        value = modelFilterLabel ?: "全部模型",
+                        expanded = expandedDropdown == 2,
+                        onToggle = {
+                            if (availableModels.isNotEmpty()) {
+                                expandedDropdown = if (expandedDropdown == 2) 0 else 2
+                            }
+                        },
+                        hazeState = hazeState,
+                        readableBackdrop = readableBackdrop
+                    ) {
+                        DropdownOptionRow(
+                            text = "全部模型",
+                            selected = deselectedModels.isEmpty(),
+                            contentColor = toolbarContentColor,
+                            onClick = {
+                                // 全部选中时点击 = 取消全选；否则恢复全选
+                                deselectedModels = if (deselectedModels.isEmpty()) availableModels.toSet() else emptySet()
+                            }
+                        )
+                        availableModels.forEach { model ->
+                            DropdownOptionRow(
+                                text = model,
+                                selected = model !in deselectedModels,
+                                contentColor = toolbarContentColor,
+                                onClick = {
+                                    deselectedModels = if (model in deselectedModels) {
+                                        deselectedModels - model
+                                    } else {
+                                        deselectedModels + model
+                                    }
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -392,88 +496,145 @@ private fun StatsHeaderIcon() {
     }
 }
 
+/**
+ * 统计页悬浮筛选下拉（v2.6.7 需求 5a）：玻璃胶囊 + 向下展开的玻璃选项列表。
+ * 展开列表面浮在滚动内容之上，同一行可并排放置时间范围与模型两个下拉。
+ */
 @Composable
-private fun PeriodTabs(
+private fun StatsFilterDropdown(
+    modifier: Modifier = Modifier,
+    label: String,
+    value: String,
+    expanded: Boolean,
+    onToggle: () -> Unit,
     hazeState: dev.chrisbanes.haze.HazeState,
-    selected: StatsPeriod,
     readableBackdrop: Color,
-    onSelected: (StatsPeriod) -> Unit
+    dropdownContent: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit
 ) {
     val glass = echoGlassPalette()
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        StatsPeriod.entries.forEach { period ->
-            val shape = RoundedCornerShape(999.dp)
-            val isSelected = period == selected
-            val tint = if (isSelected) glass.controlSelected else glass.control
-            val content = readableTextColorFor(
-                background = tint,
-                fallbackSurface = readableBackdrop
-            )
-            Box(
+    val capsuleShape = RoundedCornerShape(14.dp)
+    val panelShape = RoundedCornerShape(12.dp)
+    val capsuleTint = glass.control
+    val contentColor = readableTextColorFor(
+        background = capsuleTint,
+        fallbackSurface = readableBackdrop
+    )
+    Column(modifier = modifier) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .echoHazePanel(
+                    hazeState = hazeState,
+                    shape = capsuleShape,
+                    tint = capsuleTint,
+                    blurRadius = 16.dp
+                )
+                .background(capsuleTint, capsuleShape)
+                .border(
+                    BorderStroke(
+                        if (expanded) 1.2.dp else 0.8.dp,
+                        if (expanded) glass.outlineSelected else glass.outline
+                    ),
+                    capsuleShape
+                )
+                .echoShapeClick(capsuleShape) { onToggle() }
+                .padding(horizontal = 12.dp, vertical = 9.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = contentColor.copy(alpha = 0.65f)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = value,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = contentColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                    textAlign = TextAlign.End
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Icon(
+                    imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = if (expanded) "收起" else "展开",
+                    tint = contentColor.copy(alpha = 0.75f),
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut()
+        ) {
+            Surface(
                 modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 6.dp)
                     .echoHazePanel(
                         hazeState = hazeState,
-                        shape = shape,
-                        tint = tint,
-                        blurRadius = 16.dp
-                    )
-                    .background(tint, shape)
-                    .border(
-                        BorderStroke(
-                            if (isSelected) 1.5.dp else 0.8.dp,
-                            if (isSelected) glass.outlineSelected else glass.outline
-                        ),
-                        shape
-                    )
-                    .echoShapeClick(shape) { onSelected(period) }
+                        shape = panelShape,
+                        tint = glass.panelStrong,
+                        blurRadius = 18.dp
+                    ),
+                shape = panelShape,
+                color = Color.Transparent,
+                contentColor = contentColor,
+                border = BorderStroke(0.8.dp, glass.outline),
+                tonalElevation = 0.dp,
+                shadowElevation = 0.dp
             ) {
-                Text(
-                    text = period.label,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else content,
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                )
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = 320.dp)
+                        .verticalScroll(rememberScrollState())
+                        .padding(6.dp)
+                ) {
+                    dropdownContent()
+                }
             }
         }
     }
 }
 
 @Composable
-private fun ModelFilterChips(
-    models: List<String>,
-    selectedModel: String?,
-    onModelSelected: (String?) -> Unit
+private fun DropdownOptionRow(
+    text: String,
+    selected: Boolean,
+    contentColor: Color,
+    onClick: () -> Unit
 ) {
+    val rowShape = RoundedCornerShape(8.dp)
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+            .clip(rowShape)
+            .background(if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.14f) else Color.Transparent)
+            .echoShapeClick(rowShape) { onClick() }
+            .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        FilterChip(
-            selected = selectedModel == null,
-            onClick = { onModelSelected(null) },
-            colors = echoFilterChipColors(),
-            border = echoFilterChipBorder(selectedModel == null),
-            elevation = echoFilterChipElevation(),
-            label = { Text("全部模型") }
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+            color = if (selected) MaterialTheme.colorScheme.primary else contentColor,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false)
         )
-        models.forEach { model ->
-            val isSelected = selectedModel == model
-            FilterChip(
-                selected = isSelected,
-                onClick = { onModelSelected(if (isSelected) null else model) },
-                colors = echoFilterChipColors(),
-                border = echoFilterChipBorder(isSelected),
-                elevation = echoFilterChipElevation(),
-                label = { Text(model) }
+        Spacer(modifier = Modifier.weight(1f))
+        if (selected) {
+            Icon(
+                imageVector = Icons.Default.Check,
+                contentDescription = "已选择",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(14.dp)
             )
         }
     }
@@ -662,7 +823,7 @@ private fun HeroSummaryCard(
                     )
                     MetricPill(
                         icon = Icons.Default.Bolt,
-                        label = "生成速度",
+                        label = "平均生成速度",
                         value = formatTps(summary.avgTps),
                         contentColor = content,
                         iconTint = MaterialTheme.colorScheme.tertiary,
@@ -795,8 +956,8 @@ private fun TokenDonutCard(
                     }
                 }
 
-                // 维度切换：Token 类型 / 模型占比
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                // 维度切换：Token 类型 / 模型占比（v2.6.7 需求 5c：纵向排列，标题不再跨行）
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     listOf("Token 类型", "模型占比").forEachIndexed { idx, title ->
                         val isSelected = donutMode == idx
                         val chipShape = RoundedCornerShape(8.dp)
@@ -1982,7 +2143,7 @@ private fun ModernModelStatsTable(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    listOf("Tokens", "请求数", "成功率", "耗时", "速度").forEachIndexed { idx, title ->
+                    listOf("Tokens", "请求数", "成功率", "耗时", "平均速度").forEachIndexed { idx, title ->
                         val isSelected = sortMode == idx
                         val chipShape = RoundedCornerShape(8.dp)
                         Box(
@@ -2157,7 +2318,7 @@ private fun ModernModelStatsTable(
                                 if (row.tps > 0f) {
                                     MiniStatsChip(
                                         icon = Icons.Default.Bolt,
-                                        label = formatTps(row.tps),
+                                        label = "平均 ${formatTps(row.tps)}",
                                         tint = chartColors.tertiary,
                                         isHighlighted = sortMode == 4
                                     )
@@ -2641,19 +2802,20 @@ internal enum class StatsPeriod(
     val bucketCount: Int,
     val labelPattern: String,
     /**
-     * 请求健康时间线热力格数量：v2.6.4 起全部取 14（网格列数）的整数倍，
-     * 保证任意时间范围下看板都被完整铺满，不出现末行空缺
+     * 请求健康时间线热力格数量：全部取 14（网格列数）的整数倍，
+     * 保证任意时间范围下看板都被完整铺满，不出现末行空缺。
+     * v2.6.7 需求 5f：列数不变（14），各周期行数 +2（即格数 +28）
      */
     val heatmapCells: Int
 ) {
-    Hour("1小时", 60L * 60L * 1000L, 12, "HH:mm", 14),
-    Hour4("4小时", 4L * 60L * 60L * 1000L, 16, "HH:mm", 28),
-    Hour8("8小时", 8L * 60L * 60L * 1000L, 24, "HH:mm", 56),
-    Day("1天", 24L * 60L * 60L * 1000L, 24, "HH:mm", 56),
-    Day3("3天", 3L * 24L * 60L * 60L * 1000L, 36, "MM-dd", 70),
-    Week("7天", 7L * 24L * 60L * 60L * 1000L, 7, "MM-dd", 84),
-    Month("30天", 30L * 24L * 60L * 60L * 1000L, 30, "MM-dd", 112),
-    Quarter("90天", 90L * 24L * 60L * 60L * 1000L, 30, "MM-dd", 112)
+    Hour("1小时", 60L * 60L * 1000L, 12, "HH:mm", 42),
+    Hour4("4小时", 4L * 60L * 60L * 1000L, 16, "HH:mm", 56),
+    Hour8("8小时", 8L * 60L * 60L * 1000L, 24, "HH:mm", 84),
+    Day("1天", 24L * 60L * 60L * 1000L, 24, "HH:mm", 84),
+    Day3("3天", 3L * 24L * 60L * 60L * 1000L, 36, "MM-dd", 98),
+    Week("7天", 7L * 24L * 60L * 60L * 1000L, 7, "MM-dd", 112),
+    Month("30天", 30L * 24L * 60L * 60L * 1000L, 30, "MM-dd", 140),
+    Quarter("90天", 90L * 24L * 60L * 60L * 1000L, 30, "MM-dd", 140)
 }
 
 private data class StatsReadResult(

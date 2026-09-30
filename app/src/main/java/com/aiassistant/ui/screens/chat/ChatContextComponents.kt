@@ -363,6 +363,8 @@ internal fun ContextUsageDialog(
     onPreviewCompressionSettings: ((Int, Int) -> Unit)? = null
 ) {
     val usage = state.usage
+    // 压缩档位卡片有待确认变更时注册的"确认并生效"动作；右下角"完成"键视同确认
+    var pendingTierApply by remember { mutableStateOf<(() -> Unit)?>(null) }
 
     EchoGlassDialog(
         hazeState = hazeState,
@@ -415,7 +417,8 @@ internal fun ContextUsageDialog(
                         ContextCompressionTierSelectorCard(
                             usage = usage,
                             onApplyTier = onSelectCompressionTier,
-                            onPreviewSettingsChanged = onPreviewCompressionSettings
+                            onPreviewSettingsChanged = onPreviewCompressionSettings,
+                            onRegisterApplyPending = { action -> pendingTierApply = action }
                         )
                     }
                     if (onUpdateContextLimit != null) {
@@ -468,7 +471,12 @@ internal fun ContextUsageDialog(
                     Spacer(modifier = Modifier.width(4.dp))
                     Text("刷新状态")
                 }
-                Button(onClick = onDismiss) {
+                Button(onClick = {
+                    // 直接点"完成"：若有待确认的压缩档位/参数变更，视同已确认并生效
+                    pendingTierApply?.invoke()
+                    pendingTierApply = null
+                    onDismiss()
+                }) {
                     Text("完成")
                 }
             }
@@ -1155,11 +1163,16 @@ internal fun RollingSummaryEditDialog(
 internal fun ContextCompressionTierSelectorCard(
     usage: com.aiassistant.domain.model.ConversationContextUsage,
     onApplyTier: ((com.aiassistant.domain.model.CompressionTier, Int, Int) -> Unit)?,
-    onPreviewSettingsChanged: ((Int, Int) -> Unit)? = null
+    onPreviewSettingsChanged: ((Int, Int) -> Unit)? = null,
+    onRegisterApplyPending: ((() -> Unit)?) -> Unit = {}
 ) {
+    // 注意：轮数/百分比及其 confirmed 基线不得以 usage 字段作 remember key——
+    // 滑动条松手后 ViewModel 异步重算 usage 回流会改写这些字段，若作为 key 会把
+    // confirmed 基线重置成新值，hasPendingChange 瞬间变 false，导致"前后对比预览"
+    // 刚弹出即缩回（重算快时根本来不及显示）。仅在首次组合取初值。
     var selectedTier by remember(usage.compressionTier) { mutableStateOf(usage.compressionTier) }
-    var l2Rounds by remember(usage.compressionRecentRounds) { mutableIntStateOf(usage.compressionRecentRounds) }
-    var customPercent by remember(usage.compressionCustomPercent) {
+    var l2Rounds by remember { mutableIntStateOf(usage.compressionRecentRounds) }
+    var customPercent by remember {
         mutableIntStateOf(
             usage.compressionCustomPercent.coerceIn(
                 com.aiassistant.domain.model.CompressionTierPolicy.MIN_CUSTOM_RETAIN_PERCENT,
@@ -1168,13 +1181,29 @@ internal fun ContextCompressionTierSelectorCard(
         )
     }
     var confirmedTier by remember(usage.compressionTier) { mutableStateOf(usage.compressionTier) }
-    var confirmedRounds by remember(usage.compressionRecentRounds) { mutableIntStateOf(usage.compressionRecentRounds) }
-    var confirmedPercent by remember(usage.compressionCustomPercent) { mutableIntStateOf(usage.compressionCustomPercent) }
+    var confirmedRounds by remember { mutableIntStateOf(usage.compressionRecentRounds) }
+    var confirmedPercent by remember { mutableIntStateOf(usage.compressionCustomPercent) }
 
     val hasPendingChange = selectedTier != confirmedTier ||
         (selectedTier == com.aiassistant.domain.model.CompressionTier.L2 && l2Rounds != confirmedRounds) ||
         (selectedTier == com.aiassistant.domain.model.CompressionTier.LC && customPercent != confirmedPercent)
     val currentPreview = usage.tierPreviews.firstOrNull { it.tier == selectedTier }
+
+    // 应用当前待确认的档位/参数变更（胶囊内"确认应用并生效"与宿主对话框"完成"键共用）
+    fun applyPendingChange() {
+        val pending = selectedTier != confirmedTier ||
+            (selectedTier == com.aiassistant.domain.model.CompressionTier.L2 && l2Rounds != confirmedRounds) ||
+            (selectedTier == com.aiassistant.domain.model.CompressionTier.LC && customPercent != confirmedPercent)
+        if (!pending) return
+        onApplyTier?.invoke(selectedTier, l2Rounds, customPercent)
+        confirmedTier = selectedTier
+        confirmedRounds = l2Rounds
+        confirmedPercent = customPercent
+    }
+    // 有待确认变更时向宿主注册"完成=确认并生效"动作；变更被确认或还原后注销
+    LaunchedEffect(hasPendingChange) {
+        onRegisterApplyPending(if (hasPendingChange) { { applyPendingChange() } } else null)
+    }
 
     Surface(
         shape = RoundedCornerShape(16.dp),
@@ -1486,12 +1515,7 @@ internal fun ContextCompressionTierSelectorCard(
                             horizontalArrangement = Arrangement.End
                         ) {
                             Button(
-                                onClick = {
-                                    onApplyTier?.invoke(selectedTier, l2Rounds, customPercent)
-                                    confirmedTier = selectedTier
-                                    confirmedRounds = l2Rounds
-                                    confirmedPercent = customPercent
-                                },
+                                onClick = { applyPendingChange() },
                                 shape = RoundedCornerShape(8.dp),
                                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
                             ) {
