@@ -329,6 +329,24 @@ internal fun isStreamingBranchHostItem(
         streamingBranchGroupId.startsWith("turn_${messageId}_")
 }
 
+/**
+ * 生成锚点宿主判定（v2.6.5）：某条显示消息项是否为当前生成轮次的锚点用户消息项。
+ * 流式回复气泡钉在触发本轮生成的用户消息之后——该锚点不随同一位置其他回复
+ * （错误占位、旧 variant）的删除而移动，杜绝删除后流式回复跳到上方/下方变成额外回复。
+ * id 直接命中未分组的用户消息；分组场景（编辑重发）按 user 分组 id 命中，
+ * 保证锚点消息不在当前选中 variant 上时挂载位置依然正确。
+ */
+internal fun isGeneratingAnchorHostItem(
+    itemGroupId: String?,
+    itemMessageId: Long,
+    anchorUserMessageId: Long?,
+    anchorUserGroupId: String?
+): Boolean {
+    if (anchorUserMessageId == null || anchorUserMessageId <= 0L) return false
+    if (itemMessageId == anchorUserMessageId) return true
+    return anchorUserGroupId != null && itemGroupId == anchorUserGroupId
+}
+
 internal fun isErrorMessage(content: String): Boolean {
     val trimmed = content.trim()
     return trimmed.startsWith("请求失败") ||

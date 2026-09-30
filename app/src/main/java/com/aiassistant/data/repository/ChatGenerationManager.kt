@@ -49,6 +49,14 @@ object ChatGenerationManager {
         var assistantVariantIndex: Int = 1
         var userMessageId: Long? = null
 
+        /**
+         * 生成锚点（v2.6.5）：触发本轮生成的用户消息 id 及其 user 分组 id。
+         * 流式回复气泡钉在该用户消息之后挂载，位置不随同一位置其他回复（如错误占位、
+         * 旧 variant）的删除而移动；重进会话时可由此恢复挂载点。
+         */
+        var anchorUserMessageId: Long? = null
+        var anchorUserGroupId: String? = null
+
         fun appendResponse(token: String) {
             _isConnecting.value = false
             _currentResponse.update { it + token }

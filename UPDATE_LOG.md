@@ -2,6 +2,30 @@
 
 本文档按照工作流规范记录每次版本更新、需求变更与复核结果。
 
+## [2026-10-01] - v2.6.5 修正删除回复行为：回滚误改 + 生成锚点钉住流式回复位置
+
+### 1. 用户需求
+用户反馈 v2.6.4 对「模型连接时删除回复出现多个回复窗口/合并」的修复**完全错误**：删除会导致正在生成的回复直接消失。正确期望是：当同一位置出现多条回复（如错误占位 + 正在连接/输出的回复）时，**删除过去的一条不影响当前正在连接或输出的回复的位置**；而此前的实际情况是删除后流式回复错误地出现在应有位置的上方或下方、变成一条额外回复，生成结束后又合并回原有位置。
+
+### 2. 问题与实现
+1. **回滚 v2.6.4 误改**：删除 `cancelGenerationIfDeletingActiveTurn`，`deleteMessage` / `deleteMessagesFrom` 恢复为纯数据库删除——删除消息绝不取消进行中的生成，正在连接/输出的回复不再消失；
+2. **根因与生成锚点（本次正解）**：
+   - 根因：流式气泡的挂载点依赖 variant 组在消息列表中的锚位（组锚定于组内首条已落库消息）与配对宿主判定；当同一位置存在多条回复（如未被错误占位识别覆盖的「回复已停止」消息 + 重新生成的流式回复）时，删除其中过去的回复会使组锚位移动或组整体消失，挂载点在「内联组位 ↔ 底部兜底」之间切换——流式回复跳到上方/下方变成额外回复，生成结束落库后又合并回原位；
+   - 修复：新增**生成锚点** `GeneratingAnchor(userMessageId, userGroupId)`——触发本轮生成的用户消息 id（普通发送/编辑重发为刚落库的用户消息；重新生成为其目标轮的用户消息），会话（`ChatGenerationManager.ActiveSession`）持久保存锚点，重进会话可恢复；
+   - 挂载规则（`ChatScreen`）：流式气泡优先内联挂载在**锚点用户消息之后**（`isGeneratingAnchorHostItem` 纯函数：id 直接命中未分组用户消息；编辑重发场景按 user 分组 id 命中，选中 variant 变化不影响）——删除同一位置的其他回复**不会移动流式回复的位置**；variant 组内仍有已落库回复时维持原组内挂载（带版本切换器）；仅当锚点也不存在（用户消息被删）时才回退底部兜底；底部兜底条件收紧为 `!isBranchStreamingMounted`，杜绝锚点内联挂载后出现第二份气泡；
+   - 生命周期：锚点在生成结束（完成/出错/取消/手动停止）时清空；`attachToActiveGenerationSession` 重进会话时恢复；
+3. **版本与发布**：版本递增至 `versionName = "2.6.5"`, `versionCode = 161`；构建 Release APK 复制到 `D:\Agent\APP-Echo\app\releases\Echo-v2.6.5.apk`。
+
+### 3. 验证结果
+- `./gradlew.bat compileDebugKotlin --no-daemon` Exit Code 0
+- `./gradlew.bat testDebugUnitTest --no-daemon` Exit Code 0（73 测试文件，493 项全通，新增 3 项锚点宿主判定回归：id 命中、分组命中、空锚点不命中）
+- `./gradlew.bat lintDebug --no-daemon` Exit Code 0
+- `git diff --check` Exit Code 0
+- `./gradlew.bat assembleRelease --no-daemon` Exit Code 0
+- APK：`D:\Agent\APP-Echo\app\releases\Echo-v2.6.5.apk`，16,683,885 字节 (~15.91 MB)，SHA256 `0011741AFF84D1B40CE586A93EBF28FAB0583C4203A88D4F530C7E2C9A581B80`，`apksigner verify` 通过（CN=Android Debug，**非正式生产签名**）
+
+---
+
 ## [2026-10-01] - v2.6.4 生成中删除回复静默取消、统计新时间范围、热力看板铺满、token/缓存真实性与 TPS
 
 ### 1. 用户需求

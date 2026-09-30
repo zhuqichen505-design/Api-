@@ -1,3 +1,37 @@
+# Echo v2.6.5 构建走查与验收报告 (Walkthrough)
+
+## 一、本次构建与需求概述
+- **发布版本**：v2.6.5 (`versionCode: 161`)
+- **构建类型**：Release APK
+- **交付目标文件**：`D:\Agent\APP-Echo\app\releases\Echo-v2.6.5.apk`
+- **核心修正**：v2.6.4 对「连接时删除回复出现多窗口/合并」的修复方向错误（删除导致生成中的回复直接消失），本版回滚误改并按用户澄清的真实场景重做——删除同一位置的过去回复时，正在连接/输出的回复位置必须保持不变。
+
+## 二、根因与修复走查
+| 项 | 详情 |
+| :--- | :--- |
+| v2.6.4 误改回滚 | 移除 `cancelGenerationIfDeletingActiveTurn`，删除恢复为纯数据库操作，生成绝不被删除动作取消 |
+| 跳位根因 | 流式气泡挂载点依赖 variant 组锚位（组内首条已落库消息）与配对宿主；同一位置存在多条回复（如未被错误占位识别的「回复已停止」消息 + 重新生成的流式回复）时，删除过去的回复使组锚位移动或组消失 → 挂载在「内联组位 ↔ 底部兜底」间切换 → 流式回复跳到上方/下方变成额外回复，结束后落库又合并回原位 |
+| 生成锚点 | 新增 `GeneratingAnchor(userMessageId, userGroupId)`：触发本轮的用户消息（普通发送/编辑重发 = 刚落库用户消息；重新生成 = 目标轮用户消息）；存入 `ChatGenerationManager.ActiveSession` 并在重进会话时恢复；生成结束时清空 |
+| 挂载规则 | 流式气泡优先内联挂载于锚点用户消息之后（`isGeneratingAnchorHostItem`：id 命中未分组用户消息；编辑重发按 user 分组命中）；variant 组仍有已落库回复时维持组内挂载（带切换器）；仅锚点不存在（用户消息被删）时回退底部兜底；兜底条件收紧为 `!isBranchStreamingMounted` 防双份 |
+
+## 三、构建与验证复核清单
+- [x] `compileDebugKotlin --no-daemon`：Exit Code 0
+- [x] `testDebugUnitTest --no-daemon`：Exit Code 0（73 文件，493 项全通，新增 3 项锚点宿主判定回归）
+- [x] `lintDebug --no-daemon`：Exit Code 0
+- [x] `git diff --check`：Exit Code 0
+- [x] `assembleRelease --no-daemon`：Exit Code 0
+- [x] APK：`Echo-v2.6.5.apk`，16,683,885 字节，SHA256 `0011741AFF84D1B40CE586A93EBF28FAB0583C4203A88D4F530C7E2C9A581B80`，签名校验通过（CN=Android Debug，非正式生产签名）
+
+## 四、人工验收步骤
+1. 安装 v2.6.5 覆盖升级；
+2. 复现原场景：制造一条失败/停止的回复（错误占位），对其点「重新生成」；在连接/输出过程中长按删除那条过去的错误回复——正在连接/输出的回复应**原地不动**（保持在触发该轮的用户消息之后），不跳到上方/下方，也不消失；
+3. 生成结束后回复正常落库显示，无重复窗口；
+4. 普通发送、编辑重发、多 variant 会话各回归一次流式输出位置与版本切换器显示。
+
+---
+
+---
+
 # Echo v2.6.4 构建走查与验收报告 (Walkthrough)
 
 ## 一、本次构建与需求概述

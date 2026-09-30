@@ -2,6 +2,7 @@ package com.aiassistant
 
 import com.aiassistant.domain.model.Message
 import com.aiassistant.ui.screens.chat.buildDisplayMessages
+import com.aiassistant.ui.screens.chat.isGeneratingAnchorHostItem
 import com.aiassistant.ui.screens.chat.isStreamingBranchHostItem
 import org.junit.Assert.*
 import org.junit.Test
@@ -211,6 +212,69 @@ class RegenerateVariantSwitcherTest {
         assertFalse(
             "groupId 非配对命名时不得命中 paired 判定",
             isStreamingBranchHostItem(itemGroupId = "branch_custom", streamingBranchGroupId = "turn_5_assistant", messageId = 9L)
+        )
+    }
+
+    // ==================== 生成锚点宿主判定（isGeneratingAnchorHostItem，v2.6.5） ====================
+    // 回归背景：同一位置出现多条回复（如错误占位 + 正在连接的流式回复）时，删除过去的一条
+    // 曾导致流式回复跳到上方/下方变成额外回复。锚点 = 触发本轮生成的用户消息，删除其他
+    // 回复不影响锚点，流式气泡钉在锚点之后，位置稳定。
+
+    @Test
+    fun testAnchorHost_matchesByIdForUngroupedUserMessage() {
+        // 未分组 user 消息（id=5）触发本轮生成：id 直接命中
+        assertTrue(
+            "锚点用户消息项（id 命中）应作为内联挂载点",
+            isGeneratingAnchorHostItem(
+                itemGroupId = null, itemMessageId = 5L,
+                anchorUserMessageId = 5L, anchorUserGroupId = null
+            )
+        )
+        assertFalse(
+            "非锚点消息项不得作为挂载点",
+            isGeneratingAnchorHostItem(
+                itemGroupId = null, itemMessageId = 9L,
+                anchorUserMessageId = 5L, anchorUserGroupId = null
+            )
+        )
+    }
+
+    @Test
+    fun testAnchorHost_matchesByGroupForVariantUserTurn() {
+        // 编辑重发场景：锚点用户消息属于 turn_5_user 分组，选中的显示 variant 可能是旧版本
+        // （id 不同），此时按分组 id 命中，挂载位置依然正确
+        assertTrue(
+            "锚点 user 分组项应作为内联挂载点",
+            isGeneratingAnchorHostItem(
+                itemGroupId = "turn_5_user", itemMessageId = 7L,
+                anchorUserMessageId = 8L, anchorUserGroupId = "turn_5_user"
+            )
+        )
+        assertFalse(
+            "其他分组的其他消息项不得命中锚点判定",
+            isGeneratingAnchorHostItem(
+                itemGroupId = "turn_6_user", itemMessageId = 9L,
+                anchorUserMessageId = 8L, anchorUserGroupId = "turn_5_user"
+            )
+        )
+    }
+
+    @Test
+    fun testAnchorHost_nullAnchorNeverMatches() {
+        // 无锚点（生成会话缺失/锚点未知）时不得命中任何宿主，交由底部兜底气泡承接
+        assertFalse(
+            "锚点为空时不得命中",
+            isGeneratingAnchorHostItem(
+                itemGroupId = null, itemMessageId = 5L,
+                anchorUserMessageId = null, anchorUserGroupId = null
+            )
+        )
+        assertFalse(
+            "锚点 id 非法（<=0）时不得命中",
+            isGeneratingAnchorHostItem(
+                itemGroupId = null, itemMessageId = 5L,
+                anchorUserMessageId = 0L, anchorUserGroupId = "turn_5_user"
+            )
         )
     }
 }

@@ -198,6 +198,24 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
     private val _keyAttemptErrors = MutableStateFlow<List<String>>(emptyList())
     val keyAttemptErrors: StateFlow<List<String>> = _keyAttemptErrors.asStateFlow()
 
+    /**
+     * 生成锚点（v2.6.5）：触发本轮生成的用户消息 id 及其 user 分组 id。
+     * 流式回复气泡钉在该用户消息之后挂载——删除同一位置的其他回复（错误占位、旧 variant）
+     * 不会移动正在连接/输出的回复的位置；生成结束后清空。
+     */
+    private val _generatingAnchor = MutableStateFlow<GeneratingAnchor?>(null)
+    val generatingAnchor: StateFlow<GeneratingAnchor?> = _generatingAnchor.asStateFlow()
+
+    private fun applyGeneratingAnchor(userMessageId: Long?, userGroupId: String? = null) {
+        if (userMessageId == null || userMessageId <= 0L) {
+            _generatingAnchor.value = null
+            return
+        }
+        val group = userGroupId ?: _messages.value.firstOrNull { it.id == userMessageId }
+            ?.variantGroupId?.takeIf { it.endsWith("_user") }
+        _generatingAnchor.value = GeneratingAnchor(userMessageId = userMessageId, userGroupId = group)
+    }
+
     init {
         loadConversation()
         loadPromptTemplates()
@@ -214,6 +232,8 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
             _reconnectStatus.value = activeSession.reconnectStatus.value
             _error.value = activeSession.error.value
             generationJob = activeSession.generationJob
+            // 恢复生成锚点，保证重进会话后流式气泡仍钉在触发本轮的用户消息之后
+            applyGeneratingAnchor(activeSession.anchorUserMessageId, activeSession.anchorUserGroupId)
 
             viewModelScope.launch {
                 activeSession.currentResponse.collect { res ->
@@ -1011,7 +1031,8 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
         userVariantGroupId: String? = null,
         userVariantIndex: Int = 1,
         assistantVariantGroupId: String? = null,
-        assistantVariantIndex: Int = 1
+        assistantVariantIndex: Int = 1,
+        anchorUserMessageId: Long? = null
     ) {
         if ((content.isBlank() && attachments.isEmpty()) || _isGenerating.value) return
 
@@ -1055,6 +1076,14 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
             variantIndex = assistantVariantIndex
         )
 
+        // 生成锚点：重新生成（saveUserMessage=false）时由调用方传入触发本轮的用户消息 id，
+        // 流式气泡钉在该消息之后，位置不随同一位置其他回复的删除而移动
+        if (anchorUserMessageId != null) {
+            applyGeneratingAnchor(anchorUserMessageId, userVariantGroupId)
+            session.anchorUserMessageId = anchorUserMessageId
+            session.anchorUserGroupId = _generatingAnchor.value?.userGroupId
+        }
+
         generationJob = AiAssistantApp.instance.applicationScope.launch {
             session.generationJob = coroutineContext[Job]
             _isGenerating.value = true
@@ -1090,6 +1119,10 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                     val savedMsgId = repository.saveMessage(userMessage)
                     currentUserMsgId = savedMsgId
                     session.userMessageId = savedMsgId
+                    // 普通发送/编辑重发：锚点为刚落库的用户消息（分组 id 直接取本次参数）
+                    applyGeneratingAnchor(savedMsgId, userVariantGroupId)
+                    session.anchorUserMessageId = savedMsgId
+                    session.anchorUserGroupId = _generatingAnchor.value?.userGroupId
                 }
 
                 val selectedConfig = repository.getDecryptedConfig(selectedOption.apiConfigId)
@@ -1174,6 +1207,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                             ChatGenerationManager.removeSession(conversationId)
                             isMessageSaved = true
                             _isGenerating.value = false
+                            _generatingAnchor.value = null
                             activeAssistantVariantGroupId = null
                             activeAssistantVariantIndex = 1
                             val savedReply = replyContent.ifBlank { session.currentResponse.value.ifBlank { _currentResponse.value } }
@@ -1197,12 +1231,14 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                                 session.markFinished()
                                 ChatGenerationManager.removeSession(conversationId)
                                 _isGenerating.value = false
+                                _generatingAnchor.value = null
                                 _currentResponse.value = ""
                                 _currentThinking.value = ""
                             } else if (session.isMessageSaved.compareAndSet(false, true)) {
                                 isMessageSaved = true
                                 session.setError(errorMsg)
                                 _isGenerating.value = false
+                                _generatingAnchor.value = null
                                 _error.value = errorMsg
                                 saveErrorReply(errorMsg, session)
                                 session.markFinished()
@@ -1237,11 +1273,13 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                     session.markFinished()
                     ChatGenerationManager.removeSession(conversationId)
                     _isGenerating.value = false
+                    _generatingAnchor.value = null
                     _currentResponse.value = ""
                     _currentThinking.value = ""
                     return@launch
                 }
                 _isGenerating.value = false
+                _generatingAnchor.value = null
                 if (session.isMessageSaved.compareAndSet(false, true)) {
                     isMessageSaved = true
                     val errorMsg = e.message ?: "未知错误"
@@ -1296,6 +1334,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
         repository.cancelActiveRequest(conversationId)
         generationJob?.cancel(CancellationException("用户暂停生成"))
         _isGenerating.value = false
+        _generatingAnchor.value = null
 
         val session = ChatGenerationManager.getSession(conversationId)
         val responseToSave = (session?.currentResponse?.value ?: _currentResponse.value).trim()
@@ -1467,58 +1506,27 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                     content = lastUserMessage.content,
                     saveUserMessage = false,
                     assistantVariantGroupId = groupId,
-                    assistantVariantIndex = nextIndex
+                    assistantVariantIndex = nextIndex,
+                    anchorUserMessageId = lastUserMessage.id
                 )
             }
         }
     }
 
     // 删除单条消息
+    // v2.6.5 修正：删除消息绝不影响进行中的生成（v2.6.4 曾误改为删除即取消生成，导致正在
+    // 连接/输出的回复直接消失）；删除同一位置的过去回复时，流式回复的挂载位置由
+    // 生成锚点（触发本轮的用户消息）钉住，与被删消息无关，详见 ChatScreen 挂载判定。
     fun deleteMessage(message: Message) {
         viewModelScope.launch {
-            cancelGenerationIfDeletingActiveTurn(message)
             repository.deleteMessage(message)
         }
     }
 
     fun deleteMessagesFrom(message: Message) {
         viewModelScope.launch {
-            cancelGenerationIfDeletingActiveTurn(message)
             repository.deleteMessagesFrom(conversationId, message.createdAt)
         }
-    }
-
-    /**
-     * 需求 v2.6.4-1：生成/连接进行中删除回复时，静默取消当前生成——
-     * 不落任何「回复已停止/请求失败」占位消息，杜绝删除后仍出现多个回复窗口，
-     * 以及重新生成场景下新回复并入上方回复 variant 组造成的“合并”问题。
-     * 仅当被删消息属于当前生成轮次（assistant 消息、触发本轮的 user 消息或本轮开始后的消息）时取消，
-     * 删除无关历史消息不影响进行中的生成。
-     */
-    private fun cancelGenerationIfDeletingActiveTurn(message: Message) {
-        if (!_isGenerating.value) return
-        val session = ChatGenerationManager.getSession(conversationId) ?: return
-        val belongsToActiveTurn = message.role == "assistant" ||
-            message.id == session.userMessageId ||
-            message.createdAt >= session.requestStartTime
-        if (!belongsToActiveTurn) return
-
-        isUserStopping = true // onError/异常路径视为用户主动停止，不再落错误占位
-        _pendingContextFallbackPrompt.value?.onDecision?.invoke(com.aiassistant.domain.model.ContextFallbackChoice.IGNORE)
-        _pendingContextFallbackPrompt.value = null
-        repository.cancelActiveRequest(conversationId)
-        generationJob?.cancel(kotlinx.coroutines.CancellationException("删除回复，取消生成"))
-        session.markFinished()
-        ChatGenerationManager.removeSession(conversationId)
-        _isGenerating.value = false
-        isMessageSaved = true
-        activeAssistantVariantGroupId = null
-        activeAssistantVariantIndex = 1
-        _currentResponse.value = ""
-        _currentThinking.value = ""
-        _reconnectStatus.value = null
-        _keyAttemptErrors.value = emptyList()
-        _error.value = null
     }
 
     // 重命名对话标题
@@ -2891,4 +2899,14 @@ data class TempChatSettings(
     val enableWorldBook: Boolean = false,
     val activeWorldBookIds: String? = null,
     val contextWindowTokens: Int? = null
+)
+
+/**
+ * 生成锚点（v2.6.5）：流式回复气泡的稳定挂载参照。
+ * [userMessageId] 为触发本轮生成的用户消息 id；[userGroupId] 为该消息所属的 user 分组
+ * （编辑重发场景，如 turn_x_user），供气泡在分组选中项变化时仍能命中挂载位置。
+ */
+data class GeneratingAnchor(
+    val userMessageId: Long,
+    val userGroupId: String? = null
 )

@@ -172,6 +172,9 @@ fun ChatScreen(
     val isGenerating by viewModel.isGenerating.collectAsState()
     // 实时 Key 尝试报错明细：生成过程中无需手动暂停即可直接看到各次连接失败的具体原因
     val liveKeyErrors by viewModel.keyAttemptErrors.collectAsState()
+    // 生成锚点（v2.6.5）：正在连接/输出的回复钉在触发本轮的用户消息之后，
+    // 删除同一位置的其他回复（错误占位、旧 variant）不会移动其位置
+    val generatingAnchor by viewModel.generatingAnchor.collectAsState()
     // P0-2① 合帧消费（R-1 红线）：流式 token 经 33ms 窗口合并（≈30fps 上限），
     // 杜绝逐 token 全屏重组；长度收缩（重置/重发清空）时立即发射，避免旧文本滞留。
     // StateFlow conflate 特性天然丢弃中间态，无积压风险。
@@ -1347,11 +1350,21 @@ fun ChatScreen(
                             }
 
                             // 如果该轮还没有已入库的 assistant 消息，但在对应 user 消息后正在流式生成
-                            val hasAssistantItemForThisTurn = displayMessages.any { it.groupId == streamingBranchGroupId }
+                            // v2.6.5：挂载点除配对 user 分组/turn_ 前缀外，新增生成锚点（触发本轮的
+                            // 用户消息）——删除同一位置的其他回复时，流式气泡钉在锚点后不跳位
+                            val hasAssistantItemForThisTurn = streamingBranchGroupId != null &&
+                                displayMessages.any { it.groupId == streamingBranchGroupId }
+                            val isAnchorHostHere = isGeneratingAnchorHostItem(
+                                itemGroupId = displayItem.groupId,
+                                itemMessageId = displayItem.message.id,
+                                anchorUserMessageId = generatingAnchor?.userMessageId,
+                                anchorUserGroupId = generatingAnchor?.userGroupId
+                            )
                             if (
                                 !hasAssistantItemForThisTurn &&
-                                streamingBranchGroupId != null &&
-                                isStreamingBranchHostItem(displayItem.groupId, streamingBranchGroupId!!, displayItem.message.id) &&
+                                (isAnchorHostHere ||
+                                    (streamingBranchGroupId != null &&
+                                        isStreamingBranchHostItem(displayItem.groupId, streamingBranchGroupId!!, displayItem.message.id))) &&
                                 (isGenerating || currentResponse.isNotEmpty() || currentThinking.isNotEmpty())
                             ) {
                                 Spacer(modifier = Modifier.height(14.dp))
@@ -1387,13 +1400,23 @@ fun ChatScreen(
                     }
 
                     // 检查当前流式分支是否在消息列表中成功挂载
-                    val isBranchStreamingMounted = streamingBranchGroupId != null && displayMessages.any { item ->
+                    // v2.6.5：生成锚点命中同样视为已挂载——锚点（触发本轮的用户消息）存在时，
+                    // 内联挂载已承接流式气泡，禁用底部兜底，避免同一回复出现两份
+                    val isAnchorHostMounted = generatingAnchor != null && displayMessages.any { item ->
+                        isGeneratingAnchorHostItem(
+                            itemGroupId = item.groupId,
+                            itemMessageId = item.message.id,
+                            anchorUserMessageId = generatingAnchor?.userMessageId,
+                            anchorUserGroupId = generatingAnchor?.userGroupId
+                        )
+                    }
+                    val isBranchStreamingMounted = (streamingBranchGroupId != null && displayMessages.any { item ->
                         item.groupId == streamingBranchGroupId ||
                         isStreamingBranchHostItem(item.groupId, streamingBranchGroupId!!, item.message.id)
-                    }
+                    }) || isAnchorHostMounted
 
-                    // 当前正在生成的内容（若为常规生成，或分支宿主不存在/被删除时，在底部稳妥兜底渲染，绝不丢失流式气泡）
-                    if ((streamingBranchGroupId == null || !isBranchStreamingMounted) && (currentThinking.isNotEmpty() || currentResponse.isNotEmpty() || isGenerating)) {
+                    // 当前正在生成的内容（若为常规生成，或分支宿主/生成锚点不存在/被删除时，在底部稳妥兜底渲染，绝不丢失流式气泡）
+                    if (!isBranchStreamingMounted && (currentThinking.isNotEmpty() || currentResponse.isNotEmpty() || isGenerating)) {
                         item(key = "streaming_assistant_message") {
                             MessageBubble(
                                 message = Message(

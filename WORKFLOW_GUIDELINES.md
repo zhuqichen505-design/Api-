@@ -41,6 +41,14 @@
 
 ## 二、最近一次执行记录
 
+### [2026-10-01] v2.6.5 删除回复不再影响正在生成的回复（回滚误改 + 生成锚点）（发版）
+- **需求**：修正 v2.6.4 误改（删除导致生成中回复消失）；删除同一位置的过去回复时，正在连接/输出的回复位置必须不变（此前会跳到上方/下方变成额外回复，结束后又合并回原位）。
+- **版本**：versionCode 161 / versionName 2.6.5 / Room v31（无变更）。
+- **实现要点**：回滚 `cancelGenerationIfDeletingActiveTurn`；新增 `GeneratingAnchor`（触发本轮的用户消息 id + user 分组）存入生成会话并随重进恢复；流式气泡优先内联挂载于锚点之后（`isGeneratingAnchorHostItem`），组内有已落库回复时维持组内挂载，仅锚点缺失时回退底部兜底；兜底条件收紧为 `!isBranchStreamingMounted`。
+- **文件**：`ChatViewModel.kt`、`ChatGenerationManager.kt`、`ChatScreen.kt`、`ChatMessageComponents.kt`、`RegenerateVariantSwitcherTest.kt`（+3 项）、`build.gradle.kts` 及文档。
+- **验证**：compile/test(493)/lint/diff --check/assembleRelease 全部 Exit Code 0；APK `Echo-v2.6.5.apk` (SHA256 `0011741AFF84D1B40CE586A93EBF28FAB0583C4203A88D4F530C7E2C9A581B80`)。
+- **详情**：见 `UPDATE_LOG.md` 与 `walkthrough.md`。
+
 ### [2026-10-01] v2.6.4 生成中删除回复静默取消、统计新时间范围、热力看板铺满、token 真实性与 TPS（发版）
 - **需求**：①连接中删除回复的多窗口/合并问题；②新增 4小时/8小时/3天 范围；③健康时间线任意范围铺满；④token/缓存真实性优化 + TPS 维度（移除峰值）。
 - **版本**：versionCode 160 / versionName 2.6.4 / Room v31（无变更）。
