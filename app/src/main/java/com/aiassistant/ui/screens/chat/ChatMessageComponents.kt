@@ -38,6 +38,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.text.selection.SelectionContainer
 import com.aiassistant.domain.model.ToolCallRecord
 import com.aiassistant.domain.model.QueuedMessage
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
@@ -887,17 +888,17 @@ internal fun MessageBubble(
                             if (isStatusError) MaterialTheme.colorScheme.error.copy(alpha = 0.5f) else glass.outlineSelected.copy(alpha = 0.72f)
                         )
                     ) {
+                        val isMultiLineLayout = isStatusExpanded && maxLinesCount > 1
                         Row(
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-                            // v2.6.8 需求 6：左侧状态图标恒定顶对齐——胶囊进入多行（含展开/收缩切换）时
-                            // 图标不再被垂直居中；单行时顶对齐与居中视觉一致，位置全程不漂移
-                            verticalAlignment = Alignment.Top,
+                            // 单行态完全居中对齐，多行展开态顶对齐
+                            verticalAlignment = if (isMultiLineLayout) Alignment.Top else Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Box(
                                 modifier = Modifier
                                     .size(16.dp)
-                                    .padding(top = 1.dp),
+                                    .then(if (isMultiLineLayout) Modifier.padding(top = 1.dp) else Modifier),
                                 contentAlignment = Alignment.Center
                             ) {
                                 if (isStatusError) {
@@ -919,7 +920,7 @@ internal fun MessageBubble(
                                     // P0-1①② 连接/思考：呼吸脉冲环，阶段切换时 primary 平滑过渡到思考档位色
                                     val ringColor by animateColorAsState(
                                         targetValue = if (generationState == GenerationUiState.Thinking) {
-                                            generationAccentColor
+                                             generationAccentColor
                                         } else {
                                             MaterialTheme.colorScheme.primary
                                         },
@@ -948,7 +949,8 @@ internal fun MessageBubble(
                                     .then(
                                         if (!enableSoftWrap) Modifier.horizontalScroll(rememberScrollState())
                                         else Modifier
-                                    )
+                                    ),
+                                contentAlignment = Alignment.CenterStart
                             ) {
                                 // P0-1② 状态文案交叉淡换：以状态枚举为 key（150ms 淡出+淡入），
                                 // 同状态下文案变化不触发动画（避免逐字符抖动）
@@ -963,12 +965,19 @@ internal fun MessageBubble(
                                     transitionSpec = {
                                         (fadeIn(capsuleSpec) togetherWith fadeOut(capsuleSpec))
                                     },
+                                    contentAlignment = Alignment.CenterStart,
                                     label = "capsulePhase"
                                 ) { _ ->
                                     Text(
                                         text = capsuleText,
-                                        style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.SansSerif,
-                                            fontWeight = FontWeight.SemiBold),
+                                        style = MaterialTheme.typography.labelMedium.copy(
+                                            fontFamily = FontFamily.SansSerif,
+                                            fontWeight = FontWeight.SemiBold,
+                                            lineHeightStyle = LineHeightStyle(
+                                                alignment = LineHeightStyle.Alignment.Center,
+                                                trim = LineHeightStyle.Trim.Both
+                                            )
+                                        ),
                                         color = if (isStatusError) MaterialTheme.colorScheme.error else thinkingHeaderColor,
                                         maxLines = maxLinesCount,
                                         softWrap = enableSoftWrap,

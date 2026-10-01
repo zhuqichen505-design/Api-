@@ -126,6 +126,7 @@ data class Message(
     val translatedThinking: String? = null,
     val isPinned: Boolean = false,
     val isExcluded: Boolean = false,
+    val modelName: String? = null,
     val createdAt: Long = System.currentTimeMillis()
 )
 

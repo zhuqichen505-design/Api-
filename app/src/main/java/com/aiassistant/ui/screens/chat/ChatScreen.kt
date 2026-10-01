@@ -1203,8 +1203,10 @@ fun ChatScreen(
                         // 加大用户输入气泡和模型上一次输出之间的距离
                         val extraTopSpacing = if (isUser && isPrevAssistant) 18.dp else 0.dp
 
-                        val resolvedAssistantModelName = messageModelMap[message.id]
+                        val resolvedAssistantModelName = message.modelName?.ifBlank { null }
+                            ?: messageModelMap[message.id]
                             ?: messageModelMap[message.createdAt]
+                            ?: uiState.modelName?.ifBlank { null }
                             ?: currentAssistantModelName
                         val isBranchStreamingHere = streamingBranchGroupId != null &&
                             displayItem.groupId == streamingBranchGroupId &&

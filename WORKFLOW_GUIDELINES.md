@@ -41,6 +41,20 @@
 
 ## 二、最近一次执行记录
 
+### [2026-10-01] v2.6.9 会话专属设定备份与智能导入合并 + 菜单左右填铺满统一修复 + 输出中断思考与回复强制入库保全 + 思考胶囊文字垂直居中 + 思考胶囊模型名字物理固化（发版）
+- **需求**：① 备份只备份时间线未备份会话专属设定，恢复后缺少专属设定且被视为新对话无法导入原有对话；② 点击回复下方三点弹出菜单左右填铺满统一修复；③ 模型已输出思考或部分回复时中断保全入库严禁覆盖；④ 思考胶囊文字垂直居中；⑤ 思考胶囊模型名字物理固化与隔离。构建 APK。
+- **版本**：versionCode 165 / versionName 2.6.9 / Room v32（新增 MIGRATION_31_32，`messages` 表增加 `modelName TEXT`）。
+- **实现要点**：
+  ① 单对话恢复 `restoreSingleConversationFromJson` 引入原有会话智能匹配机制（ID/创建时间戳/自定义标题一致），命中原有会话时直接作为目标会话（`targetConvId = matchedConv.id`），智能更新会话设定并开启专属设定总开关；消息、时间线节点及专属设定（`memory_items`）执行内容去重增量合并入库，绝不强制新建新对话；`mergeDatabaseFromBackup` 专有重映射 `memory_items` 和 `conversation_branches` 的会话 ID 并去重；`MemoryDao` 拓宽查询和删除范围至全部 `WHERE conversationId = :conversationId`；`createBackup` 前显式执行 `PRAGMA wal_checkpoint(FULL)`；
+  ② `EchoHaze.kt` 的 `EchoGlassDropdownMenu` 显式施加 `Modifier.width(IntrinsicSize.Max).widthIn(min = 160.dp, max = 280.dp)`，全仓所有液态玻璃菜单恢复自适应精致尺寸；
+  ③ `ChatViewModel.kt` 的 `onError` 与 `catch` 异常块增加 CAS 抢救入库保全机制：检测只要 `partialResponse.isNotBlank() || partialThinking != null`，不论异常类型，第一时间抢救保存思考链与正文内容入库，附带中断说明，严禁任何覆盖与清空；
+  ④ `ChatMessageComponents.kt` 思考胶囊 Row 单行改 `Alignment.CenterVertically`，Box 显式 `Alignment.CenterStart`，`Text` 注入 `lineHeight = 16.sp` 与 `LineHeightStyle(Alignment.Center, Trim.Both)`，精准物理垂直居中；
+  ⑤ `Message` 实体永久持久化 `modelName` 字段，存库与保存错误回复/停止生成时均锁定模型名，`updateMessageModelMap` 存量反查自愈回填数据库，`ChatScreen.kt` 思考胶囊展示彻底移除回退到 `currentAssistantModelName`。
+- **文件**：`AppDatabase.kt`、`Daos.kt`、`AppDatabaseMigrations.kt`、`AiRepository.kt`、`Models.kt`、`EchoHaze.kt`、`ChatMessageComponents.kt`、`ChatScreen.kt`、`ChatViewModel.kt`、`BackupManager.kt`、`CompressionTierPolicyTest.kt`、`MemoryAndCompressionEngineTest.kt`、`app/build.gradle.kts` 及文档。
+- **验证**：compile/test（74 文件 498 项全通、0 失败）/lint/diff --check 全部 Exit Code 0；assembleRelease Exit Code 0，`Echo-v2.6.9.apk`（16,700,269 字节，SHA256 `5212A9D58FAEC29B491EBBCA18D66A5E600BF85781163153FC0212875DB001D5`，CN=Android Debug **非正式生产签名**，证书与历史版本一致）；历史包 100% 完整保留。
+- **未执行**：真机安装/启动验证（无设备），已给人工验收步骤（见 walkthrough.md v2.6.9 节）。
+- **详情**：见 `UPDATE_LOG.md` 与 `walkthrough.md`。
+
 ### [2026-10-01] v2.6.8 等待提示不再顶屏 + 统计模型名可滑动 + 健康时间线 14×6 + 后台生成稳定性 + 菜单配色/胶囊收缩（发版）
 - **需求**：① 连接等待文字出现/消失不再导致屏幕滑动；② 统计页多处模型名可左右滑动看全；③ 请求健康时间线所有时间范围保持 14 × 6；④ 返回首页/点击其他对话不影响模型连接与回复；⑤ 回复右下角三点弹窗颜色不均、边缘黑影；⑥ 连接胶囊多行时无法收缩、收缩/展开使左侧图标错误居中。构建 APK。
 - **版本**：versionCode 164 / versionName 2.6.8 / Room v31（无 DB 变更）。

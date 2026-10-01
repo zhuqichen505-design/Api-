@@ -1212,6 +1212,10 @@ class AiRepository(
         messageDao.updateTranslatedThinking(messageId, translatedThinking)
     }
 
+    suspend fun updateMessageModelName(messageId: Long, modelName: String) {
+        messageDao.updateMessageModelName(messageId, modelName)
+    }
+
     suspend fun deleteMessage(message: Message) {
         messageDao.deleteMessage(message)
         updateConversationStats(message.conversationId)
@@ -1993,7 +1997,8 @@ class AiRepository(
                     tokenCount = finalTotalTokens,
                     thinkingTokens = finalThinkingTokens,
                     responseTime = responseTime,
-                    toolCalls = toolCallsJson
+                    toolCalls = toolCallsJson,
+                    modelName = requestModel
                 )
                 saveMessage(assistantMsg)
 
@@ -2317,7 +2322,8 @@ class AiRepository(
                     tokenCount = finalTotalTokens,
                     thinkingTokens = finalThinkingTokens,
                     responseTime = responseTime,
-                    toolCalls = toolCallsJson
+                    toolCalls = toolCallsJson,
+                    modelName = requestModel
                 )
                 saveMessage(assistantMsg)
 

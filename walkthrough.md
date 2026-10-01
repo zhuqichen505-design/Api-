@@ -1,3 +1,47 @@
+# Echo v2.6.9 构建走查与验收报告 (Walkthrough)
+
+## 一、本次构建与需求概述
+- **发布版本**：v2.6.9 (`versionCode: 165`)
+- **构建类型**：Release APK
+- **交付目标文件**：`D:\Agent\APP-Echo\app\releases\Echo-v2.6.9.apk`
+- **核心内容**：会话专属设定备份与智能导入原有对话（需求 1）、回复三点弹出菜单左右填铺满统一修复（需求 2）、输出中断思考与回复强制入库保全（需求 3）、思考胶囊文字垂直居中（需求 4）、思考胶囊模型名字物理固化与隔离（需求 5）。
+
+## 二、根因走查与修复要点
+| 项 | 根因 | 修复 |
+| :--- | :--- | :--- |
+| 会话专属设定备份与智能导入原有对话（需求 1） | ① 单对话备份导入 `restoreSingleConversationFromJson` 无条件执行 `conversation.copy(id = 0L)` 并 `insertConversation`，永远在本地新增"新对话"，原对话被架空无法导入；② 全量数据库合并引擎中 `memory_items` 被归入 `simpleTables` 盲插，未对 `conversationId` 重映射，ID 重分配后专属设定与会话失联；`conversation_branches` 同理；③ 备份前未执行 WAL checkpoint | ① `restoreSingleConversationFromJson` 引入原有会话智能匹配机制（ID/创建时间戳/自定义标题一致），命中原有会话时直接作为目标会话（`targetConvId = matchedConv.id`），智能更新会话设定并开启专属设定总开关；消息、时间线节点及专属设定（`memory_items`）执行内容去重增量合并入库，绝不强制新建新对话；② `mergeDatabaseFromBackup` 专有重映射 `memory_items` 和 `conversation_branches` 的会话 ID 并去重；③ `MemoryDao` 拓宽查询和删除范围至全部 `WHERE conversationId = :conversationId`；④ `createBackup` 前显式执行 `PRAGMA wal_checkpoint(FULL)` |
+| 菜单左右填铺满（需求 2） | v2.6.8 重构 `EchoGlassDropdownMenu` 为自绘 Popup 后丢失了 M3 默认的宽度包裹约束，Popup 默认可用宽度为屏幕全宽，而 `DropdownMenuItem` 自带 `fillMaxWidth()`，撑满整屏 | Surface 与 Column 显式施加 `Modifier.width(IntrinsicSize.Max).widthIn(min = 160.dp, max = 280.dp)` 限制，确保无论在任何屏幕尺寸或子项内容下，菜单宽度自适应内容并收敛在 160dp ~ 280dp 之间，全仓所有液态玻璃菜单统一恢复紧凑优雅 |
+| 输出中断思考与回复强制保全（需求 3） | OkHttp 流式断开或用户/系统打断抛出 `Socket closed` / `Canceled` 异常时，此前直接 `return@launch`，或用通用错误占位覆盖已接收内容，已收到的数百字思考或正文被清空丢失 | 在 `onError` 与 `catch` 异常块中增加抢救机制：只要 `partialResponse.isNotBlank() || partialThinking != null`，不论异常类型，第一时间通过 CAS 抢救入库，保存已有思考链与正文内容，正文末尾精准标注中断说明，严禁任何覆盖与清空 |
+| 思考胶囊文字垂直居中（需求 4） | 思考胶囊内 Row 默认对齐不对齐，Text 组件受 Android 系统字体默认 paddingTop 与 leading 影响，视觉明显偏上 | 单行思考胶囊 Row 统一 `Alignment.CenterVertically`；文字 Box 显式 `Alignment.CenterStart`；`Text` 注入 `lineHeight = 16.sp` 与 `lineHeightStyle = LineHeightStyle(Alignment.Center, Trim.Both)`，消除字体系统内边距，实现文字精准物理居中 |
+| 思考胶囊模型名字物理固化（需求 5） | `Message` 实体历史上未设计 `modelName` 字段，前端思考胶囊依赖动态反查，反查不到时回退到顶部选中的动态模型 `currentAssistantModelName`，用户在顶部切换模型会导致历史胶囊名字被错误覆盖替换 | ① `Message` 实体新增持久化字段 `val modelName: String? = null`，Room 数据库升至 `32` 并新增 `MIGRATION_31_32`；② `AiRepository` 与 `ChatViewModel` 保存消息时均写入发起调用的实际模型名字；③ `updateMessageModelMap` 反查到存量消息模型名时立即调用 `repository.updateMessageModelName` 回填入库持久化；④ `ChatScreen` 思考胶囊展示彻底移除回退到 `currentAssistantModelName`，永久物理固化 |
+
+## 三、构建与验证复核清单
+- [x] `compileDebugKotlin --no-daemon`：Exit Code 0
+- [x] `testDebugUnitTest --no-daemon`：Exit Code 0（74 个测试文件，**498 项全通、0 失败**，新增 MIGRATION_31_32、备份设定序列化与 modelName 固化断言）
+- [x] `lintDebug --no-daemon`：Exit Code 0
+- [x] `git diff --check`：Exit Code 0
+- [x] `assembleRelease --no-daemon`：Exit Code 0
+- [x] APK：`Echo-v2.6.9.apk`，16,700,269 字节 (~15.93 MB)，SHA256 `5212A9D58FAEC29B491EBBCA18D66A5E600BF85781163153FC0212875DB001D5`
+- [x] 签名校验：`apksigner verify --print-certs` 通过，证书 CN=Android Debug（**非正式生产签名**），证书 SHA-256 `939638f6d3e9af7f8a980e62af52d275fee73381f2130cc4e20a0d349f98e21f`，与历史版本完全一致，支持直接覆盖升级
+- [x] 历史版本完整性：`D:\Agent\APP-Echo\app\releases` 历史安装包 100% 完整保留，本次为唯一定名增量输出（复制而非移动，全程未执行任何删除）
+
+## 四、人工验收步骤（无真机，未执行安装/启动验证）
+1. **需求 1（会话专属设定备份与恢复）**：
+   - 进入任一包含会话专属设定（角色特征、世界观规则、行为约束）的对话，长按或进入菜单执行「备份单对话」；
+   - 在对话中追加几条消息或修改部分设定后，在设置页或首页重新导入刚才的单对话 JSON 备份：应用应提示导入成功，回到该会话检查——原对话**未被新建重复会话**，原有对话已融合更新，会话专属设定总开关处于开启状态，专属设定卡片 100% 完整展示，消息与时间线无缝增量合并。
+2. **需求 2（三点菜单左右铺满修复）**：
+   - 在对话界面中，点击任一助手回复右下角的三点图标「⋮」：弹出的菜单宽度应自适应文字内容（160dp ~ 280dp），精致居于气泡下方，**严禁横向撑满整屏**；
+   - 检查输入框左侧「+」菜单及顶部模型切换菜单，同样保持精致小巧。
+3. **需求 3（模型回复中断保全）**：
+   - 选用开启思考链的模型发送复杂提示词，在模型输出思考或开始输出正文时，断开网络或点击停止按钮：对话界面应立即将已生成的思考链与部分正文保存为一条正式回复，气泡上方保留思考胶囊可展开查看全部已输出思考，正文末尾附带中断说明，绝不被丢弃或被错误提示清空覆盖。
+4. **需求 4（思考胶囊文字垂直居中）**：
+   - 观察助手回复上方单行思考胶囊（「已思考 (xs) · 模型名」）：胶囊内部文字应在圆角胶囊的高度中心线精确垂直居中，不再向上偏移。
+5. **需求 5（思考胶囊模型名字物理固化）**：
+   - 使用模型 A（如 DeepSeek-R1）发送一条消息并获得回复，回复上方胶囊显示「已思考 · deepseek-r1」；
+   - 点击顶部模型选择器切换到模型 B（如 GPT-4o 或 Claude 3.5 Sonnet）：查看刚才由模型 A 生成的历史消息胶囊，模型名字**必须依然是 deepseek-r1**，绝不被替换为模型 B。
+
+---
+
 # Echo v2.6.8 构建走查与验收报告 (Walkthrough)
 
 ## 一、本次构建与需求概述

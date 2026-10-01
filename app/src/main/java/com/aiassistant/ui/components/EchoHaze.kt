@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.animation.core.MutableTransitionState
@@ -509,7 +510,10 @@ fun EchoGlassDropdownMenu(
                 exit = fadeOut(com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.fast))
             ) {
                 Surface(
-                    modifier = modifier,
+                    modifier = Modifier
+                        .widthIn(min = 160.dp, max = 280.dp)
+                        .width(IntrinsicSize.Max)
+                        .then(modifier),
                     shape = menuShape,
                     color = containerColor,
                     contentColor = colors.onSurface,
@@ -519,6 +523,8 @@ fun EchoGlassDropdownMenu(
                 ) {
                     Column(
                         modifier = Modifier
+                            .widthIn(min = 160.dp, max = 280.dp)
+                            .width(IntrinsicSize.Max)
                             .verticalScroll(rememberScrollState())
                             .padding(vertical = 8.dp),
                         content = content

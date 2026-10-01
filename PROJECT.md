@@ -4,8 +4,8 @@
 
 Echo 是一个 Android 原生 AI API 客户端应用，用于调用 mimo、deepseek、OpenAI、Anthropic 等 AI 模型的 API。
 
-**当前版本**: v2.6.8
-**数据库版本**: 31
+**当前版本**: v2.6.9
+**数据库版本**: 32
 **技术栈**: Kotlin 2.2.21 + Jetpack Compose (BOM 2024.06.00) + Room 2.8.4 + Retrofit 2.9.0
 
 > 工作流、最高准则与 APK 发布铁律的唯一权威版本在工作区根目录 `D:\Agent\APP-Echo\AGENTS.md`；本文件是项目事实卡，与其冲突时以 AGENTS.md 与代码为准。
@@ -34,24 +34,24 @@ Echo 是一个 Android 原生 AI API 客户端应用，用于调用 mimo、deeps
 
 ---
 
-## 数据库结构（v31，实体清单以 `data/local/AppDatabase.kt` 为准）
+## 数据库结构（v32，实体清单以 `data/local/AppDatabase.kt` 为准）
 
 | 实体（表） | 说明 |
 |------|------|
 | Folder | 文件夹 |
 | ApiConfig | API 配置 |
-| Conversation / Message | 对话与消息 |
+| Conversation / Message | 对话与消息（Message 包含持久化 modelName 字段） |
 | ApiUsageStat | 使用统计 |
 | EnvironmentVariable | 环境变量（加密存储） |
 | PromptTemplate | 提示词模板 |
-| MemoryItem | 全局记忆 |
+| MemoryItem | 全局与会话专属记忆设定 |
 | ConversationBranch / SelectedModel | 会话分支 / 模型选择与排序 |
 | CharacterProfile / CharacterTag / CharacterTagCrossRef | 角色卡 / 角色标签及关联 |
 | RoleplayScenario / RoleplaySession / RoleplayMemory | 角色扮演场景 / 会话 / 记忆 |
 | WorldBook / WorldBookEntry | 世界书 |
 | TimelineNode | 剧情时间线 |
 
-迁移链至 `MIGRATION_29_30`（`data/local/migrations/AppDatabaseMigrations.kt`）；修改实体必须 version+1 并新增 Migration，禁止 destructive migration。
+迁移链至 `MIGRATION_31_32`（`data/local/migrations/AppDatabaseMigrations.kt`）；修改实体必须 version+1 并新增 Migration，禁止 destructive migration。
 
 ---
 

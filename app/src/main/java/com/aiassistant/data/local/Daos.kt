@@ -140,6 +140,9 @@ interface ConversationDao {
     @Query("SELECT title FROM conversations WHERE title LIKE :prefix || '%'")
     suspend fun getTitlesStartingWith(prefix: String): List<String>
 
+    @Query("SELECT * FROM conversations")
+    suspend fun getAllConversationsList(): List<Conversation>
+
     @Query("UPDATE conversations SET tags = :tags, updatedAt = :timestamp WHERE id = :id")
     suspend fun updateTags(id: Long, tags: String?, timestamp: Long = System.currentTimeMillis())
 
@@ -214,6 +217,9 @@ interface MessageDao {
 
     @Query("UPDATE messages SET translatedThinking = :translatedThinking WHERE id = :messageId")
     suspend fun updateTranslatedThinking(messageId: Long, translatedThinking: String?)
+
+    @Query("UPDATE messages SET modelName = :modelName WHERE id = :messageId")
+    suspend fun updateMessageModelName(messageId: Long, modelName: String)
 }
 
 // ============ 使用统计 DAO ============
@@ -438,13 +444,13 @@ interface MemoryDao {
     @Query("UPDATE memory_items SET isEnabled = 0, updatedAt = :timestamp WHERE id = :id")
     suspend fun disableMemory(id: Long, timestamp: Long = System.currentTimeMillis())
 
-    @Query("SELECT * FROM memory_items WHERE conversationId = :conversationId AND scope = 'conversation' ORDER BY updatedAt DESC")
+    @Query("SELECT * FROM memory_items WHERE conversationId = :conversationId ORDER BY isEnabled DESC, updatedAt DESC")
     fun getConversationMemoriesFlow(conversationId: Long): Flow<List<MemoryItem>>
 
-    @Query("SELECT * FROM memory_items WHERE conversationId = :conversationId AND scope = 'conversation' ORDER BY updatedAt DESC")
+    @Query("SELECT * FROM memory_items WHERE conversationId = :conversationId ORDER BY isEnabled DESC, updatedAt DESC")
     suspend fun getConversationMemories(conversationId: Long): List<MemoryItem>
 
-    @Query("DELETE FROM memory_items WHERE conversationId = :conversationId AND scope = 'conversation'")
+    @Query("DELETE FROM memory_items WHERE conversationId = :conversationId")
     suspend fun deleteConversationMemories(conversationId: Long)
 
     @Query("SELECT * FROM memory_items WHERE scope IN ('user', 'global') ORDER BY isEnabled DESC, updatedAt DESC")

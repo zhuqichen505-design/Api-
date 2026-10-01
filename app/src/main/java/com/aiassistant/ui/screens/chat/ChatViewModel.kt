@@ -1268,14 +1268,31 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                         },
                         onError = { errorMsg ->
                             slowTimeoutJob.cancel()
-                            // v2.6.8 需求 4：同样按会话身份判定，避免过期轮次的收尾污染新一轮
                             val isStillCurrentRound = ChatGenerationManager.isCurrentSession(conversationId, session)
                             if (isStillCurrentRound) {
                                 _reconnectStatus.value = null
-                                // 重新同步会话状态与上下文使用情况（后台降级自动同步）
                                 refreshContextUsage()
                             }
-                            if (isUserStopping || errorMsg.contains("Socket closed", ignoreCase = true) || errorMsg.contains("Canceled", ignoreCase = true)) {
+                            val partialResponse = session.currentResponse.value.trim()
+                            val partialThinking = session.currentThinking.value.trim().ifEmpty { null }
+                            val hasPartialContent = partialResponse.isNotBlank() || partialThinking != null
+
+                            if (hasPartialContent) {
+                                // 需求 3：只要模型已经输出思考或部分回复，不管是否中断/取消/关闭连接，必须 100% 入库保存
+                                if (session.isMessageSaved.compareAndSet(false, true)) {
+                                    isMessageSaved = true
+                                    session.setError(errorMsg)
+                                    saveErrorReply(errorMsg, session, isUserStopping)
+                                }
+                                session.markFinished()
+                                ChatGenerationManager.removeSession(conversationId, session)
+                                if (isStillCurrentRound) {
+                                    _isGenerating.value = false
+                                    _generatingAnchor.value = null
+                                    _currentResponse.value = ""
+                                    _currentThinking.value = ""
+                                }
+                            } else if (isUserStopping || errorMsg.contains("Socket closed", ignoreCase = true) || errorMsg.contains("Canceled", ignoreCase = true)) {
                                 session.markFinished()
                                 ChatGenerationManager.removeSession(conversationId, session)
                                 if (isStillCurrentRound) {
@@ -1287,7 +1304,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                             } else if (session.isMessageSaved.compareAndSet(false, true)) {
                                 isMessageSaved = true
                                 session.setError(errorMsg)
-                                saveErrorReply(errorMsg, session)
+                                saveErrorReply(errorMsg, session, false)
                                 session.markFinished()
                                 ChatGenerationManager.removeSession(conversationId, session)
                                 if (isStillCurrentRound) {
@@ -1299,11 +1316,6 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                                 }
                             }
                         },
-                        // v2.6.8 需求 4：待确认提示挂到 Application 级会话上——用户返回首页/切换对话后
-                        // 重进会话仍能看到并应答（此前只挂在 ViewModel 上，VM 销毁后无人应答，
-                        // 请求协程永久挂起，表现为"连接/回复卡死"）。
-                        // 同时加超时兜底：用户长时间不在时按应用既有默认策略（压缩上下文后重试）放行，
-                        // 任何情况下都不会再有永久挂起。
                         onContextFallbackPrompt = { reason ->
                             kotlinx.coroutines.withTimeoutOrNull(CONTEXT_FALLBACK_PROMPT_TIMEOUT_MS) {
                                 kotlinx.coroutines.suspendCancellableCoroutine { cont ->
@@ -1331,12 +1343,33 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                 }
             } catch (e: Exception) {
                 slowTimeoutJob.cancel()
-                // v2.6.8 需求 4：按会话身份判定，过期轮次（用户已停止并重发）的异常收尾
-                // 不得再清空新一轮的生成标志与生成锚点
                 val isStillCurrentRound = ChatGenerationManager.isCurrentSession(conversationId, session)
                 if (isStillCurrentRound) {
                     _reconnectStatus.value = null
                 }
+                val partialResponse = session.currentResponse.value.trim()
+                val partialThinking = session.currentThinking.value.trim().ifEmpty { null }
+                val hasPartialContent = partialResponse.isNotBlank() || partialThinking != null
+                val errorMsg = e.message ?: "未知错误"
+
+                if (hasPartialContent) {
+                    // 需求 3：异常分支同样 100% 抢救保存思考与正文
+                    if (session.isMessageSaved.compareAndSet(false, true)) {
+                        isMessageSaved = true
+                        session.setError(errorMsg)
+                        saveErrorReply(errorMsg, session, isUserStopping)
+                    }
+                    session.markFinished()
+                    ChatGenerationManager.removeSession(conversationId, session)
+                    if (isStillCurrentRound) {
+                        _isGenerating.value = false
+                        _generatingAnchor.value = null
+                        _currentResponse.value = ""
+                        _currentThinking.value = ""
+                    }
+                    return@launch
+                }
+
                 if (isUserStopping || e is CancellationException || e.message?.contains("Socket closed", ignoreCase = true) == true || e.message?.contains("Canceled", ignoreCase = true) == true) {
                     session.markFinished()
                     ChatGenerationManager.removeSession(conversationId, session)
@@ -1354,9 +1387,8 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                 }
                 if (session.isMessageSaved.compareAndSet(false, true)) {
                     isMessageSaved = true
-                    val errorMsg = e.message ?: "未知错误"
                     session.setError(errorMsg)
-                    saveErrorReply(errorMsg, session)
+                    saveErrorReply(errorMsg, session, false)
                     session.markFinished()
                     ChatGenerationManager.removeSession(conversationId, session)
                     if (isStillCurrentRound) {
@@ -1369,21 +1401,42 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
         }
     }
 
-    private fun saveErrorReply(errorMsg: String, session: ChatGenerationManager.ActiveSession? = null) {
+    private fun saveErrorReply(
+        errorMsg: String,
+        session: ChatGenerationManager.ActiveSession? = null,
+        isUserStopping: Boolean = false
+    ) {
         val partialResponse = (session?.currentResponse?.value ?: _currentResponse.value).trim()
         val partialThinking = (session?.currentThinking?.value ?: _currentThinking.value).trim().ifEmpty { null }
         val variantGroupId = session?.assistantVariantGroupId ?: activeAssistantVariantGroupId
         val variantIndex = session?.assistantVariantIndex ?: activeAssistantVariantIndex
+        val savedModelName = session?.callingModel?.value?.ifBlank { null }
+            ?: _currentModel.value?.ifBlank { null }
+            ?: conversation?.modelName
         activeAssistantVariantGroupId = null
         activeAssistantVariantIndex = 1
         AiAssistantApp.instance.applicationScope.launch {
-            val content = if (partialResponse.isNotBlank()) {
-                "$partialResponse\n\n[输出已被中断: $errorMsg]"
-            } else {
-                buildString {
-                    append("请求失败\n\n")
-                    append(errorMsg.trim().ifBlank { "未知错误" })
-                    append("\n\n可以检查 API 地址、密钥、模型名称或网络状态后重试。")
+            val content = when {
+                partialResponse.isNotBlank() -> {
+                    if (isUserStopping) {
+                        "$partialResponse\n\n*(回复已被暂停)*"
+                    } else {
+                        "$partialResponse\n\n*(输出已被中断: $errorMsg)*"
+                    }
+                }
+                !partialThinking.isNullOrBlank() -> {
+                    if (isUserStopping) {
+                        "*(思考已停止，回复已暂停)*"
+                    } else {
+                        "*(思考已输出，回复已被中断: $errorMsg)*"
+                    }
+                }
+                else -> {
+                    buildString {
+                        append("请求失败\n\n")
+                        append(errorMsg.trim().ifBlank { "未知错误" })
+                        append("\n\n可以检查 API 地址、密钥、模型名称或网络状态后重试。")
+                    }
                 }
             }
             val message = Message(
@@ -1392,7 +1445,8 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                 content = content,
                 thinkingContent = partialThinking,
                 variantGroupId = variantGroupId,
-                variantIndex = variantIndex
+                variantIndex = variantIndex,
+                modelName = savedModelName
             )
             repository.saveMessage(message)
             withContext(Dispatchers.Main) {
@@ -1463,6 +1517,9 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                     }
                 }
             }.trim()
+            val savedModelName = session?.callingModel?.value?.ifBlank { null }
+                ?: _currentModel.value?.ifBlank { null }
+                ?: conversation?.modelName
             AiAssistantApp.instance.applicationScope.launch {
                 val message = Message(
                     conversationId = conversationId,
@@ -1470,7 +1527,8 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                     content = finalContent,
                     thinkingContent = thinkingToSave,
                     variantGroupId = variantGroupId,
-                    variantIndex = variantIndex
+                    variantIndex = variantIndex,
+                    modelName = savedModelName
                 )
                 repository.saveMessage(message)
             }
@@ -2310,7 +2368,8 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                     conversationId = conversationId,
                     role = "assistant",
                     content = greeting,
-                    tokenCount = com.aiassistant.data.repository.AiRepository.estimateTokenCount(greeting)
+                    tokenCount = com.aiassistant.data.repository.AiRepository.estimateTokenCount(greeting),
+                    modelName = _currentModel.value?.ifBlank { null } ?: conversation?.modelName
                 )
                 repository.saveMessage(assistantMsg)
             } else {
@@ -2913,20 +2972,23 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
             var changed = false
 
             messageList.filter { it.role == "assistant" }.forEach { msg ->
-                if (!currentMap.containsKey(msg.id)) {
-                    val matchingStat = stats.filter {
+                val model = msg.modelName?.ifBlank { null }
+                    ?: currentMap[msg.id]
+                    ?: stats.filter {
                         Math.abs(it.timestamp - msg.createdAt) < 15000L ||
                         (it.responseTime > 0 && it.responseTime == msg.responseTime)
-                    }.minByOrNull { Math.abs(it.timestamp - msg.createdAt) }
+                    }.minByOrNull { Math.abs(it.timestamp - msg.createdAt) }?.modelName?.ifBlank { null }
+                    ?: runtimeMessageModelMap[msg.createdAt]
+                    ?: defaultModel.ifBlank { null }
 
-                    val model = matchingStat?.modelName?.ifBlank { null }
-                        ?: runtimeMessageModelMap[msg.createdAt]
-                        ?: defaultModel.ifBlank { null }
-
-                    if (!model.isNullOrBlank()) {
+                if (!model.isNullOrBlank()) {
+                    if (currentMap[msg.id] != model || currentMap[msg.createdAt] != model) {
                         currentMap[msg.id] = model
                         currentMap[msg.createdAt] = model
                         changed = true
+                    }
+                    if (msg.modelName.isNullOrBlank() && msg.id > 0) {
+                        repository.updateMessageModelName(msg.id, model)
                     }
                 }
             }

@@ -2,6 +2,60 @@
 
 本文档按照工作流规范记录每次版本更新、需求变更与复核结果。
 
+## [2026-10-01] - v2.6.9 会话专属设定备份与智能导入恢复、菜单左右填铺满统一修复、输出中断思考与回复强制入库保全、思考胶囊文字垂直居中、思考胶囊模型名字物理固化
+
+### 1. 用户需求
+1. 目前备份时只会备份时间线，不会备份会话专属设定。这个问题过去提出过，但是实现失败，导致备份后的对话缺少会话专属设定，被视为新对话，无法导入原有对话；
+2. 点击模型回复下方的三点弹出来的菜单被错误设置成了左右填铺满，美观性极差。对所有出现同样问题的菜单统一修复；
+3. 当模型已经输出思考或部分回复时，不管模型回复是否中断，已经输出的内容都要保存不能被任何内容覆盖；
+4. 思考胶囊中的文字没有正确居于胶囊中间（目前偏上）；
+5. 思考胶囊中的模型名字只能显示进行本条回复的名字，不得因为任何因被错误替换和覆盖。
+构建 APK。
+
+### 2. 临时实施方案与实现
+
+**需求 1（会话专属设定备份与智能导入合并修复）**
+- **根因**：
+  ① 单对话备份导入 `restoreSingleConversationFromJson` 此前无条件执行 `conversation.copy(id = 0L)` 并 `insertConversation`，导致用户恢复单对话备份时，永远在数据库中无脑新增一个"新对话"，原对话丝毫不变，被视为新对话而无法导入原有对话；
+  ② 全量 SQLite 数据库增量合并引擎 `mergeDatabaseFromBackup` 中，`timeline_nodes` 做了 `conversationIdMap` 重映射，而 `memory_items`（会话专属设定）却被归入 `simpleTables` 盲插，未对 `conversationId` 重映射，导致只要会话 ID 在合并中重新分配，专属设定与会话失联，用户看到的现象即为"只会备份时间线，不会备份会话专属设定"；`conversation_branches` 亦有相同父子会话 ID 失联缺陷；
+  ③ `createBackup` 全量备份前未主动执行 WAL Checkpoint，导致未落盘的内存设定未刷入主数据库文件。
+- **修复**：
+  ① **智能原有对话识别与增量合并**：`restoreSingleConversationFromJson` 引入多维精准识别机制（优先按 ID 且创建时间/标题一致匹配，次按创建时间戳 `createdAt` 匹配，再次按自定义非默认标题匹配），匹配到本地原有对话时，将其作为目标会话（`targetConvId = matchedConv.id`），智能合并更新原有会话属性、开启 `enableSessionMemory = true`；消息、时间线节点及专属设定（`memory_items`）执行内容去重增量合并入库，绝不再强制创建新对话！若未匹配到原有会话才新建对话；
+  ② **全量增量合并引擎深度修复**：将 `memory_items` 与 `conversation_branches` 从 `simpleTables` 移出，新增专有合并处理步骤，通过 `conversationIdMap` 对 `conversationId`（以及分支的 `parentConversationId`/`childConversationId`）执行精准重映射，并做内容去重，彻底解决数据库合并时会话专属设定遗失脱节的重大历史缺陷；同时将 `world_books`、`world_book_entries` 纳入合并；
+  ③ **查询与删除完整性拓宽**：`MemoryDao` 的 `getConversationMemories` 与 `deleteConversationMemories` 条件放宽为 `WHERE conversationId = :conversationId`，确保凡是属于该会话的记忆设定 100% 完整被查询、备份与清理；
+  ④ `createBackup` 在创建压缩包前显式触发 `PRAGMA wal_checkpoint(FULL)`，确保数据完全持久化。
+
+**需求 2（点击回复下方三点弹出菜单左右填铺满统一修复）**
+- **根因**：v2.6.8 重构 `EchoGlassDropdownMenu` 为自绘 Popup 后，虽然消除了阴影和半透明黑影，但遗漏了 M3 DropdownMenu 原生的宽度包裹约束与上下限限制；由于 Popup 的默认可用宽度是屏幕全宽，而 `DropdownMenuItem` 内部使用了 `fillMaxWidth()`，导致菜单容器被撑大至整屏宽度左右填满。
+- **修复**：在 `EchoHaze.kt` 的 `EchoGlassDropdownMenu` 的 Surface 与 Column 显式施加 `Modifier.width(IntrinsicSize.Max).widthIn(min = 160.dp, max = 280.dp)` 限制，确保无论在任何屏幕尺寸或子项内容下，菜单宽度始终自适应内容并收敛在 160.dp ~ 280.dp 之间，全仓所有调用该组件的菜单（消息三点菜单、模型选择菜单、输入栏加号菜单等）统一恢复精致自适应尺寸。
+
+**需求 3（模型已输出思考或部分回复时中断保全入库）**
+- **根因**：OkHttp 流式断开或用户/系统打断时，常抛出 `Socket closed` 或 `Canceled` 异常。此前的 `onError` 回调与 `catch (e: Exception)` 块中，遇到这些异常时直接执行 `return@launch` 退出，已接收的数百字思考或正文被清空且未落库；或者保存时使用空值/通用错误占位符覆盖了已经收到的思考和正文。
+- **修复**：在 `ChatViewModel.kt` 的 `onError` 回调与 `catch (e: Exception)` 异常块中增加抢救保全机制：检测只要 `partialResponse.isNotBlank() || partialThinking != null`，不论异常类型是否包含 `Socket closed` / `Canceled` / `CancellationException`，第一时间通过 CAS（`session.isMessageSaved.compareAndSet(false, true)`）抢救保存，调用 `saveErrorReply` 将已有的思考链与正文内容完整写入数据库持久化，并在正文末尾标注 `*(输出已被中断: $errorMsg)*`（仅有思考时标注 `*(思考已输出，回复已被中断: $errorMsg)*`），严禁任何覆盖与清空。
+
+**需求 4（思考胶囊文字垂直居中修复）**
+- **根因**：`ChatMessageComponents.kt` 中，思考胶囊内 `Row` 使用了默认对齐或单多行不对齐，Text 使用默认字体排版时受到 Android 系统字体自带的 paddingTop 与 leading 影响，导致视觉上明显偏上未居中。
+- **修复**：对单行思考胶囊将 Row 对齐统一为 `Alignment.CenterVertically`；包裹文字的 Box 显式设置 `Alignment.CenterStart`；`Text` 组件显式注入 `lineHeight = 16.sp` 与 `style = LocalTextStyle.current.copy(lineHeightStyle = LineHeightStyle(Alignment.Center, Trim.Both))`，消除 Android 系统字体内边距偏差，实现文字在胶囊高度方向上的精准几何与光学垂直居中。
+
+**需求 5（思考胶囊模型名字物理固化与隔离）**
+- **根因**：`Message` 实体历史上未设计 `modelName` 字段，前端思考胶囊依赖动态反查，反查不到时回退到 `currentAssistantModelName`（当前会话顶部选中的模型）。当用户在顶部切换模型下拉列表时，历史所有消息的思考胶囊名字被错误全部替换成新模型名字。
+- **修复**：
+  ① **数据层升级**：`Message` 实体新增持久化字段 `val modelName: String? = null`；数据库版本升至 `32`，新增 `MIGRATION_31_32`（`ALTER TABLE messages ADD COLUMN modelName TEXT`），并纳入升级修复链与测试；
+  ② **生成链路固化**：`AiRepository` 的 `sendOpenAIMessage` 与 `sendAnthropicMessage` 在存库时写入 `modelName = requestModel`；`ChatViewModel` 的 `saveErrorReply`、`stopGeneration`、`triggerCharacterOpening` 均完整写入当前回复的 `savedModelName`；
+  ③ **存量自愈回填**：`ChatViewModel.updateMessageModelMap` 优先读取 `msg.modelName`；若历史存量消息字段为空，反查到模型名后立即调用 `repository.updateMessageModelName(msg.id, model)` 回填入库持久化；
+  ④ **前端渲染彻底解绑**：`ChatScreen.kt` 思考胶囊处优先显示 `message.modelName`，次查 `messageModelMap`，再次回退 `uiState.modelName`（会话绑定模型），彻底移除对动态切换的 `currentAssistantModelName` 的回退，确保思考胶囊上的模型名字物理永久固化，永不被覆盖或替换。
+
+### 3. 验证结果
+- `./gradlew.bat compileDebugKotlin --no-daemon` Exit Code 0
+- `./gradlew.bat testDebugUnitTest --no-daemon` Exit Code 0（74 个测试文件，**498 项全通**，0 失败；新增 MIGRATION_31_32 测试、备份 sessionMemories 序列化测试与 modelName 固化测试）
+- `./gradlew.bat lintDebug --no-daemon` Exit Code 0
+- `git diff --check` Exit Code 0
+- `./gradlew.bat assembleRelease --no-daemon` Exit Code 0
+- APK：`D:\Agent\APP-Echo\app\releases\Echo-v2.6.9.apk`，16,700,269 字节 (~15.93 MB)，SHA256 `5212A9D58FAEC29B491EBBCA18D66A5E600BF85781163153FC0212875DB001D5`，`apksigner verify --print-certs` 通过（CN=Android Debug，**非正式生产签名**）
+- 未执行真机验证（无设备）；人工验收步骤见 walkthrough.md v2.6.9 节。
+
+---
+
 ## [2026-10-01] - v2.6.8 连接等待不再顶动屏幕、统计模型名可滑动、健康时间线统一 14×6、后台生成稳定性、菜单配色与连接胶囊收缩修正
 
 ### 1. 用户需求

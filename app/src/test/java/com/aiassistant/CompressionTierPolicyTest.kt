@@ -311,4 +311,12 @@ class CompressionTierPolicyTest {
         assertEquals(30, migration.startVersion)
         assertEquals(31, migration.endVersion)
     }
+
+    @Test
+    fun testDatabaseMigration31To32Registered() {
+        val migration = com.aiassistant.data.local.AppDatabase.MIGRATION_31_32
+        assertNotNull("MIGRATION_31_32 必须存在", migration)
+        assertEquals(31, migration.startVersion)
+        assertEquals(32, migration.endVersion)
+    }
 }

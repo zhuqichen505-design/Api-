@@ -193,4 +193,62 @@ class MemoryAndCompressionEngineTest {
         assertTrue(prompt.contains("前期已知背景设定"))
         assertTrue(prompt.contains("推进第4天情节"))
     }
+
+    @Test
+    fun testSingleConversationExport_sessionMemoriesSerialization() {
+        val gson = com.google.gson.GsonBuilder().setPrettyPrinting().create()
+        val sessionMem = MemoryItem(
+            id = 10,
+            conversationId = 1,
+            content = "角色世界观：星际联邦第三舰队",
+            scope = "conversation",
+            isEnabled = true
+        )
+        val node = com.aiassistant.domain.model.TimelineNode(
+            id = 5,
+            conversationId = 1,
+            timeTag = "宇宙历 2380 年",
+            event = "启航节点：舰队离开空间站"
+        )
+        val conv = com.aiassistant.domain.model.Conversation(
+            id = 1,
+            title = "星际探险",
+            apiConfigId = 1L,
+            modelName = "claude-sonnet-4-6",
+            enableSessionMemory = true
+        )
+        val bundle = com.aiassistant.utils.BackupManager.SingleConversationExport(
+            conversation = conv,
+            timelineNodes = listOf(node),
+            sessionMemories = listOf(sessionMem)
+        )
+
+        val json = gson.toJson(bundle)
+        assertTrue("备份 JSON 必须包含 sessionMemories", json.contains("sessionMemories"))
+        assertTrue("备份 JSON 必须包含设定内容", json.contains("星际联邦第三舰队"))
+        assertTrue("备份 JSON 必须包含时间线节点", json.contains("启航节点"))
+
+        // 测试反序列化
+        val deserialized = gson.fromJson(json, com.aiassistant.utils.BackupManager.SingleConversationExport::class.java)
+        assertNotNull(deserialized)
+        assertEquals(1, deserialized.sessionMemories?.size)
+        assertEquals("角色世界观：星际联邦第三舰队", deserialized.sessionMemories?.first()?.content)
+        assertEquals(1, deserialized.timelineNodes?.size)
+        assertEquals("启航节点：舰队离开空间站", deserialized.timelineNodes?.first()?.event)
+    }
+
+    @Test
+    fun testMessage_modelNameFieldPersistence() {
+        val msg = Message(
+            id = 1,
+            conversationId = 1,
+            role = "assistant",
+            content = "测试回复",
+            thinkingContent = "测试思考过程",
+            modelName = "claude-sonnet-4-6"
+        )
+        assertEquals("claude-sonnet-4-6", msg.modelName)
+        val copied = msg.copy(content = "修改后的回复")
+        assertEquals("claude-sonnet-4-6", copied.modelName)
+    }
 }

@@ -55,6 +55,13 @@ object BackupManager {
             val dbWalFile = File(dbFile.path + "-wal")
             val dbShmFile = File(dbFile.path + "-shm")
 
+            // 备份前主动触发 WAL Checkpoint，确保所有未落盘的会话设定、记忆与消息写入主数据库文件
+            try {
+                AppDatabase.getDatabase(context).openHelper.writableDatabase.query("PRAGMA wal_checkpoint(FULL)").close()
+            } catch (e: Exception) {
+                // Ignore if db not opened yet
+            }
+
             ZipOutputStream(FileOutputStream(backupFile)).use { zip ->
                 // 备份数据库文件
                 if (dbFile.exists()) {
@@ -414,15 +421,61 @@ object BackupManager {
                     val effectiveEnableSessionMemory = conversation.enableSessionMemory
                         ?: if (targetSessionMemories.isNotEmpty()) true else null
 
-                    val convToInsert = conversation.copy(
-                        id = 0L,
-                        apiConfigId = effectiveConfigId,
-                        folderId = effectiveFolderId,
-                        enableSessionMemory = effectiveEnableSessionMemory,
-                        createdAt = if (conversation.createdAt > 0) conversation.createdAt else now,
-                        updatedAt = now
-                    )
-                    val targetConvId = database.conversationDao().insertConversation(convToInsert)
+                    // 需求 1 关键修复：智能判定是否匹配本地原有对话，融合合并原有对话，绝不强制新建新对话！
+                    val allConversations = database.conversationDao().getAllConversationsList()
+                    val matchedConv = if (conversation.id > 0) {
+                        allConversations.firstOrNull {
+                            it.id == conversation.id && (it.createdAt == conversation.createdAt || it.title == conversation.title)
+                        } ?: allConversations.firstOrNull { it.id == conversation.id }
+                    } else null
+                        ?: allConversations.firstOrNull {
+                            conversation.createdAt > 0 && it.createdAt == conversation.createdAt && it.title == conversation.title
+                        }
+                        ?: allConversations.firstOrNull {
+                            conversation.createdAt > 0 && it.createdAt == conversation.createdAt
+                        }
+                        ?: if (conversation.title.isNotBlank() && conversation.title != "新对话" && conversation.title != "默认对话") {
+                            allConversations.firstOrNull { it.title == conversation.title }
+                        } else null
+
+                    val isExistingConversation = matchedConv != null
+                    val targetConvId: Long
+
+                    if (isExistingConversation) {
+                        val existing = matchedConv!!
+                        targetConvId = existing.id
+                        // 智能更新原有对话设定：融合备份设定并强制激活会话专属设定
+                        val updatedConv = existing.copy(
+                            title = conversation.title.ifBlank { existing.title },
+                            apiConfigId = if (configExists) effectiveConfigId else existing.apiConfigId,
+                            folderId = effectiveFolderId ?: existing.folderId,
+                            enableSessionMemory = effectiveEnableSessionMemory ?: if (targetSessionMemories.isNotEmpty()) true else (existing.enableSessionMemory ?: true),
+                            enableExternalMemory = conversation.enableExternalMemory ?: existing.enableExternalMemory,
+                            enableWorldBook = conversation.enableWorldBook ?: existing.enableWorldBook,
+                            activeWorldBookIds = conversation.activeWorldBookIds ?: existing.activeWorldBookIds,
+                            contextWindowTokens = conversation.contextWindowTokens ?: existing.contextWindowTokens,
+                            systemPrompt = conversation.systemPrompt?.ifBlank { null } ?: existing.systemPrompt,
+                            temperature = conversation.temperature ?: existing.temperature,
+                            maxTokens = conversation.maxTokens ?: existing.maxTokens,
+                            topP = conversation.topP ?: existing.topP,
+                            enableThinking = conversation.enableThinking ?: existing.enableThinking,
+                            thinkingEffort = conversation.thinkingEffort ?: existing.thinkingEffort,
+                            enableWebSearch = conversation.enableWebSearch ?: existing.enableWebSearch,
+                            modelName = conversation.modelName ?: existing.modelName,
+                            updatedAt = now
+                        )
+                        database.conversationDao().updateConversation(updatedConv)
+                    } else {
+                        val convToInsert = conversation.copy(
+                            id = 0L,
+                            apiConfigId = effectiveConfigId,
+                            folderId = effectiveFolderId,
+                            enableSessionMemory = effectiveEnableSessionMemory ?: if (targetSessionMemories.isNotEmpty()) true else null,
+                            createdAt = if (conversation.createdAt > 0) conversation.createdAt else now,
+                            updatedAt = now
+                        )
+                        targetConvId = database.conversationDao().insertConversation(convToInsert)
+                    }
 
                     val characterIdMap = mutableMapOf<Long, Long>()
                     targetCharProfile?.let { charProfile ->
@@ -454,19 +507,35 @@ object BackupManager {
                     targetRpSession?.let { session ->
                         val remappedCharId = session.characterId?.let { characterIdMap[it] ?: it }
                         val remappedScenId = session.scenarioId?.let { scenarioIdMap[it] ?: it }
-                        val newSession = session.copy(
-                            id = 0L,
-                            conversationId = targetConvId,
-                            characterId = remappedCharId,
-                            scenarioId = remappedScenId,
-                            createdAt = now,
-                            updatedAt = now
-                        )
-                        targetSessionId = database.roleplaySessionDao().insertSession(newSession)
+                        val existingSession = database.roleplaySessionDao().getSessionByConversationId(targetConvId)
+                        if (existingSession != null) {
+                            targetSessionId = existingSession.id
+                            val updatedSession = existingSession.copy(
+                                characterId = remappedCharId ?: existingSession.characterId,
+                                scenarioId = remappedScenId ?: existingSession.scenarioId,
+                                characterIds = (remappedCharId ?: existingSession.characterId)?.toString(),
+                                updatedAt = now
+                            )
+                            database.roleplaySessionDao().updateSession(updatedSession)
+                        } else {
+                            val newSession = session.copy(
+                                id = 0L,
+                                conversationId = targetConvId,
+                                characterId = remappedCharId,
+                                scenarioId = remappedScenId,
+                                createdAt = now,
+                                updatedAt = now
+                            )
+                            targetSessionId = database.roleplaySessionDao().insertSession(newSession)
+                        }
                     }
 
                     if (targetSessionId != null && targetRpMemories.isNotEmpty()) {
-                        targetRpMemories.forEach { mem ->
+                        val existingRpMems = database.roleplayMemoryDao().getMemoriesListBySession(targetSessionId!!)
+                        val newRpMems = targetRpMemories.filter { rm ->
+                            existingRpMems.none { it.content.trim() == rm.content.trim() }
+                        }
+                        newRpMems.forEach { mem ->
                             database.roleplayMemoryDao().insertMemory(
                                 mem.copy(
                                     id = 0L,
@@ -479,46 +548,96 @@ object BackupManager {
                     }
 
                     if (targetMessages.isNotEmpty()) {
-                        val baseTime = now - (targetMessages.size * 1000L)
-                        val messagesToInsert = targetMessages.mapIndexed { index, msg ->
-                            msg.copy(
-                                id = 0L,
-                                conversationId = targetConvId,
-                                createdAt = if (msg.createdAt > 0) msg.createdAt else (baseTime + index * 1000L)
-                            )
+                        val existingMessages = if (isExistingConversation) {
+                            database.messageDao().getMessagesList(targetConvId)
+                        } else emptyList()
+
+                        val newMessages = if (isExistingConversation) {
+                            targetMessages.filter { msg ->
+                                existingMessages.none { em ->
+                                    (em.createdAt == msg.createdAt && em.role == msg.role) ||
+                                    (em.content == msg.content && em.role == msg.role && Math.abs(em.createdAt - msg.createdAt) < 5000L)
+                                }
+                            }
+                        } else targetMessages
+
+                        if (newMessages.isNotEmpty()) {
+                            val baseTime = now - (newMessages.size * 1000L)
+                            val messagesToInsert = newMessages.mapIndexed { index, msg ->
+                                msg.copy(
+                                    id = 0L,
+                                    conversationId = targetConvId,
+                                    createdAt = if (msg.createdAt > 0) msg.createdAt else (baseTime + index * 1000L)
+                                )
+                            }
+                            database.messageDao().insertMessages(messagesToInsert)
                         }
-                        database.messageDao().insertMessages(messagesToInsert)
                     }
 
+                    val allMessagesNow = database.messageDao().getMessagesList(targetConvId)
                     database.conversationDao().updateStats(
                         id = targetConvId,
-                        count = targetMessages.size,
-                        tokens = targetMessages.sumOf { it.tokenCount }
+                        count = allMessagesNow.size,
+                        tokens = allMessagesNow.sumOf { it.tokenCount }
                     )
 
                     if (targetTimelineNodes.isNotEmpty()) {
-                        val nodesToInsert = targetTimelineNodes.map { node ->
-                            node.copy(
-                                id = 0L,
-                                conversationId = targetConvId,
-                                createdAt = if (node.createdAt > 0) node.createdAt else now,
-                                updatedAt = now
-                            )
+                        val existingNodes = if (isExistingConversation) {
+                            database.timelineNodeDao().getTimelineNodes(targetConvId)
+                        } else emptyList()
+
+                        val newNodes = if (isExistingConversation) {
+                            targetTimelineNodes.filter { node ->
+                                existingNodes.none { en ->
+                                    (en.event == node.event && en.timeTag == node.timeTag) ||
+                                    (node.createdAt > 0 && en.createdAt == node.createdAt)
+                                }
+                            }
+                        } else targetTimelineNodes
+
+                        if (newNodes.isNotEmpty()) {
+                            val nodesToInsert = newNodes.map { node ->
+                                node.copy(
+                                    id = 0L,
+                                    conversationId = targetConvId,
+                                    createdAt = if (node.createdAt > 0) node.createdAt else now,
+                                    updatedAt = now
+                                )
+                            }
+                            database.timelineNodeDao().insertTimelineNodes(nodesToInsert)
                         }
-                        database.timelineNodeDao().insertTimelineNodes(nodesToInsert)
                     }
 
                     if (targetSessionMemories.isNotEmpty()) {
-                        targetSessionMemories.forEach { mem ->
+                        val existingMemories = if (isExistingConversation) {
+                            database.memoryDao().getConversationMemories(targetConvId)
+                        } else emptyList()
+
+                        val newMemories = if (isExistingConversation) {
+                            targetSessionMemories.filter { mem ->
+                                existingMemories.none { em ->
+                                    em.content.trim() == mem.content.trim()
+                                }
+                            }
+                        } else targetSessionMemories
+
+                        newMemories.forEach { mem ->
                             database.memoryDao().insertMemory(
                                 mem.copy(
                                     id = 0L,
                                     conversationId = targetConvId,
                                     scope = "conversation",
+                                    isEnabled = mem.isEnabled,
                                     createdAt = if (mem.createdAt > 0) mem.createdAt else now,
                                     updatedAt = now
                                 )
                             )
+                        }
+
+                        // 只要包含会话专属设定，确保会话实体上的专属设定总开关处于开启状态
+                        val convAfterMem = database.conversationDao().getConversationById(targetConvId)
+                        if (convAfterMem != null && convAfterMem.enableSessionMemory != true) {
+                            database.conversationDao().updateConversation(convAfterMem.copy(enableSessionMemory = true))
                         }
                     }
                 }
@@ -776,8 +895,62 @@ object BackupManager {
                     }
                 }
 
+                // 7.6 Memory Items (会话专属设定与全局记忆，精准重映射 conversationId 解决会话专属设定丢失重大缺陷)
+                if (tableExists(tempDb, "memory_items") && tableExists(activeDb, "memory_items")) {
+                    tempDb.rawQuery("SELECT * FROM memory_items", null).use { cursor ->
+                        val colNames = cursor.columnNames.toList()
+                        while (cursor.moveToNext()) {
+                            val convColIdx = cursor.getColumnIndex("conversationId")
+                            val backupConvId = if (convColIdx != -1 && !cursor.isNull(convColIdx)) cursor.getLong(convColIdx) else null
+                            val activeConvId = backupConvId?.let { conversationIdMap[it] ?: it }
+                            val content = cursor.getString(cursor.getColumnIndexOrThrow("content"))
+
+                            var exists = false
+                            if (activeConvId != null) {
+                                activeDb.query("SELECT id FROM memory_items WHERE conversationId = ? AND content = ?", arrayOf(activeConvId.toString(), content)).use { c ->
+                                    if (c.moveToFirst()) exists = true
+                                }
+                            } else {
+                                activeDb.query("SELECT id FROM memory_items WHERE conversationId IS NULL AND content = ?", arrayOf(content)).use { c ->
+                                    if (c.moveToFirst()) exists = true
+                                }
+                            }
+
+                            if (!exists) {
+                                val cv = ContentValues()
+                                colNames.filter { it != "id" }.forEach { col -> putColumnValue(cv, cursor, col) }
+                                if (activeConvId != null) {
+                                    cv.put("conversationId", activeConvId)
+                                } else {
+                                    cv.putNull("conversationId")
+                                }
+                                activeDb.insert("memory_items", android.database.sqlite.SQLiteDatabase.CONFLICT_IGNORE, cv)
+                            }
+                        }
+                    }
+                }
+
+                // 7.7 Conversation Branches (分支父子对话 ID 精准重映射)
+                if (tableExists(tempDb, "conversation_branches") && tableExists(activeDb, "conversation_branches")) {
+                    tempDb.rawQuery("SELECT * FROM conversation_branches", null).use { cursor ->
+                        val colNames = cursor.columnNames.toList()
+                        while (cursor.moveToNext()) {
+                            val parentId = cursor.getLong(cursor.getColumnIndexOrThrow("parentConversationId"))
+                            val childId = cursor.getLong(cursor.getColumnIndexOrThrow("childConversationId"))
+                            val mappedParentId = conversationIdMap[parentId] ?: parentId
+                            val mappedChildId = conversationIdMap[childId] ?: childId
+
+                            val cv = ContentValues()
+                            colNames.filter { it != "id" }.forEach { col -> putColumnValue(cv, cursor, col) }
+                            cv.put("parentConversationId", mappedParentId)
+                            cv.put("childConversationId", mappedChildId)
+                            activeDb.insert("conversation_branches", android.database.sqlite.SQLiteDatabase.CONFLICT_IGNORE, cv)
+                        }
+                    }
+                }
+
                 // 8. Other supplementary tables
-                val simpleTables = listOf("prompt_templates", "memory_items", "conversation_branches", "selected_models")
+                val simpleTables = listOf("prompt_templates", "selected_models", "world_books", "world_book_entries", "character_tags", "character_tag_cross_refs", "environment_variables")
                 for (tableName in simpleTables) {
                     if (tableExists(tempDb, tableName) && tableExists(activeDb, tableName)) {
                         tempDb.rawQuery("SELECT * FROM $tableName", null).use { cursor ->
