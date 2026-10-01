@@ -55,6 +55,7 @@ import com.aiassistant.utils.TimelineCategory
 import com.aiassistant.utils.AtemporalSettingItem
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
@@ -811,7 +812,6 @@ internal fun MessageBubble(
                         }
                     }
 
-                    var isStatusExpanded by remember { mutableStateOf(false) }
                     val isStatusError = isConnectionFailed || (!reconnectStatus.isNullOrBlank() && (
                         capsuleText.contains("异常") ||
                         capsuleText.contains("报错") ||
@@ -820,20 +820,29 @@ internal fun MessageBubble(
                         capsuleText.contains("Error", ignoreCase = true) ||
                         capsuleText.contains("HTTP", ignoreCase = true)
                     ))
+                    // 连接/重连等待期（尚无正文）携带重试原因：默认多行展示，保证重试原因完整可读（不横向滚动截断）
+                    val isWaitingWithReason = isConnecting && !reconnectStatus.isNullOrBlank()
+                    // v2.6.8 需求 6：展开态改为「默认策略 + 用户显式覆盖」两级。
+                    // 默认策略：报错态或等待期携带重试原因 → 多行；其余 → 单行。
+                    // 点击胶囊后由 statusExpandOverride 接管，折叠必然生效——此前 maxLinesCount 中
+                    // isWaitingWithReason/isStatusError 优先级高于 isStatusExpanded，点击「收起」不改变行数，
+                    // 表现为「胶囊无法正确收缩」。
+                    var statusExpandOverride by remember(message.id) { mutableStateOf<Boolean?>(null) }
+                    val isStatusExpanded = statusExpandOverride ?: (isStatusError || isWaitingWithReason)
                     // 状态文本包含多行、超长详细报错/URL信息或报错状态时提供展开功能，无多余内容不给展开键
                     val hasDetailedExpandableContent = isMessageContentError || (!hasThinkingContent && (capsuleText.contains("\n") || capsuleText.length > 36 || isStatusError))
-                    val canExpandStatus = hasDetailedExpandableContent || isStatusExpanded
+                    // 携带重试原因的等待胶囊即使文案较短也处于多行态，必须给出收起/展开键
+                    val showStatusToggle = hasDetailedExpandableContent || isWaitingWithReason
+                    val canExpandStatus = showStatusToggle || isStatusExpanded
                     val capsuleShape = RoundedCornerShape(16.dp)
                     val maxBubbleWidth = if (isStatusExpanded || isStatusError) 380.dp else 320.dp
-                    // 连接/重连等待期（尚无正文）携带重试原因：允许换行至多行展示，保证重试原因完整可读（不横向滚动截断）
-                    val isWaitingWithReason = isConnecting && !reconnectStatus.isNullOrBlank()
                     val maxLinesCount = when {
-                        isStatusExpanded -> 16
+                        !isStatusExpanded -> 1
                         isStatusError -> 4
                         isWaitingWithReason -> 3
-                        else -> 1
+                        else -> 16
                     }
-                    val enableSoftWrap = isStatusExpanded || isStatusError || isWaitingWithReason
+                    val enableSoftWrap = isStatusExpanded
                     // 头像与胶囊顶对齐同行：胶囊因文字变高时向下延展，头像相对胶囊位置固定
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -857,7 +866,7 @@ internal fun MessageBubble(
                                 if (isMessageContentError) {
                                     Modifier.echoShapeClick(shape = capsuleShape) {
                                         isErrorReportExpanded = !isErrorReportExpanded
-                                        isStatusExpanded = isErrorReportExpanded
+                                        statusExpandOverride = isErrorReportExpanded
                                     }
                                 } else if (hasThinking && hasThinkingContent) {
                                     Modifier.echoShapeClick(shape = capsuleShape) {
@@ -865,7 +874,8 @@ internal fun MessageBubble(
                                     }
                                 } else if (canExpandStatus) {
                                     Modifier.echoShapeClick(shape = capsuleShape) {
-                                        isStatusExpanded = !isStatusExpanded
+                                        // v2.6.8 需求 6：折叠/展开写回显式覆盖，确保「收起」一定把胶囊收成单行
+                                        statusExpandOverride = !isStatusExpanded
                                     }
                                 } else Modifier
                             ),
@@ -879,13 +889,15 @@ internal fun MessageBubble(
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-                            verticalAlignment = if (isStatusExpanded || isStatusError) Alignment.Top else Alignment.CenterVertically,
+                            // v2.6.8 需求 6：左侧状态图标恒定顶对齐——胶囊进入多行（含展开/收缩切换）时
+                            // 图标不再被垂直居中；单行时顶对齐与居中视觉一致，位置全程不漂移
+                            verticalAlignment = Alignment.Top,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Box(
                                 modifier = Modifier
                                     .size(16.dp)
-                                    .then(if (isStatusExpanded || isStatusError) Modifier.padding(top = 1.dp) else Modifier),
+                                    .padding(top = 1.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 if (isStatusError) {
@@ -978,7 +990,7 @@ internal fun MessageBubble(
                                     modifier = Modifier.size(16.dp),
                                     tint = thinkingHeaderColor.copy(alpha = 0.78f)
                                 )
-                            } else if (canExpandStatus && hasDetailedExpandableContent) {
+                            } else if (canExpandStatus && showStatusToggle) {
                                 Icon(
                                     imageVector = if (isStatusExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                                     contentDescription = if (isStatusExpanded) "收起完整信息" else "展开完整信息",
@@ -992,44 +1004,48 @@ internal fun MessageBubble(
                 }
 
                     // P0-1③ 连接等待计时：>30s 弱提示，>60s 升级 error 语义色（仅连接态；重连态由 reconnectStatus 文案承载）。
-                    // A5：reduced motion 下保留提示信息（功能性），仅短路登场动画（装饰性）
-                    // 提示置于头像+胶囊行正下方：出现/收起只影响下方空间，头像与胶囊对齐关系不变
-                    // 计时来自气泡级 connectElapsedSec（按生成会话累计），状态闪断不重置、提示不再消失重现
-                    val hintEnter = if (reducedMotion) {
-                        androidx.compose.animation.EnterTransition.None
-                    } else {
-                        fadeIn(com.aiassistant.ui.theme.EchoMotion.tweenSpec<Float>(com.aiassistant.ui.theme.EchoMotion.Duration.fast)) +
-                            slideInVertically(
-                                animationSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec<androidx.compose.ui.unit.IntOffset>(com.aiassistant.ui.theme.EchoMotion.Duration.fast),
-                                initialOffsetY = { -it / 3 }
+                    // 提示置于头像+胶囊行正下方：头像与胶囊对齐关系不受影响。
+                    // 计时来自气泡级 connectElapsedSec（按生成会话累计），状态闪断不重置、提示不再消失重现。
+                    //
+                    // v2.6.8 需求 1：提示改为「固定槽位 + 透明度渐变」——槽位在整个连接/重连阶段恒定占位
+                    // （恒定两行 bodySmall 行高，随系统字体缩放自适应），文案出现、消失与「已等待 Ns」秒数
+                    // 增长都不再改变末项尺寸。此前用 AnimatedVisibility 增删节点，提示出现/收起会撑高气泡，
+                    // 列表为跟住末项重新钉底，表现为屏幕上下滑动。现在布局零抖动，只做淡入淡出。
+                    val isConnectHintPhase = generationState == GenerationUiState.Connecting ||
+                        generationState == GenerationUiState.Reconnecting
+                    val hintVisible = isConnectHintPhase && connectElapsedSec >= 30
+                    val hintAlpha by animateFloatAsState(
+                        targetValue = if (hintVisible) 1f else 0f,
+                        animationSpec = if (reducedMotion) {
+                            snap()
+                        } else {
+                            com.aiassistant.ui.theme.EchoMotion.tweenSpec<Float>(com.aiassistant.ui.theme.EchoMotion.Duration.fast)
+                        },
+                        label = "connectHintAlpha"
+                    )
+                    val hintBodySmall = MaterialTheme.typography.bodySmall
+                    if (isConnectHintPhase) {
+                        Box(
+                            modifier = Modifier
+                                .padding(start = 46.dp, top = 4.dp)
+                                .widthIn(max = maxBubbleWidth)
+                                .alpha(hintAlpha)
+                        ) {
+                            Text(
+                                text = if (generationState == GenerationUiState.Reconnecting && !reconnectStatus.isNullOrBlank()) {
+                                    "连接重试中（已等待 ${connectElapsedSec}s）· 重试原因见上方状态"
+                                } else {
+                                    "连接时间较长，正在等待 ${(assistantModelName.ifBlank { "AI" }).displayModelShortName()} 响应…（已等待 ${connectElapsedSec}s）"
+                                },
+                                style = hintBodySmall,
+                                color = if (connectElapsedSec >= 60) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                                // 恒定占两行（minLines = maxLines = 2）：文案出现/消失与秒数增长都不改变高度，
+                                // 槽位高度自动跟随字体缩放，无需任何魔法值
+                                minLines = 2,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
                             )
-                    }
-                    val hintExit = if (reducedMotion) {
-                        androidx.compose.animation.ExitTransition.None
-                    } else {
-                        fadeOut(com.aiassistant.ui.theme.EchoMotion.tweenSpec<Float>(com.aiassistant.ui.theme.EchoMotion.Duration.fast)) +
-                            slideOutVertically(
-                                animationSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec<androidx.compose.ui.unit.IntOffset>(com.aiassistant.ui.theme.EchoMotion.Duration.fast),
-                                targetOffsetY = { -it / 3 }
-                            )
-                    }
-                    AnimatedVisibility(
-                        visible = (generationState == GenerationUiState.Connecting || generationState == GenerationUiState.Reconnecting) &&
-                            connectElapsedSec >= 30,
-                        enter = hintEnter,
-                        exit = hintExit,
-                        modifier = Modifier.padding(start = 46.dp, top = 4.dp)
-                    ) {
-                        Text(
-                            text = if (generationState == GenerationUiState.Reconnecting && !reconnectStatus.isNullOrBlank()) {
-                                "连接重试中（已等待 ${connectElapsedSec}s）· 重试原因见上方状态"
-                            } else {
-                                "连接时间较长，正在等待 ${(assistantModelName.ifBlank { "AI" }).displayModelShortName()} 响应…（已等待 ${connectElapsedSec}s）"
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (connectElapsedSec >= 60) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.widthIn(max = maxBubbleWidth)
-                        )
+                        }
                     }
                 }
 

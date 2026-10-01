@@ -133,7 +133,11 @@ fun AiAssistantNavigation(
         composable("home") {
             HomeScreen(
                 onNavigateToChat = { conversationId ->
-                    navController.navigate("chat/$conversationId")
+                    navController.navigate("chat/$conversationId") {
+                        // v2.6.8 需求 4：同一会话只保留一个对话页实例，避免连点会话卡片产生
+                        // 两个 ChatViewModel 互相取消/清理生成会话，打断正在连接或回复的请求
+                        launchSingleTop = true
+                    }
                 },
                 onNavigateToSettings = {
                     navController.navigate("settings")
@@ -167,7 +171,10 @@ fun AiAssistantNavigation(
                     navController.popBackStack()
                 },
                 onNavigateToChat = { newConversationId ->
-                    navController.navigate("chat/$newConversationId")
+                    navController.navigate("chat/$newConversationId") {
+                        // v2.6.8 需求 4：同上，避免重复压栈生成多个对话页实例
+                        launchSingleTop = true
+                    }
                 },
                 onNavigateToRoleplayMemory = { sessionId ->
                     navController.navigate("roleplay_memory/$sessionId")
@@ -196,7 +203,11 @@ fun AiAssistantNavigation(
                     }
                 },
                 onNavigateToSession = { conversationId ->
-                    navController.navigate("chat/$conversationId")
+                    navController.navigate("chat/$conversationId") {
+                        // v2.6.8 需求 4：同一会话只保留一个对话页实例，避免连点会话卡片产生
+                        // 两个 ChatViewModel 互相取消/清理生成会话，打断正在连接或回复的请求
+                        launchSingleTop = true
+                    }
                 },
                 onCreateNewSession = {
                     navController.navigate("roleplay_new_session")
@@ -223,6 +234,9 @@ fun AiAssistantNavigation(
                         onSuccess = { conversationId ->
                             navController.navigate("chat/$conversationId") {
                                 popUpTo("roleplay_studio")
+                                // v2.6.8 需求 4：同一会话只保留一个对话页实例，避免连点会话卡片
+                                // 产生两个 ChatViewModel 互相取消/清理生成会话，导致正在连接或回复的请求被中断
+                                launchSingleTop = true
                             }
                         }
                     )
@@ -331,7 +345,11 @@ fun AiAssistantNavigation(
                     navController.popBackStack()
                 },
                 onNavigateToChat = { conversationId ->
-                    navController.navigate("chat/$conversationId")
+                    navController.navigate("chat/$conversationId") {
+                        // v2.6.8 需求 4：同一会话只保留一个对话页实例，避免连点会话卡片产生
+                        // 两个 ChatViewModel 互相取消/清理生成会话，打断正在连接或回复的请求
+                        launchSingleTop = true
+                    }
                 },
                 themeMode = themeMode,
                 onThemeModeChange = onThemeModeChange
@@ -345,7 +363,11 @@ fun AiAssistantNavigation(
                     navController.popBackStack()
                 },
                 onNavigateToChat = { conversationId ->
-                    navController.navigate("chat/$conversationId")
+                    navController.navigate("chat/$conversationId") {
+                        // v2.6.8 需求 4：同一会话只保留一个对话页实例，避免连点会话卡片产生
+                        // 两个 ChatViewModel 互相取消/清理生成会话，打断正在连接或回复的请求
+                        launchSingleTop = true
+                    }
                 }
             )
         }

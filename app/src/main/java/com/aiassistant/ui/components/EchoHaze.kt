@@ -21,8 +21,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.DropdownMenu
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -39,12 +41,21 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
 import com.aiassistant.ui.theme.EchoTokens
 import dev.chrisbanes.haze.HazeDefaults
 import dev.chrisbanes.haze.HazeState
@@ -439,6 +450,20 @@ fun EchoGlassDialog(
     )
 }
 
+/**
+ * 玻璃风格下拉菜单（v2.6.8 需求 5：自绘不透明容器，彻底消除颜色不均与边缘黑影）。
+ *
+ * 此前直接使用 Material3 `DropdownMenu`。该组件内部 Surface 同时施加 **3dp 色调高度**(tonal elevation)
+ * 与 **3dp 阴影高度**(shadow elevation)，而本项目的玻璃底色取自 `glass.panelStrong`
+ * （`surface` + 0.92/0.94 alpha 的半透明色），于是产生两个可见缺陷：
+ * 1. 半透明底色会透出背后聊天正文，再叠加色调高度的 primary 着色 —— 表现为「颜色不均匀」；
+ * 2. 18dp 圆角外缘投出一圈黑色阴影 —— 表现为「边缘黑影」。
+ *
+ * 现改为自绘 Popup：容器底色完全不透明（surface 手工叠 5% surfaceTint，等价 3dp 色调高度的观感，
+ * 但无任何透明度）、色调高度与阴影高度均为 0，仅保留 1dp 描边与 18dp 圆角 ——
+ * 菜单颜色在任意背景上恒定均匀、无任何外缘黑影。定位沿用 Material3 的锚点避让策略
+ * （见 [EchoMenuPositionProvider]），展开/收起行为与调用方用法保持完全兼容。
+ */
 @Composable
 fun EchoGlassDropdownMenu(
     expanded: Boolean,
@@ -449,33 +474,28 @@ fun EchoGlassDropdownMenu(
     content: @Composable ColumnScope.() -> Unit
 ) {
     val glass = echoGlassPalette()
+    val colors = MaterialTheme.colorScheme
     val menuShape = RoundedCornerShape(18.dp)
-    MaterialTheme(
-        colorScheme = MaterialTheme.colorScheme.copy(
-            surface = glass.panelStrong,
-            surfaceContainer = glass.panelStrong,
-            surfaceContainerHigh = glass.panelStrong,
-            surfaceContainerHighest = glass.panelStrong
-        ),
-        shapes = MaterialTheme.shapes.copy(
-            extraSmall = menuShape,
-            small = menuShape,
-            medium = menuShape
-        )
-    ) {
-        DropdownMenu(
-            expanded = expanded,
+    // 不透明菜单底色：以 surface 为基色手工叠 5% surfaceTint（等价 M3 3dp 色调高度的观感），
+    // 但合成结果 alpha = 1，背后内容不会透出，也就不会出现深浅不均的斑块
+    val containerColor = colors.surfaceTint.copy(alpha = 0.05f).compositeOver(colors.surface)
+
+    val expandedState = remember { MutableTransitionState(false) }
+    expandedState.targetState = expanded
+
+    if (expandedState.currentState || expandedState.targetState || !expandedState.isIdle) {
+        val density = LocalDensity.current
+        val positionProvider = remember(offset, density) { EchoMenuPositionProvider(offset, density) }
+        Popup(
+            popupPositionProvider = positionProvider,
             onDismissRequest = onDismissRequest,
-            modifier = modifier.border(BorderStroke(1.dp, glass.outline), menuShape),
-            offset = offset,
             properties = properties
         ) {
-            // P1-1 菜单锚点生长动效：内容以左上锚点缩放 0.85→1.0（emphasizedDecelerate）
+            // P1-1 菜单锚点生长动效：内容以右上锚点缩放 0.85→1.0（emphasizedDecelerate）
             // + 快速淡入展开；scaleIn 为绘制层变换，不改变弹窗定位测量（transformOrigin 对齐锚点）
             val reducedMotion = com.aiassistant.ui.theme.rememberReducedMotion()
-            val appearState = remember { androidx.compose.animation.core.MutableTransitionState(false).apply { targetState = true } }
             AnimatedVisibility(
-                visibleState = appearState,
+                visibleState = expandedState,
                 enter = if (reducedMotion) {
                     EnterTransition.None
                 } else {
@@ -488,8 +508,83 @@ fun EchoGlassDropdownMenu(
                 },
                 exit = fadeOut(com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.fast))
             ) {
-                Column(content = content)
+                Surface(
+                    modifier = modifier,
+                    shape = menuShape,
+                    color = containerColor,
+                    contentColor = colors.onSurface,
+                    tonalElevation = 0.dp,
+                    shadowElevation = 0.dp,
+                    border = BorderStroke(1.dp, glass.outline)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .verticalScroll(rememberScrollState())
+                            .padding(vertical = 8.dp),
+                        content = content
+                    )
+                }
             }
         }
+    }
+}
+
+/**
+ * 下拉菜单定位策略（移植 Material3 DropdownMenuPositionProvider 的锚点避让规则，保证自绘容器定位不退化）：
+ * 1. 水平依次尝试「与锚点左缘对齐 → 与锚点右缘对齐 → 贴窗口左/右边缘」（贴哪一边由锚点位于窗口左半/右半决定）；
+ * 2. 垂直依次尝试「贴锚点下方 → 翻到锚点上方 → 贴窗口底部 → 贴窗口顶部」，上下各保留 [MenuVerticalMargin] 边距；
+ * 3. 取第一个完整落在窗口内的候选位置，全部不满足时钳制进窗口，菜单永不跑到屏幕外。
+ */
+private class EchoMenuPositionProvider(
+    private val contentOffset: androidx.compose.ui.unit.DpOffset,
+    private val density: Density
+) : PopupPositionProvider {
+
+    override fun calculatePosition(
+        anchorBounds: IntRect,
+        windowSize: IntSize,
+        layoutDirection: LayoutDirection,
+        popupContentSize: IntSize
+    ): IntOffset {
+        val offsetX = with(density) { contentOffset.x.roundToPx() }
+        val offsetY = with(density) { contentOffset.y.roundToPx() }
+        val verticalMargin = with(density) { MenuVerticalMargin.roundToPx() }
+
+        val menuWidth = popupContentSize.width
+        val menuHeight = popupContentSize.height
+        val maxX = (windowSize.width - menuWidth).coerceAtLeast(0)
+        val maxY = (windowSize.height - menuHeight).coerceAtLeast(0)
+
+        val horizontalCandidates = if (layoutDirection == LayoutDirection.Ltr) {
+            listOf(
+                anchorBounds.left + offsetX,
+                anchorBounds.right - menuWidth + offsetX,
+                if (anchorBounds.center.x < windowSize.width / 2) 0 else maxX
+            )
+        } else {
+            listOf(
+                anchorBounds.right - menuWidth + offsetX,
+                anchorBounds.left + offsetX,
+                if (anchorBounds.center.x < windowSize.width / 2) maxX else 0
+            )
+        }
+        val x = horizontalCandidates.firstOrNull { it in 0..maxX }
+            ?: horizontalCandidates.last().coerceIn(0, maxX)
+
+        val verticalCandidates = listOf(
+            anchorBounds.bottom + offsetY,
+            anchorBounds.top - menuHeight + offsetY,
+            (maxY - verticalMargin).coerceAtLeast(0),
+            verticalMargin.coerceAtMost(maxY)
+        )
+        val y = verticalCandidates.firstOrNull { it in 0..maxY }
+            ?: verticalCandidates.last().coerceIn(0, maxY)
+
+        return IntOffset(x, y)
+    }
+
+    private companion object {
+        /** Material3 MenuVerticalMargin 令牌值：菜单与窗口上下缘的最小边距 */
+        val MenuVerticalMargin = 48.dp
     }
 }

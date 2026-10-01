@@ -41,7 +41,15 @@
 
 ## 二、最近一次执行记录
 
-## 二、最近一次执行记录
+### [2026-10-01] v2.6.8 等待提示不再顶屏 + 统计模型名可滑动 + 健康时间线 14×6 + 后台生成稳定性 + 菜单配色/胶囊收缩（发版）
+- **需求**：① 连接等待文字出现/消失不再导致屏幕滑动；② 统计页多处模型名可左右滑动看全；③ 请求健康时间线所有时间范围保持 14 × 6；④ 返回首页/点击其他对话不影响模型连接与回复；⑤ 回复右下角三点弹窗颜色不均、边缘黑影；⑥ 连接胶囊多行时无法收缩、收缩/展开使左侧图标错误居中。构建 APK。
+- **版本**：versionCode 164 / versionName 2.6.8 / Room v31（无 DB 变更）。
+- **实现要点**：提示改固定槽位（`minLines = maxLines = 2`）+ alpha 渐变（`animateFloatAsState`，reduced motion 用 snap），连接/重连期布局零抖动；胶囊展开态改 `statusExpandOverride: Boolean?` 两级（收起必然单行），胶囊行恒 `Alignment.Top` 且图标恒定 top padding，新增 `showStatusToggle`；`EchoGlassDropdownMenu` 改自绘 Popup（不透明底色 + tonal/shadow 均为 0，新增 `EchoMenuPositionProvider` 移植 M3 锚点避让）；新增 `ScrollableSingleLineText` 替换四处模型名截断；`StatsPeriod.heatmapCells` 全量 84（14 × 6）；需求 4 按子代理根因审查逐条修复——上下文回退提示提升到 `ActiveSession`（`answerContextFallbackPrompt`，重进会话转发并可应答）+ `withTimeoutOrNull(300s)` 兜底、`isCurrentSession`/CAS `removeSession(id, session)` 身份守卫三处收尾、`MainActivity` 六处 `chat/` 导航补 `launchSingleTop`、会话级 `keyAttemptErrors` 恢复与停止时优先读取。
+- **文件**：`ChatMessageComponents.kt`、`EchoHaze.kt`、`StatsScreen.kt`、`ChatGenerationManager.kt`、`ChatViewModel.kt`、`MainActivity.kt`、`StatsDashboardTest.kt`、`app/build.gradle.kts` 及文档。
+- **验证**：compile/test（74 文件 495 项全通、0 失败）/lint/diff --check 全部 Exit Code 0；assembleRelease Exit Code 0，`Echo-v2.6.8.apk`（16,700,269 字节，SHA256 `2A535BAD06B507FA8DCF7A6CE2907B2828AD37D4E0C8F6995F10AFEBCF884C9C`，CN=Android Debug **非正式生产签名**，证书与 v2.6.7 一致）；历史包完整保留。
+- **未执行**：真机安装/启动验证（无设备），已给人工验收步骤（见 walkthrough.md v2.6.8 节）。
+- **已知剩余项**：生成中的排队消息仍存在于 ViewModel 本地（`_messageQueue`），用户离开会话页会随 VM 丢失；本轮未迁移到应用级（涉及发送链路与队列 UI 多处，避免无真机情况下的高风险重构），已在交付报告如实说明。
+- **详情**：见 `UPDATE_LOG.md` 与 `walkthrough.md`。
 
 ### [2026-10-01] v2.6.7 连接胶囊/计时/防误滚动/压缩预览修复 + 使用统计七项改进（发版）
 - **需求**：头像与连接胶囊对齐不漂移、胶囊只向下延展；连接计时提示不消失重现（追加：换 Key 重试可重新计时但原因必须可视）；连接过程防误滚动；压缩对比预览稳定弹出且"完成=确认生效"；使用统计七项（悬浮栏+同行下拉、速度标平均、切换纵向、模型多选、成功率口径修正、热力行数+2、去重复标题）。构建 APK。

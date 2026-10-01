@@ -2,6 +2,62 @@
 
 本文档按照工作流规范记录每次版本更新、需求变更与复核结果。
 
+## [2026-10-01] - v2.6.8 连接等待不再顶动屏幕、统计模型名可滑动、健康时间线统一 14×6、后台生成稳定性、菜单配色与连接胶囊收缩修正
+
+### 1. 用户需求
+1. 等待模型连接和回复时，不要因为「模型连接时间长」的文字出现和消失而导致屏幕滑动；
+2. 使用统计中多处模型名字显示不全，希望能左右滑动查看完整名称；
+3. 使用统计的请求健康时间线在所有时间范围都保持 14 × 6 的形状大小；
+4. 模型连接和回复时，返回首页、点击其他对话等操作不得影响模型正常连接与回复；
+5. 点击模型回复右下角的三点，弹出的功能窗口颜色不均匀、边缘有黑影；
+6. 连接胶囊中文字超过一行时胶囊无法正确收缩，且点击收缩/展开会让胶囊内左侧图标错误居中（应保持在顶部）。
+构建 APK。
+
+### 2. 临时实施方案与实现
+
+**需求 1（连接等待提示顶动屏幕）**
+- **根因**：提示此前由 `AnimatedVisibility` 增删节点，出现/收起会改变气泡高度；而 v2.6.7 起 `ChatScreen` 在生成中「末项尺寸变化即重新钉底」，二者叠加表现为提示出现瞬间屏幕整体上滑；重连导致 `connectElapsedSec` 归零时提示消失，又反向回弹；「已等待 Ns」逐秒增长还可能改变行数。
+- **修复**：提示改为**固定槽位 + 透明度渐变**——`Text` 恒定 `minLines = maxLines = 2`（槽位高度恒为两行 bodySmall，随系统字体缩放自适应，无魔法值），整个 Connecting/Reconnecting 阶段始终参与布局；可见性只驱动 `animateFloatAsState` 的 alpha（reduced motion 下 snap）。提示出现、消失、计时归零、秒数增长**都不再改变末项尺寸**，布局零抖动。
+- **同时收窄钉底条件（第二处来源）**：`ChatScreen` 此前「末项尺寸一变即钉底」，末项只是长高一点（如 120s「响应耗时较长…」提示把胶囊从 1 行撑到 3 行）也会重新钉底 → 视口整体位移。改为仅在**末项已被顶出视口下沿**（必须跟随才能看到新内容）时才钉底；末项仍完整可见时不再滚动（此时原本的钉底等价于把视口下拉到新底边）。流式正文增长仍由原有 70ms 节流跟随逻辑负责。
+- **涉及**：`ChatMessageComponents.kt`（新增 `androidx.compose.ui.draw.alpha` 导入）、`ChatScreen.kt`（钉底条件）。
+
+**需求 6（连接胶囊无法收缩 / 左侧图标居中）**
+- **根因**：`maxLinesCount` 的 when 分支中 `isStatusError`、`isWaitingWithReason` 优先级高于 `isStatusExpanded`，导致「等待期携带重试原因」的胶囊恒为 3 行、「报错」胶囊恒为 4 行——点击「收起」不改变行数（表现为无法收缩）；同时行内 `verticalAlignment` 仅在 `isStatusExpanded || isStatusError` 时取 Top，多行等待胶囊实际取 `CenterVertically`，左侧状态图标被垂直居中。
+- **修复**：展开态改为「默认策略 + 用户显式覆盖」两级——`statusExpandOverride: Boolean?`（null=默认：报错或等待期带原因→多行，其余→单行；点按后写入显式布尔）。行数改为 `!isStatusExpanded -> 1 / isStatusError -> 4 / isWaitingWithReason -> 3 / else -> 16`，**收起必然收成单行**；`enableSoftWrap = isStatusExpanded`（收起时横向可滚，内容仍可达）。胶囊行 `verticalAlignment` 恒为 `Alignment.Top`，左侧图标 Box 恒定 `padding(top = 1.dp)` 光学对齐——多行（含收缩/展开切换）不再被居中，单行时与居中视觉一致。新增 `showStatusToggle`（`hasDetailedExpandableContent || isWaitingWithReason`）保证短文案的等待胶囊也带收起/展开键。
+
+**需求 5（三点菜单颜色不均、边缘黑影）**
+- **根因**：`EchoGlassDropdownMenu` 直接使用 Material3 `DropdownMenu`，其内部 Surface 同时施加 **3dp 色调高度**（primary 着色叠加，且底色 `glass.panelStrong` 为 surface + 0.92/0.94 alpha 的**半透明**色，背后聊天正文会透出）与 **3dp 阴影高度**（18dp 圆角外缘投出黑色阴影）。二者分别对应「颜色不均匀」与「边缘黑影」。经反编译 material3 1.2.1 `AndroidMenu_androidKt` 确认其 `MenuKt.DropdownMenuContent` 使用 `MenuTokens.ContainerElevation` 同时作为 tonal 与 shadow 高度。
+- **修复**：改为**自绘 Popup 容器**——底色 `surfaceTint(5%) compositeOver surface`（观感等价 3dp 色调高度但 **alpha = 1**，不透明）、`tonalElevation = 0.dp`、`shadowElevation = 0.dp`，仅保留 1dp 描边与 18dp 圆角；新增 `EchoMenuPositionProvider`（移植 M3 锚点避让规则：水平依次尝试锚点左对齐→右对齐→贴窗口边，垂直依次尝试锚点下方→上方→窗口底/顶，取首个完整落入窗口者，全部不满足则钳制），展开/收起动效与 `PopupProperties(focusable)` 行为不变。
+- **影响面**：`EchoGlassDropdownMenu` 全仓 13 处调用点（聊天三点菜单、输入栏、模型选择器、首页、历史、角色扮演、设置类界面）统一受益，接口签名零变更。
+
+**需求 2（统计页模型名显示不全）**
+- **修复**：新增私有组件 `ScrollableSingleLineText`（外部 `weight` 给定可用宽度，内部 `horizontalScroll` + `softWrap = false`，短文本按 `align` 在可用宽度内对齐以保持原排版），替换四处被省略号截断的模型名：① `DropdownOptionRow`（模型多选下拉中的每个模型项，选中勾号仍固定行尾）；② `StatsFilterDropdown` 的值（单选模型时即完整模型名，右对齐排版保持）；③ `TokenDonutCard` 模型占比模式的图例标签（数值列仍固定行尾）；④ `ModernModelStatsTable` 的模型名 + 供应商标签整体（Token 总量仍贴右对齐）。
+
+**需求 3（请求健康时间线形状）**
+- **修复**：`StatsPeriod.heatmapCells` 全部改为 **84（14 × 6）**（原为按周期递增的 42/56/84/84/98/112/140/140），任意时间范围下热力看板形状与大小完全一致；同步更新 `StatsDashboardTest.testStatsPeriod_heatmapCellsFillGrid` 为「14 × 6 = 84 且行数恒为 6」的强断言。
+
+**需求 4（返回首页/切换对话不影响连接与回复）**
+先由子代理完成全链路只读根因审查，确认生成协程本身运行在 `applicationScope`（离开页面不会取消、回复照常落库），但有四处真实缺陷会让用户看到「被打断」，逐条修复：
+- **① 上下文回退确认提示永久挂起（最严重）**：`onContextFallbackPrompt` 的续体此前只存进 ViewModel 私有 StateFlow。用户先返回首页、请求随后因「上下文超限/空响应」失败时，提示写入**已销毁的 VM**，无人应答且无超时 → 请求协程永久挂起 → `session.isGenerating` 永远为 true → 重进会话显示「正在连接」、输入框变停止、新消息只入队，**只有点停止才能解开**。修复：提示（含续体）提升到 Application 级会话 `ChatGenerationManager.ActiveSession.pendingContextFallbackPrompt`（新增 `answerContextFallbackPrompt(choice)`），重进会话的 ViewModel 在挂载时转发该流、`handleContextFallbackDecision` 优先由会话应答，`markFinished()` 统一清理；并加 `withTimeoutOrNull(300s)` 兜底（超时按应用既有默认策略 FALLBACK 放行，绝不永久挂起）；`stopGeneration` 同时应答两处。
+- **② 过期轮次收尾污染新一轮**：`onComplete/onError/catch` 此前无条件写 `_isGenerating = false`、清 `_generatingAnchor`、并 `removeSession(conversationId)`——「停止后立刻重发」会使上一轮被取消的任务把新一轮状态清空（回复中途消失、发送按钮变回发送），同一会话两个页面实例时还会把新会话从表中误删（重进读不到进行中的生成）。修复：新增 `ChatGenerationManager.isCurrentSession(id, session)` 与 CAS 语义的 `removeSession(id, session)`；三处收尾先取「是否仍是活跃轮次」再决定是否回写 ViewModel 状态，会话移除一律带身份，`markFinished()` 对自身会话始终生效。
+- **③ 同一会话重复入栈**：`MainActivity` 六处 `chat/{conversationId}` 导航补 `launchSingleTop = true`，连点会话卡片不再产生两个对话页实例互相取消生成。
+- **④ 重进会话状态缺失**：`ActiveSession` 新增 `keyAttemptErrors`（实时 Key 报错明细），`onKeyAttemptError` 同步写入、`attachToActiveGenerationSession` 恢复，`stopGeneration` 优先读会话（修复重进后再暂停时，「回复已暂停」正文丢失全部 Key 报错记录的数据损失）。
+
+- **涉及文件**：`ChatMessageComponents.kt`（提示固定槽位/胶囊展开态/图标对齐）、`EchoHaze.kt`（自绘菜单 + 定位器）、`StatsScreen.kt`（可滑动文本组件 + 四处替换 + 热力格统一 84）、`ChatGenerationManager.kt`（会话级提示与报错明细、身份判定与 CAS 移除）、`ChatViewModel.kt`（提示提升与超时兜底、收尾身份守卫、Key 报错会话化）、`MainActivity.kt`（launchSingleTop）、`StatsDashboardTest.kt`（热力形状断言）、`app/build.gradle.kts`（版本 164/2.6.8）；
+- **影响面**：聊天等待期 UI 与滚动、连接胶囊交互、上下文回退弹窗生命周期、生成收尾状态机、导航栈、全局玻璃下拉菜单视觉、使用统计页文本交互与热力看板；**无数据库结构变更**（AppDatabase 仍为 v31）；`EchoGlassDropdownMenu` 签名未变，13 处调用点无需改动；
+- **验证方式**：compile/test/lint/diff --check 四件套 + 发版构建与签名校验（无真机，人工验收步骤见 walkthrough.md）。
+
+### 3. 验证结果
+- `./gradlew.bat compileDebugKotlin --no-daemon` Exit Code 0
+- `./gradlew.bat testDebugUnitTest --no-daemon` Exit Code 0（74 个测试文件，**495 项全通**，0 失败；含更新后的热力看板 14 × 6 断言）
+- `./gradlew.bat lintDebug --no-daemon` Exit Code 0
+- `git diff --check` Exit Code 0
+- `./gradlew.bat assembleRelease --no-daemon` Exit Code 0
+- APK：`D:\Agent\APP-Echo\app\releases\Echo-v2.6.8.apk`，16,700,269 字节 (~15.93 MB)，SHA256 `2A535BAD06B507FA8DCF7A6CE2907B2828AD37D4E0C8F6995F10AFEBCF884C9C`，`apksigner verify --print-certs` 通过（CN=Android Debug，**非正式生产签名**）
+- 未执行真机验证（无设备）；人工验收步骤见 walkthrough.md v2.6.8 节。
+
+---
+
 ## [2026-10-01] - v2.6.7 连接胶囊对齐与计时修复、连接期防误滚动、压缩预览修复、使用统计七项改进
 
 ### 1. 用户需求

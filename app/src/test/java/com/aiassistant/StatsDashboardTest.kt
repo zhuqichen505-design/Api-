@@ -130,19 +130,17 @@ class StatsDashboardTest {
     @Test
     fun testStatsPeriod_heatmapCellsFillGrid() {
         val columns = 14
-        // v2.6.7 需求 5f：列数不变（14），各周期行数 +2
-        val expectedRows = mapOf(
-            "1小时" to 3, "4小时" to 4, "8小时" to 6, "1天" to 6,
-            "3天" to 7, "7天" to 8, "30天" to 10, "90天" to 10
-        )
+        val rows = 6
+        // v2.6.8 需求 3：所有时间范围的热力看板统一 14 × 6，形状与大小恒定不随时长变化
         StatsPeriod.entries.forEach { period ->
-            assertTrue(
-                "${period.label} 的热力格数必须是列数 ${columns} 的整数倍，保证看板铺满",
-                period.heatmapCells % columns == 0 && period.heatmapCells > 0
+            assertEquals(
+                "${period.label} 的请求健康时间线必须为 14 × 6 = 84 格",
+                columns * rows,
+                period.heatmapCells
             )
             assertEquals(
-                "${period.label} 的热力看板行数应为 ${expectedRows[period.label]}（列数 14 不变，行数+2）",
-                expectedRows[period.label],
+                "${period.label} 的热力看板行数必须固定为 6",
+                rows,
                 period.heatmapCells / columns
             )
         }

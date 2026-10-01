@@ -450,7 +450,9 @@ fun ChatScreen(
 
     // 连接/生成期间末条消息项高度反复变化（胶囊文案与等待提示增减、实时报错明细出入场），
     // 滚动锚点固定在项首会把视口顶得上下位移，表现为"屏幕无故上下滑动"。
-    // 自动跟随态下末项尺寸一变即重新钉底；用户手动上翻后（autoFollowOutput=false）不干预
+    // v2.6.8 需求 1：仅在末项已被顶出视口下沿（必须跟随才能看到新内容）时才重新钉底；
+    // 末项仍完整可见时其高度变化不再触发滚动——连接等待提示出现/消失、120s 慢响应提示撑高胶囊
+    // 之类的小幅增高都不会再让屏幕整体上下滑动。流式正文增长由上方 70ms 节流的跟随逻辑负责。
     LaunchedEffect(isGenerating) {
         if (!isGenerating) return@LaunchedEffect
         snapshotFlow {
@@ -461,11 +463,15 @@ fun ChatScreen(
             if (!autoFollowOutput || preserveScrollForBranchGeneration || listState.isScrollInProgress) {
                 return@collect
             }
-            if (totalCount > 0) {
-                try {
-                    listState.scrollToItem(totalCount - 1, scrollOffset = 100000)
-                } catch (_: Exception) {}
-            }
+            if (totalCount <= 0) return@collect
+            val layoutInfo = listState.layoutInfo
+            val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull() ?: return@collect
+            val isLastItemFullyVisible = lastVisible.index == totalCount - 1 &&
+                lastVisible.offset + lastVisible.size <= layoutInfo.viewportEndOffset
+            if (isLastItemFullyVisible) return@collect
+            try {
+                listState.scrollToItem(totalCount - 1, scrollOffset = 100000)
+            } catch (_: Exception) {}
         }
     }
 

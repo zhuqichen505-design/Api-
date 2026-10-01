@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -547,15 +548,14 @@ private fun StatsFilterDropdown(
                     color = contentColor.copy(alpha = 0.65f)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
-                Text(
+                // v2.6.8 需求 2：筛选值（单选时即完整模型名）横向可滑动，右对齐排版保持不变
+                ScrollableSingleLineText(
                     text = value,
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.SemiBold,
                     color = contentColor,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
-                    textAlign = TextAlign.End
+                    align = Alignment.CenterEnd
                 )
                 Spacer(modifier = Modifier.width(4.dp))
                 Icon(
@@ -619,16 +619,15 @@ private fun DropdownOptionRow(
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
+        // v2.6.8 需求 2：模型名等长选项改为横向可滑动，完整名称可左右拖动查看（不再省略号截断）
+        ScrollableSingleLineText(
             text = text,
             style = MaterialTheme.typography.bodySmall,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
             color = if (selected) MaterialTheme.colorScheme.primary else contentColor,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f, fill = false)
+            modifier = Modifier.weight(1f),
+            align = Alignment.CenterStart
         )
-        Spacer(modifier = Modifier.weight(1f))
         if (selected) {
             Icon(
                 imageVector = Icons.Default.Check,
@@ -637,6 +636,32 @@ private fun DropdownOptionRow(
                 modifier = Modifier.size(14.dp)
             )
         }
+    }
+}
+
+/**
+ * 可左右滑动的单行文本（v2.6.8 需求 2）：
+ * 模型名称在统计页多处因单行省略号而显示不全。改为横向可滑动——文本超出可用宽度时可左右拖动
+ * 查看完整名称；未超出时按 [align] 在可用宽度（调用方以 weight 指定）内对齐，排版与原设计一致。
+ */
+@Composable
+private fun ScrollableSingleLineText(
+    text: String,
+    style: TextStyle,
+    color: Color,
+    modifier: Modifier = Modifier,
+    align: Alignment = Alignment.CenterStart,
+    fontWeight: FontWeight? = null
+) {
+    Box(modifier = modifier, contentAlignment = align) {
+        Text(
+            text = text,
+            style = if (fontWeight != null) style.copy(fontWeight = fontWeight) else style,
+            color = color,
+            maxLines = 1,
+            softWrap = false,
+            modifier = Modifier.horizontalScroll(rememberScrollState())
+        )
     }
 }
 
@@ -1063,15 +1088,15 @@ private fun TokenDonutCard(
                                     .clip(CircleShape)
                                     .background(paletteColors[index % paletteColors.size])
                             )
-                            Text(
+                            // v2.6.8 需求 2：模型占比模式的图例标签即模型名，改为横向可滑动查看完整名称，
+                            // 数值列仍固定在行尾
+                            ScrollableSingleLineText(
                                 text = slice.label,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = content.copy(alpha = 0.72f),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false)
+                                modifier = Modifier.weight(1f),
+                                align = Alignment.CenterStart
                             )
-                            Spacer(modifier = Modifier.weight(1f))
                             Text(
                                 text = "${formatNumber(slice.value)} · ${formatPercent(if (total > 0) slice.value.toFloat() / total else 0f)}",
                                 style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.SansSerif),
@@ -2192,33 +2217,39 @@ private fun ModernModelStatsTable(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Row(
-                                    modifier = Modifier
-                                        .weight(1f, fill = false)
-                                        .horizontalScroll(rememberScrollState()),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                // v2.6.8 需求 2：模型名 + 供应商标签整体横向可滑动，长模型名可拖动查看完整名称，
+                                // 右侧 Token 总量保持贴右对齐
+                                Box(
+                                    modifier = Modifier.weight(1f),
+                                    contentAlignment = Alignment.CenterStart
                                 ) {
-                                    Text(
-                                        text = row.modelName,
-                                        style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.SansSerif,
-                                            fontWeight = FontWeight.Bold),
-                                        color = content,
-                                        maxLines = 1
-                                    )
-                                    if (row.provider.isNotBlank() && row.provider != "unknown") {
-                                        Box(
-                                            modifier = Modifier
-                                                .clip(RoundedCornerShape(4.dp))
-                                                .background(glass.control.copy(alpha = 0.8f))
-                                                .border(BorderStroke(0.5.dp, glass.outline.copy(alpha = 0.5f)), RoundedCornerShape(4.dp))
-                                                .padding(horizontal = 4.dp, vertical = 1.dp)
-                                        ) {
-                                            Text(
-                                                text = row.provider,
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = content.copy(alpha = 0.65f)
-                                            )
+                                    Row(
+                                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Text(
+                                            text = row.modelName,
+                                            style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.SansSerif,
+                                                fontWeight = FontWeight.Bold),
+                                            color = content,
+                                            maxLines = 1
+                                        )
+                                        if (row.provider.isNotBlank() && row.provider != "unknown") {
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(4.dp))
+                                                    .background(glass.control.copy(alpha = 0.8f))
+                                                    .border(BorderStroke(0.5.dp, glass.outline.copy(alpha = 0.5f)), RoundedCornerShape(4.dp))
+                                                    .padding(horizontal = 4.dp, vertical = 1.dp)
+                                            ) {
+                                                Text(
+                                                    text = row.provider,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = content.copy(alpha = 0.65f),
+                                                    maxLines = 1
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -2802,20 +2833,19 @@ internal enum class StatsPeriod(
     val bucketCount: Int,
     val labelPattern: String,
     /**
-     * 请求健康时间线热力格数量：全部取 14（网格列数）的整数倍，
-     * 保证任意时间范围下看板都被完整铺满，不出现末行空缺。
-     * v2.6.7 需求 5f：列数不变（14），各周期行数 +2（即格数 +28）
+     * 请求健康时间线热力格数量：全部时间范围统一为 14 列 × 6 行 = 84 格（v2.6.8 需求 3），
+     * 看板形状与大小在任意时间范围下完全一致，不再随时长改变行列数。
      */
     val heatmapCells: Int
 ) {
-    Hour("1小时", 60L * 60L * 1000L, 12, "HH:mm", 42),
-    Hour4("4小时", 4L * 60L * 60L * 1000L, 16, "HH:mm", 56),
+    Hour("1小时", 60L * 60L * 1000L, 12, "HH:mm", 84),
+    Hour4("4小时", 4L * 60L * 60L * 1000L, 16, "HH:mm", 84),
     Hour8("8小时", 8L * 60L * 60L * 1000L, 24, "HH:mm", 84),
     Day("1天", 24L * 60L * 60L * 1000L, 24, "HH:mm", 84),
-    Day3("3天", 3L * 24L * 60L * 60L * 1000L, 36, "MM-dd", 98),
-    Week("7天", 7L * 24L * 60L * 60L * 1000L, 7, "MM-dd", 112),
-    Month("30天", 30L * 24L * 60L * 60L * 1000L, 30, "MM-dd", 140),
-    Quarter("90天", 90L * 24L * 60L * 60L * 1000L, 30, "MM-dd", 140)
+    Day3("3天", 3L * 24L * 60L * 60L * 1000L, 36, "MM-dd", 84),
+    Week("7天", 7L * 24L * 60L * 60L * 1000L, 7, "MM-dd", 84),
+    Month("30天", 30L * 24L * 60L * 60L * 1000L, 30, "MM-dd", 84),
+    Quarter("90天", 90L * 24L * 60L * 60L * 1000L, 30, "MM-dd", 84)
 }
 
 private data class StatsReadResult(

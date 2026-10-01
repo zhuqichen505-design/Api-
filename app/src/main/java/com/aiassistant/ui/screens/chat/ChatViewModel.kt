@@ -24,6 +24,15 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+
+/**
+ * v2.6.8 需求 4：上下文回退待确认提示的最长等待时间（5 分钟）。
+ * 生成过程中用户返回首页/切换对话时提示会保留在 Application 级会话上，重进会话仍可应答；
+ * 若长时间无人应答，则按应用既有默认策略（压缩上下文后重试）放行，
+ * 保证「连接与回复」绝不会因为一个无人应答的弹窗而永久挂起。
+ */
+private const val CONTEXT_FALLBACK_PROMPT_TIMEOUT_MS = 300_000L
 
 class ChatViewModel(private val conversationId: Long) : ViewModel() {
     private val repository = AiAssistantApp.instance.repository
@@ -94,9 +103,16 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
     val pendingContextFallbackPrompt: StateFlow<com.aiassistant.domain.model.ContextFallbackPromptState?> = _pendingContextFallbackPrompt.asStateFlow()
 
     fun handleContextFallbackDecision(choice: com.aiassistant.domain.model.ContextFallbackChoice) {
-        val prompt = _pendingContextFallbackPrompt.value
+        val localPrompt = _pendingContextFallbackPrompt.value
         _pendingContextFallbackPrompt.value = null
-        prompt?.onDecision?.invoke(choice)
+        // v2.6.8 需求 4：提示真实归属是 Application 级会话（用户离开会话页后重进，新 ViewModel 也能应答），
+        // 因此优先由会话应答，确保等待中的请求协程一定会被唤醒，不再永久挂起
+        val session = ChatGenerationManager.getSession(conversationId)
+        val sessionPrompt = session?.pendingContextFallbackPrompt?.value
+        when {
+            sessionPrompt != null -> session.answerContextFallbackPrompt(choice)
+            localPrompt != null -> localPrompt.onDecision(choice)
+        }
     }
 
     // 思考链翻译状态
@@ -234,6 +250,11 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
             generationJob = activeSession.generationJob
             // 恢复生成锚点，保证重进会话后流式气泡仍钉在触发本轮的用户消息之后
             applyGeneratingAnchor(activeSession.anchorUserMessageId, activeSession.anchorUserGroupId)
+            // v2.6.8 需求 4：恢复会话级的实时 Key 报错明细与上下文回退待确认提示
+            // （提示挂在会话上，用户离开后重进仍能应答，等待中的请求不会被永久挂起）
+            currentKeyAttemptErrors.clear()
+            currentKeyAttemptErrors.addAll(activeSession.keyAttemptErrors.value)
+            _keyAttemptErrors.value = activeSession.keyAttemptErrors.value
 
             viewModelScope.launch {
                 activeSession.currentResponse.collect { res ->
@@ -253,6 +274,16 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
             viewModelScope.launch {
                 activeSession.error.collect { err ->
                     _error.value = err
+                }
+            }
+            viewModelScope.launch {
+                activeSession.keyAttemptErrors.collect { errs ->
+                    _keyAttemptErrors.value = errs
+                }
+            }
+            viewModelScope.launch {
+                activeSession.pendingContextFallbackPrompt.collect { prompt ->
+                    _pendingContextFallbackPrompt.value = prompt
                 }
             }
             viewModelScope.launch {
@@ -1092,6 +1123,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
             _error.value = null
             currentKeyAttemptErrors.clear()
             _keyAttemptErrors.value = emptyList()
+            session._keyAttemptErrors.value = emptyList()
             val currentCallingModel = selectedOption.modelName
             val requestStartTime = System.currentTimeMillis()
             runtimeMessageModelMap[requestStartTime] = currentCallingModel
@@ -1175,6 +1207,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                             // 连接已恢复（首个正文 token 到达）：清掉过期的实时失败明细，避免成功流式后残留
                             if (session.currentResponse.value.isBlank() && _keyAttemptErrors.value.isNotEmpty()) {
                                 _keyAttemptErrors.value = emptyList()
+                                session._keyAttemptErrors.value = emptyList()
                             }
                             session.appendResponse(token)
                             _currentResponse.value = session.currentResponse.value
@@ -1183,6 +1216,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                             // 思考 token 同样代表连接已建立
                             if (session.currentThinking.value.isBlank() && _keyAttemptErrors.value.isNotEmpty()) {
                                 _keyAttemptErrors.value = emptyList()
+                                session._keyAttemptErrors.value = emptyList()
                             }
                             session.appendThinking(token)
                             _currentThinking.value = session.currentThinking.value
@@ -1192,8 +1226,12 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                             _reconnectStatus.value = status
                         },
                         onKeyAttemptError = { keyIndex, keyMasked, errorMsg ->
-                            currentKeyAttemptErrors.add("Key #$keyIndex ($keyMasked)：$errorMsg")
-                            _keyAttemptErrors.update { it + "Key #$keyIndex ($keyMasked)：$errorMsg" }
+                            // v2.6.8 需求 4：明细同时写入 Application 级会话，重进会话后仍可恢复显示
+                            // （用户暂停时也能完整写进回复正文）
+                            val line = "Key #$keyIndex ($keyMasked)：$errorMsg"
+                            currentKeyAttemptErrors.add(line)
+                            session._keyAttemptErrors.update { it + line }
+                            _keyAttemptErrors.value = session.keyAttemptErrors.value
                         },
                         onResetBuffer = {
                             session.resetBuffer()
@@ -1204,92 +1242,128 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                             slowTimeoutJob.cancel()
                             session.isMessageSaved.compareAndSet(false, true)
                             session.markFinished()
-                            ChatGenerationManager.removeSession(conversationId)
-                            isMessageSaved = true
-                            _isGenerating.value = false
-                            _generatingAnchor.value = null
-                            activeAssistantVariantGroupId = null
-                            activeAssistantVariantIndex = 1
-                            val savedReply = replyContent.ifBlank { session.currentResponse.value.ifBlank { _currentResponse.value } }
-                            _currentResponse.value = ""
-                            _currentThinking.value = ""
-                            _reconnectStatus.value = null
-                            autoNameIfNeeded()
-                            // 重新同步会话状态与上下文使用情况（后台降级自动同步）
-                            refreshContextUsage()
-                            evaluateAutoCompression()
-                            evaluateAutoTimelineUpdate(content, savedReply)
-                            evaluateMemoryCandidate(content, currentUserMsgId, selectedOption)
-                            checkAndDispatchQueue()
+                            // v2.6.8 需求 4：按会话身份移除并判定"这一轮是否仍是活跃轮次"——
+                            // 用户停止后立刻重发、或同一会话存在两个页面实例时，上一轮的收尾
+                            // 不得清空新一轮的流式状态与生成锚点，也不得把新会话从表中误删
+                            val isStillCurrentRound = ChatGenerationManager.isCurrentSession(conversationId, session)
+                            ChatGenerationManager.removeSession(conversationId, session)
+                            if (isStillCurrentRound) {
+                                isMessageSaved = true
+                                _isGenerating.value = false
+                                _generatingAnchor.value = null
+                                activeAssistantVariantGroupId = null
+                                activeAssistantVariantIndex = 1
+                                val savedReply = replyContent.ifBlank { session.currentResponse.value.ifBlank { _currentResponse.value } }
+                                _currentResponse.value = ""
+                                _currentThinking.value = ""
+                                _reconnectStatus.value = null
+                                autoNameIfNeeded()
+                                // 重新同步会话状态与上下文使用情况（后台降级自动同步）
+                                refreshContextUsage()
+                                evaluateAutoCompression()
+                                evaluateAutoTimelineUpdate(content, savedReply)
+                                evaluateMemoryCandidate(content, currentUserMsgId, selectedOption)
+                                checkAndDispatchQueue()
+                            }
                         },
                         onError = { errorMsg ->
                             slowTimeoutJob.cancel()
-                            _reconnectStatus.value = null
-                            // 重新同步会话状态与上下文使用情况（后台降级自动同步）
-                            refreshContextUsage()
+                            // v2.6.8 需求 4：同样按会话身份判定，避免过期轮次的收尾污染新一轮
+                            val isStillCurrentRound = ChatGenerationManager.isCurrentSession(conversationId, session)
+                            if (isStillCurrentRound) {
+                                _reconnectStatus.value = null
+                                // 重新同步会话状态与上下文使用情况（后台降级自动同步）
+                                refreshContextUsage()
+                            }
                             if (isUserStopping || errorMsg.contains("Socket closed", ignoreCase = true) || errorMsg.contains("Canceled", ignoreCase = true)) {
                                 session.markFinished()
-                                ChatGenerationManager.removeSession(conversationId)
-                                _isGenerating.value = false
-                                _generatingAnchor.value = null
-                                _currentResponse.value = ""
-                                _currentThinking.value = ""
+                                ChatGenerationManager.removeSession(conversationId, session)
+                                if (isStillCurrentRound) {
+                                    _isGenerating.value = false
+                                    _generatingAnchor.value = null
+                                    _currentResponse.value = ""
+                                    _currentThinking.value = ""
+                                }
                             } else if (session.isMessageSaved.compareAndSet(false, true)) {
                                 isMessageSaved = true
                                 session.setError(errorMsg)
-                                _isGenerating.value = false
-                                _generatingAnchor.value = null
-                                _error.value = errorMsg
                                 saveErrorReply(errorMsg, session)
                                 session.markFinished()
-                                ChatGenerationManager.removeSession(conversationId)
-                                _currentResponse.value = ""
-                                _currentThinking.value = ""
-                            }
-                        },
-                        onContextFallbackPrompt = { reason ->
-                            kotlinx.coroutines.suspendCancellableCoroutine { cont ->
-                                _pendingContextFallbackPrompt.value = com.aiassistant.domain.model.ContextFallbackPromptState(
-                                    conversationId = conversationId,
-                                    reason = reason,
-                                    onDecision = { choice ->
-                                        _pendingContextFallbackPrompt.value = null
-                                        if (cont.isActive) {
-                                            cont.resumeWith(Result.success(choice))
-                                        }
-                                    }
-                                )
-                                cont.invokeOnCancellation {
-                                    _pendingContextFallbackPrompt.value = null
+                                ChatGenerationManager.removeSession(conversationId, session)
+                                if (isStillCurrentRound) {
+                                    _isGenerating.value = false
+                                    _generatingAnchor.value = null
+                                    _error.value = errorMsg
+                                    _currentResponse.value = ""
+                                    _currentThinking.value = ""
                                 }
                             }
+                        },
+                        // v2.6.8 需求 4：待确认提示挂到 Application 级会话上——用户返回首页/切换对话后
+                        // 重进会话仍能看到并应答（此前只挂在 ViewModel 上，VM 销毁后无人应答，
+                        // 请求协程永久挂起，表现为"连接/回复卡死"）。
+                        // 同时加超时兜底：用户长时间不在时按应用既有默认策略（压缩上下文后重试）放行，
+                        // 任何情况下都不会再有永久挂起。
+                        onContextFallbackPrompt = { reason ->
+                            kotlinx.coroutines.withTimeoutOrNull(CONTEXT_FALLBACK_PROMPT_TIMEOUT_MS) {
+                                kotlinx.coroutines.suspendCancellableCoroutine { cont ->
+                                    val promptState = com.aiassistant.domain.model.ContextFallbackPromptState(
+                                        conversationId = conversationId,
+                                        reason = reason,
+                                        onDecision = { choice ->
+                                            session._pendingContextFallbackPrompt.value = null
+                                            _pendingContextFallbackPrompt.value = null
+                                            if (cont.isActive) {
+                                                cont.resumeWith(Result.success(choice))
+                                            }
+                                        }
+                                    )
+                                    session._pendingContextFallbackPrompt.value = promptState
+                                    _pendingContextFallbackPrompt.value = promptState
+                                    cont.invokeOnCancellation {
+                                        session._pendingContextFallbackPrompt.value = null
+                                        _pendingContextFallbackPrompt.value = null
+                                    }
+                                }
+                            } ?: com.aiassistant.domain.model.ContextFallbackChoice.FALLBACK
                         }
                     )
                 }
             } catch (e: Exception) {
                 slowTimeoutJob.cancel()
-                _reconnectStatus.value = null
+                // v2.6.8 需求 4：按会话身份判定，过期轮次（用户已停止并重发）的异常收尾
+                // 不得再清空新一轮的生成标志与生成锚点
+                val isStillCurrentRound = ChatGenerationManager.isCurrentSession(conversationId, session)
+                if (isStillCurrentRound) {
+                    _reconnectStatus.value = null
+                }
                 if (isUserStopping || e is CancellationException || e.message?.contains("Socket closed", ignoreCase = true) == true || e.message?.contains("Canceled", ignoreCase = true) == true) {
                     session.markFinished()
-                    ChatGenerationManager.removeSession(conversationId)
-                    _isGenerating.value = false
-                    _generatingAnchor.value = null
-                    _currentResponse.value = ""
-                    _currentThinking.value = ""
+                    ChatGenerationManager.removeSession(conversationId, session)
+                    if (isStillCurrentRound) {
+                        _isGenerating.value = false
+                        _generatingAnchor.value = null
+                        _currentResponse.value = ""
+                        _currentThinking.value = ""
+                    }
                     return@launch
                 }
-                _isGenerating.value = false
-                _generatingAnchor.value = null
+                if (isStillCurrentRound) {
+                    _isGenerating.value = false
+                    _generatingAnchor.value = null
+                }
                 if (session.isMessageSaved.compareAndSet(false, true)) {
                     isMessageSaved = true
                     val errorMsg = e.message ?: "未知错误"
                     session.setError(errorMsg)
-                    _error.value = errorMsg
                     saveErrorReply(errorMsg, session)
                     session.markFinished()
-                    ChatGenerationManager.removeSession(conversationId)
-                    _currentResponse.value = ""
-                    _currentThinking.value = ""
+                    ChatGenerationManager.removeSession(conversationId, session)
+                    if (isStillCurrentRound) {
+                        _error.value = errorMsg
+                        _currentResponse.value = ""
+                        _currentThinking.value = ""
+                    }
                 }
             }
         }
@@ -1329,8 +1403,12 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
 
     fun stopGeneration() {
         isUserStopping = true
-        _pendingContextFallbackPrompt.value?.onDecision?.invoke(com.aiassistant.domain.model.ContextFallbackChoice.IGNORE)
+        // v2.6.8 需求 4：待确认提示可能挂在 Application 级会话上（用户离开过再回来），
+        // 两处都要应答，避免请求协程继续挂起
+        val stopFallbackChoice = com.aiassistant.domain.model.ContextFallbackChoice.IGNORE
+        _pendingContextFallbackPrompt.value?.onDecision(stopFallbackChoice)
         _pendingContextFallbackPrompt.value = null
+        ChatGenerationManager.getSession(conversationId)?.answerContextFallbackPrompt(stopFallbackChoice)
         repository.cancelActiveRequest(conversationId)
         generationJob?.cancel(CancellationException("用户暂停生成"))
         _isGenerating.value = false
@@ -1346,7 +1424,11 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
 
         val connStatus = (session?.reconnectStatus?.value ?: _reconnectStatus.value)?.takeIf { it.isNotBlank() }
         val activeError = (session?.error?.value ?: _error.value)?.takeIf { it.isNotBlank() }
-        val hasErrors = currentKeyAttemptErrors.isNotEmpty() || connStatus != null || activeError != null
+        // v2.6.8 需求 4：Key 尝试报错明细优先取 Application 级会话（重进会话后 ViewModel 本地列表为空，
+        // 若只读本地会丢掉全部明细，写进「回复已暂停」正文的连接异常记录也随之丢失）
+        val keyAttemptErrors = session?.keyAttemptErrors?.value?.takeIf { it.isNotEmpty() }
+            ?: currentKeyAttemptErrors.toList()
+        val hasErrors = keyAttemptErrors.isNotEmpty() || connStatus != null || activeError != null
 
         val shouldSave = session?.isMessageSaved?.compareAndSet(false, true) ?: !isMessageSaved
         if (shouldSave) {
@@ -1375,9 +1457,9 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                     if (activeError != null && activeError != connStatus) {
                         append("\n• 报错详情: $activeError")
                     }
-                    if (currentKeyAttemptErrors.isNotEmpty()) {
+                    if (keyAttemptErrors.isNotEmpty()) {
                         append("\n• 尝试的 Key 报错记录:")
-                        currentKeyAttemptErrors.forEach { append("\n  - $it") }
+                        keyAttemptErrors.forEach { append("\n  - $it") }
                     }
                 }
             }.trim()
@@ -1398,7 +1480,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
             // 失败请求缺失导致成功率虚高。随 shouldSave 的 CAS 保证只补记一次。
             if (hasErrors) {
                 val failReason = connStatus ?: activeError
-                    ?: currentKeyAttemptErrors.lastOrNull() ?: "连接异常"
+                    ?: keyAttemptErrors.lastOrNull() ?: "连接异常"
                 val statOption = _currentModelOption.value
                 AiAssistantApp.instance.applicationScope.launch {
                     runCatching {

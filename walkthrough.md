@@ -1,3 +1,46 @@
+# Echo v2.6.8 构建走查与验收报告 (Walkthrough)
+
+## 一、本次构建与需求概述
+- **发布版本**：v2.6.8 (`versionCode: 164`)
+- **构建类型**：Release APK
+- **交付目标文件**：`D:\Agent\APP-Echo\app\releases\Echo-v2.6.8.apk`
+- **核心内容**：连接等待提示不再顶动屏幕（需求 1）、使用统计模型名可左右滑动查看（需求 2）、请求健康时间线统一 14 × 6（需求 3）、返回首页/切换对话不影响正在进行的连接与回复（需求 4）、三点菜单颜色不均与边缘黑影修正（需求 5）、连接胶囊可正确收缩与图标顶对齐（需求 6）。
+
+## 二、根因走查与修复要点
+| 项 | 根因 | 修复 |
+| :--- | :--- | :--- |
+| 等待提示顶动屏幕（需求 1） | ① 提示由 `AnimatedVisibility` 增删节点，出现/收起改变气泡高度；② v2.6.7「生成中末项尺寸一变即钉底」使任何高度变化（含 120s 慢响应提示把胶囊从 1 行撑到 3 行）都重新钉底 → 视口整体位移；重连使 `connectElapsedSec` 归零时提示消失又反向回弹 | ① 提示改固定槽位 + 透明度渐变：`Text(minLines = maxLines = 2)` 恒定占两行并全程参与布局，可见性只驱动 `animateFloatAsState` 的 alpha（reduced motion 下 snap），出现/消失/计时归零/秒数增长均零布局抖动；② `ChatScreen` 钉底条件收窄为「仅当末项已被顶出视口下沿」才跟随，末项完整可见时不再滚动；流式正文增长仍由 70ms 节流跟随逻辑负责 |
+| 胶囊无法收缩 + 图标居中（需求 6） | `maxLinesCount` 中 `isStatusError`/`isWaitingWithReason` 优先级高于 `isStatusExpanded`，等待期带原因的胶囊恒 3 行、报错胶囊恒 4 行 → 点「收起」无变化；行 `verticalAlignment` 仅展开态取 Top，多行等待胶囊实际 CenterVertically → 左侧图标被居中 | 展开态改「默认策略 + 显式覆盖」两级（`statusExpandOverride: Boolean?`），行数 `!expanded → 1`、报错 4、等待带原因 3、其余 16，**收起必然单行**；`enableSoftWrap = isStatusExpanded`；胶囊行恒 `Alignment.Top` + 图标恒定 top padding 1dp；新增 `showStatusToggle` 让短文案等待胶囊也有收起/展开键 |
+| 菜单颜色不均 + 边缘黑影（需求 5） | Material3 `DropdownMenu` 内部 Surface 同时施加 3dp 色调高度（primary 着色叠在半透明 `glass.panelStrong`（alpha 0.92/0.94）之上，背后正文透出）与 3dp 阴影高度（18dp 圆角外缘黑边）；反编译 material3 1.2.1 确认 `MenuTokens.ContainerElevation` 同时用于二者 | 改为自绘 Popup：底色 `surfaceTint(5%) compositeOver surface`（不透明）、`tonalElevation = 0.dp`、`shadowElevation = 0.dp`，保留 1dp 描边 + 18dp 圆角；新增 `EchoMenuPositionProvider` 移植 M3 锚点避让规则；接口签名不变，13 处调用点统一受益 |
+| 模型名显示不全（需求 2） | 统计页四处模型名用 `maxLines = 1 + Ellipsis` 截断且无横向滚动 | 新增 `ScrollableSingleLineText`（外部 weight 定宽 + 内部 horizontalScroll + softWrap=false + 按 align 对齐），替换模型下拉项、筛选胶囊值、模型占比图例、模型明细行（Token 总量/勾号位置不变） |
+| 热力看板形状（需求 3） | `StatsPeriod.heatmapCells` 按周期递增（42/56/84/84/98/112/140/140），行数 3~10 行 | 全部统一为 84（14 × 6）；测试断言改为「恒为 14 × 6 = 84、行数恒 6」 |
+| 后台连接/回复被打断（需求 4） | 子代理全链路只读审查结论：生成协程本身在 `applicationScope`（不随页面销毁取消、回复正常落库），但 ① 上下文回退确认提示（含续体）只挂在 ViewModel 上 → 用户先离开、请求后失败时无人应答且无超时 → **请求协程永久挂起**（重进显示"正在连接"、只能点停止）；② 收尾按 `conversationId` 清理，过期轮次会清空新一轮状态与锚点、并可能误删新会话；③ 同一会话可重复入栈产生两个 VM 互相取消；④ 重进会话不恢复实时 Key 报错明细（暂停正文丢失连接异常记录） | ① 提示提升到 `ChatGenerationManager.ActiveSession`（`answerContextFallbackPrompt`），重进会话转发该流并优先由会话应答，`markFinished()` 统一清理，另加 `withTimeoutOrNull(300s)` 兜底（超时按既有默认 FALLBACK 放行）；`stopGeneration` 两处都应答。② 新增 `isCurrentSession` 与 CAS 语义 `removeSession(id, session)`，三处收尾先判身份再回写 VM 状态。③ `MainActivity` 六处 `chat/` 导航补 `launchSingleTop = true`。④ 新增会话级 `keyAttemptErrors`，回调同步写入、挂载时恢复、停止时优先读会话 |
+
+## 三、构建与验证复核清单
+- [x] `compileDebugKotlin --no-daemon`：Exit Code 0
+- [x] `testDebugUnitTest --no-daemon`：Exit Code 0（74 个测试文件，**495 项全通、0 失败**，含更新后的热力看板 14 × 6 断言）
+- [x] `lintDebug --no-daemon`：Exit Code 0
+- [x] `git diff --check`：Exit Code 0
+- [x] `assembleRelease --no-daemon`：Exit Code 0
+- [x] APK：`Echo-v2.6.8.apk`，16,700,269 字节 (~15.93 MB)，SHA256 `2A535BAD06B507FA8DCF7A6CE2907B2828AD37D4E0C8F6995F10AFEBCF884C9C`
+- [x] 签名校验：`apksigner verify --print-certs` 通过，证书 CN=Android Debug（**非正式生产签名**），证书 SHA-256 `939638f6d3e9af7f8a980e62af52d275fee73381f2130cc4e20a0d349f98e21f`，与 v2.6.7/v2.6.6 完全一致，支持覆盖升级
+- [x] 历史版本完整性：`D:\Agent\APP-Echo\app\releases` 历史安装包 100% 完整保留，本次为唯一定名增量输出（复制而非移动，全程未执行任何删除）
+
+## 四、人工验收步骤（无真机，未执行安装/启动验证）
+1. **需求 1**：新会话发送消息后静置等待。连接满 30s 出现「连接时间较长，正在等待…（已等待 Ns）」时，屏幕**不得整体上移**；若触发重连（计时归零、提示淡出后再出现）同样不得移动；逐秒刷新期间视口稳定；等待超过 120s 时胶囊内出现「响应耗时较长…」多行状态，气泡只向下长高，**屏幕不应整体上滑**（末项仍在视口内时不跟随）。切系统「移除动画」后应为直接切换可见性，仍不移动。
+2. **需求 6**：触发一次带重试原因的连接（多 Key 场景）或长状态文案，胶囊显示多行 → 点击胶囊应收成**单行**（可横向滑动看全），再点回到多行；全程胶囊左侧模型状态图标应始终贴胶囊**顶部**，不出现垂直居中。
+3. **需求 5**：点击模型回复右下角「⋮」→ 弹出菜单背景应颜色均匀（背后聊天内容不透出）、圆角外缘无黑色阴影；在浅色与深色主题、深浅背景下各查一次。另可在首页卡片菜单/输入栏「+」菜单/模型选择器复看（同一组件）。
+4. **需求 2**：进入使用统计 → ① 点「模型」下拉，任一长模型名可左右拖动查看全名，右侧勾号位置不变；② 单选一个长名模型，胶囊上的模型名可左右拖动，右对齐排版不变；③ 切到「模型占比」环形图，图例长模型名可左右拖动，右侧数值不动；④ 模型统计明细中的模型名可左右拖动，右侧 Token 总量贴右不动。
+5. **需求 3**：使用统计页切换全部 8 个时间范围（1小时/4小时/8小时/1天/3天/7天/30天/90天），请求健康时间线始终为 14 列 × 6 行、整体高度不变；点选任一方格仍能弹出该时段明细。
+6. **需求 4**：
+   - 发送消息进入连接/回复中 → 返回首页停留 30s 以上 → 再进入该会话：回复应已继续/完成并落库，不应出现「正在连接」卡死；输入框不应一直是「停止」；
+   - 连接中直接点「停止」后立刻重新发送：新一轮回复不应中途消失，发送按钮不应在生成中变回「发送」；
+   - 若弹出过「上下文超限/空响应」确认框：在框出现时返回首页再进入该会话，弹窗应重新出现并可正常选择（不会永久卡住）；
+   - 触发多 Key 连接失败（实时报错明细出现）后返回首页再进入该会话：明细应仍在；此时点停止，落库的「回复已暂停」正文应包含完整的 Key 报错记录；
+   - 连续快速点两次同一会话卡片：只应进入一个对话页（不产生重复页面），生成不被互相取消。
+
+---
+
 # Echo v2.6.7 构建走查与验收报告 (Walkthrough)
 
 ## 一、本次构建与需求概述
