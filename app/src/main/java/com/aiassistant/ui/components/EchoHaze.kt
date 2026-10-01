@@ -510,10 +510,7 @@ fun EchoGlassDropdownMenu(
                 exit = fadeOut(com.aiassistant.ui.theme.EchoMotion.tweenSpec(com.aiassistant.ui.theme.EchoMotion.Duration.fast))
             ) {
                 Surface(
-                    modifier = Modifier
-                        .widthIn(min = 160.dp, max = 280.dp)
-                        .width(IntrinsicSize.Max)
-                        .then(modifier),
+                    modifier = modifier,
                     shape = menuShape,
                     color = containerColor,
                     contentColor = colors.onSurface,

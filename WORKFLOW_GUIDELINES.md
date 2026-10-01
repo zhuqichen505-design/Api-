@@ -41,6 +41,20 @@
 
 ## 二、最近一次执行记录
 
+### [2026-10-01] v2.7.0 紧急修复：消除卡顿与闪退、彻底根除消息流自激死循环、菜单测量与冷启动深度性能优化（发版）
+- **需求**：更新新版本（v2.6.9）后软件非常卡顿，还会出现闪退现象。修复并构建 APK。
+- **版本**：versionCode 166 / versionName 2.7.0 / Room v32（无 DB 变更）。
+- **实现要点**：
+  ① 彻底移除 `updateMessageModelMap` 遍历过程中的所有写库操作，其唯一职责严格限制为更新内存中的 `_messageModelMap` 状态供 UI 渲染；
+  ② 增加 Fast-path 检查：若所有 assistant 消息已解析或已在内存 Map 中，直接快速返回，0 协程开销，0 数据库查询开销，打字与流式生成彻底恢复丝滑；
+  ③ 引入 `hasBackfilledHistoricalModelNames`（`AtomicBoolean`）单例保护机制：仅在进入会话时由独立后台协程静默执行**至多一次**历史旧消息的持久化回填，执行完毕后标志恒为 true，彻底切断 `Flow 监听 -> 写库 -> InvalidationTracker -> 重新发射` 的死循环链条；
+  ④ `EchoHaze.kt` 外层 `Surface` 恢复只接收调用方传入的 `modifier`；仅在内层 `Column` 遵循 Material 3 官方推荐规范施加单层 `.widthIn(min = 160.dp, max = 280.dp).width(IntrinsicSize.Max)`，既维持回复三点菜单美观自适应不撑满全屏，又杜绝多次遍历卡顿与测量崩溃；
+  ⑤ `AiAssistantApp.kt` 冷启动自动备份移入 `applicationScope.launch(Dispatchers.IO)` 异步执行，主线程零阻塞，冷启动秒开；`BackupManager.kt` 中的 WAL Checkpoint 补充 `use { it.moveToFirst() }` 确保游标安全执行与关闭。
+- **文件**：`ChatViewModel.kt`、`EchoHaze.kt`、`AiAssistantApp.kt`、`BackupManager.kt`、`MemoryAndCompressionEngineTest.kt`、`app/build.gradle.kts` 及文档。
+- **验证**：compile/test（74 文件 499 项全通、0 失败）/lint/diff --check 全部 Exit Code 0；assembleRelease Exit Code 0，`Echo-v2.7.0.apk`（16,700,269 字节，SHA256 `EA7E5035EB3A6C6C3832E110C51E9FD08E5757A30337AE9750B83F2D43BA9034`，CN=Android Debug **非正式生产签名**，证书与历史版本一致）；历史包 100% 完整保留（共 177 个）。
+- **未执行**：真机安装/启动验证（无设备），已给人工验收步骤（见 walkthrough.md v2.7.0 节）。
+- **详情**：见 `UPDATE_LOG.md` 与 `walkthrough.md`。
+
 ### [2026-10-01] v2.6.9 会话专属设定备份与智能导入合并 + 菜单左右填铺满统一修复 + 输出中断思考与回复强制入库保全 + 思考胶囊文字垂直居中 + 思考胶囊模型名字物理固化（发版）
 - **需求**：① 备份只备份时间线未备份会话专属设定，恢复后缺少专属设定且被视为新对话无法导入原有对话；② 点击回复下方三点弹出菜单左右填铺满统一修复；③ 模型已输出思考或部分回复时中断保全入库严禁覆盖；④ 思考胶囊文字垂直居中；⑤ 思考胶囊模型名字物理固化与隔离。构建 APK。
 - **版本**：versionCode 165 / versionName 2.6.9 / Room v32（新增 MIGRATION_31_32，`messages` 表增加 `modelName TEXT`）。

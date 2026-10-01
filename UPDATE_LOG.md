@@ -2,6 +2,36 @@
 
 本文档按照工作流规范记录每次版本更新、需求变更与复核结果。
 
+## [2026-10-01] - v2.7.0 紧急修复：彻底解决更新后界面卡顿与闪退故障、消除 Flow 消息监听自激死循环、优化菜单单层测量、冷启动异步自动备份
+
+### 1. 用户反馈
+更新新版本（v2.6.9）后软件非常卡顿，还会出现闪退现象。请修复并构建 APK。
+
+### 2. 临时实施方案与根因修复
+1. **彻底根除 `ChatViewModel` 内部消息流监听中写库引发的自激死循环（Infinite Invalidation Loop）与 OOM/锁耗尽闪退**：
+   - **故障根因**：v2.6.9 中为给历史未持久化 `modelName` 的消息打补丁，在 `getMessages(conversationId).collect` 接收回调中调用了 `updateMessageModelMap`，而 `updateMessageModelMap` 遍历 `messageList` 时若发现 `msg.modelName.isNullOrBlank()` 即调用 `repository.updateMessageModelName(msg.id, model)` 更新数据库。Room 检测到底层表被 UPDATE，立即通知 Flow 重新发射新列表，新列表再次进入 `collect` 并再次触发遍历和更新。对于有多条历史 assistant 消息的会话，这触发了指数级级联的并发写入死循环与协程风暴，并发抢占 SQLite 写入锁导致 `SQLiteDatabaseLockedException`、ANR 强杀或 OOM 闪退；同时每次收到 token 都会执行 `getUsageStatsListByTimeRange` 全表扫描查全量统计，CPU 飙升 100%，UI 极度卡死。
+   - **修复措施**：
+     ① 彻底移除 `updateMessageModelMap` 遍历过程中的所有写库操作，其唯一职责严格限制为更新内存中的 `_messageModelMap` 状态供 UI 渲染；
+     ② 增加 Fast-path 检查：若所有 assistant 消息已解析或已在内存 Map 中，直接快速返回，0 协程开销，0 数据库查询开销，打字与流式生成彻底恢复丝滑；
+     ③ 引入 `hasBackfilledHistoricalModelNames`（`AtomicBoolean`）单例保护机制：仅在进入会话时由独立后台协程静默执行**至多一次**历史旧消息的持久化回填，执行完毕后标志恒为 true，彻底切断 `Flow 监听 -> 写库 -> InvalidationTracker -> 重新发射` 的死循环链条。
+2. **优化 `EchoGlassDropdownMenu`（`EchoHaze.kt`）的测量约束，消除双重 Intrinsic 测量卡顿与测量异常崩溃**：
+   - **故障根因**：外层 `Surface` 和内层 `Column` 同时被施加了 `Modifier.width(IntrinsicSize.Max).widthIn(min = 160.dp, max = 280.dp)`，形成双重 Intrinsic 测量嵌套，使 Compose 测量 pass 膨胀为 4 次全子树遍历，在长文本与嵌套滚动下产生明显弹出卡顿；且部分子项在特定测量环境下易抛出 `IllegalStateException` 导致弹窗闪退。
+   - **修复措施**：外层 `Surface` 恢复只接收调用方传入的 `modifier`；仅在内层 `Column` 遵循 Material 3 官方推荐规范施加单层 `.widthIn(min = 160.dp, max = 280.dp).width(IntrinsicSize.Max)`，既维持回复三点菜单美观自适应不撑满全屏，又杜绝多次遍历卡顿与测量崩溃。
+3. **应用冷启动自动备份异步化（`AiAssistantApp.kt` & `BackupManager.kt`）**：
+   - **故障根因**：`AiAssistantApp.onCreate()` 在主线程同步调用 `BackupManager.autoBackup(this)`，其内部执行了 WAL Checkpoint 与整库压缩，阻塞主线程冷启动并极易引发数据库锁冲突。
+   - **修复措施**：将 `autoBackup` 移入 `applicationScope.launch(Dispatchers.IO)` 异步执行，主线程零阻塞，冷启动秒开；`BackupManager.kt` 中的 WAL Checkpoint 补充 `use { it.moveToFirst() }` 确保游标安全执行与关闭。
+
+### 3. 验证结果
+- `./gradlew.bat compileDebugKotlin --no-daemon` Exit Code 0
+- `./gradlew.bat testDebugUnitTest --no-daemon` Exit Code 0（74 个测试文件，**499 项全通**，0 失败；新增原子回填防死循环保护测试）
+- `./gradlew.bat lintDebug --no-daemon` Exit Code 0
+- `git diff --check` Exit Code 0
+- `./gradlew.bat assembleRelease --no-daemon` Exit Code 0
+- APK：`D:\Agent\APP-Echo\app\releases\Echo-v2.7.0.apk`，16,700,269 字节 (~15.93 MB)，SHA256 `EA7E5035EB3A6C6C3832E110C51E9FD08E5757A30337AE9750B83F2D43BA9034`，`apksigner verify --print-certs` 通过（CN=Android Debug，**非正式生产签名**）
+- 发布目录历史安装包完整保留（共 177 个安装包，无任何删除或覆盖）。
+
+---
+
 ## [2026-10-01] - v2.6.9 会话专属设定备份与智能导入恢复、菜单左右填铺满统一修复、输出中断思考与回复强制入库保全、思考胶囊文字垂直居中、思考胶囊模型名字物理固化
 
 ### 1. 用户需求

@@ -2964,16 +2964,34 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
         }
     }
 
+    private val hasBackfilledHistoricalModelNames = java.util.concurrent.atomic.AtomicBoolean(false)
+
     private fun updateMessageModelMap(messageList: List<Message>) {
+        val assistantMsgs = messageList.filter { it.role == "assistant" }
+        if (assistantMsgs.isEmpty()) return
+
+        val currentMap = _messageModelMap.value
+        // Fast-path 快速检查：如果所有 assistant 消息都已经在 currentMap 中，或者都有 modelName，无需全量查库
+        val needResolution = assistantMsgs.filter { msg ->
+            msg.modelName.isNullOrBlank() && !currentMap.containsKey(msg.id) && !currentMap.containsKey(msg.createdAt)
+        }
+
+        if (needResolution.isEmpty()) {
+            // 没有需要反查的旧消息，尝试一次性静默后台回填（受 AtomicBoolean 保护，全局仅执行一次，绝不在 Flow 监听中无限循环）
+            triggerHistoricalModelNameBackfillOnce(assistantMsgs)
+            return
+        }
+
         viewModelScope.launch {
             val stats = repository.getUsageStatsListByTimeRange(0, System.currentTimeMillis())
             val defaultModel = conversation?.modelName.orEmpty()
-            val currentMap = _messageModelMap.value.toMutableMap()
+            val newMap = _messageModelMap.value.toMutableMap()
             var changed = false
 
-            messageList.filter { it.role == "assistant" }.forEach { msg ->
+            assistantMsgs.forEach { msg ->
                 val model = msg.modelName?.ifBlank { null }
-                    ?: currentMap[msg.id]
+                    ?: newMap[msg.id]
+                    ?: newMap[msg.createdAt]
                     ?: stats.filter {
                         Math.abs(it.timestamp - msg.createdAt) < 15000L ||
                         (it.responseTime > 0 && it.responseTime == msg.responseTime)
@@ -2982,18 +3000,45 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                     ?: defaultModel.ifBlank { null }
 
                 if (!model.isNullOrBlank()) {
-                    if (currentMap[msg.id] != model || currentMap[msg.createdAt] != model) {
-                        currentMap[msg.id] = model
-                        currentMap[msg.createdAt] = model
+                    if (newMap[msg.id] != model || newMap[msg.createdAt] != model) {
+                        newMap[msg.id] = model
+                        newMap[msg.createdAt] = model
                         changed = true
-                    }
-                    if (msg.modelName.isNullOrBlank() && msg.id > 0) {
-                        repository.updateMessageModelName(msg.id, model)
                     }
                 }
             }
             if (changed) {
-                _messageModelMap.value = currentMap
+                _messageModelMap.value = newMap
+            }
+
+            // 内存映射建立完毕后，尝试触发一次性静默后台持久化回填
+            triggerHistoricalModelNameBackfillOnce(assistantMsgs)
+        }
+    }
+
+    private fun triggerHistoricalModelNameBackfillOnce(assistantMsgs: List<Message>) {
+        // 使用原子布尔确保每个 ChatViewModel 生命周期内至多执行一次回填，彻底杜绝 Flow 级联死循环
+        if (!hasBackfilledHistoricalModelNames.compareAndSet(false, true)) return
+
+        val msgsToBackfill = assistantMsgs.filter { it.modelName.isNullOrBlank() && it.id > 0 }
+        if (msgsToBackfill.isEmpty()) return
+
+        // 在独立后台协程中轻量静默写入，不阻塞主线程与 Flow 收集器
+        viewModelScope.launch(Dispatchers.IO) {
+            val currentMap = _messageModelMap.value
+            val defaultModel = conversation?.modelName.orEmpty()
+            msgsToBackfill.forEach { msg ->
+                val model = currentMap[msg.id]
+                    ?: currentMap[msg.createdAt]
+                    ?: runtimeMessageModelMap[msg.createdAt]
+                    ?: defaultModel.ifBlank { null }
+                if (!model.isNullOrBlank()) {
+                    try {
+                        repository.updateMessageModelName(msg.id, model)
+                    } catch (e: Exception) {
+                        // 忽略偶发的并发写入异常，不影响会话使用
+                    }
+                }
             }
         }
     }

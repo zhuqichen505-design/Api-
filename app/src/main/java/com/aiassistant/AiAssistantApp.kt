@@ -12,6 +12,7 @@ import com.aiassistant.utils.ThemePreferenceManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 class AiAssistantApp : Application() {
     val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -53,11 +54,13 @@ class AiAssistantApp : Application() {
         echoToolHub = com.aiassistant.tools.EchoToolHub(this, cryptoManager, tavilySearchManager)
         themePreferenceManager = ThemePreferenceManager(this)
 
-        // 先尝试自动备份
-        try {
-            BackupManager.autoBackup(this)
-        } catch (e: Exception) {
-            Log.w("AiAssistantApp", "Auto backup failed", e)
+        // 异步尝试自动备份（避免主线程阻塞与冷启动卡顿）
+        applicationScope.launch(Dispatchers.IO) {
+            try {
+                BackupManager.autoBackup(this@AiAssistantApp)
+            } catch (e: Exception) {
+                Log.w("AiAssistantApp", "Auto backup failed", e)
+            }
         }
 
         // 初始化数据库

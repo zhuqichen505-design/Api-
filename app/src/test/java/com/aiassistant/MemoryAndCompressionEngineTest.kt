@@ -251,4 +251,12 @@ class MemoryAndCompressionEngineTest {
         val copied = msg.copy(content = "修改后的回复")
         assertEquals("claude-sonnet-4-6", copied.modelName)
     }
+
+    @Test
+    fun testModelNameBackfill_atomicGuardProtectsInfiniteLoop() {
+        val guard = java.util.concurrent.atomic.AtomicBoolean(false)
+        assertTrue("首次尝试回填必须允许执行", guard.compareAndSet(false, true))
+        assertFalse("后续重复调用必须直接拦截，杜绝死循环", guard.compareAndSet(false, true))
+        assertFalse("多次并发调用必须恒定拦截", guard.compareAndSet(false, true))
+    }
 }

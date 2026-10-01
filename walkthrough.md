@@ -1,3 +1,41 @@
+# Echo v2.7.0 构建走查与验收报告 (Walkthrough)
+
+## 一、本次构建与需求概述
+- **发布版本**：v2.7.0 (`versionCode: 166`)
+- **构建类型**：Release APK
+- **交付目标文件**：`D:\Agent\APP-Echo\app\releases\Echo-v2.7.0.apk`
+- **核心内容**：紧急修复更新后严重卡顿与闪退故障、消除 Flow 消息监听自激死循环、优化菜单单层测量、冷启动异步自动备份。
+
+## 二、根因走查与修复要点
+| 项 | 根因 | 修复 |
+| :--- | :--- | :--- |
+| **会话卡顿、冻屏与闪退（核心故障）** | v2.6.9 在 `ChatViewModel.init` 的 `getMessages.collect` 回调中调用了 `updateMessageModelMap`，其内部遍历 assistant 消息时，若发现未存模型名即调用 `repository.updateMessageModelName` 更新数据库。Room 监听到 `messages` 表被修改，立即通知 Flow 重新查询发射新列表，新列表再次进入 `collect` 并再次触发遍历和更新，形成指数级并发写入死循环与协程风暴；抢占 SQLite 写入锁导致 `SQLiteDatabaseLockedException`、ANR 强杀或 OOM 闪退；流式传输时每次 token 触发全表扫描查所有历史统计，CPU 飙升 100% | ① 彻底移除 `updateMessageModelMap` 遍历过程中的所有写库操作，其唯一职责严格限制为更新内存中的 `_messageModelMap` 供 UI 渲染；② 增加 Fast-path 检查：若所有 assistant 消息已解析或已在内存 Map 中，直接快速返回，0 协程开销，0 数据库查询开销，打字与流式生成恢复极致丝滑；③ 引入 `hasBackfilledHistoricalModelNames`（`AtomicBoolean`）单例保护机制：仅在进入会话时由独立后台协程静默执行**至多一次**历史旧消息的持久化回填，执行完毕后标志恒为 true，彻底切断 `Flow 监听 -> 写库 -> InvalidationTracker -> 重新发射` 的死循环链条 |
+| **菜单测量卡顿与测量崩溃风险** | `EchoHaze.kt` 中外层 `Surface` 和内层 `Column` 同时被施加了 `Modifier.width(IntrinsicSize.Max).widthIn(min = 160.dp, max = 280.dp)`，双重 Intrinsic 测量嵌套使测量 pass 膨胀为 4 次全子树遍历，造成明显弹出延迟；特定子项在复杂布局下易抛出 `IllegalStateException` 崩溃 | 外层 `Surface` 恢复只接收调用方传入的 `modifier`；仅在内层 `Column` 遵循 Material 3 官方推荐规范施加单层 `.widthIn(min = 160.dp, max = 280.dp).width(IntrinsicSize.Max)`，既维持回复三点菜单美观自适应不撑满全屏，又杜绝多次遍历卡顿与测量崩溃 |
+| **应用冷启动卡顿** | `AiAssistantApp.onCreate()` 在主线程同步调用 `BackupManager.autoBackup(this)`，其内部执行了 WAL Checkpoint 与整库压缩，阻塞主线程冷启动并极易引发数据库锁冲突 | 将 `autoBackup` 移入 `applicationScope.launch(Dispatchers.IO)` 异步执行，主线程零阻塞，冷启动秒开；`BackupManager.kt` 中的 WAL Checkpoint 补充 `use { it.moveToFirst() }` 确保游标安全执行与关闭 |
+
+## 三、构建与验证复核清单
+- [x] `compileDebugKotlin --no-daemon`：Exit Code 0
+- [x] `testDebugUnitTest --no-daemon`：Exit Code 0（74 个测试文件，**499 项全通、0 失败**，新增原子回填防死循环保护测试）
+- [x] `lintDebug --no-daemon`：Exit Code 0
+- [x] `git diff --check`：Exit Code 0
+- [x] `assembleRelease --no-daemon`：Exit Code 0
+- [x] APK：`Echo-v2.7.0.apk`，16,700,269 字节 (~15.93 MB)，SHA256 `EA7E5035EB3A6C6C3832E110C51E9FD08E5757A30337AE9750B83F2D43BA9034`
+- [x] 签名校验：`apksigner verify --print-certs` 通过，证书 CN=Android Debug（**非正式生产签名**），证书 SHA-256 `939638f6d3e9af7f8a980e62af52d275fee73381f2130cc4e20a0d349f98e21f`，与历史版本完全一致，支持直接平滑覆盖升级
+- [x] 历史版本完整性：`D:\Agent\APP-Echo\app\releases` 历史安装包 100% 完整保留（共 177 个安装包），本次为唯一定名增量输出（复制而非移动，全程未执行任何删除）
+
+## 四、人工验收步骤（无真机，未执行安装/启动验证）
+1. **冷启动与流畅度验收**：
+   - 安装覆盖新版本（`Echo-v2.7.0.apk`）后启动应用，观察启动闪屏后秒进首页，不再卡顿或冻结；
+   - 连续点击进入包含数十条历史回复的长对话，界面瞬时加载，上下滚动丝滑顺畅（60fps/120fps），不再出现任何掉帧、白屏、ANR 或闪退。
+2. **对话生成与打字流畅度验收**：
+   - 在输入框中输入长段文字并发送，观察流式输出过程中界面响应灵敏，CPU 占用与发热正常，输入框焦点稳定不丢失；
+   - 点击停止回复或中断生成，思考链与回复内容完整保留，不会触发后台循环写库。
+3. **操作菜单与胶囊显示验收**：
+   - 点击回复下方三点图标「⋮」，菜单迅速弹出（无任何卡顿延迟），自适应宽度收敛在 160dp~280dp 之间；
+   - 思考胶囊内部文字依然保持精准垂直居中，模型名称清晰显示发起本条回复的模型，不随顶部切换而改变。
+
+---
+
 # Echo v2.6.9 构建走查与验收报告 (Walkthrough)
 
 ## 一、本次构建与需求概述

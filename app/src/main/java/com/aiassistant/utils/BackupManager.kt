@@ -57,9 +57,11 @@ object BackupManager {
 
             // 备份前主动触发 WAL Checkpoint，确保所有未落盘的会话设定、记忆与消息写入主数据库文件
             try {
-                AppDatabase.getDatabase(context).openHelper.writableDatabase.query("PRAGMA wal_checkpoint(FULL)").close()
+                AppDatabase.getDatabase(context).openHelper.writableDatabase.query("PRAGMA wal_checkpoint(FULL)").use {
+                    it.moveToFirst()
+                }
             } catch (e: Exception) {
-                // Ignore if db not opened yet
+                // Ignore if db not opened yet or busy
             }
 
             ZipOutputStream(FileOutputStream(backupFile)).use { zip ->
