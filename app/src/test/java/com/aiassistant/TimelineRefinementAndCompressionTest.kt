@@ -273,9 +273,13 @@ class TimelineRefinementAndCompressionTest {
             nodes = dummyNodes,
             currentStoryTime = "第 1 天·上午"
         )
-        assertTrue("必须包含时空主动推进与防停滞铁律", prompt.contains("时空主动推进与防停滞铁律"))
+        // v2.7.1：防停滞指令由“主动推进”收敛为“默认守时 + 明确描写才推进 + 单步顺延”，
+        // 防篡改与基准点语义保持不变
+        assertTrue("必须包含时空自然推进与防篡改铁律", prompt.contains("时空自然推进与防篡改铁律"))
         assertTrue("必须指明当前时空仅为基准点而非永恒固化", prompt.contains("仅代表本轮交互开始时的基准时空，绝非永恒固化的时间"))
-        assertTrue("必须要求主动推进时间流逝", prompt.contains("主动描写并推进时间的流逝"))
+        assertTrue("必须默认保持当前时段，不得主动冒进", prompt.contains("默认保持当前时段不变"))
+        assertTrue("必须约束单轮至多顺延一个相邻时段", prompt.contains("单轮至多推进一个相邻时段"))
+        assertTrue("必须严禁跳跃式推进", prompt.contains("严禁跳跃式推进"))
     }
 
     // 11. 拦截用户输入与指令误当事件测试（问题 1）

@@ -41,6 +41,20 @@
 
 ## 二、最近一次执行记录
 
+### [2026-10-02] v2.7.1 时间线提示自动消失、流式动画防抖、消息仅编辑、时间线时间理解与过度推进治理、旧报错残留修复（发版）
+- **需求**：① 时间线变动提示弹窗显示几秒后自动消失；② 流式输出动画与思考胶囊有时突然变大/变小造成屏幕错误滑动一小段；③ 用户消息"仅编辑"（只改显示内容不重新提问）；④ 时间线优化（a 有完整时间线仍时间记忆错误；b 模型过度执着推进时间）；⑤（过程中追加）报错后重新生成/重发直接弹出过往报错。构建 APK。
+- **版本**：versionCode 167 / versionName 2.7.1 / Room v32（无 DB 变更）。
+- **实现要点**：
+  ① `ChatScreen.kt` 对 `timelineUpdateNotice` 加 `LaunchedEffect` 5 秒自动消失；
+  ② 胶囊 `AnimatedContent` 显式 `SizeTransform { _,_ -> snap() }` 禁用内层尺寸动画（只留外层 `animateContentSize`）；连接提示槽改 `AnimatedVisibility(fade+expand/shrink)` 平滑出入场；滚动钉底逻辑未动；
+  ③ `MessageBubble`/`MessageFooter` 新增 `onEditInPlace` + 用户菜单"仅修改内容"项 + `ChatScreen` 编辑对话框；`editAssistantMessage` 更名 `updateMessageContent`（仅改 content，与角色无关）；
+  ④ `RoleplayRepository` 修复把 `currentPlotSummary` 当故事时间注入的真 bug（改 `conversation.currentStoryTime` → 会话记忆回退）；两处注入 prompt 新增【时间记忆权威声明】并把"主动推进"收敛为"默认守时 + 明确描写才顺延 + 单轮至多一个相邻时段"；评估 prompt 新增【默认守时与单步推进铁律】；`TimelineMemoryHelper` 新增 `hasExplicitTimePassageDescription`/`isUnreasonableStoryTimeJump`，`AiRepository` 增设第二道守卫，本地兜底 `detectAutoStoryTimeAdvancement` 多步顺延需描写依据；
+  ⑤ `ChatViewModel` 五个流式回调补 `isCurrentSession` 守卫、启动块显式清 `_reconnectStatus` 并 `cancelActiveRequest` 取消残留调用、四处 `saveErrorReply` 调用点补 `isStillCurrentRound` 守卫。
+- **文件**：`ChatScreen.kt`、`ChatMessageComponents.kt`、`ChatViewModel.kt`、`TimelineMemoryHelper.kt`、`AiRepository.kt`、`RoleplayRepository.kt`、`TimelineNaturalTimeTest.kt`（+3 项）、`TimelineRefinementAndCompressionTest.kt`（防停滞断言随指令收敛同步更新）、`app/build.gradle.kts` 及文档。
+- **验证**：compile/test（74 文件 502 项全通、0 失败）/lint/diff --check 全部 Exit Code 0；assembleRelease Exit Code 0，`Echo-v2.7.1.apk`（16,700,269 字节，SHA256 `89ACABC79B0483312FFE8ADFA63FD512CFBFB4D7FEC6581AC76C9FA66862FA9A`，CN=Android Debug **非正式生产签名**，证书与历史版本一致）；历史包 100% 完整保留（共 178 个）。
+- **未执行**：真机安装/启动验证（无设备），已给人工验收步骤（见 walkthrough.md v2.7.1 节）。
+- **详情**：见 `UPDATE_LOG.md` 与 `walkthrough.md`。
+
 ### [2026-10-01] v2.7.0 紧急修复：消除卡顿与闪退、彻底根除消息流自激死循环、菜单测量与冷启动深度性能优化（发版）
 - **需求**：更新新版本（v2.6.9）后软件非常卡顿，还会出现闪退现象。修复并构建 APK。
 - **版本**：versionCode 166 / versionName 2.7.0 / Room v32（无 DB 变更）。

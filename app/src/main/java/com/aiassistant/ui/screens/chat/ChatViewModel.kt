@@ -892,7 +892,11 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
         }
     }
 
-    fun editAssistantMessage(messageId: Long, newContent: String) {
+    /**
+     * 仅修改一条消息的内容（用户/助手消息通用）：不删除后续消息、不重新发送、不触发重新生成。
+     * 修改后的内容会作为该消息的持久化内容参与后续上下文组装。
+     */
+    fun updateMessageContent(messageId: Long, newContent: String) {
         viewModelScope.launch {
             val target = _messages.value.firstOrNull { it.id == messageId } ?: return@launch
             val updated = target.copy(content = newContent)
@@ -1117,10 +1121,15 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
 
         generationJob = AiAssistantApp.instance.applicationScope.launch {
             session.generationJob = coroutineContext[Job]
+            // 重新生成/重发必须是一次全新的连接尝试：启动前取消上一轮可能仍阻塞在
+            // HTTP 读取中的残留调用（startSession 只取消了旧 Job，阻塞中的 call 不受影响），
+            // 并彻底清空上一轮错误状态，防止旧轮次报错在新一轮开头被原样弹出
+            repository.cancelActiveRequest(conversationId)
             _isGenerating.value = true
             _currentResponse.value = ""
             _currentThinking.value = ""
             _error.value = null
+            _reconnectStatus.value = null
             currentKeyAttemptErrors.clear()
             _keyAttemptErrors.value = emptyList()
             session._keyAttemptErrors.value = emptyList()
@@ -1204,39 +1213,51 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                         assistantVariantGroupId = assistantVariantGroupId,
                         assistantVariantIndex = assistantVariantIndex,
                         onToken = { token ->
-                            // 连接已恢复（首个正文 token 到达）：清掉过期的实时失败明细，避免成功流式后残留
-                            if (session.currentResponse.value.isBlank() && _keyAttemptErrors.value.isNotEmpty()) {
-                                _keyAttemptErrors.value = emptyList()
-                                session._keyAttemptErrors.value = emptyList()
+                            // 上一轮已由新一轮取代时（isCurrentSession=false），其残留回调不得回写 ViewModel 状态，
+                            // 否则旧轮次的报错/内容会污染新一轮显示（v2.6.8 需求 4 同款守卫，覆盖流式全程）
+                            if (ChatGenerationManager.isCurrentSession(conversationId, session)) {
+                                // 连接已恢复（首个正文 token 到达）：清掉过期的实时失败明细，避免成功流式后残留
+                                if (session.currentResponse.value.isBlank() && _keyAttemptErrors.value.isNotEmpty()) {
+                                    _keyAttemptErrors.value = emptyList()
+                                    session._keyAttemptErrors.value = emptyList()
+                                }
+                                session.appendResponse(token)
+                                _currentResponse.value = session.currentResponse.value
                             }
-                            session.appendResponse(token)
-                            _currentResponse.value = session.currentResponse.value
                         },
                         onThinkingToken = { token ->
-                            // 思考 token 同样代表连接已建立
-                            if (session.currentThinking.value.isBlank() && _keyAttemptErrors.value.isNotEmpty()) {
-                                _keyAttemptErrors.value = emptyList()
-                                session._keyAttemptErrors.value = emptyList()
+                            if (ChatGenerationManager.isCurrentSession(conversationId, session)) {
+                                // 思考 token 同样代表连接已建立
+                                if (session.currentThinking.value.isBlank() && _keyAttemptErrors.value.isNotEmpty()) {
+                                    _keyAttemptErrors.value = emptyList()
+                                    session._keyAttemptErrors.value = emptyList()
+                                }
+                                session.appendThinking(token)
+                                _currentThinking.value = session.currentThinking.value
                             }
-                            session.appendThinking(token)
-                            _currentThinking.value = session.currentThinking.value
                         },
                         onStatusUpdate = { status ->
-                            session.setStatus(status)
-                            _reconnectStatus.value = status
+                            if (ChatGenerationManager.isCurrentSession(conversationId, session)) {
+                                session.setStatus(status)
+                                _reconnectStatus.value = status
+                            }
                         },
                         onKeyAttemptError = { keyIndex, keyMasked, errorMsg ->
                             // v2.6.8 需求 4：明细同时写入 Application 级会话，重进会话后仍可恢复显示
                             // （用户暂停时也能完整写进回复正文）
-                            val line = "Key #$keyIndex ($keyMasked)：$errorMsg"
-                            currentKeyAttemptErrors.add(line)
-                            session._keyAttemptErrors.update { it + line }
-                            _keyAttemptErrors.value = session.keyAttemptErrors.value
+                            if (ChatGenerationManager.isCurrentSession(conversationId, session)) {
+                                val line = "Key #$keyIndex ($keyMasked)：$errorMsg"
+                                currentKeyAttemptErrors.add(line)
+                                session._keyAttemptErrors.update { it + line }
+                                _keyAttemptErrors.value = session.keyAttemptErrors.value
+                            }
                         },
                         onResetBuffer = {
-                            session.resetBuffer()
-                            _currentResponse.value = ""
-                            _currentThinking.value = ""
+                            if (ChatGenerationManager.isCurrentSession(conversationId, session)) {
+                                session.resetBuffer()
+                                _currentResponse.value = ""
+                                _currentThinking.value = ""
+                            }
                         },
                         onComplete = { replyContent, _, _ ->
                             slowTimeoutJob.cancel()
@@ -1279,7 +1300,9 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
 
                             if (hasPartialContent) {
                                 // 需求 3：只要模型已经输出思考或部分回复，不管是否中断/取消/关闭连接，必须 100% 入库保存
-                                if (session.isMessageSaved.compareAndSet(false, true)) {
+                                // （仅限当前轮次：被新一轮取代的旧轮次，其报错/残文不得再写进会话，
+                                // 否则表现为"重新生成后旧报错直接弹出"）
+                                if (isStillCurrentRound && session.isMessageSaved.compareAndSet(false, true)) {
                                     isMessageSaved = true
                                     session.setError(errorMsg)
                                     saveErrorReply(errorMsg, session, isUserStopping)
@@ -1301,7 +1324,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                                     _currentResponse.value = ""
                                     _currentThinking.value = ""
                                 }
-                            } else if (session.isMessageSaved.compareAndSet(false, true)) {
+                            } else if (isStillCurrentRound && session.isMessageSaved.compareAndSet(false, true)) {
                                 isMessageSaved = true
                                 session.setError(errorMsg)
                                 saveErrorReply(errorMsg, session, false)
@@ -1353,8 +1376,8 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                 val errorMsg = e.message ?: "未知错误"
 
                 if (hasPartialContent) {
-                    // 需求 3：异常分支同样 100% 抢救保存思考与正文
-                    if (session.isMessageSaved.compareAndSet(false, true)) {
+                    // 需求 3：异常分支同样 100% 抢救保存思考与正文（仅限当前轮次，旧轮次残文不得写回会话）
+                    if (isStillCurrentRound && session.isMessageSaved.compareAndSet(false, true)) {
                         isMessageSaved = true
                         session.setError(errorMsg)
                         saveErrorReply(errorMsg, session, isUserStopping)
@@ -1385,7 +1408,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                     _isGenerating.value = false
                     _generatingAnchor.value = null
                 }
-                if (session.isMessageSaved.compareAndSet(false, true)) {
+                if (isStillCurrentRound && session.isMessageSaved.compareAndSet(false, true)) {
                     isMessageSaved = true
                     session.setError(errorMsg)
                     saveErrorReply(errorMsg, session, false)

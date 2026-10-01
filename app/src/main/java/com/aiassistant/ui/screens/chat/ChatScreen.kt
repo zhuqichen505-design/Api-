@@ -269,6 +269,9 @@ fun ChatScreen(
     var editingQueueItem by remember { mutableStateOf<QueuedMessage?>(null) }
     var editingAssistantMessage by remember { mutableStateOf<Message?>(null) }
     var editingAssistantContent by remember { mutableStateOf("") }
+    // 用户消息“仅编辑”：只改显示内容，不重新发送、不重新生成
+    var editingUserMessage by remember { mutableStateOf<Message?>(null) }
+    var editingUserContent by remember { mutableStateOf("") }
 
     var lastStreamScrollAt by remember { mutableLongStateOf(0L) }
     val variantSelections = remember { mutableStateMapOf<String, Int>() }
@@ -971,6 +974,15 @@ fun ChatScreen(
                     }
                 }
 
+                // 时间线变动提示显示数秒后自动消失（退场由下方 AnimatedVisibility 平滑收起），
+                // 手动「查看/关闭」仍即时生效
+                LaunchedEffect(timelineUpdateNotice) {
+                    if (timelineUpdateNotice != null) {
+                        kotlinx.coroutines.delay(5000)
+                        viewModel.dismissTimelineUpdateNotice()
+                    }
+                }
+
                 // 时间线自动增量更新提醒胶囊
                 AnimatedVisibility(
                     visible = timelineUpdateNotice != null,
@@ -1368,6 +1380,12 @@ fun ChatScreen(
                                             editingAssistantContent = message.content
                                         }
                                     },
+                                    onEditInPlace = if (message.role == "user") {
+                                        {
+                                            editingUserMessage = message
+                                            editingUserContent = message.content
+                                        }
+                                    } else null,
                                     onDelete = {
                                         messagePendingDelete = message
                                     },
@@ -2186,12 +2204,79 @@ fun ChatScreen(
                     Button(
                         onClick = {
                             val msg = editingAssistantMessage ?: return@Button
-                            viewModel.editAssistantMessage(msg.id, editingAssistantContent)
+                            viewModel.updateMessageContent(msg.id, editingAssistantContent)
                             editingAssistantMessage = null
                         },
                         shape = RoundedCornerShape(999.dp)
                     ) {
                         Text("保存修改", maxLines = 1)
+                    }
+                }
+            }
+        )
+    }
+
+    // 用户消息“仅编辑”对话框：保存后只更新该消息显示的内容，不重新发送、不触发重新生成
+    if (editingUserMessage != null) {
+        EchoGlassDialog(
+            onDismissRequest = { editingUserMessage = null },
+            shape = EchoTokens.Radius.shapeXl,
+            title = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.EditNote, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("仅修改消息内容", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                }
+            },
+            content = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 6.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "只修改这条消息显示的内容：不会重新发送提问，不会删除或重新生成后续回复。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedTextField(
+                        value = editingUserContent,
+                        onValueChange = { editingUserContent = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 140.dp, max = 340.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = glassTextFieldColors(
+                            contentColor = MaterialTheme.colorScheme.onSurface,
+                            secondaryColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f)
+                        )
+                    )
+                }
+            },
+            buttons = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(onClick = { editingUserMessage = null }) {
+                        Text("取消", maxLines = 1)
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            val msg = editingUserMessage ?: return@Button
+                            viewModel.updateMessageContent(msg.id, editingUserContent)
+                            editingUserMessage = null
+                        },
+                        shape = RoundedCornerShape(999.dp)
+                    ) {
+                        Text("保存内容", maxLines = 1)
                     }
                 }
             }

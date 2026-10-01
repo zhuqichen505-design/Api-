@@ -374,8 +374,16 @@ class RoleplayRepository(
 
         val allRoleplayMemories = (pinnedFacts + sessionMemories).distinct()
         if (allRoleplayMemories.isNotEmpty()) {
+            // 时间线参照的“当前故事时间”必须是真实时间标签，严禁把剧情摘要 currentPlotSummary 当作时间注入
+            // （否则【故事当前时间节点】会变成一段摘要，模型的时间记忆随之错乱）。
+            // 优先取会话行上维护的 currentStoryTime，回退到会话记忆中的【当前故事时间】条目。
+            val conversationStoryTime = conversationDao?.getConversationById(session.conversationId)
+                ?.currentStoryTime?.takeIf { it.isNotBlank() && it != "未确定" }
+            val memoryStoryTime = sessionMemories
+                .firstOrNull { it.startsWith("【当前故事时间】：") || it.startsWith("当前故事时间：") }
+                ?.substringAfter("：")?.trim()?.takeIf { it.isNotBlank() }
             val timelineContext = TimelineMemoryHelper.buildTimelinePromptContext(
-                currentStoryTime = session.currentPlotSummary.takeIf { it.isNotBlank() },
+                currentStoryTime = conversationStoryTime ?: memoryStoryTime,
                 memoryContents = allRoleplayMemories
             )
             parts.add(timelineContext)

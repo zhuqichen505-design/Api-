@@ -1,5 +1,6 @@
 package com.aiassistant
 
+import com.aiassistant.domain.model.TimelineNode
 import com.aiassistant.utils.AtemporalSettingItem
 import com.aiassistant.utils.TimelineCategory
 import com.aiassistant.utils.TimelineEventItem
@@ -154,5 +155,76 @@ class TimelineNaturalTimeTest {
         assertEquals(5, result.atemporalSettings.size)
         assertEquals("专属信物", result.atemporalSettings[4].category)
         assertTrue(result.atemporalSettings[4].content.contains("银质怀表"))
+    }
+
+    // v2.7.1：同日跨多时段的跳跃式推进守卫（防模型过度执着推进时间）
+    @Test
+    fun testIsUnreasonableStoryTimeJump_sameDayMultiPhaseLeap() {
+        // 同日跨多个时段且无明确时间流逝描写 → 拦截
+        assertTrue(
+            TimelineMemoryHelper.isUnreasonableStoryTimeJump("第 1 天·清晨", "第 1 天·深夜", "两人围着火炉聊了聊天。")
+        )
+        assertTrue(
+            TimelineMemoryHelper.isUnreasonableStoryTimeJump("第 1 天·上午", "第 1 天·下午", "两人继续商讨对策。")
+        )
+        // 单步顺延（相邻时段）→ 放行
+        assertFalse(TimelineMemoryHelper.isUnreasonableStoryTimeJump("第 1 天·清晨", "第 1 天·上午", ""))
+        assertFalse(TimelineMemoryHelper.isUnreasonableStoryTimeJump("第 1 天·下午", "第 1 天·傍晚", ""))
+        // 跨天推进不在此守卫范围（过夜属于自然推进）
+        assertFalse(TimelineMemoryHelper.isUnreasonableStoryTimeJump("第 1 天·清晨", "第 2 天·上午", ""))
+        // 正文有明确时间流逝描写 → 豁免
+        assertFalse(
+            TimelineMemoryHelper.isUnreasonableStoryTimeJump(
+                "第 1 天·清晨", "第 1 天·傍晚", "两人在城里逛了一整天，直到夕阳西下才回城。"
+            )
+        )
+        // 目标时间无法解析时段（自然跨度标签）→ 不拦截
+        assertFalse(TimelineMemoryHelper.isUnreasonableStoryTimeJump("第 1 天·清晨", "两周过后", ""))
+        // 当前时间缺失或无法解析 → 不拦截
+        assertFalse(TimelineMemoryHelper.isUnreasonableStoryTimeJump(null, "第 1 天·深夜", ""))
+        assertFalse(TimelineMemoryHelper.isUnreasonableStoryTimeJump("第 1 天·起始", "第 1 天·深夜", ""))
+    }
+
+    // v2.7.1：本地兜底推演不得在无时间流逝描写时跨多时段顺延（早晨提及晚上的计划≠已入夜）
+    @Test
+    fun testDetectAutoStoryTimeAdvancement_noOverEagerAdvancement() {
+        // 上午回忆“去年黄昏的往事”：无时间流逝描写，不得直接推进至傍晚（旧实现会直接采信）
+        val duskMemory = TimelineMemoryHelper.detectAutoStoryTimeAdvancement(
+            currentStoryTime = "第 1 天·上午",
+            userMessage = "继续。",
+            assistantReply = "两人提起去年黄昏时在桥上立下的约定，相视一笑，又谈起了接下来的安排。"
+        )
+        assertNull("上午提及黄昏往事不得直接推进至傍晚", duskMemory)
+
+        // 同样跨多时段，但正文有明确时间流逝描写 → 允许推进
+        val duskWithPassage = TimelineMemoryHelper.detectAutoStoryTimeAdvancement(
+            currentStoryTime = "第 1 天·上午",
+            userMessage = "继续。",
+            assistantReply = "不知不觉，两人在书阁中翻找了整整一日。夕阳西下，暮色四合，两人才收拾东西踏上归程。"
+        )
+        assertEquals("第 1 天·傍晚", duskWithPassage)
+    }
+
+    // v2.7.1：注入 prompt 需携带时间记忆权威声明与默认守时/单步推进铁律
+    @Test
+    fun testTimelinePromptContext_containsTimeMemoryAuthorityAndSingleStepRule() {
+        val nodes = listOf(
+            TimelineNode(
+                conversationId = 1L,
+                timeTag = "第 1 天·清晨",
+                event = "两人在车站相遇并达成同行的约定",
+                orderIndex = 0
+            )
+        )
+        val nodesContext = TimelineMemoryHelper.buildTimelineNodesPromptContext(nodes, "第 1 天·上午")
+        assertTrue(nodesContext.contains("唯一权威的时间记忆"))
+        assertTrue(nodesContext.contains("单轮至多推进一个相邻时段"))
+
+        val roleplayContext = TimelineMemoryHelper.buildTimelinePromptContext(
+            currentStoryTime = "第 2 天·上午",
+            memoryContents = listOf("[第 1 天·清晨] 两人在车站相遇")
+        )
+        assertTrue(roleplayContext.contains("唯一权威的时间记忆"))
+        assertTrue(roleplayContext.contains("单轮至多一段"))
     }
 }

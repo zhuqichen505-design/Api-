@@ -2,6 +2,75 @@
 
 本文档按照工作流规范记录每次版本更新、需求变更与复核结果。
 
+## [2026-10-02] - v2.7.1 时间线变动提示自动消失、流式动画与思考胶囊尺寸突变修复、用户消息「仅修改内容」、时间线时间记忆与过度推进治理、报错后重新生成弹出旧报错修复
+
+### 1. 用户需求
+1. "已将时间线变动应用到记录"的这类弹窗应该显示几秒后会自动消失；
+2. 模型连接时，流式输出动画和思考胶囊有时会出现突然变大或变小的问题，造成屏幕错误滑动一小段距离，请修复；
+3. 给输入的内容添加仅编辑功能，编辑后只改变显示的内容，但不会重新提问；
+4. 时间线优化：a) 有完整正确的时间线时模型回复仍会出现时间记忆和理解不正确；b) 模型有时过于执着推进时间（早晨的事还在发生就迫不及待推进到晚上）；
+5. （过程中追加）当模型连接触发报错后，点击重新生成或重新发送消息，模型不会正确尝试连接，而是直接弹出过往的报错信息。
+构建 APK。
+
+### 2. 临时实施方案与根因修复
+
+**需求 1（时间线变动提示自动消失）**
+- **根因**：`ChatViewModel` 的 `_timelineUpdateNotice` 赋值后常驻（唯一赋值点 `ChatViewModel.kt` applyTimelineProposal 内），UI 层只有手动"查看/关闭"，无任何定时清除逻辑。
+- **修复**：`ChatScreen.kt` 提示胶囊前新增 `LaunchedEffect(timelineUpdateNotice)`：提示非空 5 秒后自动调用 `dismissTimelineUpdateNotice()`；既有 `AnimatedVisibility` 退场动画平滑收起，手动"查看/关闭"即时生效保持不变。
+
+**需求 2（流式动画与思考胶囊尺寸突变 → 屏幕错误滑动）**
+- **根因**：① 思考胶囊外层 `Surface.animateContentSize` 与内层 `AnimatedContent` 自带默认 `SizeTransform` 双层尺寸动画叠加，连接→思考→流式状态切换时胶囊先被出入场内容的最大值撑大再回缩（"突然变大又变小"）；② 连接等待提示槽在 Connecting/Reconnecting → Thinking 相位切换时整个槽位（约 40dp，`if (isConnectHintPhase)` 挂载）一帧内整体移除，末项高度突降；v2.6.8 的钉底逻辑（仅末项被顶出视口下沿才重新钉底）追平高度突变时表现为"屏幕错误滑动一小段距离"。
+- **修复**（`ChatMessageComponents.kt`）：
+  ① 胶囊 `AnimatedContent` 的 transitionSpec 显式 `using SizeTransform { _, _ -> snap() }` 禁用内层尺寸动画，尺寸过渡只由外层 `animateContentSize` 单一弹簧驱动；
+  ② 连接提示槽由 `if (isConnectHintPhase)` 裸挂载改为 `AnimatedVisibility(fadeIn+expandVertically / fadeOut+shrinkVertically)`（reduced motion 时 snap 硬切），相位切换与生成结束时高度平滑收回，不再一帧塌陷；
+  ③ 滚动钉底逻辑未做任何改动，避免回归 v2.6.8"等待提示不再顶动屏幕"修复。
+
+**需求 3（用户消息「仅修改内容」）**
+- **需求理解**：现有用户消息"重新编辑"= 编辑重发（variant 机制 + 重新触发生成）；需要新增一条"只改显示内容、不重新提问"的路径。`ChatViewModel.editAssistantMessage` 本身只改 content、对任意角色消息通用（`repository.updateMessage` → Room Flow 自动回流 UI），正是所需底层路径，无需新增数据层。
+- **修复**：
+  ① `MessageBubble`/`MessageFooter` 新增 `onEditInPlace` 可选参数并透传（流式气泡不传，天然隐藏菜单项）；
+  ② 用户消息二级菜单在"重新编辑"下新增"仅修改内容"项（`EditNote` 图标），`hasSecondaryActions` 同步纳入；
+  ③ `ChatScreen.kt` 新增 `editingUserMessage`/`editingUserContent` 状态与 `EchoGlassDialog` 编辑对话框（仿"编辑模型回复"对话框，明确提示"不会重新发送提问，不会删除或重新生成后续回复"），保存调用 `viewModel.updateMessageContent`；
+  ④ `editAssistantMessage` 更名为 `updateMessageContent`（仅 2 处引用，行为不变，消除"仅限助手消息"的命名误导）；
+  ⑤ 按最小改动原则不加"已编辑"角标（需 Room 迁移，超出本次需求范围）。
+
+**需求 4（时间线时间记忆与过度推进治理）**
+- **根因 a（时间记忆/理解不正确）**：
+  ① 真 bug——`RoleplayRepository.assembleRoleplayContext` 把剧情摘要 `session.currentPlotSummary` 当作"当前故事时间"传入 `buildTimelinePromptContext`，导致角色扮演注入的"【故事当前时间节点】/当前绝对故事时间"实际是一段剧情摘要，模型的时间锚点从源头被污染；
+  ② 注入 prompt 缺少"时间线是唯一权威时间记忆"的强约束，模型凭感觉/凭印象回答时间问题；
+- **根因 b（过度推进时间）**：
+  ① 注入 prompt 同时存在"应主动描写并推进时间的流逝！"（防停滞）与"严禁篡改为晚上"（防篡改）双向指令，模型倾向冒进；
+  ② 代码守卫只拦"早晨/白天→夜晚"（且仅 5 个入夜关键词豁免），拦不住"上午→下午/傍晚"等同日跨多时段跳跃；
+  ③ 本地兜底 `detectAutoStoryTimeAdvancement` 对非"跳夜"的多步顺延不设防（清晨→傍晚一步采信）。
+- **修复**：
+  ① `RoleplayRepository.kt`：故事时间改为优先取 `conversationDao.getConversationById(...)?.currentStoryTime`，回退会话记忆中的【当前故事时间】条目，严禁再把剧情摘要当时间注入；
+  ② `TimelineMemoryHelper.buildTimelineNodesPromptContext`（普通会话 `<session_timeline>`）与 `buildTimelinePromptContext`（角色扮演版）新增【时间记忆权威声明】（唯一权威、涉及现在/今天/昨天/刚才必须先对表推算、严禁把往事当作刚刚发生）；"主动推进"改写为"默认保持当前时段不变，仅当正文明确描写时间流逝/活动结束/场景转移时才顺延，单轮至多推进一个相邻时段，严禁跳跃式推进"；防篡改铁律补充"提及今晚/晚上的计划安排不可作为入夜依据"；
+  ③ `AiRepository.evaluateAndAutoUpdateTimeline` 逐轮评估 prompt 新增【默认守时与单步推进铁律】（宁可 NO_UPDATE 也不可提前推进；单轮至多顺延一个相邻时段），删除"积极推断"措辞；
+  ④ 代码守卫双保险：`TimelineMemoryHelper` 新增 `hasExplicitTimePassageDescription`（明确时间流逝描写关键词表：夕阳西下/夜幕降临/华灯初上/天黑/入夜/几个小时/数小时/一整天/不知不觉/转眼间 等）与 `isUnreasonableStoryTimeJump`（同日内跨 >1 个时段且正文无明确时间流逝描写 → 判定违规；跨天与无法解析时段的标签不拦截）；`AiRepository` 在原"早晨→夜晚"守卫后新增第二道守卫拦截违规的 `modelStoryTime`；
+  ⑤ 本地兜底 `detectAutoStoryTimeAdvancement` 同步收紧：顺延超过一个相邻时段时必须以明确时间流逝描写为依据（跳夜沿用原有更严格的 5 关键词豁免），落空后交由第 3 段的单步活动顺延兜底，既有"吃完早餐→上午"等单步顺延行为保持不变。
+
+**需求 5（报错后重新生成/重发直接弹出过往报错）**
+- **根因**：`ChatViewModel.sendMessageInternal` 的生成生命周期中，v2.6.8 需求 4 只给"收尾路径"（onComplete/onError/catch 的状态清空）加了 `isCurrentSession` 身份守卫，但存在四处遗漏：
+  ① 流式全程回调 `onToken/onThinkingToken/onStatusUpdate/onKeyAttemptError/onResetBuffer` 无任何守卫——被新一轮取代的旧轮次若仍有回调残余（OkHttp 阻塞读取 `execute()/readLine()` 不受协程取消中断，可滞后存活），会直接回写 ViewModel 状态；
+  ② 新一轮启动时未显式清空 `_reconnectStatus`（依赖上一轮失败路径清理），流式气泡首帧即可能读到残留错误文案（`GenerationUiState.derive` 中 reconnectStatus 命中错误词 → Failed 态 → 胶囊直接显示旧报错）；
+  ③ `startSession` 只取消旧 Job，不取消旧轮次仍阻塞在 HTTP 读取中的 call，旧调用可能滞后存活并触发①②；
+  ④ `onError/catch` 中的 `saveErrorReply`（错误占位消息入库）不带当前轮次守卫——旧轮次失败时会把它的报错气泡写进正在进行新一轮的会话，用户看到的就是"过往的报错信息直接弹出"。
+- **修复**（`ChatViewModel.kt`）：
+  ① 五个流式回调统一加 `ChatGenerationManager.isCurrentSession(conversationId, session)` 守卫，过期轮次的回调一律不得回写 ViewModel 状态（延续 v2.6.8 同款原则，覆盖流式全程）；
+  ② 新一轮启动块显式 `_reconnectStatus.value = null`，并在启动前 `repository.cancelActiveRequest(conversationId)` 取消上一轮可能仍阻塞的 HTTP 残留调用；
+  ③ 四处 `saveErrorReply` 调用点（onError 两个分支 + catch 两个分支）补 `isStillCurrentRound` 守卫：被取代的旧轮次残文/报错不得再写回会话；当前轮次的停止/报错保全行为（v2.6.9 需求 3）完全不变。
+
+### 3. 验证结果
+- `./gradlew.bat compileDebugKotlin --no-daemon` Exit Code 0
+- `./gradlew.bat testDebugUnitTest --no-daemon` Exit Code 0（74 个测试文件，**502 项全通、0 失败**；`TimelineNaturalTimeTest` 新增 3 项：同日跨多时段跳跃守卫、本地兜底防过度推进、注入 prompt 权威声明与单步铁律存在性；`TimelineRefinementAndCompressionTest` 的防停滞 prompt 断言随 v2.7.1 指令收敛同步更新为新契约）
+- `./gradlew.bat lintDebug --no-daemon` Exit Code 0
+- `git diff --check` Exit Code 0
+- `./gradlew.bat assembleRelease --no-daemon` Exit Code 0
+- APK：`D:\Agent\APP-Echo\app\releases\Echo-v2.7.1.apk`，16,700,269 字节 (~15.93 MB)，SHA256 `89ACABC79B0483312FFE8ADFA63FD512CFBFB4D7FEC6581AC76C9FA66862FA9A`，`apksigner verify --print-certs` 通过（CN=Android Debug，**非正式生产签名**，证书 SHA-256 与历史版本完全一致，支持直接平滑覆盖升级）
+- 发布目录历史安装包完整保留（共 178 个安装包，本次为唯一定名增量输出，复制而非移动，全程未执行任何删除）。
+
+---
+
 ## [2026-10-01] - v2.7.0 紧急修复：彻底解决更新后界面卡顿与闪退故障、消除 Flow 消息监听自激死循环、优化菜单单层测量、冷启动异步自动备份
 
 ### 1. 用户反馈

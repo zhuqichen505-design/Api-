@@ -393,6 +393,8 @@ internal fun MessageBubble(
     onBranch: (() -> Unit)? = null,
     onRegenerate: (() -> Unit)? = null,
     onEdit: (() -> Unit)? = null,
+    /** 仅修改消息内容（不重新发送/不重新生成），用户消息的“仅编辑”入口 */
+    onEditInPlace: (() -> Unit)? = null,
     onDelete: (() -> Unit)? = null,
     customAvatarUri: String? = null,
     onTogglePin: ((Message) -> Unit)? = null,
@@ -709,6 +711,7 @@ internal fun MessageBubble(
                         onBranch = null,
                         onRegenerate = onRegenerate,
                         onEdit = onEdit,
+                        onEditInPlace = onEditInPlace,
                         onDelete = onDelete,
                         onTogglePin = onTogglePin?.let { cb -> { cb(message) } },
                         onToggleExclude = onToggleExclude?.let { cb -> { cb(message) } },
@@ -963,7 +966,11 @@ internal fun MessageBubble(
                                 AnimatedContent(
                                     targetState = generationState,
                                     transitionSpec = {
+                                        // 尺寸过渡只由外层 Surface.animateContentSize 单一驱动：
+                                        // 内层若用默认 SizeTransform 会与外层弹簧叠加，状态切换时
+                                        // 胶囊先被出入场内容的最大值撑大再回缩，表现为突然变大又变小
                                         (fadeIn(capsuleSpec) togetherWith fadeOut(capsuleSpec))
+                                            .using(SizeTransform { _, _ -> snap() })
                                     },
                                     contentAlignment = Alignment.CenterStart,
                                     label = "capsulePhase"
@@ -1033,7 +1040,27 @@ internal fun MessageBubble(
                         label = "connectHintAlpha"
                     )
                     val hintBodySmall = MaterialTheme.typography.bodySmall
-                    if (isConnectHintPhase) {
+                    // 相位切换（连接→思考）时槽位不再一帧内整体移除：改用 fade+expand/shrink 平滑出入场，
+                    // 否则末项高度突降会被钉底逻辑追平，表现为屏幕错误滑动一小段
+                    val hintFadeSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec<Float>(
+                        com.aiassistant.ui.theme.EchoMotion.Duration.fast
+                    )
+                    val hintSizeSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec<androidx.compose.ui.unit.IntSize>(
+                        com.aiassistant.ui.theme.EchoMotion.Duration.fast
+                    )
+                    AnimatedVisibility(
+                        visible = isConnectHintPhase,
+                        enter = if (reducedMotion) {
+                            fadeIn(snap()) + expandVertically(snap())
+                        } else {
+                            fadeIn(hintFadeSpec) + expandVertically(hintSizeSpec)
+                        },
+                        exit = if (reducedMotion) {
+                            fadeOut(snap()) + shrinkVertically(snap())
+                        } else {
+                            fadeOut(hintFadeSpec) + shrinkVertically(hintSizeSpec)
+                        }
+                    ) {
                         Box(
                             modifier = Modifier
                                 .padding(start = 46.dp, top = 4.dp)
@@ -1387,6 +1414,7 @@ internal fun MessageBubble(
                         onBranch = onBranch,
                         onRegenerate = onRegenerate,
                         onEdit = onEdit,
+                        onEditInPlace = onEditInPlace,
                         onDelete = onDelete,
                         onTogglePin = onTogglePin?.let { cb -> { cb(message) } },
                         onToggleExclude = onToggleExclude?.let { cb -> { cb(message) } },
@@ -1425,6 +1453,8 @@ internal fun MessageFooter(
     onBranch: (() -> Unit)? = null,
     onRegenerate: (() -> Unit)?,
     onEdit: (() -> Unit)?,
+    /** 仅修改消息内容（用户消息“仅编辑”，不重新发送/不重新生成） */
+    onEditInPlace: (() -> Unit)? = null,
     onDelete: (() -> Unit)?,
     onTogglePin: (() -> Unit)? = null,
     onToggleExclude: (() -> Unit)? = null,
@@ -1545,7 +1575,7 @@ internal fun MessageFooter(
 
             // 需求 3：将编辑、固定、排除功能收纳进二级菜单（同时整合删除操作，使工具栏紧凑优雅）
             var showMoreMenu by remember { mutableStateOf(false) }
-            val hasSecondaryActions = onEdit != null || onTogglePin != null || onToggleExclude != null || onDelete != null
+            val hasSecondaryActions = onEdit != null || onEditInPlace != null || onTogglePin != null || onToggleExclude != null || onDelete != null
 
             if (hasSecondaryActions) {
                 Box {
@@ -1569,6 +1599,20 @@ internal fun MessageFooter(
                                 onClick = {
                                     showMoreMenu = false
                                     onEdit()
+                                }
+                            )
+                        }
+
+                        // 用户消息“仅编辑”：只改显示内容，不重新发送、不触发重新生成
+                        if (isUser && onEditInPlace != null) {
+                            DropdownMenuItem(
+                                text = { Text("仅修改内容", style = MaterialTheme.typography.bodyMedium) },
+                                leadingIcon = {
+                                    Icon(Icons.Default.EditNote, contentDescription = null, modifier = Modifier.size(18.dp))
+                                },
+                                onClick = {
+                                    showMoreMenu = false
+                                    onEditInPlace()
                                 }
                             )
                         }

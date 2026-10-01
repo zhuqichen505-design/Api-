@@ -1013,7 +1013,8 @@ object TimelineMemoryHelper {
         }
 
         // 4. 全域时空连贯性与叙事时序三大铁律（时序交互准则，必须无条件遵守）
-        sb.append("\n【时空连贯性与日内时序守护铁律（时序交互准则，全域叙事时序三大铁律，大模型必须无条件遵守）】：\n")
+        sb.append("\n【时间记忆权威声明】：以下时间线是该会话唯一权威的时间记忆。凡涉及“现在/今天/昨天/刚才/多久之前”的时间表述，必须先以当前故事时间节点（$effectiveCurrent）为基准推算后再作答，严禁凭感觉臆断时间、严禁把往事当作刚刚发生！\n")
+        sb.append("【时空连贯性与日内时序守护铁律（时序交互准则，全域叙事时序三大铁律，大模型必须无条件遵守）】：\n")
         sb.append("1.【时序参照系与相对跨度守恒律】：当提及以往发生的人际变故、重大转折、盟约决裂、生死考验或往事经历时，必须以当前故事时间节点（$effectiveCurrent）为基准严格推算相对时间跨度。若某重大转折发生在多日、数周或数月前，严禁叙述为“昨天才发生”或“刚发生”；若发生在几天前，亦不得夸大为“多年以前”。\n")
 
         val lastEvent = events.lastOrNull { it.timeTag.isNotBlank() || it.content.isNotBlank() }
@@ -1022,12 +1023,12 @@ object TimelineMemoryHelper {
             val phaseName = inferredPhase.displayName
             sb.append("2.【日内时序与生理作息连贯律】：当前故事时段停留在【$phaseName】（典型活动：${inferredPhase.typicalActivities}）。")
             if (inferredPhase.order <= DayPhase.NOON.order) {
-                sb.append("当前仍处于白天！若上一情境为早晨/吃早餐/上午行动，严格禁止在未描写数小时时间自然流逝（如“夕阳西下”、“待到夜幕降临”）的情况下，突兀跳跃到“天黑了/深夜入睡”！\n")
+                sb.append("当前仍处于白天！若上一情境为早晨/吃早餐/上午行动，严格禁止在未描写数小时时间自然流逝（如“夕阳西下”、“待到夜幕降临”）的情况下，突兀跳跃到“天黑了/深夜入睡”！时间默认保持当前时段，仅当正文明确描写时间流逝或活动/场景结束时才顺延至相邻时段（单轮至多一段），严禁过早推进！\n")
             } else {
-                sb.append("剧情推进必须保持时空自然过渡，严禁时序倒流或无逻辑时空突变！\n")
+                sb.append("剧情推进必须保持时空自然过渡，严禁时序倒流或无逻辑时空突变！时间默认保持当前时段，仅当正文明确描写时间流逝或活动/场景结束时才顺延至相邻时段（单轮至多一段）。\n")
             }
         } else {
-            sb.append("2.【日内时序与生理作息连贯律】：严格保持日内时间流逝与生活节律的自然过渡。若当前为早晨/白天，严禁在无明确时间流逝过渡描述的情况下突兀跳转至夜间就寝；若当前为深更半夜，亦严禁突兀转入次日白昼活动。\n")
+            sb.append("2.【日内时序与生理作息连贯律】：严格保持日内时间流逝与生活节律的自然过渡。若当前为早晨/白天，严禁在无明确时间流逝过渡描述的情况下突兀跳转至夜间就寝；若当前为深更半夜，亦严禁突兀转入次日白昼活动。时间默认保持当前时段，单轮至多顺延一个相邻时段。\n")
         }
 
         sb.append("3.【跨度锚点与宏观阶段连贯律】：当故事经历“几天后”、“数周后”、“暑假”或“新学期”等时间跨度跃迁时，角色心理状态、环境演变及事件沉淀必须符合该跨度长度，禁止在跃迁后仍表现得如同事件就在上一秒发生。\n")
@@ -1119,13 +1120,53 @@ object TimelineMemoryHelper {
             val cleanEvent = if (node.event.length > 32) compactSentenceKeepComplete(node.event, 28) else node.event
             sb.append("[${index + 1}] $tagStr【${cat.displayName}】$cleanEvent\n")
         }
+        sb.append("【时间记忆权威声明】：本时间线与会话记忆是当前会话唯一权威的时间记忆。凡涉及“现在/今天/昨天/刚才/多久之前”等时间表述，必须先对照【当前故事时间节点】推算后再作答；严禁凭感觉或凭印象臆断时间，严禁把往事当作刚刚发生！\n")
         sb.append("【时序约束】：请严格基于该时序脉络推进，后续对话若发生时间推移请主动输出新时间节点。\n")
-        sb.append("【时空主动推进与防停滞铁律（大模型必须严格遵循）】：\n")
-        sb.append("1.【时空基准点】：当前故事时空节点【${currentStoryTime ?: "未指定"}】仅代表本轮交互开始时的基准时空，绝非永恒固化的时间。若剧情发生行动转移或进程发展，应主动描写并推进时间的流逝！\n")
-        sb.append("2.【防时段篡改铁律（核心）】：若当前时间设定为早晨/白天，严禁在正文没有描写数小时大跨度时间流逝（如夕阳西下、夜幕降临）的情况下，擅自将时间直接篡改为晚上或一直以晚上的口吻作答！普通交谈商议或提及过往往事绝不可作为入夜的依据！\n")
-        sb.append("3.【自然流逝法则】：时间推进应当平滑自然（如早晨->上午->正午->下午->傍晚->入夜），剧情交谈完毕准备动身、就餐结束、转移场景或长途跋涉时，顺理成章地平滑推移至相邻时段。\n")
+        sb.append("【时空自然推进与防篡改铁律（大模型必须严格遵循）】：\n")
+        sb.append("1.【时空基准点与默认守时】：当前故事时空节点【${currentStoryTime ?: "未指定"}】仅代表本轮交互开始时的基准时空，绝非永恒固化的时间；但时间默认保持当前时段不变！仅当剧情明确描写了时间流逝、活动结束或场景转移时，才顺着相邻时段自然推进，且单轮至多推进一个相邻时段（如早晨→上午），严禁跳跃式推进！\n")
+        sb.append("2.【防时段篡改铁律（核心）】：若当前时间设定为早晨/白天，严禁在正文没有描写数小时大跨度时间流逝（如夕阳西下、夜幕降临）的情况下，擅自将时间直接篡改为晚上或一直以晚上的口吻作答！普通交谈商议或提及过往往事（包括提及“今晚/晚上”的计划安排）绝不可作为入夜的依据！\n")
+        sb.append("3.【自然流逝法则】：时间推进应当平滑自然（如早晨->上午->正午->下午->傍晚->入夜），剧情交谈完毕准备动身、就餐结束、转移场景或长途跋涉时，顺理成章地平滑推移至相邻时段，严禁一轮之内跨越多个时段。\n")
         sb.append("</session_timeline>")
         return sb.toString()
+    }
+
+    /**
+     * 正文是否包含明确的大跨度时间流逝描写（作为同日跨多时段推进的唯一豁免依据）。
+     * 单独提及“晚上/黄昏”的计划或往事不算，必须是实际发生的时段流转场景或时长描述。
+     */
+    fun hasExplicitTimePassageDescription(text: String): Boolean {
+        val markers = listOf(
+            "夕阳西下", "夜幕降临", "暮色四合", "华灯初上", "掌灯时分", "日落", "日暮",
+            "天黑", "天色暗了下来", "天色已晚", "入夜", "夜幕", "深夜",
+            "几个小时", "数小时", "半日", "半天", "一整天", "大半天", "整整一日",
+            "不知不觉", "转眼间", "转眼之间", "不知过了多久", "漫长的一天"
+        )
+        return markers.any { text.contains(it) }
+    }
+
+    /**
+     * 判断一次故事时间推进是否属于“同日内跨多个时段的跳跃式推进”且正文缺乏时间流逝描写依据。
+     * 用于拦截模型过度执着推进时间（如早晨的事还在发生就推进到晚上）。
+     * 跨天推进与无法解析时段的时间标签不在此守卫范围内（交由其它守卫与用户确认处理）。
+     */
+    fun isUnreasonableStoryTimeJump(
+        currentStoryTime: String?,
+        proposedStoryTime: String?,
+        replyText: String
+    ): Boolean {
+        val from = currentStoryTime?.trim().orEmpty()
+        val to = proposedStoryTime?.trim().orEmpty()
+        if (from.isBlank() || to.isBlank() || from == to) return false
+        val fromDay = DAY_NUMBER_PATTERN.matcher(from).let { m ->
+            if (m.find()) (m.group(1) ?: m.group(2))?.toIntOrNull() else null
+        }
+        val toDay = DAY_NUMBER_PATTERN.matcher(to).let { m ->
+            if (m.find()) (m.group(1) ?: m.group(2))?.toIntOrNull() else null
+        }
+        if (fromDay != null && toDay != null && fromDay != toDay) return false
+        val fromPhase = DayPhase.inferFromText(from) ?: return false
+        val toPhase = DayPhase.inferFromText(to) ?: return false
+        return toPhase.order - fromPhase.order > 1 && !hasExplicitTimePassageDescription(replyText)
     }
 
     /**
@@ -1172,13 +1213,22 @@ object TimelineMemoryHelper {
 
         // 防虚假跳跃与篡改铁律：
         // 若当前处于早晨/上午，严禁在一轮常规对话中无日内变迁描写地直接跃迁至入夜/夜晚/深夜（跨越>=4个时段）！
+        // 防过度推进（单步守时）：顺延超过一个相邻时段时，必须以正文明确的时间流逝描写为依据；
+        // 否则不采纳（例如上午提及“今晚聚餐的计划”或回忆“去年黄昏的往事”绝不代表时段已流转），
+        // 落空后交由第 3 段的单步活动顺延兜底。
         if (textPhase != null && textPhase.order > currentPhase.order) {
+            val step = textPhase.order - currentPhase.order
             val isLeapToNight = (currentPhase == DayPhase.EARLY_MORNING || currentPhase == DayPhase.MORNING) &&
                 (textPhase == DayPhase.NIGHT || textPhase == DayPhase.LATE_NIGHT)
             val hasExplicitEveningTransition = combined.contains("夕阳西下") || combined.contains("夜幕降临") ||
                 combined.contains("直到晚上") || combined.contains("天色彻底黑了下来") || combined.contains("转眼到了晚上")
 
-            if (!isLeapToNight || hasExplicitEveningTransition) {
+            val allowed = when {
+                step <= 1 -> true
+                isLeapToNight -> hasExplicitEveningTransition
+                else -> hasExplicitTimePassageDescription(combined)
+            }
+            if (allowed) {
                 val cleanPhase = textPhase.displayName.substringBefore("/")
                 return "$dayPrefix·$cleanPhase"
             }

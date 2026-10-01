@@ -1,3 +1,46 @@
+# Echo v2.7.1 构建走查与验收报告 (Walkthrough)
+
+## 一、本次构建与需求概述
+- **发布版本**：v2.7.1 (`versionCode: 167`)
+- **构建类型**：Release APK
+- **交付目标文件**：`D:\Agent\APP-Echo\app\releases\Echo-v2.7.1.apk`
+- **核心内容**：时间线变动提示自动消失、流式动画与思考胶囊尺寸突变修复（屏幕错误滑动）、用户消息「仅修改内容」、时间线时间记忆与过度推进治理（含角色扮演故事时间传参真 bug 修复）、报错后重新生成/重发弹出旧报错修复。
+
+## 二、根因走查与修复要点
+| 项 | 根因 | 修复 |
+| :--- | :--- | :--- |
+| **时间线变动提示不自动消失** | `_timelineUpdateNotice` 赋值后常驻，UI 层仅手动关闭，无定时清除 | `ChatScreen.kt` 新增 `LaunchedEffect(timelineUpdateNotice)`：非空 5 秒后自动 `dismissTimelineUpdateNotice()`，退场由既有 AnimatedVisibility 平滑收起；手动"查看/关闭"即时生效不变 |
+| **胶囊突然变大又变小** | 外层 `animateContentSize` 与内层 `AnimatedContent` 默认 `SizeTransform` 双层尺寸动画叠加，状态切换时先撑到出入场内容最大值再回缩 | `AnimatedContent` transitionSpec 显式 `using SizeTransform { _, _ -> snap() }` 禁用内层尺寸动画，尺寸过渡只由外层单一弹簧驱动 |
+| **屏幕错误滑动一小段距离** | 连接等待提示槽在 Connecting/Reconnecting→Thinking 相位切换时整槽（约 40dp）一帧内移除，末项高度突降被 v2.6.8 钉底逻辑追平 | 提示槽改 `AnimatedVisibility(fade+expand/shrink)` 平滑出入场（reduced motion 用 snap），高度不再一帧塌陷；滚动钉底逻辑未动，避免回归 v2.6.8 |
+| **用户消息无法仅编辑不重发** | 现有"重新编辑"= 编辑重发（variant + 重新生成）；底层 `editAssistantMessage` 只改 content 且与角色无关但命名误导 | `MessageBubble`/`MessageFooter` 新增 `onEditInPlace` 通路 + 用户菜单"仅修改内容"项；`ChatScreen` 新增编辑对话框（明确提示不重新发送/不重新生成），保存调 `updateMessageContent`（由 `editAssistantMessage` 更名，2 处引用，行为不变）；不加"已编辑"角标（需 Room 迁移，超出需求） |
+| **有时间线仍时间记忆错误（真 bug）** | `RoleplayRepository.assembleRoleplayContext` 把剧情摘要 `currentPlotSummary` 当"当前故事时间"注入 `buildTimelinePromptContext`，模型时间锚点从源头被污染；注入 prompt 缺时间记忆权威约束 | 故事时间改为 `conversationDao…currentStoryTime` → 会话记忆【当前故事时间】条目回退；两处注入 prompt 新增【时间记忆权威声明】（唯一权威、先对表推算、严禁把往事当刚才） |
+| **过度执着推进时间（早晨→晚上）** | 注入 prompt"主动推进"与"严禁篡改"双向指令张力；守卫只拦"早晨→夜晚"且豁免关键词仅 5 个，拦不住同日跨多时段跳跃；本地兜底对非跳夜多步顺延不设防 | prompt 收敛为"默认守时 + 明确描写才顺延 + 单轮至多一个相邻时段，严禁跳跃式推进"；评估 prompt 新增【默认守时与单步推进铁律】（宁可 NO_UPDATE）；新增 `hasExplicitTimePassageDescription` + `isUnreasonableStoryTimeJump`（同日跨 >1 时段且无明确时间流逝描写 → 拦截，跨天/无法解析不拦）代码双保险；本地兜底 `detectAutoStoryTimeAdvancement` 多步顺延需描写依据，单步活动顺延行为不变 |
+| **报错后重新生成/重发弹出旧报错** | v2.6.8 的 `isCurrentSession` 身份守卫只覆盖收尾路径：① 流式全程回调（onToken/onThinkingToken/onStatusUpdate/onKeyAttemptError/onResetBuffer）无守卫，被取代旧轮次的残留回调可回写 ViewModel；② 新一轮启动未显式清 `_reconnectStatus`，流式气泡首帧读到残留错误文案即判 Failed 显示旧报错；③ `startSession` 只取消旧 Job 不取消阻塞中的 HTTP call，旧调用可滞后存活；④ `saveErrorReply` 无轮次守卫，旧轮次失败会把报错气泡写进进行中的新会话 | ① 五个流式回调统一加 `isCurrentSession` 守卫；② 新一轮启动块显式 `_reconnectStatus.value = null` 并 `repository.cancelActiveRequest(conversationId)` 取消残留调用；③ 四处 `saveErrorReply` 调用点补 `isStillCurrentRound` 守卫（当前轮次停止/报错保全行为不变） |
+
+## 三、构建与验证复核清单
+- [x] `compileDebugKotlin --no-daemon`：Exit Code 0
+- [x] `testDebugUnitTest --no-daemon`：Exit Code 0（74 个测试文件，**502 项全通、0 失败**；`TimelineNaturalTimeTest` +3 项：同日跨多时段跳跃守卫、本地兜底防过度推进、注入 prompt 权威声明与单步铁律；`TimelineRefinementAndCompressionTest` 防停滞 prompt 断言随指令收敛同步更新为新契约）
+- [x] `lintDebug --no-daemon`：Exit Code 0
+- [x] `git diff --check`：Exit Code 0
+- [x] `assembleRelease --no-daemon`：Exit Code 0
+- [x] APK：`Echo-v2.7.1.apk`，16,700,269 字节 (~15.93 MB)，SHA256 `89ACABC79B0483312FFE8ADFA63FD512CFBFB4D7FEC6581AC76C9FA66862FA9A`
+- [x] 签名校验：`apksigner verify --print-certs` 通过，证书 CN=Android Debug（**非正式生产签名**），证书 SHA-256 `939638f6d3e9af7f8a980e62af52d275fee73381f2130cc4e20a0d349f98e21f`，与历史版本完全一致，支持直接平滑覆盖升级
+- [x] 历史版本完整性：`D:\Agent\APP-Echo\app\releases` 历史安装包 100% 完整保留（共 178 个安装包），本次为唯一定名增量输出（复制而非移动，全程未执行任何删除）
+
+## 四、人工验收步骤（无真机，未执行安装/启动验证）
+1. **时间线提示自动消失**：触发一次时间线推进并点击"应用"，观察"已将时间线变动应用到记录"提示约 5 秒后自动平滑收起；期间点"查看"/关闭仍即时生效。
+2. **胶囊与屏幕稳定**：新对话发送消息，连接→思考→流式全程观察思考胶囊：不再突然变大又变小；等待提示消失、生成结束时屏幕不再无故上下滑动一小段。
+3. **仅修改内容**：长按/点开任一用户消息的"更多"菜单 →"仅修改内容"→ 修改保存：该消息显示已更新、后续回复原样保留、无任何重新生成动作；再次发送新消息时模型按修改后的内容回应。原"重新编辑"仍走编辑重发。
+4. **时间线时间理解**：在开启会话记忆/时间线的会话中，让故事停留在清晨进行多轮日常交谈：模型保持早晨/上午口径，不再推进到晚上；正文明确描写"逛了一整天、夕阳西下"后才顺延至傍晚；对"昨天/刚才"的提问回答与时间线一致。
+5. **报错后重试**：制造一次连接报错（如断网/错误 Key）后恢复网络，点击"重新生成"或重新发送：胶囊应从"正在连接"开始全新尝试，不再直接弹出上一轮的报错文案；旧报错气泡不再中途冒出。
+
+## 五、剩余风险
+- 时间线推进为 prompt + 关键词守卫的治理方案，无法 100% 杜绝个别模型在极端表述下的误判；用户确认卡与手动改时间仍是最终兜底。
+- "仅修改内容"暂无"已编辑"角标（需 Room 迁移，本次按最小改动未加）；编辑只改显示内容，后续请求会以修改后的内容作为上下文（符合需求语义）。
+- 快速失败的供应商错误（401/429/5xx 等无退避重试）仍可能在秒级返回同一错误——本次修复保证这是一次全新的连接尝试且界面从干净的连接态开始，但无法让必然失败的网络请求成功。
+
+---
+
 # Echo v2.7.0 构建走查与验收报告 (Walkthrough)
 
 ## 一、本次构建与需求概述
