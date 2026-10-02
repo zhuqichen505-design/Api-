@@ -205,6 +205,29 @@ fun ChatInputBar(
     }
     var inputFieldLayout by remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
     var inputFieldFocused by remember { mutableStateOf(false) }
+    // v2.7.6 需求 4：记录最近一次点击在文本区内的横向位置（观察型 pointerInput，不消费事件、
+    // 不影响内置光标/选择手势）。软换行边界处"前一行行尾"与"下一行行首"为同一文本偏移，
+    // 按点击位置区分两种落点：点在文字上 → 行尾；点在文字右侧空白 → 下一行行首
+    var lastTapX by remember { mutableStateOf<Float?>(null) }
+    var lastTapAtMs by remember { mutableStateOf(0L) }
+    // v2.7.6 需求 4：行尾为显式换行时点击最右侧空白 → 光标越过换行符落到下一行起始位置
+    // （内置点击永远落在 \n 之前的行尾）。仅在点击后短时间内做一次性校正，
+    // 400ms 新鲜度窗口避免键盘输入期间残留的旧点击位置误触发光标跳转
+    LaunchedEffect(inputFieldValue.selection, inputFieldLayout) {
+        val tapX = lastTapX ?: return@LaunchedEffect
+        if (System.currentTimeMillis() - lastTapAtMs > 400) return@LaunchedEffect
+        val layout = inputFieldLayout ?: return@LaunchedEffect
+        if (!inputFieldValue.selection.collapsed) return@LaunchedEffect
+        val offset = inputFieldValue.selection.start
+        val text = layout.layoutInput.text
+        if (offset < 0 || offset >= text.length) return@LaunchedEffect
+        if (text[offset] != '\n') return@LaunchedEffect
+        val line = layout.getLineForOffset(offset)
+        if (tapX > layout.getLineRight(line)) {
+            lastTapX = null
+            inputFieldValue = inputFieldValue.copy(selection = TextRange(offset + 1))
+        }
+    }
     val effectiveMinHeight = customInputHeightDp?.dp ?: if (isInputExpanded) 180.dp else 42.dp
     val effectiveMaxHeight = if (customInputHeightDp != null) 360.dp else if (isInputExpanded) 320.dp else 112.dp
     val inputShape = RoundedCornerShape(22.dp)
@@ -398,7 +421,19 @@ fun ChatInputBar(
                                 }
                                 // v2.7.4 需求 3：移除右侧 28dp 附加空距（原先左右留白 4dp/32dp 不对称），
                                 // 文字区左右留白统一为 4dp
-                                Box(modifier = Modifier.fillMaxWidth()) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        // v2.7.6 需求 4：观察点击记录横向位置——本 Box 与 innerTextField
+                                        // 同原点，坐标即光标覆盖层/文本布局坐标系，无需换算
+                                        .pointerInput(Unit) {
+                                            awaitEachGesture {
+                                                val down = awaitFirstDown(requireUnconsumed = false)
+                                                lastTapX = down.position.x
+                                                lastTapAtMs = System.currentTimeMillis()
+                                            }
+                                        }
+                                ) {
                                     innerTextField()
                                     val cursorLayout = inputFieldLayout
                                     if (inputFieldFocused && cursorLayout != null) {
@@ -407,6 +442,7 @@ fun ChatInputBar(
                                             text = inputFieldValue.text,
                                             offset = inputFieldValue.selection.start,
                                             collapsed = inputFieldValue.selection.collapsed,
+                                            tapX = lastTapX,
                                             color = inputTextColor
                                         )
                                     }
@@ -725,9 +761,12 @@ fun ChatInputBar(
             }
 
                 // 紧贴输入框右上角同心圆弧手柄 (与边框圆角同心贴合，尺寸固定为拖拽后较小尺寸 22dp/17dp，拖拽前后大小绝对统一)
+                // v2.7.6 需求 3：点击热区从 36dp 收窄为 24dp——36dp 不可见方块盖住输入框首行右端
+                // （v2.7.4 移除 28dp 右留白后文字顶到手柄下），点输入框右端常误触手柄导致输入框
+                // 被展开；24dp 恰好完整覆盖可见弧线（弧线圆心距右缘 22dp、半径 17dp），拖拽不受影响
                 val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
                 val cornerRadiusDp = 22f
-                val handleBoxSize = 36.dp
+                val handleBoxSize = 24.dp
                 val outlineColor = MaterialTheme.colorScheme.outline
                 val arcColor = if (isDark) {
                     Color.White.copy(alpha = 0.32f)
@@ -799,9 +838,12 @@ fun ChatInputBar(
 /**
  * v2.7.4 需求 2：输入框自绘光标。
  * Compose 内置光标在软换行边界（前一可视行行尾与下一行行首为同一文本偏移）一律绘制在
- * 下一行行首，表现为"光标只能放在下一行开头、无法停在右侧最后一个字后面"。
- * 本覆盖层在软换行边界时改绘于**前一行行尾**，其余位置与内置光标完全一致；
+ * 下一行行首。本覆盖层按点击位置区分两种落点（v2.7.6 需求 4）：点击前一行文字右侧空白
+ * 时绘于下一行行首；点击文字上时绘于前一行行尾。其余位置与内置光标完全一致；
  * 配合透明 cursorBrush 隐藏内置光标，呼吸节奏与应用动效语言同源（reduced motion 恒亮）。
+ *
+ * v2.7.6 需求 3：getCursorRect 恒返回零宽矩形（1.6.8 源码注释明确"调用方应自行按宽度
+ * 调整"），自补 2dp 平台标准光标厚度——此前 drawRoundRect 宽度为 0，光标从未可见。
  */
 @Composable
 private fun InputCursorOverlay(
@@ -809,6 +851,7 @@ private fun InputCursorOverlay(
     text: String,
     offset: Int,
     collapsed: Boolean,
+    tapX: Float?,
     color: Color,
     modifier: Modifier = Modifier
 ) {
@@ -835,13 +878,23 @@ private fun InputCursorOverlay(
             offset > 0 &&
             text.getOrNull(offset - 1) != '\n'
         val defaultRect = layout.getCursorRect(offset)
+        // getCursorRect 返回的矩形宽度恒为 0，自补平台标准 2dp 光标厚度
+        val cursorWidth = maxOf(defaultRect.width, 2.dp.toPx())
         val left: Float
         val top: Float
         if (atSoftWrapStart) {
             val previousLine = line - 1
-            left = layout.getLineRight(previousLine)
-            val lineHeight = layout.getLineBottom(previousLine) - layout.getLineTop(previousLine)
-            top = layout.getLineTop(previousLine) + (lineHeight - defaultRect.height) / 2f
+            val tappedPastLineEnd = tapX != null && tapX > layout.getLineRight(previousLine)
+            if (tappedPastLineEnd) {
+                // 点击前一行文字右侧空白：绘于下一行行首（默认位置）
+                left = defaultRect.left
+                top = defaultRect.top
+            } else {
+                // 点击前一行文字上：绘于前一行行尾（最后一个字后面）
+                left = layout.getLineRight(previousLine)
+                val lineHeight = layout.getLineBottom(previousLine) - layout.getLineTop(previousLine)
+                top = layout.getLineTop(previousLine) + (lineHeight - defaultRect.height) / 2f
+            }
         } else {
             left = defaultRect.left
             top = defaultRect.top
@@ -849,7 +902,7 @@ private fun InputCursorOverlay(
         drawRoundRect(
             color = color.copy(alpha = blink),
             topLeft = Offset(left, top),
-            size = Size(defaultRect.width, defaultRect.height),
+            size = Size(cursorWidth, defaultRect.height),
             cornerRadius = CornerRadius(1.dp.toPx(), 1.dp.toPx())
         )
     }

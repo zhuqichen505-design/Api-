@@ -654,10 +654,11 @@ internal fun MessageBubble(
                 }
 
                 // v2.7.4 需求 1/2：流式输出动画（呼吸光环点）持续**整个生成过程**、直到模型回复
-                // 结束才消失——正文空白时位于内容起点（连接/思考阶段），正文流式期间跟随内容末尾：
-                // 配合列表钉底跟随，动画与屏幕底部（输入栏上方）的距离在流式期间保持稳定，
-                // 不再因阶段切换增减节点而跳变
-                if (isGenerating) {
+                // 结束才消失——正文流式期间跟随内容末尾（正文最后一行下方 6dp）：
+                // 配合列表钉底跟随，动画与屏幕底部（输入栏上方）的距离在流式期间保持稳定。
+                // v2.7.6 需求 2：正文空白阶段（连接/思考）动画已上移到胶囊下方与连接提醒同行，
+                // 此处仅在正文开始后渲染，避免同屏两份动画。
+                if (isGenerating && message.content.isNotBlank()) {
                     Spacer(modifier = Modifier.height(6.dp))
                     TypingIndicator(accentColor = generationAccentColor)
                 }
@@ -850,7 +851,6 @@ internal fun MessageBubble(
                     val showStatusToggle = hasDetailedExpandableContent || isWaitingWithReason
                     val canExpandStatus = showStatusToggle || isStatusExpanded
                     val capsuleShape = RoundedCornerShape(16.dp)
-                    val maxBubbleWidth = if (isStatusExpanded || isStatusError) 380.dp else 320.dp
                     val maxLinesCount = when {
                         !isStatusExpanded -> 1
                         isStatusError -> 4
@@ -873,10 +873,11 @@ internal fun MessageBubble(
                         Spacer(modifier = Modifier.width(8.dp))
                         Surface(
                         modifier = Modifier
-                            // v2.7.4 需求 1：胶囊无条件占满头像行剩余宽度——连接/思考/流式/完成
-                            // 各状态尺寸恒定不再变化，右侧与底部输入气泡右缘精确对齐
-                            // （消息列表 contentPadding 已与输入栏统一为 12dp）
+                            // v2.7.6 需求 1：胶囊无条件占满头像行剩余宽度（各状态尺寸恒定），并右缩
+                            // 44dp（头像36+间距8）——右缘与用户输入气泡（用户消息气泡）右缘精确对齐，
+                            // 不再落在右侧头像右缘（v2.7.4 误按"底部输入栏"口径实现）
                             .weight(1f)
+                            .padding(end = 44.dp)
                             .defaultMinSize(minHeight = 34.dp)
                             .animateContentSize(com.aiassistant.ui.theme.EchoMotion.Spring.gentle())
                             .clip(capsuleShape)
@@ -905,17 +906,16 @@ internal fun MessageBubble(
                             if (isStatusError) MaterialTheme.colorScheme.error.copy(alpha = 0.5f) else glass.outlineSelected.copy(alpha = 0.72f)
                         )
                     ) {
-                        val isMultiLineLayout = isStatusExpanded && maxLinesCount > 1
+                        // v2.7.6 需求 6：内层对齐恒定垂直居中——展开/收起只改变胶囊高度（文字换行数），
+                        // 图标与文字的相对位置不再变化（此前多行展开态顶对齐+图标 1dp 位移，
+                        // 单行/多行切换时内容整体跳动）
                         Row(
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-                            // 单行态完全居中对齐，多行展开态顶对齐
-                            verticalAlignment = if (isMultiLineLayout) Alignment.Top else Alignment.CenterVertically,
+                            verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Box(
-                                modifier = Modifier
-                                    .size(16.dp)
-                                    .then(if (isMultiLineLayout) Modifier.padding(top = 1.dp) else Modifier),
+                                modifier = Modifier.size(16.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 if (isStatusError) {
@@ -1043,10 +1043,13 @@ internal fun MessageBubble(
                     // 提示置于头像+胶囊行正下方：头像与胶囊对齐关系不受影响。
                     // 计时来自气泡级 connectElapsedSec（按生成会话累计），状态闪断不重置、提示不再消失重现。
                     //
-                    // v2.6.8 需求 1：提示改为「固定槽位 + 透明度渐变」——槽位在整个连接/重连阶段恒定占位
-                    // （恒定两行 bodySmall 行高，随系统字体缩放自适应），文案出现、消失与「已等待 Ns」秒数
-                    // 增长都不再改变末项尺寸。此前用 AnimatedVisibility 增删节点，提示出现/收起会撑高气泡，
-                    // 列表为跟住末项重新钉底，表现为屏幕上下滑动。现在布局零抖动，只做淡入淡出。
+                    // v2.6.8 需求 1：提示改为「固定槽位 + 透明度渐变」——文案出现、消失与「已等待 Ns」秒数
+                    // 增长都不再改变末项尺寸。现在布局零抖动，只做淡入淡出。
+                    //
+                    // v2.7.6 需求 2：无正文阶段（连接/重连/思考）呼吸光环点上移到本行、与「连接时间长」
+                    // 提醒同行渲染（紧贴胶囊下方，不再隔着提示槽远置正文起点）；动画始终显示，
+                    // 提醒文字 ≥30s 后淡入（动画不受 hintAlpha 影响）。正文开始流式后整行退场，
+                    // 动画改由正文末尾的 TypingIndicator 承接（跟随内容），末项高度平滑过渡。
                     val isConnectHintPhase = generationState == GenerationUiState.Connecting ||
                         generationState == GenerationUiState.Reconnecting
                     val hintVisible = isConnectHintPhase && connectElapsedSec >= 30
@@ -1060,7 +1063,7 @@ internal fun MessageBubble(
                         label = "connectHintAlpha"
                     )
                     val hintBodySmall = MaterialTheme.typography.bodySmall
-                    // 相位切换（连接→思考）时槽位不再一帧内整体移除：改用 fade+expand/shrink 平滑出入场，
+                    // 相位切换（连接→思考→流式）时槽位不再一帧内整体移除：改用 fade+expand/shrink 平滑出入场，
                     // 否则末项高度突降会被钉底逻辑追平，表现为屏幕错误滑动一小段
                     val hintFadeSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec<Float>(
                         com.aiassistant.ui.theme.EchoMotion.Duration.fast
@@ -1069,7 +1072,7 @@ internal fun MessageBubble(
                         com.aiassistant.ui.theme.EchoMotion.Duration.fast
                     )
                     AnimatedVisibility(
-                        visible = isConnectHintPhase,
+                        visible = isGenerating && message.content.isBlank(),
                         enter = if (reducedMotion) {
                             fadeIn(snap()) + expandVertically(snap())
                         } else {
@@ -1081,26 +1084,37 @@ internal fun MessageBubble(
                             fadeOut(hintFadeSpec) + shrinkVertically(hintSizeSpec)
                         }
                     ) {
-                        Box(
+                        Row(
                             modifier = Modifier
-                                .padding(start = 46.dp, top = 4.dp)
-                                .widthIn(max = maxBubbleWidth)
-                                .alpha(hintAlpha)
+                                .padding(start = 46.dp, top = 4.dp, end = 4.dp)
+                                .fillMaxWidth(),
+                            // 顶对齐：动画贴第一行提醒文字（两行固定槽位下不居中悬在两行之间）
+                            verticalAlignment = Alignment.Top
                         ) {
-                            Text(
-                                text = if (generationState == GenerationUiState.Reconnecting && !reconnectStatus.isNullOrBlank()) {
-                                    "连接重试中（已等待 ${connectElapsedSec}s）· 重试原因见上方状态"
-                                } else {
-                                    "连接时间较长，正在等待 ${(assistantModelName.ifBlank { "AI" }).displayModelShortName()} 响应…（已等待 ${connectElapsedSec}s）"
-                                },
-                                style = hintBodySmall,
-                                color = if (connectElapsedSec >= 60) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                                // 恒定占两行（minLines = maxLines = 2）：文案出现/消失与秒数增长都不改变高度，
-                                // 槽位高度自动跟随字体缩放，无需任何魔法值
-                                minLines = 2,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                            Box(modifier = Modifier.padding(top = 1.dp)) {
+                                TypingIndicator(accentColor = generationAccentColor)
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .alpha(hintAlpha)
+                            ) {
+                                Text(
+                                    text = if (generationState == GenerationUiState.Reconnecting && !reconnectStatus.isNullOrBlank()) {
+                                        "连接重试中（已等待 ${connectElapsedSec}s）· 重试原因见上方状态"
+                                    } else {
+                                        "连接时间较长，正在等待 ${(assistantModelName.ifBlank { "AI" }).displayModelShortName()} 响应…（已等待 ${connectElapsedSec}s）"
+                                    },
+                                    style = hintBodySmall,
+                                    color = if (connectElapsedSec >= 60) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    // 恒定占两行（minLines = maxLines = 2）：文案出现/消失与秒数增长都不改变高度，
+                                    // 槽位高度自动跟随字体缩放，无需任何魔法值
+                                    minLines = 2,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         }
                     }
                 }
@@ -1887,10 +1901,12 @@ fun TypingIndicator(
     accentColor: androidx.compose.ui.graphics.Color
 ) {
     // 重新设计：呼吸光环点（Canvas 绘制，一次组合、零重组、零每帧分配），
-    // 配色消费 generationAccentColor，与流式光标/脉冲环同源；尺寸加大以容纳光环扩散
+    // 配色消费 generationAccentColor，与流式光标/脉冲环同源；
+    // v2.7.6 需求 2：主体点放大（2.8dp→4dp 半径，含光环扩散余量），画布随之加大
     EchoThinkingDots(
         color = accentColor,
-        modifier = Modifier.width(34.dp).height(18.dp)
+        modifier = Modifier.width(44.dp).height(20.dp),
+        dotRadius = 4.dp
     )
 }
 

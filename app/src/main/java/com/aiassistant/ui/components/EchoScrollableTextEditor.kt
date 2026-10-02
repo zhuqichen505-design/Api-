@@ -57,16 +57,31 @@ import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 /**
- * v2.7.4：no-op bringIntoView 门禁——拦截 BasicTextField 内建的光标可见性请求外传
- * （实测该请求在本组件结构下会把视口强制带到内容顶端、且无法跟随光标），
- * 光标跟随由 [EchoScrollableTextEditor] 内部的 LaunchedEffect 以最小距离滚动自行接管。
+ * v2.7.4：bringIntoView 门禁——拦截 BasicTextField 内建的光标可见性请求外传。
+ *
+ * v2.7.6 修复：1.6.8 的 [BringIntoViewResponderNode] 在调用 responder 后会**无条件**继续向
+ * 父级转发请求（`launch { parent.bringChildIntoView(...) }`），no-op 门禁拦不住传播；
+ * 获得焦点时 focusable 会请求"整个字段矩形"入视口，该矩形被原样转发给外层滚动容器后，
+ * 视口被强制对到内容顶端——表现为点击/聚焦即跳顶。
+ *
+ * 本门禁改为把请求矩形**钳制到编辑器当前可视窗口**内：已可见的矩形使滚动容器判定
+ * 无需滚动，请求就地终结（焦点整字段请求、光标矩形请求均不再引发跳顶）；
+ * 真正的光标可见性由 [EchoScrollableTextEditor] 内部的 LaunchedEffect 以最小距离滚动自行接管。
  */
 @OptIn(ExperimentalFoundationApi::class)
-private val editorBringIntoViewGate = object : BringIntoViewResponder {
-    override fun calculateRectForParent(rect: androidx.compose.ui.geometry.Rect): androidx.compose.ui.geometry.Rect = rect
+private class EditorBringIntoViewClampGate(
+    /** 返回编辑器可视窗口在字段内容坐标系中的范围（px）；视口未就绪时返回 null（不钳制） */
+    private val visibleRange: () -> ClosedFloatingPointRange<Float>?
+) : BringIntoViewResponder {
+    override fun calculateRectForParent(rect: androidx.compose.ui.geometry.Rect): androidx.compose.ui.geometry.Rect {
+        val range = visibleRange() ?: return rect
+        val top = rect.top.coerceIn(range.start, range.endInclusive)
+        val bottom = rect.bottom.coerceIn(range.start, range.endInclusive)
+        return rect.copy(top = top, bottom = bottom)
+    }
 
     override suspend fun bringChildIntoView(localRect: () -> androidx.compose.ui.geometry.Rect?) {
-        // 有意留空：请求在此终止，不向父级滚动容器传播
+        // 有意留空：本层不产生滚动，仅修正向上传播的矩形
     }
 }
 
@@ -108,6 +123,19 @@ fun EchoScrollableTextEditor(
     val boxHeight = with(density) { boxHeightPx.toDp() }
 
     var textLayout by remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
+
+    // v2.7.6：钳制型门禁（见类注释）——可视窗口 = [scrollValue, scrollValue + viewport]，
+    // 即字段内容坐标系（门禁节点 = 字段根节点，二者同坐标系）
+    val bringIntoViewGate = remember(scrollState) {
+        EditorBringIntoViewClampGate {
+            val viewport = scrollState.viewportSize
+            if (viewport <= 0) {
+                null
+            } else {
+                scrollState.value.toFloat()..(scrollState.value + viewport).toFloat()
+            }
+        }
+    }
 
     // v2.7.4 需求 3：光标可见性由编辑器自行接管——
     // ① BasicTextField 内建的 bringIntoView 在本结构下实测会把视口强制带到内容顶端、
@@ -162,7 +190,7 @@ fun EchoScrollableTextEditor(
                     onTextLayout = { textLayout = it },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .bringIntoViewResponder(editorBringIntoViewGate)
+                        .bringIntoViewResponder(bringIntoViewGate)
                         .onSizeChanged { contentHeightPx = it.height }
                 )
             }
