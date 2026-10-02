@@ -778,19 +778,8 @@ fun ChatInputBar(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .size(handleBoxSize)
-                        .pointerInput(Unit) {
-                            detectTapGestures(
-                                onTap = {
-                                    if (isInputExpanded || (customInputHeightDp ?: 42f) > 60f) {
-                                        customInputHeightDp = null
-                                        isInputExpanded = false
-                                    } else {
-                                        customInputHeightDp = 180f
-                                        isInputExpanded = true
-                                    }
-                                }
-                            )
-                        }
+                        // v2.7.7 需求 1：移除手柄的点按展开/收起切换——点击输入框（含手柄热区）
+                        // 不再改变输入框大小，大小只随拖拽（手动改变）变化
                         .pointerInput(Unit) {
                             detectVerticalDragGestures(
                                 onDragStart = { },

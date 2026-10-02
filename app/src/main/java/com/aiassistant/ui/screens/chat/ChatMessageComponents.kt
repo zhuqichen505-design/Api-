@@ -536,6 +536,11 @@ internal fun MessageBubble(
 
     @Composable
     fun MessageContent(contentColor: Color) {
+        // v2.7.7 需求 3：无正文生成期（连接/思考）内容区不渲染空白占位——动画已上移至
+        // 胶囊下方与提醒同行，此处的 8dp 纵向空距只会拉大动画与底部时间戳的距离
+        if (!isUser && isGenerating && message.content.isBlank()) {
+            return
+        }
         SelectionContainer {
             Column(
                 modifier = if (isUser) {
@@ -654,12 +659,13 @@ internal fun MessageBubble(
                 }
 
                 // v2.7.4 需求 1/2：流式输出动画（呼吸光环点）持续**整个生成过程**、直到模型回复
-                // 结束才消失——正文流式期间跟随内容末尾（正文最后一行下方 6dp）：
-                // 配合列表钉底跟随，动画与屏幕底部（输入栏上方）的距离在流式期间保持稳定。
+                // 结束才消失——正文流式期间跟随内容末尾：配合列表钉底跟随，动画与屏幕底部
+                // （输入栏上方）的距离在流式期间保持稳定。
                 // v2.7.6 需求 2：正文空白阶段（连接/思考）动画已上移到胶囊下方与连接提醒同行，
                 // 此处仅在正文开始后渲染，避免同屏两份动画。
+                // v2.7.7 需求 3：与内容末尾的间距 6dp→2dp，动画更贴近正文与底部时间戳。
                 if (isGenerating && message.content.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(2.dp))
                     TypingIndicator(accentColor = generationAccentColor)
                 }
             }
@@ -873,10 +879,10 @@ internal fun MessageBubble(
                         Spacer(modifier = Modifier.width(8.dp))
                         Surface(
                         modifier = Modifier
-                            // v2.7.6 需求 1：胶囊无条件占满头像行剩余宽度（各状态尺寸恒定），并右缩
-                            // 44dp（头像36+间距8）——右缘与用户输入气泡（用户消息气泡）右缘精确对齐，
-                            // 不再落在右侧头像右缘（v2.7.4 误按"底部输入栏"口径实现）
-                            .weight(1f)
+                            // v2.7.7 需求 4：胶囊宽度随实际内容自适应（weight fill=false）——文字未超过
+                            // 显示范围时收缩到内容宽度；文字超限时仍占满剩余宽度（横向滚动/换行逻辑
+                            // 不变）。右缩 44dp（头像36+间距8）：撑满时右缘仍与用户输入气泡右缘对齐
+                            .weight(1f, fill = false)
                             .padding(end = 44.dp)
                             .defaultMinSize(minHeight = 34.dp)
                             .animateContentSize(com.aiassistant.ui.theme.EchoMotion.Spring.gentle())
@@ -1046,10 +1052,9 @@ internal fun MessageBubble(
                     // v2.6.8 需求 1：提示改为「固定槽位 + 透明度渐变」——文案出现、消失与「已等待 Ns」秒数
                     // 增长都不再改变末项尺寸。现在布局零抖动，只做淡入淡出。
                     //
-                    // v2.7.6 需求 2：无正文阶段（连接/重连/思考）呼吸光环点上移到本行、与「连接时间长」
-                    // 提醒同行渲染（紧贴胶囊下方，不再隔着提示槽远置正文起点）；动画始终显示，
-                    // 提醒文字 ≥30s 后淡入（动画不受 hintAlpha 影响）。正文开始流式后整行退场，
-                    // 动画改由正文末尾的 TypingIndicator 承接（跟随内容），末项高度平滑过渡。
+                    // v2.7.7 需求 2/3：动画移到行**右端**（右缘与用户气泡右缘基准线一致），提示文字单行
+                    // 占位（秒数增长/文案出现均不改变高度，槽位高度恒为一行）——无正文阶段末项更紧凑，
+                    // 动画与底部时间戳的距离显著缩小。
                     val isConnectHintPhase = generationState == GenerationUiState.Connecting ||
                         generationState == GenerationUiState.Reconnecting
                     val hintVisible = isConnectHintPhase && connectElapsedSec >= 30
@@ -1086,35 +1091,26 @@ internal fun MessageBubble(
                     ) {
                         Row(
                             modifier = Modifier
-                                .padding(start = 46.dp, top = 4.dp, end = 4.dp)
+                                .padding(start = 46.dp, top = 4.dp, end = 44.dp)
                                 .fillMaxWidth(),
-                            // 顶对齐：动画贴第一行提醒文字（两行固定槽位下不居中悬在两行之间）
-                            verticalAlignment = Alignment.Top
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Box(modifier = Modifier.padding(top = 1.dp)) {
-                                TypingIndicator(accentColor = generationAccentColor)
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Box(
+                            Text(
+                                text = if (generationState == GenerationUiState.Reconnecting && !reconnectStatus.isNullOrBlank()) {
+                                    "连接重试中，已等待 ${connectElapsedSec}s…"
+                                } else {
+                                    "连接时间较长，已等待 ${connectElapsedSec}s…"
+                                },
+                                style = hintBodySmall,
+                                color = if (connectElapsedSec >= 60) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier
                                     .weight(1f)
                                     .alpha(hintAlpha)
-                            ) {
-                                Text(
-                                    text = if (generationState == GenerationUiState.Reconnecting && !reconnectStatus.isNullOrBlank()) {
-                                        "连接重试中（已等待 ${connectElapsedSec}s）· 重试原因见上方状态"
-                                    } else {
-                                        "连接时间较长，正在等待 ${(assistantModelName.ifBlank { "AI" }).displayModelShortName()} 响应…（已等待 ${connectElapsedSec}s）"
-                                    },
-                                    style = hintBodySmall,
-                                    color = if (connectElapsedSec >= 60) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    // 恒定占两行（minLines = maxLines = 2）：文案出现/消失与秒数增长都不改变高度，
-                                    // 槽位高度自动跟随字体缩放，无需任何魔法值
-                                    minLines = 2,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            TypingIndicator(accentColor = generationAccentColor)
                         }
                     }
                 }
@@ -1499,7 +1495,8 @@ internal fun MessageFooter(
     val responseTimeInThinkingBubble = thinkingTokensInThinkingBubble
 
     Row(
-        modifier = modifier.padding(top = 5.dp),
+        // v2.7.7 需求 3：顶部间距 5dp→3dp，收窄回复内容/动画与底部时间戳之间的距离
+        modifier = modifier.padding(top = 3.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         // 左侧元数据：时间戳、Token 等支持水平横向滚动
@@ -1544,8 +1541,12 @@ internal fun MessageFooter(
 
                 if (message.responseTime > 0) {
                     val seconds = message.responseTime / 1000.0
-                    if (seconds > 0.05) {
-                        val speed = message.tokenCount / seconds
+                    // v2.7.7 需求 12：速度只按模型实际产出计——此前用 tokenCount（含输入+思考的
+                    // 总消耗）除以耗时，输入越大 TPS 越虚高（常见 2000+，明显违背常识）；
+                    // 改为按回复正文估算产出 token，且仅当计时窗口 ≥1s（速率才稳定可信）时展示
+                    val outputTokens = remember(message.content) { AiRepository.estimateTokenCount(message.content) }
+                    if (seconds >= 1.0 && outputTokens > 0) {
+                        val speed = outputTokens / seconds
                         MessageMetaText(
                             text = String.format(Locale.US, "%.1f tokens/s", speed),
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.70f)

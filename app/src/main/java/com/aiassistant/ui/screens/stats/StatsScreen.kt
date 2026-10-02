@@ -39,6 +39,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -48,6 +49,7 @@ import androidx.compose.ui.unit.sp
 import com.aiassistant.ui.theme.EchoChartPalette
 import com.aiassistant.ui.theme.rememberEchoChartColors
 import com.aiassistant.ui.components.EchoGlassPagePanelShape
+import com.aiassistant.ui.components.EchoGlassDropdownMenu
 import com.aiassistant.ui.components.EchoWallpaperBackground
 import com.aiassistant.ui.components.echoGlassPalette
 import com.aiassistant.ui.components.echoHazePanel
@@ -1878,7 +1880,11 @@ private fun HealthTimelineCard(
                     }
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                // v2.7.7 需求 9：两个模式切换按钮改为竖向排列——标题与副标题不再被挤压跨行
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
                     listOf("健康状态", "Token 热度").forEachIndexed { idx, title ->
                         val isSelected = heatMode == idx
                         val chipShape = RoundedCornerShape(8.dp)
@@ -1915,7 +1921,8 @@ private fun HealthTimelineCard(
                     color = content.copy(alpha = 0.6f)
                 )
             } else {
-                // 热力方格画布（14 列自适应换行）
+                // 热力方格画布（v2.7.7 需求 7：纵向优先填充——时间顺序先自上而下、再自左向右，
+                // 第一格的下一格在它正下方，最后一格的上一格在它正上方）
                 androidx.compose.foundation.layout.BoxWithConstraints(
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -1923,45 +1930,76 @@ private fun HealthTimelineCard(
                     val gridHeight = cellSize * rowCount + cellGap * (rowCount - 1)
                     val cellSizePx = with(androidx.compose.ui.platform.LocalDensity.current) { cellSize.toPx() }
                     val gapPx = with(androidx.compose.ui.platform.LocalDensity.current) { cellGap.toPx() }
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(gridHeight)
-                            .pointerInput(cells, heatMode) {
-                                detectTapGestures { offset ->
-                                    val col = (offset.x / (cellSizePx + gapPx)).toInt()
-                                    val row = (offset.y / (cellSizePx + gapPx)).toInt()
-                                    val index = if (col in 0 until columns && row in 0 until rowCount) {
-                                        row * columns + col
-                                    } else -1
-                                    selectedCellIndex = if (index in cells.indices) {
-                                        if (selectedCellIndex == index) -1 else index
-                                    } else -1
+                    Column {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(gridHeight)
+                                .pointerInput(cells, heatMode) {
+                                    detectTapGestures { offset ->
+                                        val col = (offset.x / (cellSizePx + gapPx)).toInt()
+                                        val row = (offset.y / (cellSizePx + gapPx)).toInt()
+                                        // 纵向优先填充：index = 列 × 每行列数 + 行
+                                        val index = if (col in 0 until columns && row in 0 until rowCount) {
+                                            col * rowCount + row
+                                        } else -1
+                                        selectedCellIndex = if (index in cells.indices) {
+                                            if (selectedCellIndex == index) -1 else index
+                                        } else -1
+                                    }
                                 }
-                            }
-                    ) {
-                        Canvas(modifier = Modifier.fillMaxSize()) {
-                            cells.forEachIndexed { index, cell ->
-                                val row = index / columns
-                                val col = index % columns
-                                val left = col * (cellSizePx + gapPx)
-                                val top = row * (cellSizePx + gapPx)
-                                val color = cellColor(cell)
-                                drawRoundRect(
-                                    color = color,
-                                    topLeft = Offset(left, top),
-                                    size = Size(cellSizePx, cellSizePx),
-                                    cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx())
-                                )
-                                if (index == selectedCellIndex) {
+                        ) {
+                            Canvas(modifier = Modifier.fillMaxSize()) {
+                                cells.forEachIndexed { index, cell ->
+                                    val col = index / rowCount
+                                    val row = index % rowCount
+                                    val left = col * (cellSizePx + gapPx)
+                                    val top = row * (cellSizePx + gapPx)
+                                    val color = cellColor(cell)
                                     drawRoundRect(
-                                        color = selectedBorderColor,
+                                        color = color,
                                         topLeft = Offset(left, top),
                                         size = Size(cellSizePx, cellSizePx),
-                                        cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx()),
-                                        style = Stroke(width = 2.dp.toPx())
+                                        cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx())
                                     )
+                                    if (index == selectedCellIndex) {
+                                        drawRoundRect(
+                                            color = selectedBorderColor,
+                                            topLeft = Offset(left, top),
+                                            size = Size(cellSizePx, cellSizePx),
+                                            cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx()),
+                                            style = Stroke(width = 2.dp.toPx())
+                                        )
+                                    }
                                 }
+                            }
+                        }
+
+                        // v2.7.7 需求 8：底部横轴时间标注——在 0、4、9、13 列中心标注该列起始时间点
+                        val axisTextMeasurer = androidx.compose.ui.text.rememberTextMeasurer()
+                        val axisSpan = (cells.lastOrNull()?.endTs ?: 0L) - (cells.firstOrNull()?.startTs ?: 0L)
+                        val axisFormat = SimpleDateFormat(if (axisSpan > 36L * 60 * 60 * 1000) "MM-dd" else "HH:mm", Locale.getDefault())
+                        val axisColumns = listOf(0, 4, 9, 13)
+                        Canvas(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(16.dp)
+                        ) {
+                            val axisStyle = TextStyle(
+                                fontSize = 9.sp,
+                                color = content.copy(alpha = 0.55f)
+                            )
+                            axisColumns.forEach { col ->
+                                val cell = cells.getOrNull(col * rowCount) ?: return@forEach
+                                val label = axisFormat.format(java.util.Date(cell.startTs))
+                                val measured = axisTextMeasurer.measure(label, axisStyle)
+                                val colCenter = col * (cellSizePx + gapPx) + cellSizePx / 2f
+                                val left = (colCenter - measured.size.width / 2f)
+                                    .coerceIn(0f, (size.width - measured.size.width).coerceAtLeast(0f))
+                                drawText(
+                                    textLayoutResult = measured,
+                                    topLeft = Offset(left, 0f)
+                                )
                             }
                         }
                     }
@@ -2094,6 +2132,7 @@ private fun XAxisLabels(buckets: List<Bucket>) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ModernModelStatsTable(
     hazeState: dev.chrisbanes.haze.HazeState,
@@ -2164,33 +2203,61 @@ private fun ModernModelStatsTable(
                     }
                 }
 
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    listOf("Tokens", "请求数", "成功率", "耗时", "平均速度").forEachIndexed { idx, title ->
-                        val isSelected = sortMode == idx
-                        val chipShape = RoundedCornerShape(8.dp)
-                        Box(
-                            modifier = Modifier
-                                .clip(chipShape)
-                                .background(if (isSelected) glass.controlSelected else glass.control.copy(alpha = 0.6f))
-                                .border(
-                                    BorderStroke(
-                                        if (isSelected) 1.dp else 0.6.dp,
-                                        if (isSelected) glass.outlineSelected else glass.outline.copy(alpha = 0.6f)
-                                    ),
-                                    chipShape
-                                )
-                                .echoShapeClick(chipShape) { sortMode = idx }
-                                .padding(horizontal = 7.dp, vertical = 3.5.dp)
-                        ) {
+                // v2.7.7 需求 10：排序方式改为下拉列表选择——原先 5 枚选项胶囊与标题同行，
+                // 窄屏下被挤压显示不全
+                var sortMenuExpanded by remember { mutableStateOf(false) }
+                val sortOptions = listOf("Tokens", "请求数", "成功率", "耗时", "平均速度")
+                Box {
+                    val triggerShape = RoundedCornerShape(8.dp)
+                    Box(
+                        modifier = Modifier
+                            .clip(triggerShape)
+                            .background(glass.control.copy(alpha = 0.6f))
+                            .border(BorderStroke(0.6.dp, glass.outline.copy(alpha = 0.6f)), triggerShape)
+                            .echoShapeClick(triggerShape) { sortMenuExpanded = true }
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = title,
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                ),
-                                color = if (isSelected) MaterialTheme.colorScheme.primary else content.copy(alpha = 0.72f)
+                                text = "排序：${sortOptions.getOrElse(sortMode) { "Tokens" }}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = content.copy(alpha = 0.85f)
+                            )
+                            Icon(
+                                imageVector = Icons.Default.ArrowDropDown,
+                                contentDescription = "选择排序方式",
+                                tint = content.copy(alpha = 0.72f),
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                    }
+                    EchoGlassDropdownMenu(
+                        expanded = sortMenuExpanded,
+                        onDismissRequest = { sortMenuExpanded = false }
+                    ) {
+                        sortOptions.forEachIndexed { idx, title ->
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        text = title,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = if (sortMode == idx) MaterialTheme.colorScheme.primary else content
+                                    )
+                                },
+                                leadingIcon = {
+                                    if (sortMode == idx) {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                },
+                                onClick = {
+                                    sortMode = idx
+                                    sortMenuExpanded = false
+                                }
                             )
                         }
                     }
@@ -2314,10 +2381,13 @@ private fun ModernModelStatsTable(
                             }
 
                             // 第三行：多维度紧凑数据标签
-                            Row(
+                            // v2.7.7 需求 11：改为可换行 FlowRow——此前单行 Row 在出现「失败 N」
+                            // 「缓存」「思考」等追加标签时整体超宽，排在其后的 TPS 标签被挤出
+                            // 可视区裁掉，表现为"有失败数据时显示不出 TPS"
+                            androidx.compose.foundation.layout.FlowRow(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 MiniStatsChip(
                                     icon = Icons.AutoMirrored.Filled.Send,

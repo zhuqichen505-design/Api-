@@ -1177,8 +1177,10 @@ fun ChatScreen(
         Box(
             modifier = Modifier.fillMaxSize()
         ) {
-            // N-2：消息列表底部与悬浮跳转按钮共用同一底部偏移派生值
+            // N-2：悬浮跳转按钮保持原有底部偏移；v2.7.7 需求 6：消息列表底部间距单独收窄——
+            // 滑到最底部时最后一条回复与输入栏顶部的距离由 16dp 收窄为 4dp
             val bottomBarOverlay = paddingValues.calculateBottomPadding() + EchoTokens.Spacing.lg
+            val listBottomPadding = paddingValues.calculateBottomPadding() + 4.dp
             val statusBarTopPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
             val topFloatingBarHeight = 68.dp + (if (error != null) 60.dp else 0.dp)
 
@@ -1196,7 +1198,7 @@ fun ChatScreen(
                         start = 12.dp,
                         end = 12.dp,
                         top = statusBarTopPadding + topFloatingBarHeight,
-                        bottom = bottomBarOverlay
+                        bottom = listBottomPadding
                     ),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
