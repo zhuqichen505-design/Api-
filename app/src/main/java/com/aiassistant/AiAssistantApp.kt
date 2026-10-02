@@ -54,14 +54,10 @@ class AiAssistantApp : Application() {
         echoToolHub = com.aiassistant.tools.EchoToolHub(this, cryptoManager, tavilySearchManager)
         themePreferenceManager = ThemePreferenceManager(this)
 
-        // 异步尝试自动备份（避免主线程阻塞与冷启动卡顿）
-        applicationScope.launch(Dispatchers.IO) {
-            try {
-                BackupManager.autoBackup(this@AiAssistantApp)
-            } catch (e: Exception) {
-                Log.w("AiAssistantApp", "Auto backup failed", e)
-            }
-        }
+        // v2.7.3 稳定性：自动备份延后到数据库初始化完成之后——原先它在初始化前启动，
+        // 若初始化失败走 tryRestoreBackup 恢复路径，自动备份可能与"恢复替换数据库"并发，
+        // 把半恢复状态的数据库打进当天的备份包；初始化失败的异常路径下跳过本次自动备份
+        //（恢复函数自身在恢复前会先创建安全备份，下次启动会照常自动备份）
 
         // 初始化数据库
         try {
@@ -96,6 +92,14 @@ class AiAssistantApp : Application() {
                 memoryDao = database.memoryDao()
             )
             isDatabaseInitialized = true
+            // 异步尝试自动备份（避免主线程阻塞与冷启动卡顿；仅在数据库初始化成功后启动）
+            applicationScope.launch(Dispatchers.IO) {
+                try {
+                    BackupManager.autoBackup(this@AiAssistantApp)
+                } catch (e: Exception) {
+                    Log.w("AiAssistantApp", "Auto backup failed", e)
+                }
+            }
         } catch (e: Exception) {
             Log.e("AiAssistantApp", "Database initialization failed", e)
             tryRestoreBackup()

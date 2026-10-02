@@ -23,18 +23,39 @@ import com.aiassistant.ui.components.markdown.LatexUnicodeConverter.parseLaTeXTo
  */
 object MarkdownInlineParser {
 
+    // v2.7.3 流畅度：cleanLeadingStarArtifacts 是每个 parseInlineMarkdown 的第一步
+    //（含嵌套递归调用），流式尾部每帧每行触发；原先每次调用现场编译 4 个 Regex
+    private val ESCAPED_STARS_REGEX = Regex("""\\(\*{2,3})""")
+    private val LEADING_STAR_BEFORE_TAG_REGEX = Regex("""^\s*\*\s*(?=<font|<span|\{#)""", RegexOption.IGNORE_CASE)
+    private val STAR_INSIDE_FONT_REGEX = Regex("""(<font[^>]*>)\s*\*""", RegexOption.IGNORE_CASE)
+    private val STAR_INSIDE_SPAN_REGEX = Regex("""(<span[^>]*>)\s*\*""", RegexOption.IGNORE_CASE)
+
+    /**
+     * v2.7.3 流畅度：引用角标形态的有界前瞻判定（'[' + 可选 '^' + ASCII 数字 + ']'）。
+     * 与原实现「对剩余全文 substring 后匹配 ^\[\^?\d+\].*」严格等价（.* 恒真），
+     * 但不再为每个 '[' 分配剩余全文子串、不再现场编译正则
+     */
+    private fun isCitationMarkerAt(text: String, start: Int): Boolean {
+        var idx = start + 1
+        if (idx < text.length && text[idx] == '^') idx++
+        val digitsStart = idx
+        while (idx < text.length && text[idx] in '0'..'9') idx++
+        if (idx == digitsStart) return false
+        return idx < text.length && text[idx] == ']'
+    }
+
 /**
  * 清理因模型非标颜色标签不兼容或格式错乱而在句首留下的孤立星号 '*'，同时正规化全角星号与常见转义符
  */
 fun cleanLeadingStarArtifacts(raw: String): String {
     var s = raw.replace('＊', '*') // 1. 全角星号归一化为半角星号，彻底支持中文全角星号排版
     // 2. 处理大模型常见的 Markdown 转义反斜杠星号，例如 \***文字\*** 或 \*\*文字\*\*
-    s = s.replace(Regex("""\\(\*{2,3})"""), "$1")
+    s = s.replace(ESCAPED_STARS_REGEX, "$1")
     // 3. 清理开头紧随 <font>、<span>、{# 颜色标签出现的孤立星号，例如 "*<font", "* <font", "*<span", "* {#", etc.
-    s = s.replace(Regex("""^\s*\*\s*(?=<font|<span|\{#)""", RegexOption.IGNORE_CASE), "")
+    s = s.replace(LEADING_STAR_BEFORE_TAG_REGEX, "")
     // 4. 清理 <font ...>* 或 <span ...>* 紧随开标签后的孤立星号
-    s = s.replace(Regex("""(<font[^>]*>)\s*\*""", RegexOption.IGNORE_CASE), "$1")
-    s = s.replace(Regex("""(<span[^>]*>)\s*\*""", RegexOption.IGNORE_CASE), "$1")
+    s = s.replace(STAR_INSIDE_FONT_REGEX, "$1")
+    s = s.replace(STAR_INSIDE_SPAN_REGEX, "$1")
     return s
 }
 
@@ -515,7 +536,7 @@ fun parseInlineMarkdown(
                 }
 
                 // 引用角标 [1] 或 [^1]
-                decoded.startsWith("[", i) && decoded.substring(i).matches(Regex("""^\[\^?\d+\].*""")) -> {
+                decoded.startsWith("[", i) && isCitationMarkerAt(decoded, i) -> {
                     val closeBracket = decoded.indexOf("]", i)
                     if (closeBracket != -1) {
                         val numStr = decoded.substring(i + 1, closeBracket).removePrefix("^")

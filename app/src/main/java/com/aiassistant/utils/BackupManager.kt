@@ -245,6 +245,15 @@ object BackupManager {
             var singleJsonContent: String? = null
 
             try {
+                // v2.7.3 稳定性：Zip-Slip 路径穿越防护——zip 条目名完全由压缩包控制，
+                // 含 ../ 等规范化逃逸时 canonicalPath 会落出目标目录，可覆盖私有目录任意文件。
+                // 正常自建备份（条目名形如 database/xxx、files/xxx）不受影响
+                val tempDirCanonical = tempDir.canonicalPath + File.separator
+                val filesDirCanonical = context.filesDir.canonicalPath + File.separator
+                val prefsDirCanonical = File(context.applicationInfo.dataDir, "shared_prefs").canonicalPath + File.separator
+                fun isSafeTarget(target: File, rootCanonical: String): Boolean =
+                    target.canonicalPath.startsWith(rootCanonical)
+
                 ZipInputStream(FileInputStream(backupFile)).use { zip ->
                     var entry = zip.nextEntry
                     while (entry != null) {
@@ -252,32 +261,48 @@ object BackupManager {
                         when {
                             fileName.startsWith("database/") -> {
                                 val target = File(tempDir, fileName.removePrefix("database/"))
-                                target.parentFile?.mkdirs()
-                                FileOutputStream(target).use { out -> zip.copyTo(out) }
-                                if (target.name == DB_NAME) {
-                                    tempDbFile = target
+                                if (!isSafeTarget(target, tempDirCanonical)) {
+                                    Log.w("BackupManager", "跳过越界备份条目: $fileName")
+                                } else {
+                                    target.parentFile?.mkdirs()
+                                    FileOutputStream(target).use { out -> zip.copyTo(out) }
+                                    if (target.name == DB_NAME) {
+                                        tempDbFile = target
+                                    }
                                 }
                             }
                             fileName.endsWith(".json") && !fileName.contains("backup_info") -> {
                                 val target = File(tempDir, fileName)
-                                target.parentFile?.mkdirs()
-                                FileOutputStream(target).use { out -> zip.copyTo(out) }
-                                if (singleJsonContent == null) {
-                                    singleJsonContent = target.readText(Charsets.UTF_8)
+                                if (!isSafeTarget(target, tempDirCanonical)) {
+                                    Log.w("BackupManager", "跳过越界备份条目: $fileName")
+                                } else {
+                                    target.parentFile?.mkdirs()
+                                    FileOutputStream(target).use { out -> zip.copyTo(out) }
+                                    if (singleJsonContent == null) {
+                                        singleJsonContent = target.readText(Charsets.UTF_8)
+                                    }
                                 }
                             }
                             fileName.startsWith("files/") -> {
                                 val file = File(context.filesDir, fileName.removePrefix("files/"))
-                                file.parentFile?.mkdirs()
-                                FileOutputStream(file).use { out -> zip.copyTo(out) }
+                                if (!isSafeTarget(file, filesDirCanonical)) {
+                                    Log.w("BackupManager", "跳过越界备份条目: $fileName")
+                                } else {
+                                    file.parentFile?.mkdirs()
+                                    FileOutputStream(file).use { out -> zip.copyTo(out) }
+                                }
                             }
                             fileName.startsWith("shared_prefs/") -> {
                                 val file = File(
                                     File(context.applicationInfo.dataDir, "shared_prefs"),
                                     fileName.removePrefix("shared_prefs/")
                                 )
-                                file.parentFile?.mkdirs()
-                                FileOutputStream(file).use { out -> zip.copyTo(out) }
+                                if (!isSafeTarget(file, prefsDirCanonical)) {
+                                    Log.w("BackupManager", "跳过越界备份条目: $fileName")
+                                } else {
+                                    file.parentFile?.mkdirs()
+                                    FileOutputStream(file).use { out -> zip.copyTo(out) }
+                                }
                             }
                         }
                         entry = zip.nextEntry

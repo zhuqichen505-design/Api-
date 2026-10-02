@@ -296,11 +296,16 @@ fun HiddenConversationsTab(
                             }
                         },
                         onBackup = {
-                            val backupPath = BackupManager.createSingleConversationBackup(context, conversation.id)
-                            if (backupPath != null) {
-                                android.widget.Toast.makeText(context, "隐藏对话已备份至 Echo_Backups", android.widget.Toast.LENGTH_SHORT).show()
-                            } else {
-                                android.widget.Toast.makeText(context, "对话备份失败", android.widget.Toast.LENGTH_SHORT).show()
+                            // v2.7.3 流畅度：备份为多表查询+序列化+写盘，迁到 IO 协程，回主线程 Toast
+                            scope.launch(Dispatchers.IO) {
+                                val backupPath = BackupManager.createSingleConversationBackup(context, conversation.id)
+                                withContext(Dispatchers.Main) {
+                                    if (backupPath != null) {
+                                        android.widget.Toast.makeText(context, "隐藏对话已备份至 Echo_Backups", android.widget.Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        android.widget.Toast.makeText(context, "对话备份失败", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                }
                             }
                         }
                     )
@@ -594,8 +599,9 @@ fun BackupTab(
     ) { uri ->
         uri?.let {
             scope.launch {
+                // v2.7.3 流畅度：zip 打包+整文件拷贝迁 IO，UI 状态回写在 Main
                 isBackingUp = true
-                val result = BackupManager.exportBackupToUri(context, it)
+                val result = withContext(Dispatchers.IO) { BackupManager.exportBackupToUri(context, it) }
                 isBackingUp = false
                 showMessage = if (result) "备份已导出到所选位置" else "备份导出失败"
                 backups = BackupManager.getBackupList(context)
@@ -607,8 +613,9 @@ fun BackupTab(
     ) { uri ->
         uri?.let {
             scope.launch {
+                // v2.7.3 流畅度：解压+逐表合并迁 IO，UI 状态回写在 Main
                 isBackingUp = true
-                val result = BackupManager.restoreBackupFromUri(context, it)
+                val result = withContext(Dispatchers.IO) { BackupManager.restoreBackupFromUri(context, it) }
                 isBackingUp = false
                 showMessage = if (result) "导入成功，已安全合并备份数据" else "导入失败，请确认文件格式有效"
                 backups = BackupManager.getBackupList(context)
@@ -641,7 +648,8 @@ fun BackupTab(
                 onClick = {
                     scope.launch {
                         isBackingUp = true
-                        val result = BackupManager.createBackup(context)
+                        // v2.7.3 流畅度：zip 打包数据库迁 IO
+                        val result = withContext(Dispatchers.IO) { BackupManager.createBackup(context) }
                         isBackingUp = false
                         if (result != null) {
                             showMessage = "备份成功！"
@@ -715,7 +723,10 @@ fun BackupTab(
                     backup = backup,
                     onRestore = {
                         scope.launch {
-                            val result = BackupManager.restoreBackup(context, backup.filePath)
+                            // v2.7.3 流畅度：整库合并事务迁 IO，回 Main 更新提示
+                            val result = withContext(Dispatchers.IO) {
+                                BackupManager.restoreBackup(context, backup.filePath)
+                            }
                             showMessage = if (result) {
                                 if (backup.fileName.endsWith(".json", ignoreCase = true)) "恢复成功！已成功导入该对话" else "恢复成功！请重启应用"
                             } else "恢复失败"

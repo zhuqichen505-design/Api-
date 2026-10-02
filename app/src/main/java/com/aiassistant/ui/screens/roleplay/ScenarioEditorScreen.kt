@@ -22,7 +22,9 @@ import com.aiassistant.ui.components.EchoConfirmDialog
 import com.aiassistant.ui.components.EchoGlassDialog
 import com.aiassistant.ui.components.EchoGlassDropdownMenu
 import com.aiassistant.utils.RoleplaySmartParser
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -390,13 +392,16 @@ private fun SmartReadScenarioDialog(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         uri?.let {
-            val content = RoleplaySmartParser.readTextFromUri(context, it)
-            if (content.isNotBlank()) {
-                rawText = content
-                loadedFileName = it.lastPathSegment?.substringAfterLast('/') ?: "已加载文件"
-                Toast.makeText(context, "已读取 TXT 文件内容 (${content.length}字)", Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(context, "无法读取该文件，请检查格式", Toast.LENGTH_SHORT).show()
+            // v2.7.3 流畅度：TXT 可达数 MB，读取与双编码探测迁 IO 协程，回主线程更新状态
+            scope.launch {
+                val content = withContext(Dispatchers.IO) { RoleplaySmartParser.readTextFromUri(context, it) }
+                if (content.isNotBlank()) {
+                    rawText = content
+                    loadedFileName = it.lastPathSegment?.substringAfterLast('/') ?: "已加载文件"
+                    Toast.makeText(context, "已读取 TXT 文件内容 (${content.length}字)", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, "无法读取该文件，请检查格式", Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }

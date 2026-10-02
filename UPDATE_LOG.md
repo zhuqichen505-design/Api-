@@ -2,6 +2,61 @@
 
 本文档按照工作流规范记录每次版本更新、需求变更与复核结果。
 
+## [2026-10-02] - v2.7.3 胶囊对齐口径修正（右缘对齐用户气泡右缘）+ 全项目流畅度与稳定性专项治理
+
+### 1. 用户需求
+1. 修正前版需求 5 口径：连接/思考胶囊尺寸统一后，胶囊的**右侧**应与用户输入气泡的**右侧**对齐（v2.7.2 误按"用户气泡左侧"理解）；
+2. 遍历整个项目，在不影响任何功能的情况下优化软件流畅度和稳定性；
+3. 构建 APK。
+
+### 2. 实施方式与核查原则
+- 以三个方向的并行代码审计（主线程 I/O 与崩溃风险、内存泄漏与并发、Compose 重组与流畅度）作为线索，**逐条打开文件核实调用链后**才实施；审计结论与实际代码不符的（如 Int 溢出误报）直接否决，中风险项（气泡 BoxWithConstraints 重构、恢复备份回滚原子性、冷启动恢复全异步化）保守跳过并在 walkthrough 记录。
+- 纯函数级优化（流式分段增量缓存）配套**等价性单元测试**，该测试在实施过程中先后捕获两处实现边界缺陷（重算起点漏算尾长、重算区域首行为空行时行索引切分判定不一致），修复后 503 项测试全通。
+
+### 3. 修复清单（均不影响功能行为）
+
+**A. 胶囊对齐口径修正（ChatMessageComponents.kt）**
+- 生成期胶囊在头像行 `weight(1f)` 占满剩余宽度基础上右缩 40dp：用户气泡右缘 = 列内容宽 − 头像36dp − 间距8dp，助手列自身 4dp 内边距 → 44−4=40dp，胶囊右缘与用户气泡右缘精确对齐。
+
+**B. 消息/搜索 Flow 重复订阅治理（长会话越用越卡的残留根因）**
+- `ChatViewModel.loadConversation` 在会话存活期被 16 处调用，每次都在协程体内新启一条 `getMessages` collect 且旧订阅从不取消——同屏 N 条等值订阅重复查询、重复修复写库、重复估算上下文。收敛为单例 Job（`observeMessages`，同会话去重）。
+- `RoleplayViewModel` 四处同类问题：搜索框逐字符触发 `searchCharacters`/`searchScenarios` 每次叠加一条永久订阅且陈旧查询竞写列表；`loadCharacterTags`/`loadMemories` 重复调用叠加订阅。统一改为取消旧 Job 再订阅。
+
+**C. 主线程阻塞治理（卡顿/ANR）**
+- 单对话备份 `createSingleConversationBackup`（内部 runBlocking：多表查询+Gson 序列化+写盘）在首页两处与隐藏对话页的点击回调主线程直调 → 迁 IO 协程，回主线程 Toast。
+- 设置页备份/导出/导入/恢复 5 处在 `rememberCoroutineScope`（Main）上同步执行 zip 打包/解压/整库合并 → `withContext(Dispatchers.IO)`，UI 状态回写仍在 Main。
+- `ChatViewModel` 构造期主线程读时间线草稿/检查点文件（2 次磁盘读+Gson）→ init 内 IO 协程异步回填；`loadConversation` 与实时梳理入口的同类读取 → `withContext(IO)`。
+- 角色/场景卡 TXT 导入（可达数 MB）在 ActivityResult 回调主线程同步读取 → 三个调用点迁 IO 协程。
+
+**D. 图片重复解码治理（组合期主线程）**
+- `BackgroundImageManager`：六个页面（聊天/首页/历史/统计/设置/文件夹）各自在组合期同步解码同一张大背景图（最大 2160px，约 18MB ARGB 峰值）；增加文件名+lastModified 键缓存，保存/删除自动失效，全应用仅解码一次。
+- `AvatarManager`：消息列表每行各自读盘+Base64+PNG 解码同一头像；增加 LruCache（16 条，键含 lastModified 自动失效）。
+- `ChatAvatar` 角色/会话专属头像（时间戳命名不可变文件）每行 openInputStream 全量解码；增加 8MB LruCache 按 uri 复用。
+
+**E. Compose 流式热路径重组治理**
+- `ChatScreen` 顶层 `LaunchedEffect(currentResponse.length, currentThinking.length, isGenerating)`：key 在组合作用域读取每 token 变化的流式 state，导致整个聊天页组合体以每 token 一帧的频率全量重组。改为 `LaunchedEffect(isGenerating)` + `snapshotFlow` 在协程内读取长度，70ms 节流与钉底条件原样保留。
+- `ChatScrollJumpButtons` 的 visible 参数在组合期直读 `listState.layoutInfo.totalItemsCount`（每次列表测量/滚动都更新）→ `derivedStateOf` 只在布尔翻转时重组。
+
+**F. Markdown 流式解析热路径**
+- 分段增量缓存 `MarkdownSegmentationCache`：流式期间原先每帧对全文重跑 `computeStableSegments`（全文 split + 历史段重拷贝，O(全文)/帧）；改为仅对稳定段边界后的后缀重算（配套等价性单测）。
+- 正则常量化：`MarkdownText`（有序列表/参考资料/关键词标题/font-span 探测 7 个）、`MarkdownInlineParser`（cleanLeadingStarArtifacts 4 个）、`LatexUnicodeConverter`（5 个正则 + 150 项符号表预排序常量化 + fontCmds/mathbbMap 提升）、`ChatMessageComponents`（引用提取 2 个）——流式尾部每帧每行不再现场编译。
+- 引用角标判定改为有界前瞻扫描（原先每遇一个 `[` 对剩余全文 substring + 现场编译正则，严格等价替换）。
+- `isErrorMessage` 在 MessageBubble 内三处未记忆化的全文扫描 → `remember(message.content, isUser)` 单次执行；删除从未被使用的 `isThinkingEnglish` 死计算（每帧全量字符串拷贝+逐字统计）。
+
+**G. 稳定性**
+- 备份恢复 Zip-Slip 路径穿越防护：zip 条目名经 canonicalPath 校验必须落在目标目录内，越界条目跳过并记录日志（正常自建备份不受影响）。
+- `AiAssistantApp` 自动备份启动时序：原先在数据库初始化前启动，初始化失败走恢复路径时可能与"恢复替换数据库"并发、把半恢复状态数据库打进当天备份；现延后到初始化成功后启动，异常路径跳过本次自动备份（恢复函数自身恢复前会先建安全备份）。
+
+### 4. 明确否决/跳过项（如实记录）
+- **否决（审计误报）**：`AiRepository.getModelUsageSummary` "days≥25 时 Int 溢出"——实际 `days*24*60*60` 对 days=30 仅 2,592,000，远小于 Int.MAX（需 days≥24,855 才可能溢出），审计算术有误，代码无需修改。
+- **跳过（中风险，需专项回归）**：① MessageBubble 的 BoxWithConstraints 每帧 subcomposition 优化（涉及气泡布局语义）；② restoreBackup 失败时 files/shared_prefs 已落盘部分的回滚原子性（改变失败场景落盘时序）；③ 冷启动数据库初始化失败后的全异步恢复（需启动门禁配合，处理不当影响首屏可用性）。
+
+### 5. 涉及文件
+`ChatMessageComponents.kt`、`ChatScreen.kt`、`ChatViewModel.kt`、`MarkdownText.kt`、`MarkdownInlineParser.kt`、`LatexUnicodeConverter.kt`、`RoleplayViewModel.kt`、`CharacterEditorScreen.kt`、`ScenarioEditorScreen.kt`、`RoleplayStudioScreen.kt`、`HomeScreen.kt`、`SettingsSecurityAndBackupTab.kt`、`BackupManager.kt`、`BackgroundImageManager.kt`、`AvatarManager.kt`、`AiAssistantApp.kt`、`MotionRoundTests.kt`（新增分段缓存等价性用例）、`app/build.gradle.kts`（169/2.7.3）及文档。数据层无改动；Room 仍为 v32。
+
+### 6. 验证
+`compileDebugKotlin` Exit 0；`testDebugUnitTest` Exit 0（74 个测试文件 **503 项全通**，含新增分段缓存等价性用例）；`lintDebug` Exit 0；`git diff --check` Exit 0。
+
 ## [2026-10-02] - v2.7.2 编辑框跳转末尾按钮与滚动滑块、输入跳顶修复、胶囊圆环动效全程化与尺寸统一、流式光标持续与对齐修正、等待动画位置统一
 
 ### 1. 用户需求
@@ -787,7 +842,8 @@ UI 重构后统一审查并修复细节问题（用户明确提出四项 + 同�
 
 ### 5. 版本与产物
 - versionCode 154 / versionName 2.5.8；CHANGELOG 已记 v2.5.8；README/PROJECT 已同步；
-- APK：`assembleRelease` 构建后增量输出 `D:\Agent\APP-Echoppeleases\Echo-v2.5.8.apk`（历史包全部保留），SHA256 见交付说明；
+- APK：`assembleRelease` 构建后增量输出 `D:\Agent\APP-Echopp
+eleases\Echo-v2.5.8.apk`（历史包全部保留），SHA256 见交付说明；
 - 本版本自 v2.5.7 起累计包含：时间线与流式稳定性（v2.5.7 已含）、动效轮（EchoMotion/生成链路动效/菜单与状态过渡/按压反馈）、检查报告修复（A1-A6/P2-1/P3-1~4）、本条压缩与适配功能。
 
 ---

@@ -371,6 +371,12 @@ internal fun isErrorMessage(content: String): Boolean {
            (trimmed.contains("回复已停止") && trimmed.contains("报错详情"))
 }
 
+// v2.7.3 流畅度：自定义头像（角色/会话专属，时间戳命名不可变文件）解码缓存，预算 8MB——
+// 原先消息列表每行 ChatAvatar 各自 openInputStream 全量解码同一张角色头像
+private val chatCustomAvatarCache = object : android.util.LruCache<String, android.graphics.Bitmap>(8 * 1024) {
+    override fun sizeOf(key: String, value: android.graphics.Bitmap): Int = value.byteCount / 1024
+}
+
 @Composable
 internal fun MessageBubble(
     message: Message,
@@ -425,9 +431,6 @@ internal fun MessageBubble(
     var showThinking by remember(message.id) {
         mutableStateOf(isGenerating && hasThinkingContent && message.content.isBlank())
     }
-    val isThinkingEnglish = remember(message.thinkingContent) {
-        AiRepository.isMainlyEnglish(message.thinkingContent)
-    }
     val hasTranslation = !message.translatedThinking.isNullOrBlank()
     var showTranslated by remember(message.id, message.translatedThinking) {
         mutableStateOf(hasTranslation)
@@ -457,12 +460,15 @@ internal fun MessageBubble(
     }
 
     // ===== 动效轮：生成状态机（P0-4）与落定/光标生命周期（P0-3）=====
+    // v2.7.3 流畅度：isErrorMessage 对全文做 15+ 次前缀/包含扫描，原先在流式期间每帧于
+    // 三处重复执行；这里记忆化一次供全气泡复用
+    val contentIsErrorMessage = remember(message.content, isUser) { !isUser && isErrorMessage(message.content) }
     val generationState = rememberGenerationUiState(
         isGenerating = isGenerating,
         content = message.content,
         hasThinking = hasThinking,
         reconnectStatus = reconnectStatus,
-        contentIsError = !isUser && isErrorMessage(message.content)
+        contentIsError = contentIsErrorMessage
     )
     // 光标生命周期：流式期间可见；生成结束后保留 300ms 供淡出，再摘除；
     // settleSignal（审核 A3）：常规路径下流式气泡随 isGenerating=false 同帧卸载（ViewModel 同帧清空
@@ -746,7 +752,7 @@ internal fun MessageBubble(
                     val personalizationSettings = remember {
                         AiAssistantApp.instance.personalizationManager.getSettings()
                     }
-                    val isMessageContentError = !isUser && isErrorMessage(message.content)
+                    val isMessageContentError = contentIsErrorMessage
                     val isConnecting = isGenerating && message.content.isBlank() && !hasThinking
                     val isThinkingActive = isGenerating && hasThinking && message.content.isBlank()
                     // 失败信号仅在连接阶段（尚无正文）生效：Key 重试失败后恢复成功时，
@@ -856,10 +862,11 @@ internal fun MessageBubble(
                         Spacer(modifier = Modifier.width(8.dp))
                         Surface(
                         modifier = Modifier
-                            // v2.7.2 需求 5：生成期间（连接/重连/思考/流式）胶囊占满头像行剩余宽度，
-                            // 各状态间尺寸恒定不再随文案变化；右侧对齐消息列内容边缘（用户气泡所在列）。
-                            // 回复完毕落库后恢复自适应宽度，历史消息保持原有紧凑观感
-                            .then(if (isGenerating) Modifier.weight(1f) else Modifier)
+                            // v2.7.3 需求 5（口径修正）：生成期间（连接/重连/思考/流式）胶囊占满头像行
+                            // 剩余宽度并右缩 40dp，使右侧与用户消息气泡右缘精确对齐
+                            // （用户气泡右侧 = 列内容宽 - 头像36dp - 间距8dp；助手列自身 4dp 内边距 → 44-4=40dp）。
+                            // 各状态间尺寸恒定不再随文案变化；回复完毕恢复自适应宽度，历史消息保持紧凑观感
+                            .then(if (isGenerating) Modifier.weight(1f).padding(end = 40.dp) else Modifier)
                             .defaultMinSize(minHeight = 34.dp)
                             .then(if (!isGenerating) Modifier.widthIn(max = maxBubbleWidth) else Modifier)
                             .animateContentSize(com.aiassistant.ui.theme.EchoMotion.Spring.gentle())
@@ -1305,7 +1312,7 @@ internal fun MessageBubble(
                         .padding(horizontal = 2.dp),
                     horizontalAlignment = Alignment.Start
                 ) {
-                    val isErrorOutput = !isUser && isErrorMessage(message.content)
+                    val isErrorOutput = contentIsErrorMessage
 
                     if (isErrorOutput) {
                         val interruptMarker = "[输出已被中断"
@@ -1802,12 +1809,13 @@ internal fun ChatAvatar(
     val userAvatarBitmap = if (isUser) remember(context) { AvatarManager.getAvatarBitmap(context) } else null
     val customAvatarBitmap = if (!isUser && !customAvatarUri.isNullOrBlank()) {
         remember(customAvatarUri) {
-            runCatching {
+            // v2.7.3 流畅度：命中全局缓存避免每行重复解码；未命中再读盘并回填
+            chatCustomAvatarCache.get(customAvatarUri) ?: runCatching {
                 val uri = Uri.parse(customAvatarUri)
                 context.contentResolver.openInputStream(uri)?.use { stream ->
                     android.graphics.BitmapFactory.decodeStream(stream)
                 }
-            }.getOrNull()
+            }.getOrNull()?.also { chatCustomAvatarCache.put(customAvatarUri, it) }
         }
     } else null
     val modelAvatarBitmap = if (!isUser && customAvatarBitmap == null) {
@@ -1957,10 +1965,14 @@ internal fun AttachmentGroupBubble(
     }
 }
 
+// v2.7.3 流畅度：引用提取正则提升为常量——extractCitationsFromContent 由 remember(message.content)
+// 在流式期间每帧调用，原先每次现场编译两个 Regex 并全文扫描
+private val CITATION_EXPLICIT_REGEX = Regex("""\[(\d+)\]\s*\[(.*?)\]\((https?://[^\s)]+)\)""")
+private val CITATION_GENERAL_REGEX = Regex("""\[(.*?)\]\((https?://[^\s)]+)\)""")
+
 fun extractCitationsFromContent(content: String): List<CitationInfo> {
     val list = mutableListOf<CitationInfo>()
-    val regex = Regex("""\[(\d+)\]\s*\[(.*?)\]\((https?://[^\s)]+)\)""")
-    regex.findAll(content).forEach { match ->
+    CITATION_EXPLICIT_REGEX.findAll(content).forEach { match ->
         val id = match.groupValues[1].toIntOrNull() ?: (list.size + 1)
         val title = match.groupValues[2].ifBlank { "参考网页 $id" }
         val url = match.groupValues[3].trim()
@@ -1969,8 +1981,7 @@ fun extractCitationsFromContent(content: String): List<CitationInfo> {
         }
     }
     if (list.isEmpty()) {
-        val generalRegex = Regex("""\[(.*?)\]\((https?://[^\s)]+)\)""")
-        generalRegex.findAll(content).forEachIndexed { idx, match ->
+        CITATION_GENERAL_REGEX.findAll(content).forEachIndexed { idx, match ->
             val title = match.groupValues[1].ifBlank { "参考网页 ${idx + 1}" }
             val url = match.groupValues[2].trim()
             if (list.none { it.url == url }) {

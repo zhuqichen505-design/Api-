@@ -47,7 +47,9 @@ import com.aiassistant.ui.theme.EchoTokens
 import com.aiassistant.utils.AnalyzedRoleplayBundle
 import com.aiassistant.utils.RoleplaySmartAnalyzer
 import com.aiassistant.utils.RoleplaySmartParser
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -1474,12 +1476,15 @@ private fun SmartAnalyzeStudioDialog(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
         uri?.let {
-            val content = RoleplaySmartParser.readTextFromUri(context, it)
-            if (content.isNotBlank()) {
-                inputText = content
-                Toast.makeText(context, "已读取文件，共 ${content.length} 字", Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(context, "文件读取为空或编码不支持", Toast.LENGTH_SHORT).show()
+            // v2.7.3 流畅度：文件读取迁 IO 协程，回主线程更新状态
+            scope.launch {
+                val content = withContext(Dispatchers.IO) { RoleplaySmartParser.readTextFromUri(context, it) }
+                if (content.isNotBlank()) {
+                    inputText = content
+                    Toast.makeText(context, "已读取文件，共 ${content.length} 字", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, "文件读取为空或编码不支持", Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }

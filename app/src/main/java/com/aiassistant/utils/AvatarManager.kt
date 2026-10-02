@@ -215,9 +215,20 @@ object AvatarManager {
         }
     }
 
+    // v2.7.3 流畅度：头像位图 LruCache——消息列表每行 ChatAvatar 原先各自读盘+Base64+PNG 解码
+    // 同一头像，长会话首帧 = N 次重复解码（全部在主线程组合期）；缓存后每头像仅解码一次。
+    // key 携带文件 lastModified，保存/删除头像后自然取到新值，旧条目由 LRU 淘汰
+    private val avatarBitmapCache = object : android.util.LruCache<String, Bitmap>(16) {}
+
     private fun getAvatarBitmap(context: Context, fileName: String): Bitmap? {
+        val file = File(context.filesDir, fileName)
+        if (!file.exists() || file.length() <= 0) return null
+        val cacheKey = fileName + ":" + file.lastModified()
+        avatarBitmapCache.get(cacheKey)?.let { return it }
         val base64 = getAvatar(context, fileName) ?: return null
-        return base64ToBitmap(base64)
+        val bitmap = base64ToBitmap(base64) ?: return null
+        avatarBitmapCache.put(cacheKey, bitmap)
+        return bitmap
     }
 
     // 删除头像

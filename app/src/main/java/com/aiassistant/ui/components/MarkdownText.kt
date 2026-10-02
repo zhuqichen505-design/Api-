@@ -72,7 +72,9 @@ fun MarkdownText(
         // 段字符串一旦完成永不变化 → remember(content=段) 不重算，历史段零重解析（R-2 字面达成）；
         // 新段仅在完成时解析一次；未稳定尾部每帧重解析（O(尾部长)）；流式结束走上方全文路径定稿
         Column(modifier = modifier) {
-            val segmentation = remember(content) { computeStableSegments(content) }
+            // v2.7.3 流畅度：分段改走增量缓存（见 MarkdownSegmentationCache 注释），
+            // 结果与全文重算严格相等，既有分段单测覆盖不变量
+            val segmentation = remember { MarkdownSegmentationCache() }.get(content)
             segmentation.segments.forEachIndexed { segmentIndex, segment ->
                 // 检查报告 P2-1：key 纳入位置信息——长回复中完全相同的段落（重复句式/模板化列表）
                 // 会产生相同段文本，纯文本 key 存在组合身份歧义隐患，index+文本彻底消除
@@ -180,6 +182,70 @@ private fun tailNeedsStandaloneCursor(tail: String): Boolean {
         t.startsWith("\\begin{") ||
         t == "---" ||
         t == "***"
+}
+
+// v2.7.3 流畅度：热路径正则提升为文件级常量——流式尾部每帧逐行重解析时，
+// 原先在函数体内现场编译 Regex（有序列表/参考资料/关键词标题/跨行合并格式探测）
+private val MARKDOWN_ORDERED_LIST_REGEX = Regex("^\\d+\\.\\s+.*")
+private val MARKDOWN_REFERENCE_ITEM_REGEX = Regex("""^\[\^?\d+\].*""")
+private val MARKDOWN_KEYWORD_STRIP_REGEX = Regex("""[#*_\s：:]""")
+private val MARKDOWN_FONT_OPEN_REGEX = Regex("<font", RegexOption.IGNORE_CASE)
+private val MARKDOWN_FONT_CLOSE_REGEX = Regex("</font>", RegexOption.IGNORE_CASE)
+private val MARKDOWN_SPAN_OPEN_REGEX = Regex("<span", RegexOption.IGNORE_CASE)
+private val MARKDOWN_SPAN_CLOSE_REGEX = Regex("</span>", RegexOption.IGNORE_CASE)
+
+/**
+ * 流式分段增量缓存（v2.7.3 流畅度）：
+ * 流式内容为追加式增长（content.startsWith(prevSource) 成立）时，仅对「上一个稳定段起点之后」
+ * 的后缀重跑 computeStableSegments。段边界只产生于围栏/数学块之外（inFence/inMath 均为 false
+ * 的干净状态点），从该点重算与全文重算严格等价；内容非前缀追加（切换 variant 等）时回退全量重算。
+ * 原先 remember(content) 每帧对全文 split + 历史段 subList 重拷贝（O(全文)/帧），
+ * 长回复流式期间是每帧最大解析开销与 GC 压力来源。
+ */
+internal class MarkdownSegmentationCache {
+    private var source: String? = null
+    private var segmentation: MarkdownSegmentation = computeStableSegments("")
+
+    fun get(content: String): MarkdownSegmentation {
+        val prevSource = source
+        if (content == prevSource) return segmentation
+        val result = if (prevSource != null && content.startsWith(prevSource)) {
+            // 稳定重算起点 = 末尾第 N 个段边界的字符偏移（段与尾在原文中连续拼接）。
+            // 段边界处 inFence/inMath 必为 false（围栏闭合与空行切分均只在干净状态发生）；
+            // 但切分判定 `i in 1 until size-1` 依赖行索引——重算区域首行若为空行，
+            // 其在全文中的切分行为与区域内的行索引不一致（等价性单测捕获），
+            // 故须回退到首个「首行非空」的段边界；全部为空行段时回退到 0 全量重算。
+            // 重算区域首行非空时，区域内所有切分点与全文重算逐一对齐，结果严格等价。
+            var collectedLength = segmentation.tail.length
+            var dropCount = 0
+            for (i in segmentation.segments.indices.reversed()) {
+                val segment = segmentation.segments[i]
+                if (segment.startsWith("\n")) {
+                    collectedLength += segment.length
+                    dropCount++
+                } else {
+                    collectedLength += segment.length
+                    dropCount++
+                    break
+                }
+            }
+            if (dropCount == segmentation.segments.size && segmentation.segments.firstOrNull()?.startsWith("\n") == true) {
+                collectedLength = segmentation.tail.length + segmentation.segments.sumOf { it.length }
+            }
+            val stableStart = prevSource.length - collectedLength
+            val suffix = computeStableSegments(content.substring(stableStart))
+            MarkdownSegmentation(
+                segments = segmentation.segments.dropLast(dropCount) + suffix.segments,
+                tail = suffix.tail,
+                tailInFence = suffix.tailInFence
+            )
+        } else {
+            computeStableSegments(content)
+        }
+        source = content
+        segmentation = result
+        return result
+    }
 }
 
 /**
@@ -490,7 +556,7 @@ private fun MarkdownContent(
                 }
 
                     // 有序列表
-                    line.trimStart().matches(Regex("^\\d+\\.\\s+.*")) -> {
+                    line.trimStart().matches(MARKDOWN_ORDERED_LIST_REGEX) -> {
                         val number = line.trimStart().substringBefore(".")
                         val itemContent = line.trimStart().substringAfter(". ")
                         Row(modifier = Modifier.padding(start = 8.dp, top = 2.dp)) {
@@ -613,10 +679,10 @@ private fun hasUnclosedInlineFormatting(text: String): Boolean {
     val count2 = countOccurrences("**")
     val count1 = norm.count { it == '*' }
     val countTilde = countOccurrences("~~")
-    val countFontOpen = norm.split(Regex("<font", RegexOption.IGNORE_CASE)).size - 1
-    val countFontClose = norm.split(Regex("</font>", RegexOption.IGNORE_CASE)).size - 1
-    val countSpanOpen = norm.split(Regex("<span", RegexOption.IGNORE_CASE)).size - 1
-    val countSpanClose = norm.split(Regex("</span>", RegexOption.IGNORE_CASE)).size - 1
+    val countFontOpen = norm.split(MARKDOWN_FONT_OPEN_REGEX).size - 1
+    val countFontClose = norm.split(MARKDOWN_FONT_CLOSE_REGEX).size - 1
+    val countSpanOpen = norm.split(MARKDOWN_SPAN_OPEN_REGEX).size - 1
+    val countSpanClose = norm.split(MARKDOWN_SPAN_CLOSE_REGEX).size - 1
 
     return (count3 % 2 != 0) || (count2 % 2 != 0) || (count1 % 2 != 0) || (countTilde % 2 != 0) ||
         (countFontOpen > countFontClose) || (countSpanOpen > countSpanClose)
@@ -634,7 +700,7 @@ private fun isBlockBoundaryLine(line: String): Boolean {
         line.startsWith("#### ") || line.startsWith("##### ") || line.startsWith("###### ") ||
         isReferenceListItem(line) ||
         line.trimStart().startsWith("- ") || line.trimStart().startsWith("* ") ||
-        line.trimStart().matches(Regex("^\\d+\\.\\s+.*")) ||
+        line.trimStart().matches(MARKDOWN_ORDERED_LIST_REGEX) ||
         line.startsWith("> ") ||
         trimmed == "---" || trimmed == "***"
 }
@@ -643,7 +709,7 @@ private fun isBlockBoundaryLine(line: String): Boolean {
  * 判断是否为特定关键词标题（加粗、加大字号、斜体）
  */
 private fun isSpecialKeywordTitle(text: String): Boolean {
-    val clean = text.replace(Regex("""[#*_\s：:]"""), "")
+    val clean = text.replace(MARKDOWN_KEYWORD_STRIP_REGEX, "")
     return clean.contains("参考资料") ||
         clean.contains("要点概括") ||
         clean.contains("详细解答") ||
@@ -692,7 +758,7 @@ private fun renderHeadingText(
  */
 private fun isReferenceListItem(line: String): Boolean {
     val trimmed = line.trimStart().removePrefix("- ").removePrefix("* ").trim()
-    return trimmed.matches(Regex("""^\[\^?\d+\].*"""))
+    return trimmed.matches(MARKDOWN_REFERENCE_ITEM_REGEX)
 }
 
 private fun cleanReferenceItemLine(line: String): String {

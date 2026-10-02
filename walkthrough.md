@@ -1,3 +1,57 @@
+# Echo v2.7.3 构建走查与验收报告 (Walkthrough)
+
+## 一、本次构建与需求概述
+- **发布版本**：v2.7.3 (`versionCode: 169`)
+- **构建类型**：Release APK
+- **交付目标文件**：`D:\Agent\APP-Echo\app\releases\Echo-v2.7.3.apk`
+- **核心内容**：① 胶囊对齐口径修正——生成期胶囊右缘与用户消息气泡右缘精确对齐（v2.7.2 误按左缘理解）；② 全项目流畅度与稳定性专项治理（消息流重复订阅治理、主线程 I/O 迁出、图片解码缓存、Compose 流式重组治理、Markdown 热路径提速、Zip-Slip 防护、备份时序治理）。
+
+## 二、实施方式与核查原则
+- 三个并行代码审计（主线程 I/O 与崩溃风险、内存泄漏与并发、Compose 重组与流畅度）仅作线索，**每条发现均打开文件核实调用链后才实施**；审计与实际不符的直接否决，中风险项保守跳过。
+- 核查成果实例：审计声称 `AiRepository.getModelUsageSummary` 存在 "days≥25 时 Int 溢出"——实算 `days*24*60*60` 对 days=30 仅 2,592,000（Int.MAX 约 21.5 亿，需 days≥24,855 才可能溢出），**判为误报否决**，代码未动。
+- 纯函数优化配套等价性单测：流式分段增量缓存的等价性用例在实施中先后捕获两处实现缺陷（重算起点漏算尾长；重算区域首行为空行时 `i in 1 until size-1` 行索引判定与全文不一致），修复后才交付。
+
+## 三、修复要点
+| 类别 | 问题 | 修复 |
+| :--- | :--- | :--- |
+| 胶囊对齐（需求口径修正） | v2.7.2 将"胶囊右侧与用户输入气泡右侧对齐"误实现为对齐列内容边缘 | 生成期胶囊 `weight(1f)` 基础上 `padding(end = 40dp)`：用户气泡右缘=列内容宽−36(头像)−8(间距)，助手列自身 4dp 内边距 → 44−4=40dp，右缘精确对齐 |
+| 消息流重复订阅 | `ChatViewModel.loadConversation` 被生成结束/报错保存/记忆增删改/时间线操作等 16 处调用，每次新启一条 `getMessages` collect 且永不取消——N 条等值订阅重复查询/重复修复写库/重复估算上下文，长会话越用越卡 | 消息订阅收敛为单例 Job（`observeMessages` 同会话去重，行为与单份订阅等价） |
+| 搜索订阅叠加 | `RoleplayViewModel` 搜索框逐字符叠加永久 Flow 订阅且陈旧查询竞写列表；`loadCharacterTags`/`loadMemories` 同类 | 四处统一"取消旧 Job 再订阅" |
+| 主线程 I/O | 单对话备份（runBlocking：多表查询+序列化+写盘）首页/隐藏页点击回调直调；设置页备份/导出/导入/恢复 5 处同步跑在 Main；时间线草稿/检查点构造期主线程读盘；角色/场景卡 TXT 导入主线程整文件读取 | 调用点迁 `Dispatchers.IO`，Toast/UI 状态回写主线程；草稿改为 init 内 IO 异步回填 |
+| 图片重复解码 | 背景图六个页面各自组合期同步解码同一张大图（最大 2160px ≈18MB 峰值）；头像每行读盘+Base64+PNG 解码；角色/会话专属头像每行 openInputStream 解码 | `BackgroundImageManager`（fileName+lastModified 键）、`AvatarManager`（LruCache 16）、`ChatAvatar` 自定义头像（8MB LruCache，时间戳命名不可变文件）三级缓存，保存/删除自动失效 |
+| 流式全屏重组 | `ChatScreen` 顶层 `LaunchedEffect(currentResponse.length, ...)` 的 key 在组合作用域读取每 token 变化 state → 整页每 token 一帧全量重组；`ChatScrollJumpButtons` visible 组合期直读 `listState.layoutInfo` | 改 `LaunchedEffect(isGenerating)` + `snapshotFlow`（70ms 节流与钉底条件原样）；`derivedStateOf` 下沉布尔判定 |
+| Markdown 热路径 | 分段每帧全文重算（O(全文)/帧）；有序列表/参考资料/关键词标题/font-span/引用等 13 处现场编译 Regex；LaTeX 符号表 150 项每次重建+排序；引用角标每 `[` 剩余全文 substring+编译；`isErrorMessage` 每帧三处全文扫描；`isThinkingEnglish` 死计算 | `MarkdownSegmentationCache` 增量重算（等价性单测护航）；13 个正则常量化；符号表/fontCmds/mathbbMap 常量预排序；有界前瞻判定；`remember(message.content, isUser)` 记忆化；删除死计算 |
+| 稳定性 | 备份恢复 zip 条目名未校验可路径穿越（Zip-Slip）；自动备份启动早于数据库初始化，失败恢复路径下可能与"恢复替换数据库"并发 | canonicalPath 前缀校验、越界条目跳过并记日志；自动备份延后至初始化成功后启动 |
+
+## 四、明确否决/跳过项（如实记录）
+1. **否决（审计误报）**：`AiRepository` 时间窗 "Int 溢出"——实算不成立（见上）。
+2. **跳过（中风险，需专项回归）**：① MessageBubble BoxWithConstraints 每帧 subcomposition 优化（涉及气泡布局语义）；② restoreBackup 失败时 files/shared_prefs 已落盘内容的回滚原子性（改变失败场景时序）；③ 冷启动 DB 初始化失败后的全异步恢复（需启动门禁，处理不当影响首屏可用性）。
+
+## 五、构建与验证复核清单
+- [x] `compileDebugKotlin --no-daemon`：Exit Code 0
+- [x] `testDebugUnitTest --no-daemon`：Exit Code 0（74 个测试文件，**503 项全通、0 失败**；新增 `MotionRoundTests.testStableSegments_incrementalCache_equivalentToFullRecompute` 分段增量缓存等价性用例）
+- [x] `lintDebug --no-daemon`：Exit Code 0
+- [x] `git diff --check`：Exit Code 0
+- [x] `assembleRelease --no-daemon`：Exit Code 0（versionCode 169 / versionName 2.7.3）
+- [x] APK：`Echo-v2.7.3.apk`，16,716,653 字节 (~15.95 MB)，SHA256 `F3C29DB6AD16AB02DAA02E35D62ACEA81BA45E69731B1AF673F86815595942F9`
+- [x] 签名校验：`apksigner verify --print-certs` 通过，证书 CN=Android Debug（**非正式生产签名**），证书 SHA-256 `939638f6d3e9af7f8a980e62af52d275fee73381f2130cc4e20a0d349f98e21f`，与历史版本完全一致，支持直接平滑覆盖升级
+- [x] 历史版本完整性：`D:\Agent\APP-Echo\app\releases` 历史安装包 100% 完整保留（构建后共 180 个安装包），本次为唯一定名增量输出（复制而非移动，全程未执行任何删除）
+
+## 六、人工验收步骤（无真机，未执行安装/启动验证）
+1. 安装 `Echo-v2.7.3.apk` 覆盖升级，打开任意会话；
+2. **胶囊对齐**：发送消息，生成期间连接/思考/流式三状态胶囊右缘应与上方用户消息气泡右缘在同一竖直线上，尺寸恒定不跳动；
+3. **流畅度**：进入长会话连续多轮对话+多次重新生成，观察卡顿是否较上一版明显缓解；设置自定义背景后在聊天/首页/历史/统计/设置间反复切换，首次进入后其余页面应无解码停顿；
+4. **备份**：备份一个长对话、导出/导入备份、恢复备份——过程界面应保持响应，完成后提示正常；
+5. **角色卡导入**：导入一个数 MB 的角色卡 TXT，界面不应冻结；
+6. **流式输出**：让模型输出长回复，滚动跟随应保持平滑，长回复后期不应出现明显掉帧。
+
+## 七、剩余风险
+1. 三项中风险优化被保守跳过（见第四节），如需继续治理建议单独立项并配合专项回归。
+2. 分段增量缓存已由等价性单测覆盖（逐字符追加 × 围栏/数学块/表格/空行边界 + 非前缀跳变回退），但极端内容形态（如超长单段无空行文本）下的性能收益以"重算起点回退到首个非空行段边界"为界，仍为 O(末段+尾部长)，优于原先 O(全文)。
+3. 已知环境缺陷延续：`lintDebug` 的 Compose Lint 内嵌 kotlinx-metadata 与 Kotlin 2.2 兼容问题仍靠 `app/lint.xml` 隔离崩溃探测器，根治需升级 AGP/Compose Lint。
+
+---
+
 # Echo v2.7.2 构建走查与验收报告 (Walkthrough)
 
 ## 一、本次构建与需求概述

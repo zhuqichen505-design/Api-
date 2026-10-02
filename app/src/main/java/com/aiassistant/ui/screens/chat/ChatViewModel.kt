@@ -157,9 +157,9 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
     val pendingTimelineProposal: StateFlow<AutoTimelineUpdateResult?> = _pendingTimelineProposal.asStateFlow()
 
     // 实时梳理草稿（需求 4：实时可见与断点续梳）
-    private val _liveReconcileDraft = MutableStateFlow<TimelineReconcileDraft?>(
-        TimelineDraftManager.getDraft(AiAssistantApp.instance, conversationId)
-    )
+    // v2.7.3 流畅度：草稿/检查点文件读取从构造期主线程迁到 IO 协程异步回填
+    // （原先每次进入聊天页都在主线程做 2 次磁盘读 + Gson 解析）
+    private val _liveReconcileDraft = MutableStateFlow<TimelineReconcileDraft?>(null)
     val liveReconcileDraft: StateFlow<TimelineReconcileDraft?> = _liveReconcileDraft.asStateFlow()
 
     // 时间线梳理断点检查点（需求 1：记录上次梳理到的对话节点）
@@ -237,6 +237,15 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
         loadPromptTemplates()
         observeUsageStatsForModels()
         attachToActiveGenerationSession()
+        // v2.7.3 流畅度：草稿/检查点文件读取迁到 IO 协程回填（构造期不再阻塞主线程）
+        viewModelScope.launch(Dispatchers.IO) {
+            val draft = TimelineDraftManager.getDraft(AiAssistantApp.instance, conversationId)
+            val checkpoint = TimelineDraftManager.getCheckpoint(AiAssistantApp.instance, conversationId)
+            _liveReconcileDraft.value = draft
+            if (_timelineCheckpoint.value == null) {
+                _timelineCheckpoint.value = checkpoint
+            }
+        }
     }
 
     private fun attachToActiveGenerationSession() {
@@ -316,7 +325,9 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
     private fun loadConversation() {
         viewModelScope.launch {
             conversation = repository.getConversationById(conversationId)
-            _timelineCheckpoint.value = TimelineDraftManager.getCheckpoint(AiAssistantApp.instance, conversationId)
+            _timelineCheckpoint.value = withContext(Dispatchers.IO) {
+                TimelineDraftManager.getCheckpoint(AiAssistantApp.instance, conversationId)
+            }
             conversation?.let { conv ->
                 isPrivateConversation = repository.hasConversationTag(conv, "private")
                 apiConfig = repository.getApiConfigById(conv.apiConfigId)
@@ -385,6 +396,20 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                 }
             }
 
+            // v2.7.3 流畅度：消息订阅收敛为单例 Job——loadConversation 在会话存活期间被多处调用
+            // （生成结束、报错保存、会话记忆增删改、时间线操作等 16 处），原先每次都在协程体内
+            // 新启一条 getMessages collect 且旧订阅从不取消，同屏 N 条等值订阅重复查询、重复修复写库、
+            // 重复估算上下文（越用越卡的残留根因）。同一 ViewModel 的会话流固定，去重后行为与
+            // 单份订阅完全等价。
+            observeMessages()
+        }
+    }
+
+    private var messagesCollectJob: Job? = null
+
+    private fun observeMessages() {
+        if (messagesCollectJob?.isActive == true) return
+        messagesCollectJob = viewModelScope.launch {
             repository.getMessages(conversationId).collect { messageList ->
                 _messages.value = messageList
                 repairDuplicateVariantIndices(messageList)
@@ -1906,10 +1931,14 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                 val activeCfgId = apiConfig?.id ?: _currentModelOption.value?.apiConfigId
                 val activeModel = _currentModel.value?.ifBlank { null } ?: _currentModelOption.value?.modelName.orEmpty()
                 val draft = if (startFromDraft) {
-                    TimelineDraftManager.getDraft(AiAssistantApp.instance, conversationId)
+                    withContext(Dispatchers.IO) {
+                        TimelineDraftManager.getDraft(AiAssistantApp.instance, conversationId)
+                    }
                 } else null
                 val checkpoint = if (fromCheckpoint) {
-                    _timelineCheckpoint.value ?: TimelineDraftManager.getCheckpoint(AiAssistantApp.instance, conversationId)
+                    _timelineCheckpoint.value ?: withContext(Dispatchers.IO) {
+                        TimelineDraftManager.getCheckpoint(AiAssistantApp.instance, conversationId)
+                    }
                 } else null
                 val existingNodes = if (fromCheckpoint) timelineNodes.value else null
                 val result = repository.reconcileConversationTimeline(

@@ -416,23 +416,30 @@ fun ChatScreen(
     }
 
     var lastStreamScrollTime by remember { mutableLongStateOf(0L) }
-    LaunchedEffect(currentResponse.length, currentThinking.length, isGenerating) {
-        if (preserveScrollForBranchGeneration || !autoFollowOutput || listState.isScrollInProgress) {
-            return@LaunchedEffect
-        }
-        val isStreaming = isGenerating && (currentResponse.isNotEmpty() || currentThinking.isNotEmpty())
-        if (isStreaming) {
-            val now = System.currentTimeMillis()
-            if (now - lastStreamScrollTime < 70L) {
-                return@LaunchedEffect
+    // v2.7.3 流畅度：原先以 (currentResponse.length, currentThinking.length, isGenerating) 为 key 的
+    // LaunchedEffect 在 ChatScreen 顶层组合作用域读取每 token 变化的流式 state，导致整个聊天页
+    // 组合体（含 Scaffold、全部对话框分支与 remember）以每 token 一帧的频率全量重组。
+    // 改为 LaunchedEffect(isGenerating) + snapshotFlow 在协程内读取长度：组合期零读取，
+    // 70ms 节流与钉底条件保持原样，滚动跟随行为不变
+    LaunchedEffect(isGenerating) {
+        snapshotFlow { currentResponse.length to currentThinking.length }.collect {
+            if (preserveScrollForBranchGeneration || !autoFollowOutput || listState.isScrollInProgress) {
+                return@collect
             }
-            lastStreamScrollTime = now
-            val totalCount = listState.layoutInfo.totalItemsCount
-            if (totalCount > 0) {
-                val targetIndex = (totalCount - 1).coerceAtLeast(0)
-                try {
-                    listState.scrollToItem(targetIndex, scrollOffset = 100000)
-                } catch (_: Exception) {}
+            val isStreaming = isGenerating && (currentResponse.isNotEmpty() || currentThinking.isNotEmpty())
+            if (isStreaming) {
+                val now = System.currentTimeMillis()
+                if (now - lastStreamScrollTime < 70L) {
+                    return@collect
+                }
+                lastStreamScrollTime = now
+                val totalCount = listState.layoutInfo.totalItemsCount
+                if (totalCount > 0) {
+                    val targetIndex = (totalCount - 1).coerceAtLeast(0)
+                    try {
+                        listState.scrollToItem(targetIndex, scrollOffset = 100000)
+                    } catch (_: Exception) {}
+                }
             }
         }
     }
@@ -1870,8 +1877,13 @@ fun ChatScreen(
                     .padding(end = 4.dp)
             )
 
+            // v2.7.3 流畅度：组合期直读 listState.layoutInfo 会随列表每次测量/滚动更新而失效本作用域，
+            // 改经 derivedStateOf 只在「是否多于一页」布尔翻转时重组（流式期间列表每帧重排不再扩散）
+            val hasMultipleChatItems by remember {
+                derivedStateOf { listState.layoutInfo.totalItemsCount > 1 }
+            }
             ChatScrollJumpButtons(
-                visible = showScrollControls && listState.layoutInfo.totalItemsCount > 1,
+                visible = showScrollControls && hasMultipleChatItems,
                 onJumpToTop = {
                     autoFollowOutput = false
                     scrollControlsVisibilityState.extendVisibility(2800L)

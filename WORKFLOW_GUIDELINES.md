@@ -41,6 +41,23 @@
 
 ## 二、最近一次执行记录
 
+### [2026-10-02] v2.7.3 胶囊对齐口径修正 + 全项目流畅度与稳定性专项治理（发版）
+- **需求**：① 修正前版需求 5 口径——胶囊右侧与用户输入气泡右侧对齐；② 遍历整个项目，在不影响功能的前提下优化流畅度与稳定性；③ 构建 APK。用户特别提醒：审计结论仅供参考，以逐条核查与项目实际为准。
+- **版本**：versionCode 169 / versionName 2.7.3 / Room v32（无 DB 变更）。
+- **核查原则落地**：三份并行审计仅作线索，逐条打开文件核实调用链后实施；否决 1 条误报（Int 溢出实算不成立）；跳过 3 项中风险（气泡 BoxWithConstraints 重构、恢复回滚原子性、冷启动全异步恢复）并留痕；纯函数优化配套等价性单测，测试先后捕获实现层两处边界缺陷后修复。
+- **实现要点**：
+  ① 胶囊生成期 `weight(1f)+padding(end=40dp)` 与用户气泡右缘精确对齐（44−4=40dp）；
+  ② `ChatViewModel` 消息订阅单例 Job 去重（16 处调用叠加订阅是长会话越用越卡残留根因）+ 草稿/检查点读取 IO 异步化；`RoleplayViewModel` 四处订阅叠加取消旧 Job；
+  ③ 备份链路（单对话备份 runBlocking/设置页 5 处/隐藏对话页）与角色卡 TXT 导入全部迁 IO 调度；
+  ④ `BackgroundImageManager`/`AvatarManager`/`ChatAvatar` 自定义头像三级位图缓存（lastModified 或时间戳文件名保证失效正确）；
+  ⑤ `ChatScreen` 流式跟随改 `LaunchedEffect(isGenerating)+snapshotFlow`（原 key 每 token 全页重组）；跳转按钮 visible 改 `derivedStateOf`；
+  ⑥ Markdown 热路径：`MarkdownSegmentationCache` 增量分段（等价性单测）、13 个正则常量化、LaTeX 符号表常量预排序、引用角标有界前瞻、`isErrorMessage` 记忆化、删除 `isThinkingEnglish` 死计算；
+  ⑦ `BackupManager` Zip-Slip 防护（canonicalPath 校验）；`AiAssistantApp` 自动备份延后至 DB 初始化成功后。
+- **文件**：16 个 Kotlin 源文件 + `MotionRoundTests.kt`（新增等价性用例）+ `app/build.gradle.kts` + 文档。
+- **验证**：compile/test（74 文件 503 项全通、0 失败）/lint/diff --check 全部 Exit Code 0；assembleRelease Exit Code 0，`Echo-v2.7.3.apk`（16,716,653 字节，SHA256 `F3C29DB6AD16AB02DAA02E35D62ACEA81BA45E69731B1AF673F86815595942F9`，CN=Android Debug **非正式生产签名**，证书与历史版本一致）；历史包 100% 完整保留（共 180 个）。
+- **未执行**：真机安装/启动验证（无设备），已给人工验收步骤（见 walkthrough.md v2.7.3 节）。
+- **详情**：见 `UPDATE_LOG.md` 与 `walkthrough.md`。
+
 ### [2026-10-02] v2.7.2 编辑框跳转末尾按钮与滚动滑块、输入跳顶修复、胶囊圆环全程化与尺寸统一、流式光标持续与对齐修正（发版）
 - **需求**：① 编辑模型回复左下角加向下按钮，点击光标锁定文字末尾；② 编辑模型回复与输入系统提示词等大文本内容框右侧统一加滑块；③ 修复此类内容框中部输入时页面跳回文字顶端；④ 胶囊左侧从连接到回复结束显示圆环动效，回复完毕显示静态圆环；⑤ 连接/思考（结束）胶囊尺寸统一，右侧与用户输入气泡左侧对齐；⑥ 流式输出动画持续到回复完毕；⑦ 连接/思考时流式输出动画与头像距离统一为较近者；⑧ 流式光标远离文字一点并垂直对齐。构建 APK。
 - **版本**：versionCode 168 / versionName 2.7.2 / Room v32（无 DB 变更）。

@@ -49,6 +49,7 @@ object BackgroundImageManager {
             backgroundFile(context, fileName).outputStream().use { output ->
                 bitmap.compress(Bitmap.CompressFormat.JPEG, 90, output)
             }
+            synchronized(backgroundBitmapCache) { backgroundBitmapCache.remove(fileName) }
             true
         } catch (e: Exception) {
             e.printStackTrace()
@@ -82,10 +83,12 @@ object BackgroundImageManager {
 
     fun deleteHomeBackground(context: Context) {
         backgroundFile(context, HOME_BACKGROUND_FILE).delete()
+        synchronized(backgroundBitmapCache) { backgroundBitmapCache.remove(HOME_BACKGROUND_FILE) }
     }
 
     fun deleteChatBackground(context: Context) {
         backgroundFile(context, CHAT_BACKGROUND_FILE).delete()
+        synchronized(backgroundBitmapCache) { backgroundBitmapCache.remove(CHAT_BACKGROUND_FILE) }
     }
 
     private fun saveSolidColor(context: Context, fileName: String, colorInt: Int): Boolean {
@@ -97,6 +100,7 @@ object BackgroundImageManager {
                 bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
             }
             bitmap.recycle()
+            synchronized(backgroundBitmapCache) { backgroundBitmapCache.remove(fileName) }
             true
         } catch (e: Exception) {
             e.printStackTrace()
@@ -111,6 +115,7 @@ object BackgroundImageManager {
                 bitmap.compress(Bitmap.CompressFormat.JPEG, 88, output)
             }
             bitmap.recycle()
+            synchronized(backgroundBitmapCache) { backgroundBitmapCache.remove(fileName) }
             true
         } catch (e: Exception) {
             e.printStackTrace()
@@ -118,10 +123,27 @@ object BackgroundImageManager {
         }
     }
 
+    // v2.7.3 流畅度：背景图位图缓存（key=文件名，lastModified 校验失效）——聊天/首页/历史/
+    // 统计/设置/文件夹六个页面原先各自在组合期同步解码同一张大背景图（主线程几十至几百 ms +
+    // 约 18MB ARGB 峰值，每次进入页面重复发生）；缓存后全应用仅解码一次，保存/删除自动失效
+    private val backgroundBitmapCache = HashMap<String, Pair<Long, Bitmap>>()
+
     private fun getBackgroundBitmap(context: Context, fileName: String): Bitmap? {
         val file = backgroundFile(context, fileName)
-        if (!file.exists() || file.length() <= 0) return null
-        return BitmapFactory.decodeFile(file.absolutePath)
+        if (!file.exists() || file.length() <= 0) {
+            synchronized(backgroundBitmapCache) { backgroundBitmapCache.remove(fileName) }
+            return null
+        }
+        val stamp = file.lastModified()
+        synchronized(backgroundBitmapCache) {
+            backgroundBitmapCache[fileName]?.let { (cachedStamp, bitmap) ->
+                if (cachedStamp == stamp) return bitmap
+                backgroundBitmapCache.remove(fileName)
+            }
+        }
+        val bitmap = BitmapFactory.decodeFile(file.absolutePath) ?: return null
+        synchronized(backgroundBitmapCache) { backgroundBitmapCache[fileName] = stamp to bitmap }
+        return bitmap
     }
 
     private fun decodeScaledBitmap(context: Context, uri: Uri): Bitmap? {

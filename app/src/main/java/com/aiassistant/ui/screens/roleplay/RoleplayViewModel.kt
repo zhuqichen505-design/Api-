@@ -10,6 +10,7 @@ import com.aiassistant.data.local.AppDatabase
 import com.aiassistant.data.repository.RoleplayRepository
 import com.aiassistant.domain.model.*
 import com.aiassistant.utils.RoleplaySmartAnalyzer
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -89,9 +90,14 @@ class RoleplayViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    // v2.7.3 流畅度：搜索逐字符触发，原先每次输入都新增一条永不取消的 Flow 订阅，
+    // 且陈旧查询会在角色表变更时竞写列表；改为先取消旧订阅，最新查询获胜
+    private var characterSearchJob: Job? = null
+
     fun searchCharacters(query: String) {
         _characterSearchQuery.value = query
-        viewModelScope.launch {
+        characterSearchJob?.cancel()
+        characterSearchJob = viewModelScope.launch {
             if (query.isBlank()) {
                 repository.getAllCharacters().collect { list ->
                     _characters.value = list
@@ -160,8 +166,13 @@ class RoleplayViewModel(application: Application) : AndroidViewModel(application
 
     // ============ 标签操作 ============
 
+    // v2.7.3 流畅度：角色被重复选中/标签增删后反复调用，原先每次叠加一条 collect；
+    // 改为单订阅，切换角色时取消旧订阅
+    private var characterTagsJob: Job? = null
+
     private fun loadCharacterTags(characterId: Long) {
-        viewModelScope.launch {
+        characterTagsJob?.cancel()
+        characterTagsJob = viewModelScope.launch {
             repository.getTagsForCharacter(characterId).collect { tags ->
                 _characterTags.value = tags
             }
@@ -199,9 +210,13 @@ class RoleplayViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    // v2.7.3 流畅度：同 searchCharacters，取消旧订阅防叠加与竞写
+    private var scenarioSearchJob: Job? = null
+
     fun searchScenarios(query: String) {
         _scenarioSearchQuery.value = query
-        viewModelScope.launch {
+        scenarioSearchJob?.cancel()
+        scenarioSearchJob = viewModelScope.launch {
             if (query.isBlank()) {
                 repository.getAllScenarios().collect { list ->
                     _scenarios.value = list
@@ -683,8 +698,12 @@ class RoleplayViewModel(application: Application) : AndroidViewModel(application
 
     // ============ 记忆操作 ============
 
+    // v2.7.3 流畅度：同 loadCharacterTags，单订阅 + 切换会话取消旧订阅
+    private var memoriesJob: Job? = null
+
     private fun loadMemories(sessionId: Long) {
-        viewModelScope.launch {
+        memoriesJob?.cancel()
+        memoriesJob = viewModelScope.launch {
             repository.getMemoriesBySession(sessionId).collect { list ->
                 _memories.value = list
             }

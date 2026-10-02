@@ -1,6 +1,7 @@
 package com.aiassistant
 
 import com.aiassistant.ui.components.MarkdownSegmentation
+import com.aiassistant.ui.components.MarkdownSegmentationCache
 import com.aiassistant.ui.components.computeStableSegments
 import com.aiassistant.ui.screens.chat.GenerationUiState
 import com.aiassistant.ui.screens.chat.GenerationUiStateRules
@@ -26,6 +27,54 @@ class MotionRoundTests {
         assertEquals(0, seg.segments.size)
         assertEquals("", seg.tail)
         assertFalse(seg.tailInFence)
+    }
+
+    @Test
+    fun testStableSegments_incrementalCache_equivalentToFullRecompute() {
+        // v2.7.3 流畅度：分段增量缓存（MarkdownSegmentationCache）必须与全文重算严格等价——
+        // 覆盖标题/列表/闭合围栏/数学块/表格/空行边界逐 token 追加，以及非前缀跳变（切换 variant）回退
+        val full = buildString {
+            append("# 标题\n\n")
+            append("第一段落内容，包含 **加粗** 与 [1] 引用。\n\n")
+            append("- 列表项一\n- 列表项二\n\n")
+            append("```kotlin\nfun main() {\n    val x = 1\n}\n```\n\n")
+            append("闭合围栏后的段落。\n\n")
+            append("$$\nx^2 + y^2 = z^2\n$$\n\n")
+            append("| a | b |\n|---|---|\n| 1 | 2 |\n\n")
+            append("尾段落，包含 *斜体* 与收尾文字。")
+        }
+        val cache = MarkdownSegmentationCache()
+        var step = 1
+        while (step <= full.length) {
+            val partial = full.substring(0, step)
+            val incremental = cache.get(partial)
+            val fullRecompute = computeStableSegments(partial)
+            assertEquals("段列表与全文重算不一致（step=$step）", fullRecompute.segments, incremental.segments)
+            assertEquals("尾部与全文重算不一致（step=$step）", fullRecompute.tail, incremental.tail)
+            assertEquals("围栏态与全文重算不一致（step=$step）", fullRecompute.tailInFence, incremental.tailInFence)
+            assertEquals("段拼接+尾必须还原原文（step=$step）", partial, rebuild(incremental))
+            step += 1
+        }
+        // 非前缀跳变：必须回退全量重算，结果仍等价
+        val jumped = cache.get("完全不同的开头\n\n新内容")
+        val fullJump = computeStableSegments("完全不同的开头\n\n新内容")
+        assertEquals(fullJump.segments, jumped.segments)
+        assertEquals(fullJump.tail, jumped.tail)
+        assertEquals(fullJump.tailInFence, jumped.tailInFence)
+        // 末段含未闭合围栏的追加路径
+        val cache2 = MarkdownSegmentationCache()
+        val fenceText = "说明段落\n\n```python\nprint(1)\n\nprint(2"
+        var fstep = 1
+        while (fstep <= fenceText.length) {
+            val partial = fenceText.substring(0, fstep)
+            val incremental = cache2.get(partial)
+            val fullRecompute = computeStableSegments(partial)
+            assertEquals(fullRecompute.segments, incremental.segments)
+            assertEquals(fullRecompute.tail, incremental.tail)
+            assertTrue("未闭合围栏阶段应保持围栏态（step=$fstep）", incremental.tailInFence == fullRecompute.tailInFence)
+            assertEquals(partial, rebuild(incremental))
+            fstep += 1
+        }
     }
 
     @Test

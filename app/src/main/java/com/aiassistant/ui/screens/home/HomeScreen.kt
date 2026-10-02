@@ -30,6 +30,9 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -115,6 +118,8 @@ fun HomeScreen(
     onNavigateToRoleplayStudio: () -> Unit = {}
 ) {
     val context = LocalContext.current
+    // v2.7.3 流畅度：对话备份涉及 DB 全量查询+序列化+写盘，统一经 IO 协程执行，点击回调不再冻结主线程
+    val backupScope = rememberCoroutineScope()
     val homeBackgroundBitmap = remember(context) {
         BackgroundImageManager.getHomeBackgroundBitmap(context)
     }
@@ -331,11 +336,15 @@ fun HomeScreen(
                                             }
                                         },
                                         onBackup = {
-                                            val backupPath = BackupManager.createSingleConversationBackup(context, conversation.id)
-                                            if (backupPath != null) {
-                                                Toast.makeText(context, "对话已备份至 Echo_Backups", Toast.LENGTH_SHORT).show()
-                                            } else {
-                                                Toast.makeText(context, "对话备份失败", Toast.LENGTH_SHORT).show()
+                                            backupScope.launch(Dispatchers.IO) {
+                                                val backupPath = BackupManager.createSingleConversationBackup(context, conversation.id)
+                                                withContext(Dispatchers.Main) {
+                                                    if (backupPath != null) {
+                                                        Toast.makeText(context, "对话已备份至 Echo_Backups", Toast.LENGTH_SHORT).show()
+                                                    } else {
+                                                        Toast.makeText(context, "对话备份失败", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                }
                                             }
                                         },
                                         onMoveToFolder = { folderId ->
@@ -396,11 +405,15 @@ fun HomeScreen(
                                     }
                                 },
                                 onBackup = {
-                                    val backupPath = BackupManager.createSingleConversationBackup(context, conversation.id)
-                                    if (backupPath != null) {
-                                        Toast.makeText(context, "对话已备份至 Echo_Backups", Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        Toast.makeText(context, "对话备份失败", Toast.LENGTH_SHORT).show()
+                                    backupScope.launch(Dispatchers.IO) {
+                                        val backupPath = BackupManager.createSingleConversationBackup(context, conversation.id)
+                                        withContext(Dispatchers.Main) {
+                                            if (backupPath != null) {
+                                                Toast.makeText(context, "对话已备份至 Echo_Backups", Toast.LENGTH_SHORT).show()
+                                            } else {
+                                                Toast.makeText(context, "对话备份失败", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
                                     }
                                 },
                                 onMoveToFolder = { folderId ->

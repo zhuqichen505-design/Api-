@@ -4,56 +4,7 @@ package com.aiassistant.ui.components.markdown
  * LaTeX 数学公式解析与易读 Unicode 排版转换引擎
  */
 object LatexUnicodeConverter {
-/**
- * 将常见 LaTeX 数学符号与表达式转换为易读的数学 Unicode 排版
- */
-fun parseLaTeXToUnicode(raw: String): String {
-    var text = raw.trim()
-    if (text.isBlank()) return ""
-
-    // 1. 解析多行环境（pmatrix, bmatrix, cases, aligned等）
-    text = parseEnvironments(text)
-
-    // 2. 解析分数 \frac{a}{b} 与 \dfrac, \tfrac
-    text = text.replace("\\dfrac", "\\frac").replace("\\tfrac", "\\frac")
-    text = parseFractions(text)
-
-    // 3. 解析根号 \sqrt[n]{x} 与 \sqrt{x}
-    text = parseRoots(text)
-
-    // 4. 清理格式化指令如 \mathbf{x} -> x, \text{abc} -> abc
-    val fontCmds = listOf("\\mathbf", "\\mathit", "\\mathrm", "\\text", "\\textbf", "\\textit", "\\operatorname", "\\bm", "\\boldsymbol", "\\pmb", "\\underline", "\\overline")
-    for (cmd in fontCmds) {
-        var idx = text.indexOf(cmd)
-        var guard = 0
-        while (idx != -1 && guard < 50) {
-            guard++
-            val braceStart = text.indexOf('{', idx + cmd.length)
-            if (braceStart != -1 && text.substring(idx + cmd.length, braceStart).trim().isEmpty()) {
-                val braceEnd = findMatchingBrace(text, braceStart)
-                if (braceEnd != -1) {
-                    val inner = text.substring(braceStart + 1, braceEnd)
-                    text = text.substring(0, idx) + inner + text.substring(braceEnd + 1)
-                    idx = text.indexOf(cmd)
-                    continue
-                }
-            }
-            break
-        }
-    }
-
-    // 5. 黑体集合 \mathbb{R} -> ℝ 等
-    val mathbbMap = mapOf(
-        "\\mathbb{R}" to "ℝ", "\\mathbb{N}" to "ℕ", "\\mathbb{Z}" to "ℤ",
-        "\\mathbb{Q}" to "ℚ", "\\mathbb{C}" to "ℂ", "\\mathbb{H}" to "ℍ",
-        "\\mathbb{P}" to "ℙ", "\\mathbb{E}" to "𝔼"
-    )
-    for ((latex, unicode) in mathbbMap) {
-        text = text.replace(latex, unicode)
-    }
-
-    // 6. 符号与函数映射表
-    val symbolMap = listOf(
+    private val LATEX_SYMBOL_MAP_SORTED: List<Pair<String, String>> = listOf(
         // 三角/对数/极限/分析函数
         "\\arcsin" to "arcsin", "\\arccos" to "arccos", "\\arctan" to "arctan",
         "\\sinh" to "sinh", "\\cosh" to "cosh", "\\tanh" to "tanh",
@@ -126,9 +77,67 @@ fun parseLaTeXToUnicode(raw: String): String {
         "\\left." to "", "\\right." to "",
         "\\left" to "", "\\right" to "",
         "\\{" to "{", "\\}" to "}", "\\%" to "%", "\\_" to "_", "\\&" to "&"
-    )
+    ).sortedByDescending { it.first.length }
 
-    for ((latex, unicode) in symbolMap.sortedByDescending { it.first.length }) {
+    // v2.7.3 流畅度：映射表与正则原先在每次 parseLaTeXToUnicode / convertSuperSubScripts 调用时
+    // 全量重建（符号表 150 项 + sortedByDescending 排序 + 5 个 Regex），流式尾部每个行内公式
+    // 片段每帧触发；提升为常量，一次构建终身复用（不可变、线程安全）
+    private val LATEX_WHITESPACE_REGEX = Regex("""[ \t]+""")
+    private val LATEX_ENV_REGEX = Regex("""\\begin\{([a-zA-Z*]+)\}([\s\S]*?)\\end\{\1\}""")
+    private val SUPERSCRIPT_BRACE_REGEX = Regex("""\^\{([^}]+)\}""")
+    private val SUPERSCRIPT_CHAR_REGEX = Regex("""\^([0-9a-zA-Z+\-=])""")
+    private val SUBSCRIPT_BRACE_REGEX = Regex("""_\{([^}]+)\}""")
+    private val SUBSCRIPT_CHAR_REGEX = Regex("""_([0-9a-zA-Z+\-=])""")
+    private val FONT_CMDS = listOf("\\mathbf", "\\mathit", "\\mathrm", "\\text", "\\textbf", "\\textit", "\\operatorname", "\\bm", "\\boldsymbol", "\\pmb", "\\underline", "\\overline")
+    private val MATHBB_MAP = mapOf(
+        "\\mathbb{R}" to "ℝ", "\\mathbb{N}" to "ℕ", "\\mathbb{Z}" to "ℤ",
+        "\\mathbb{Q}" to "ℚ", "\\mathbb{C}" to "ℂ", "\\mathbb{H}" to "ℍ",
+        "\\mathbb{P}" to "ℙ", "\\mathbb{E}" to "𝔼"
+    )
+/**
+ * 将常见 LaTeX 数学符号与表达式转换为易读的数学 Unicode 排版
+ */
+fun parseLaTeXToUnicode(raw: String): String {
+    var text = raw.trim()
+    if (text.isBlank()) return ""
+
+    // 1. 解析多行环境（pmatrix, bmatrix, cases, aligned等）
+    text = parseEnvironments(text)
+
+    // 2. 解析分数 \frac{a}{b} 与 \dfrac, \tfrac
+    text = text.replace("\\dfrac", "\\frac").replace("\\tfrac", "\\frac")
+    text = parseFractions(text)
+
+    // 3. 解析根号 \sqrt[n]{x} 与 \sqrt{x}
+    text = parseRoots(text)
+
+    // 4. 清理格式化指令如 \mathbf{x} -> x, \text{abc} -> abc
+    for (cmd in FONT_CMDS) {
+        var idx = text.indexOf(cmd)
+        var guard = 0
+        while (idx != -1 && guard < 50) {
+            guard++
+            val braceStart = text.indexOf('{', idx + cmd.length)
+            if (braceStart != -1 && text.substring(idx + cmd.length, braceStart).trim().isEmpty()) {
+                val braceEnd = findMatchingBrace(text, braceStart)
+                if (braceEnd != -1) {
+                    val inner = text.substring(braceStart + 1, braceEnd)
+                    text = text.substring(0, idx) + inner + text.substring(braceEnd + 1)
+                    idx = text.indexOf(cmd)
+                    continue
+                }
+            }
+            break
+        }
+    }
+
+    // 5. 黑体集合 \mathbb{R} -> ℝ 等
+    for ((latex, unicode) in MATHBB_MAP) {
+        text = text.replace(latex, unicode)
+    }
+
+    // 6. 符号与函数映射表（v2.7.3 提升为常量并预排序）
+    for ((latex, unicode) in LATEX_SYMBOL_MAP_SORTED) {
         text = text.replace(latex, unicode)
     }
 
@@ -136,7 +145,7 @@ fun parseLaTeXToUnicode(raw: String): String {
     text = convertSuperSubScripts(text)
 
     // 8. 规整多余空格
-    return text.replace(Regex("""[ \t]+"""), " ").trim()
+    return text.replace(LATEX_WHITESPACE_REGEX, " ").trim()
 }
 
 private fun findMatchingBrace(text: String, openBraceIndex: Int): Int {
@@ -156,7 +165,7 @@ private fun findMatchingBrace(text: String, openBraceIndex: Int): Int {
 
 private fun parseEnvironments(input: String): String {
     var text = input
-    val envRegex = Regex("""\\begin\{([a-zA-Z*]+)\}([\s\S]*?)\\end\{\1\}""")
+    val envRegex = LATEX_ENV_REGEX
     text = envRegex.replace(text) { matchResult ->
         val env = matchResult.groupValues[1]
         val body = matchResult.groupValues[2].trim()
@@ -302,7 +311,7 @@ private fun convertSuperSubScripts(input: String): String {
 
     var res = input
     // ^{...}
-    res = Regex("""\^\{([^}]+)\}""").replace(res) { m ->
+    res = SUPERSCRIPT_BRACE_REGEX.replace(res) { m ->
         val inner = m.groupValues[1]
         if (inner.all { supers.containsKey(it) || it.isWhitespace() }) {
             inner.map { supers[it] ?: it }.joinToString("")
@@ -311,12 +320,12 @@ private fun convertSuperSubScripts(input: String): String {
         }
     }
     // ^x
-    res = Regex("""\^([0-9a-zA-Z+\-=])""").replace(res) { m ->
+    res = SUPERSCRIPT_CHAR_REGEX.replace(res) { m ->
         val c = m.groupValues[1][0]
         supers[c]?.toString() ?: "^$c"
     }
     // _{...}
-    res = Regex("""_\{([^}]+)\}""").replace(res) { m ->
+    res = SUBSCRIPT_BRACE_REGEX.replace(res) { m ->
         val inner = m.groupValues[1]
         if (inner.all { subs.containsKey(it) || it.isWhitespace() }) {
             inner.map { subs[it] ?: it }.joinToString("")
@@ -325,7 +334,7 @@ private fun convertSuperSubScripts(input: String): String {
         }
     }
     // _x
-    res = Regex("""_([0-9a-zA-Z+\-=])""").replace(res) { m ->
+    res = SUBSCRIPT_CHAR_REGEX.replace(res) { m ->
         val c = m.groupValues[1][0]
         subs[c]?.toString() ?: "_$c"
     }
