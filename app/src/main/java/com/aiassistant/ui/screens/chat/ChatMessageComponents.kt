@@ -972,9 +972,11 @@ internal fun MessageBubble(
                             }
                             Box(
                                 modifier = Modifier
-                                    // v2.7.4 需求 1：文本区占满剩余宽度——文字未填满时胶囊不再
-                                    // 显得中段悬空，展开/收缩键恒定贴靠胶囊最右侧
-                                    .weight(1f)
+                                    // v2.7.8 需求 3：文本区 fill=false——v2.7.7 只改了外层胶囊
+                                    // weight(fill=false)，但本区 weight(1f)（fill 默认 true）仍把
+                                    // 文本区撑满剩余宽度，胶囊因此永远收缩不到内容宽度；
+                                    // 文字超限时本区仍顶满剩余宽度（横向滚动/换行逻辑不变）
+                                    .weight(1f, fill = false)
                                     .then(
                                         if (!enableSoftWrap) Modifier.horizontalScroll(rememberScrollState())
                                         else Modifier
@@ -1076,6 +1078,8 @@ internal fun MessageBubble(
                     val hintSizeSpec = com.aiassistant.ui.theme.EchoMotion.tweenSpec<androidx.compose.ui.unit.IntSize>(
                         com.aiassistant.ui.theme.EchoMotion.Duration.fast
                     )
+                    // v2.7.8 需求 2：动画改回**最左侧**（内容区左缘 x=4dp，与历史版本位置一致），
+                    // 提示文字在其右侧；保持单行紧凑槽位
                     AnimatedVisibility(
                         visible = isGenerating && message.content.isBlank(),
                         enter = if (reducedMotion) {
@@ -1091,10 +1095,12 @@ internal fun MessageBubble(
                     ) {
                         Row(
                             modifier = Modifier
-                                .padding(start = 46.dp, top = 4.dp, end = 44.dp)
+                                .padding(start = 4.dp, top = 4.dp, end = 44.dp)
                                 .fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            TypingIndicator(accentColor = generationAccentColor)
+                            Spacer(modifier = Modifier.width(10.dp))
                             Text(
                                 text = if (generationState == GenerationUiState.Reconnecting && !reconnectStatus.isNullOrBlank()) {
                                     "连接重试中，已等待 ${connectElapsedSec}s…"
@@ -1109,8 +1115,6 @@ internal fun MessageBubble(
                                     .weight(1f)
                                     .alpha(hintAlpha)
                             )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            TypingIndicator(accentColor = generationAccentColor)
                         }
                     }
                 }

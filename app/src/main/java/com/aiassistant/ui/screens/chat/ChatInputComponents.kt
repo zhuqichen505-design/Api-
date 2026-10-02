@@ -228,6 +228,15 @@ fun ChatInputBar(
             inputFieldValue = inputFieldValue.copy(selection = TextRange(offset + 1))
         }
     }
+    // v2.7.8 需求 1：软键盘收起即回到最小高度（与失焦重置双保险）——
+    // 部分机型按返回键收起键盘时焦点可能仍留在输入框，仅靠失焦重置无法覆盖
+    val imeBottomPx = WindowInsets.ime.getBottom(density)
+    LaunchedEffect(imeBottomPx) {
+        if (imeBottomPx == 0) {
+            customInputHeightDp = null
+            isInputExpanded = false
+        }
+    }
     val effectiveMinHeight = customInputHeightDp?.dp ?: if (isInputExpanded) 180.dp else 42.dp
     val effectiveMaxHeight = if (customInputHeightDp != null) 360.dp else if (isInputExpanded) 320.dp else 112.dp
     val inputShape = RoundedCornerShape(22.dp)
@@ -393,7 +402,16 @@ fun ChatInputBar(
                                 max = effectiveMaxHeight
                             )
                             .background(Color.Transparent)
-                            .onFocusChanged { inputFieldFocused = it.isFocused },
+                            .onFocusChanged {
+                                inputFieldFocused = it.isFocused
+                                // v2.7.8 需求 1：输入框高度只在聚焦编辑期间允许（拖拽手柄）改变——
+                                // 失焦（键盘收起/点击其他区域/发送）即回到最小高度，
+                                // 任何来源造成的非最小状态都不会跨编辑会话残留
+                                if (!it.isFocused) {
+                                    customInputHeightDp = null
+                                    isInputExpanded = false
+                                }
+                            },
                         textStyle = MaterialTheme.typography.bodyLarge.copy(
                             color = inputTextColor,
                             background = Color.Transparent
@@ -787,6 +805,9 @@ fun ChatInputBar(
                                     change.consume()
                                     val currentH = customInputHeightDp ?: (if (isInputExpanded) 180f else 42f)
                                     if (currentH <= 46f && dragAmount > 8f) {
+                                        // v2.7.8 需求 1：隐藏输入栏时同步回到最小高度，恢复后从最小开始
+                                        customInputHeightDp = null
+                                        isInputExpanded = false
                                         onBarsHiddenChange(true)
                                     } else {
                                         val deltaDp = dragAmount / density.density
