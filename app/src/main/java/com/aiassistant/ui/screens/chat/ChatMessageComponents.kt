@@ -652,6 +652,15 @@ internal fun MessageBubble(
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }
+
+                // v2.7.4 需求 1/2：流式输出动画（呼吸光环点）持续**整个生成过程**、直到模型回复
+                // 结束才消失——正文空白时位于内容起点（连接/思考阶段），正文流式期间跟随内容末尾：
+                // 配合列表钉底跟随，动画与屏幕底部（输入栏上方）的距离在流式期间保持稳定，
+                // 不再因阶段切换增减节点而跳变
+                if (isGenerating) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    TypingIndicator(accentColor = generationAccentColor)
+                }
             }
         }
     }
@@ -1029,17 +1038,6 @@ internal fun MessageBubble(
                     }
 
                 }
-
-                    // v2.7.2 需求 7：等待动画（呼吸光环点）统一渲染在胶囊行正下方——连接态与思考态
-                    // 距头像的距离一致（原先思考态被展开的思考面板推远）；思考面板在下行独立展开。
-                    // 正文开始流式后由呼吸光标承担指示（审核 A4），此处条件同原 MessageContent 内逻辑
-                    if (isGenerating && message.content.isBlank()) {
-                        Box(
-                            modifier = Modifier.padding(start = 4.dp, top = 10.dp, bottom = 4.dp)
-                        ) {
-                            TypingIndicator(accentColor = generationAccentColor)
-                        }
-                    }
 
                     // P0-1③ 连接等待计时：>30s 弱提示，>60s 升级 error 语义色（仅连接态；重连态由 reconnectStatus 文案承载）。
                     // 提示置于头像+胶囊行正下方：头像与胶囊对齐关系不受影响。

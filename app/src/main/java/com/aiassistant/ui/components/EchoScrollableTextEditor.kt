@@ -37,6 +37,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.relocation.BringIntoViewResponder
+import androidx.compose.foundation.relocation.bringIntoViewResponder
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -53,6 +57,20 @@ import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 /**
+ * v2.7.4：no-op bringIntoView 门禁——拦截 BasicTextField 内建的光标可见性请求外传
+ * （实测该请求在本组件结构下会把视口强制带到内容顶端、且无法跟随光标），
+ * 光标跟随由 [EchoScrollableTextEditor] 内部的 LaunchedEffect 以最小距离滚动自行接管。
+ */
+@OptIn(ExperimentalFoundationApi::class)
+private val editorBringIntoViewGate = object : BringIntoViewResponder {
+    override fun calculateRectForParent(rect: androidx.compose.ui.geometry.Rect): androidx.compose.ui.geometry.Rect = rect
+
+    override suspend fun bringChildIntoView(localRect: () -> androidx.compose.ui.geometry.Rect?) {
+        // 有意留空：请求在此终止，不向父级滚动容器传播
+    }
+}
+
+/**
  * Echo 大文本编辑器（v2.7.2 需求 1/2/3）：
  * 供「编辑模型回复 / 仅修改消息内容 / 系统提示词」这类包含大量文本的内容框统一使用。
  *
@@ -63,6 +81,7 @@ import kotlin.math.roundToInt
  * - 需求 2（右侧滑块）：内容溢出时右缘出现细轨道 + 圆角拇指滑块，支持拖动/点按直接定位。
  * - 高度随内容自适应（minHeight~maxHeight），溢出后固定在 maxHeight 内部滚动。
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun EchoScrollableTextEditor(
     value: TextFieldValue,
@@ -87,6 +106,30 @@ fun EchoScrollableTextEditor(
     val maxPx = with(density) { maxHeight.roundToPx() }
     val boxHeightPx = contentHeightPx.coerceIn(minPx, maxPx)
     val boxHeight = with(density) { boxHeightPx.toDp() }
+
+    var textLayout by remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
+
+    // v2.7.4 需求 3：光标可见性由编辑器自行接管——
+    // ① BasicTextField 内建的 bringIntoView 在本结构下实测会把视口强制带到内容顶端、
+    //    且无法跟随光标，用 no-op 门禁（editorBringIntoViewGate）拦截其外传；
+    // ② 选区/布局变化时，仅在光标行移出可视区时以最小距离滚动跟随——点击可视区内位置
+    //    绝不滚动（修复「点击即强制滑到内容顶端」），输入时内容始终跟随光标。
+    LaunchedEffect(value.selection, textLayout, contentHeightPx) {
+        val layout = textLayout ?: return@LaunchedEffect
+        val viewport = scrollState.viewportSize
+        if (viewport <= 0) return@LaunchedEffect
+        val offset = value.selection.end.coerceIn(0, layout.layoutInput.text.length)
+        val line = layout.getLineForOffset(offset)
+        val cursorTop = layout.getLineTop(line)
+        val cursorBottom = layout.getLineBottom(line)
+        val current = scrollState.value
+        val margin = with(density) { 4.dp.roundToPx() }
+        when {
+            cursorTop < current -> scrollState.scrollTo((cursorTop - margin).roundToInt().coerceAtLeast(0))
+            cursorBottom > current + viewport ->
+                scrollState.scrollTo((cursorBottom - viewport + margin).roundToInt().coerceAtLeast(0))
+        }
+    }
 
     val shape = RoundedCornerShape(14.dp)
     val borderColor = if (focused) {
@@ -116,8 +159,10 @@ fun EchoScrollableTextEditor(
                     textStyle = MaterialTheme.typography.bodyLarge.copy(color = contentColor),
                     cursorBrush = SolidColor(contentColor),
                     interactionSource = interactionSource,
+                    onTextLayout = { textLayout = it },
                     modifier = Modifier
                         .fillMaxWidth()
+                        .bringIntoViewResponder(editorBringIntoViewGate)
                         .onSizeChanged { contentHeightPx = it.height }
                 )
             }
