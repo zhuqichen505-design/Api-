@@ -912,12 +912,12 @@ internal fun MessageBubble(
                             if (isStatusError) MaterialTheme.colorScheme.error.copy(alpha = 0.5f) else glass.outlineSelected.copy(alpha = 0.72f)
                         )
                     ) {
-                        // v2.7.6 需求 6：内层对齐恒定垂直居中——展开/收起只改变胶囊高度（文字换行数），
-                        // 图标与文字的相对位置不再变化（此前多行展开态顶对齐+图标 1dp 位移，
-                        // 单行/多行切换时内容整体跳动）
+                        // v2.7.9 需求：内层对齐恒定**左上角**——多行展开时左侧图案仍贴第一行左上，
+                        // 不因展开/收起而移动（v2.7.6 的恒定居中在多行展开态会把图案带到垂直中部）；
+                        // 收起单行态下顶对齐与居中观感一致，展开/收起前后图案相对胶囊左上角位置恒定
                         Row(
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-                            verticalAlignment = Alignment.CenterVertically,
+                            verticalAlignment = Alignment.Top,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Box(

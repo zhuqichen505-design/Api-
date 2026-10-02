@@ -456,6 +456,11 @@ fun ChatInputBar(
                                     val cursorLayout = inputFieldLayout
                                     if (inputFieldFocused && cursorLayout != null) {
                                         InputCursorOverlay(
+                                            // v2.7.9 关键修复：matchParentSize 跟随文本区实际尺寸——
+                                            // 此前覆盖层 Canvas fillMaxSize 在无高度约束的包裹容器里
+                                            // 直接吃满父级允许的最大高度（heightIn 的 112dp），把整个
+                                            // 输入框顶到最大——表现为"一点输入框就变长一大截"
+                                            modifier = Modifier.matchParentSize(),
                                             layout = cursorLayout,
                                             text = inputFieldValue.text,
                                             offset = inputFieldValue.selection.start,
@@ -854,16 +859,20 @@ fun ChatInputBar(
  *
  * v2.7.6 需求 3：getCursorRect 恒返回零宽矩形（1.6.8 源码注释明确"调用方应自行按宽度
  * 调整"），自补 2dp 平台标准光标厚度——此前 drawRoundRect 宽度为 0，光标从未可见。
+ *
+ * v2.7.9 关键修复：本覆盖层必须由调用方以 `Modifier.matchParentSize()` 提供尺寸——
+ * 若使用 fillMaxSize，Canvas 会在无高度约束的包裹容器里吃满父级允许的最大高度
+ * （heightIn 的 max），把整个输入框顶到最大高度，表现为"点击输入框即变长一大截"。
  */
 @Composable
 private fun InputCursorOverlay(
+    modifier: Modifier,
     layout: androidx.compose.ui.text.TextLayoutResult,
     text: String,
     offset: Int,
     collapsed: Boolean,
     tapX: Float?,
-    color: Color,
-    modifier: Modifier = Modifier
+    color: Color
 ) {
     val reduced = com.aiassistant.ui.theme.rememberReducedMotion()
     val blink: Float = if (reduced) {
@@ -878,7 +887,7 @@ private fun InputCursorOverlay(
         )
         v
     }
-    Canvas(modifier = modifier.fillMaxSize()) {
+    Canvas(modifier = modifier) {
         if (!collapsed) return@Canvas
         // 布局与选区可能存在一帧时间差（先变更文本后重排），越界时本帧跳过
         if (offset < 0 || offset > layout.layoutInput.text.length) return@Canvas
