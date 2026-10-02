@@ -1190,9 +1190,11 @@ fun ChatScreen(
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     state = listState,
+                    // v2.7.4 需求 1：水平 contentPadding 与底部输入栏/顶部工具栏统一为 12dp——
+                    // 状态胶囊右缘与输入气泡右缘精确对齐（原先列表 14dp 与界面骨架 12dp 不一致）
                     contentPadding = PaddingValues(
-                        start = 14.dp,
-                        end = 14.dp,
+                        start = 12.dp,
+                        end = 12.dp,
                         top = statusBarTopPadding + topFloatingBarHeight,
                         bottom = bottomBarOverlay
                     ),

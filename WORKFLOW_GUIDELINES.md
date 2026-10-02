@@ -41,6 +41,21 @@
 
 ## 二、最近一次执行记录
 
+### [2026-10-02] v2.7.4 胶囊恒定满宽对齐输入气泡、输入框留白对称与行尾光标、发送收起键盘（发版）
+- **需求**：① 思考/连接胶囊大小始终与输入气泡右侧对齐（此前依旧会变），展开/收缩键放胶囊最右侧，文字未填满时观感优化；② 输入框跨行时光标无法放在行尾最后一个字后边；③ 输入框文字区右侧空白太多、左右留白不对称，按左侧留空宽度修复；④ 发送后焦点消失（键盘收起）。构建 APK。
+- **版本**：versionCode 170 / versionName 2.7.4 / Room v32（无 DB 变更）。
+- **实现要点**：
+  ① 胶囊无条件 `weight(1f)` 占满行宽（连接/思考/流式/完成恒定）；列表 contentPadding 水平 14→12dp 与输入栏统一、助手外层 Column `start=4/end=0`——右缘与输入气泡右缘精确对齐；
+  ② 胶囊文本 Box `weight(1f, fill=false)`→`weight(1f)`，展开/收缩键贴最右；
+  ③ 输入框 decorationBox 移除 28dp 右距，左右留白统一 4dp；
+  ④ 输入框改 TextFieldValue（对外 String API）+ 自绘 `InputCursorOverlay`：cursorBrush 透明隐藏内置光标，软换行边界偏移绘制在前一行行尾、垂直居中，选区展开不绘制，reduced motion 恒亮；状态声明在 AnimatedContent 之外防丢失；
+  ⑤ 两处发送按钮（直接/排队）发送前 `focusManager.clearFocus()` 收起键盘。
+- **文件**：`ChatMessageComponents.kt`、`ChatScreen.kt`、`ChatInputComponents.kt`、`app/build.gradle.kts` 及文档。
+- **验证**：compile/test（74 文件 503 项全通）/lint/diff --check 全部 Exit Code 0；assembleRelease Exit Code 0，`Echo-v2.7.4.apk`（16,716,653 字节，SHA256 `5632B80F8B32F0EDC2A12247E5D5B44FD5272BEA68BE34EEB5B27232215AAC84`，CN=Android Debug **非正式生产签名**，证书与历史版本一致）；历史包 100% 完整保留（共 181 个）。
+- **未执行**：真机安装/启动验证（无设备），已给人工验收步骤（见 walkthrough.md v2.7.4 节）。
+- **风险**：硬换行（回车）后光标仍在新行行首（常规习惯）；首行行尾与右上角手柄触控区重叠为历史既有行为。
+- **详情**：见 `UPDATE_LOG.md` 与 `walkthrough.md`。
+
 ### [2026-10-02] v2.7.3 胶囊对齐口径修正 + 全项目流畅度与稳定性专项治理（发版）
 - **需求**：① 修正前版需求 5 口径——胶囊右侧与用户输入气泡右侧对齐；② 遍历整个项目，在不影响功能的前提下优化流畅度与稳定性；③ 构建 APK。用户特别提醒：审计结论仅供参考，以逐条核查与项目实际为准。
 - **版本**：versionCode 169 / versionName 2.7.3 / Room v32（无 DB 变更）。

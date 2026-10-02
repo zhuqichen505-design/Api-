@@ -64,8 +64,13 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalTextToolbar
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import com.aiassistant.ui.components.EchoTextToolbar
 import com.aiassistant.ui.components.EchoTextToolbarHost
 import androidx.compose.ui.layout.onSizeChanged
@@ -187,6 +192,19 @@ fun ChatInputBar(
     var isInputExpanded by remember { mutableStateOf(false) }
     var customInputHeightDp by remember { mutableStateOf<Float?>(null) }
     val density = LocalDensity.current
+    // v2.7.4 需求 4：发送后清除输入框焦点（软键盘随之收起）
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    // v2.7.4 需求 2：TextFieldValue 承载选区/焦点/布局以支持自绘光标；对外仍保持 String API，
+    // 声明在 AnimatedContent 之外，输入栏隐藏/恢复切换不丢内部状态
+    var inputFieldValue by remember { mutableStateOf(TextFieldValue(inputText)) }
+    LaunchedEffect(inputText) {
+        // 外部变更（发送清空、引用回填、编辑撤回）同步内部值并复位光标
+        if (inputText != inputFieldValue.text) {
+            inputFieldValue = TextFieldValue(inputText)
+        }
+    }
+    var inputFieldLayout by remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
+    var inputFieldFocused by remember { mutableStateOf(false) }
     val effectiveMinHeight = customInputHeightDp?.dp ?: if (isInputExpanded) 180.dp else 42.dp
     val effectiveMaxHeight = if (customInputHeightDp != null) 360.dp else if (isInputExpanded) 320.dp else 112.dp
     val inputShape = RoundedCornerShape(22.dp)
@@ -340,20 +358,28 @@ fun ChatInputBar(
                     }
 
                     BasicTextField(
-                        value = inputText,
-                        onValueChange = onInputChange,
+                        value = inputFieldValue,
+                        onValueChange = {
+                            inputFieldValue = it
+                            onInputChange(it.text)
+                        },
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(
                                 min = effectiveMinHeight,
                                 max = effectiveMaxHeight
                             )
-                            .background(Color.Transparent),
+                            .background(Color.Transparent)
+                            .onFocusChanged { inputFieldFocused = it.isFocused },
                         textStyle = MaterialTheme.typography.bodyLarge.copy(
                             color = inputTextColor,
                             background = Color.Transparent
                         ),
-                        cursorBrush = SolidColor(inputTextColor),
+                        // v2.7.4 需求 2：隐藏内置光标改用自绘光标——软换行边界（前一行行尾与
+                        // 下一行行首为同一文本偏移）时绘制在**前一行行尾**，即右侧最后一个字后面，
+                        // 解决"光标只能放在下一行开头"的问题；其余位置与内置光标一致
+                        cursorBrush = SolidColor(Color.Transparent),
+                        onTextLayout = { inputFieldLayout = it },
                         maxLines = if (isInputExpanded || (customInputHeightDp ?: 0f) > 60f) 15 else 5,
                         decorationBox = { innerTextField ->
                             Box(
@@ -363,16 +389,27 @@ fun ChatInputBar(
                                     .background(Color.Transparent)
                                     .padding(horizontal = 4.dp, vertical = 4.dp)
                             ) {
-                                if (inputText.isBlank()) {
+                                if (inputFieldValue.text.isBlank()) {
                                     Text(
                                         text = if (isRoleplay) "输入剧情提示、行动或指令..." else "给 Echo 发送消息",
                                         color = inputTextColor.copy(alpha = 0.62f),
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        modifier = Modifier.padding(end = 28.dp)
+                                        style = MaterialTheme.typography.bodyLarge
                                     )
                                 }
-                                Box(modifier = Modifier.fillMaxWidth().padding(end = 28.dp)) {
+                                // v2.7.4 需求 3：移除右侧 28dp 附加空距（原先左右留白 4dp/32dp 不对称），
+                                // 文字区左右留白统一为 4dp
+                                Box(modifier = Modifier.fillMaxWidth()) {
                                     innerTextField()
+                                    val cursorLayout = inputFieldLayout
+                                    if (inputFieldFocused && cursorLayout != null) {
+                                        InputCursorOverlay(
+                                            layout = cursorLayout,
+                                            text = inputFieldValue.text,
+                                            offset = inputFieldValue.selection.start,
+                                            collapsed = inputFieldValue.selection.collapsed,
+                                            color = inputTextColor
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -621,7 +658,15 @@ fun ChatInputBar(
                                 .echoShapeClick(
                                     CircleShape,
                                     enabled = if (isGenerating) true else canSend,
-                                    onClick = if (isGenerating) onStopGeneration else onSend
+                                    onClick = {
+                                        // v2.7.4 需求 4：发送后清除输入框焦点，软键盘随之收起
+                                        if (isGenerating) {
+                                            onStopGeneration()
+                                        } else {
+                                            focusManager.clearFocus()
+                                            onSend()
+                                        }
+                                    }
                                 )
                         ) {
                             Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
@@ -656,7 +701,15 @@ fun ChatInputBar(
                                 border = BorderStroke(1.2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)),
                                 modifier = Modifier
                                     .size(36.dp)
-                                    .echoShapeClick(CircleShape, enabled = true, onClick = onSend)
+                                    .echoShapeClick(
+                                        CircleShape,
+                                        enabled = true,
+                                        onClick = {
+                                            // v2.7.4 需求 4：排队发送同样清除焦点收起键盘
+                                            focusManager.clearFocus()
+                                            onSend()
+                                        }
+                                    )
                             ) {
                                 Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                                     Icon(
@@ -741,6 +794,65 @@ fun ChatInputBar(
     }
 }
 }
+}
+
+/**
+ * v2.7.4 需求 2：输入框自绘光标。
+ * Compose 内置光标在软换行边界（前一可视行行尾与下一行行首为同一文本偏移）一律绘制在
+ * 下一行行首，表现为"光标只能放在下一行开头、无法停在右侧最后一个字后面"。
+ * 本覆盖层在软换行边界时改绘于**前一行行尾**，其余位置与内置光标完全一致；
+ * 配合透明 cursorBrush 隐藏内置光标，呼吸节奏与应用动效语言同源（reduced motion 恒亮）。
+ */
+@Composable
+private fun InputCursorOverlay(
+    layout: androidx.compose.ui.text.TextLayoutResult,
+    text: String,
+    offset: Int,
+    collapsed: Boolean,
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    val reduced = com.aiassistant.ui.theme.rememberReducedMotion()
+    val blink: Float = if (reduced) {
+        1f
+    } else {
+        val transition = rememberInfiniteTransition(label = "inputCursor")
+        val v by transition.animateFloat(
+            initialValue = 1f,
+            targetValue = 0.2f,
+            animationSpec = com.aiassistant.ui.theme.EchoMotion.reverseCycleSpec<Float>(com.aiassistant.ui.theme.EchoMotion.Typewriter.cursorBlinkMs),
+            label = "inputCursorBlink"
+        )
+        v
+    }
+    Canvas(modifier = modifier.fillMaxSize()) {
+        if (!collapsed) return@Canvas
+        // 布局与选区可能存在一帧时间差（先变更文本后重排），越界时本帧跳过
+        if (offset < 0 || offset > layout.layoutInput.text.length) return@Canvas
+        val line = layout.getLineForOffset(offset)
+        val atSoftWrapStart = line > 0 &&
+            offset == layout.getLineStart(line) &&
+            offset > 0 &&
+            text.getOrNull(offset - 1) != '\n'
+        val defaultRect = layout.getCursorRect(offset)
+        val left: Float
+        val top: Float
+        if (atSoftWrapStart) {
+            val previousLine = line - 1
+            left = layout.getLineRight(previousLine)
+            val lineHeight = layout.getLineBottom(previousLine) - layout.getLineTop(previousLine)
+            top = layout.getLineTop(previousLine) + (lineHeight - defaultRect.height) / 2f
+        } else {
+            left = defaultRect.left
+            top = defaultRect.top
+        }
+        drawRoundRect(
+            color = color.copy(alpha = blink),
+            topLeft = Offset(left, top),
+            size = Size(defaultRect.width, defaultRect.height),
+            cornerRadius = CornerRadius(1.dp.toPx(), 1.dp.toPx())
+        )
+    }
 }
 
 @Composable

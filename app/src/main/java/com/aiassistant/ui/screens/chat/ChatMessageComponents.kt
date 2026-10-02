@@ -726,10 +726,12 @@ internal fun MessageBubble(
             }
         } else {
             // 模型回复：头像与身份置顶对齐，正文与思考全宽居中展开，左右对称无空白浪费
+            // v2.7.4 需求 1：外层仅保留左侧 4dp 内边距（右侧 0）——状态胶囊右缘需与底部
+            // 输入气泡右缘（消息列表 contentPadding 已统一为 12dp）精确对齐
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                    .padding(start = 4.dp, top = 2.dp, end = 0.dp, bottom = 2.dp)
                     .graphicsLayer {
                         val s = settleScale.value
                         scaleX = s
@@ -862,13 +864,11 @@ internal fun MessageBubble(
                         Spacer(modifier = Modifier.width(8.dp))
                         Surface(
                         modifier = Modifier
-                            // v2.7.3 需求 5（口径修正）：生成期间（连接/重连/思考/流式）胶囊占满头像行
-                            // 剩余宽度并右缩 40dp，使右侧与用户消息气泡右缘精确对齐
-                            // （用户气泡右侧 = 列内容宽 - 头像36dp - 间距8dp；助手列自身 4dp 内边距 → 44-4=40dp）。
-                            // 各状态间尺寸恒定不再随文案变化；回复完毕恢复自适应宽度，历史消息保持紧凑观感
-                            .then(if (isGenerating) Modifier.weight(1f).padding(end = 40.dp) else Modifier)
+                            // v2.7.4 需求 1：胶囊无条件占满头像行剩余宽度——连接/思考/流式/完成
+                            // 各状态尺寸恒定不再变化，右侧与底部输入气泡右缘精确对齐
+                            // （消息列表 contentPadding 已与输入栏统一为 12dp）
+                            .weight(1f)
                             .defaultMinSize(minHeight = 34.dp)
-                            .then(if (!isGenerating) Modifier.widthIn(max = maxBubbleWidth) else Modifier)
                             .animateContentSize(com.aiassistant.ui.theme.EchoMotion.Spring.gentle())
                             .clip(capsuleShape)
                             .then(
@@ -957,7 +957,9 @@ internal fun MessageBubble(
                             }
                             Box(
                                 modifier = Modifier
-                                    .weight(1f, fill = false)
+                                    // v2.7.4 需求 1：文本区占满剩余宽度——文字未填满时胶囊不再
+                                    // 显得中段悬空，展开/收缩键恒定贴靠胶囊最右侧
+                                    .weight(1f)
                                     .then(
                                         if (!enableSoftWrap) Modifier.horizontalScroll(rememberScrollState())
                                         else Modifier
