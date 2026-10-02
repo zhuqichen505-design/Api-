@@ -15,7 +15,6 @@ import androidx.compose.foundation.Canvas
 import com.aiassistant.ui.theme.EchoMotion
 import com.aiassistant.ui.theme.rememberReducedMotion
 import kotlin.math.PI
-import kotlin.math.abs
 import kotlin.math.cos
 
 /**
@@ -119,15 +118,16 @@ fun EchoDoubleArcRing(
 }
 
 /**
- * Echo 思考等待指示器「呼吸光环点」（替代原波浪点，供 TypingIndicator 使用）
- * 三个圆点按相位差做呼吸脉冲：点亮时柔和放大、提亮，身后同步扩散出一圈渐隐光环，
- * 脉冲只占周期前 55%、余下时间静息，节奏从容，表达"正在思考/等待首 token"。
+ * Echo 思考等待指示器「行波点」（替代原波浪点，供 TypingIndicator 使用）
+ * 三个圆点做正弦行波：相位均分 1/3 周期，任意时刻仅一个点处于峰值，
+ * 形成清晰的左→右依次点亮流动感，表达"正在思考/等待首 token"。
  *
- * v2.7.7 需求 5 精致化（全部为绘制层细节，性能约束不变）：
- * ① 双层光晕——近层辉光与脉冲同步呼吸、远层光环随脉冲进程扩散渐隐，层次更立体；
- * ② 峰值轻微上浮——点在脉冲顶点向上漂移小半半径，有"呼吸悬浮"的生命感；
- * ③ 中点略大、两侧略小的尺寸阶梯 + 左→右亮度递进，构图与动效更有方向感；
- * ④ 脉冲峰值在点内叠加一枚偏移高光，呈现珠光质感。
+ * v2.7.9 美观性重构（纯绘制层，性能约束不变）：
+ * ① 纯净行波——连续正弦（0→1→0）取代"55% 脉冲窗 + 静息"，周期接缝一阶连续零跳变；
+ *    相位差由 0.24 改为 1/3，相邻点脉冲零重叠，不再是"一团同时起伏"；
+ * ② 单层柔光——删除远层扩散光环与白色高光点：旧光环峰值半径 3.7r 远超半点距 1.7r，
+ *    邻点光晕互相交叠糊成一片，1dp 高光点在深色强调色上像坏点；
+ * ③ 三点同尺寸同基色——删除尺寸/亮度阶梯，静息相位保持 0.38 透明度清晰可辨。
  *
  * 配色约定：消费 generationAccentColor（思考模型取思考档位色，否则 primary），
  * 与流式光标、脉冲环同源（P0-1②/P0-2②）。
@@ -162,47 +162,26 @@ fun EchoThinkingDots(
         val baseY = size.height / 2f
         repeat(3) { i ->
             val x = size.width / 2f - totalWidth / 2f + i * gap
-            // 相位错开：三点依次点亮；reduced 时 t=0 全部处于静息相位
-            val phase = (t - i * 0.24f).mod(1f)
-            // 呼吸窗：脉冲压缩在周期前 55%（0→1），后 45% 静息（固定 1，alpha 归零）
-            val pulsePhase = (phase / 0.55f).coerceIn(0f, 1f)
-            val wave = if (reduced) 0f else 0.5f - 0.5f * cos((pulsePhase * 2.0 * PI).toFloat())
-            // 尺寸阶梯：中点 +8%，构图更稳；亮度阶梯：左→右递进，动效有方向感
-            val sizeStagger = 1f + 0.08f * (1f - abs(i - 1))
-            val brightStagger = 0.78f + 0.22f * (i / 2f)
+            // 行波相位：三点均分 1/3 周期，任意时刻仅一个点接近峰值；reduced 时 t=0 全部静息
+            val phase = (t - i / 3f).mod(1f)
+            // 连续正弦：0→1→0 平滑往返，周期接缝一阶连续，无跳变
+            val wave = if (reduced) 0f else 0.5f - 0.5f * cos((phase * 2.0 * PI).toFloat())
             // 峰值轻微上浮（小半半径），静息时落回基线
-            val dotY = baseY - r * 0.6f * wave
-            // 远层光环：随脉冲进程线性扩散（2.2r→3.7r）、线性渐隐，静息相位 alpha 为 0 不绘制
-            val haloAlpha = 0.14f * (1f - pulsePhase)
-            if (!reduced && haloAlpha > 0.004f) {
-                drawCircle(
-                    color = color.copy(alpha = haloAlpha),
-                    radius = r * (2.2f + 1.5f * pulsePhase) * sizeStagger,
-                    center = Offset(x, dotY)
-                )
-            }
-            // 近层辉光：与脉冲同步呼吸（1.9r→2.4r），叠加出层次
+            val dotY = baseY - r * 0.55f * wave
+            // 单层柔光：与脉冲同步呼吸（1.15r→1.55r < 半点距 1.7r，与邻点零交叠）
             if (!reduced && wave > 0.02f) {
                 drawCircle(
-                    color = color.copy(alpha = 0.16f * wave),
-                    radius = r * (1.9f + 0.5f * wave) * sizeStagger,
+                    color = color.copy(alpha = 0.14f * wave),
+                    radius = r * (1.15f + 0.4f * wave),
                     center = Offset(x, dotY)
                 )
             }
-            // 主体点：呼吸式放大 + 提亮
+            // 主体点：呼吸式缩放 + 提亮，静息相位保持 0.38 透明度不消失
             drawCircle(
-                color = color.copy(alpha = (0.30f + 0.70f * wave) * brightStagger),
-                radius = r * (1f + 0.38f * wave) * sizeStagger,
+                color = color.copy(alpha = 0.38f + 0.62f * wave),
+                radius = r * (0.82f + 0.30f * wave),
                 center = Offset(x, dotY)
             )
-            // 峰值高光：点内左上偏移一枚小白点，珠光质感
-            if (!reduced && wave > 0.35f) {
-                drawCircle(
-                    color = Color.White.copy(alpha = 0.30f * (wave - 0.35f) / 0.65f),
-                    radius = r * 0.28f * sizeStagger,
-                    center = Offset(x - r * 0.32f, dotY - r * 0.32f)
-                )
-            }
         }
     }
 }
