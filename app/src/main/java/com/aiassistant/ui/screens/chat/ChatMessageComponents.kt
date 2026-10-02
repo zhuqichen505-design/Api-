@@ -646,12 +646,6 @@ internal fun MessageBubble(
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }
-
-                // 审核 A4：等待期（正文空白）由呼吸光环点表达"活着"；流式期改由呼吸光标承担，避免双重指示
-                // 配色与光标/脉冲环同源（generationAccentColor），不再使用正文文本色
-                if (isGenerating && message.content.isBlank()) {
-                    TypingIndicator(accentColor = generationAccentColor)
-                }
             }
         }
     }
@@ -862,8 +856,12 @@ internal fun MessageBubble(
                         Spacer(modifier = Modifier.width(8.dp))
                         Surface(
                         modifier = Modifier
+                            // v2.7.2 需求 5：生成期间（连接/重连/思考/流式）胶囊占满头像行剩余宽度，
+                            // 各状态间尺寸恒定不再随文案变化；右侧对齐消息列内容边缘（用户气泡所在列）。
+                            // 回复完毕落库后恢复自适应宽度，历史消息保持原有紧凑观感
+                            .then(if (isGenerating) Modifier.weight(1f) else Modifier)
                             .defaultMinSize(minHeight = 34.dp)
-                            .widthIn(max = maxBubbleWidth)
+                            .then(if (!isGenerating) Modifier.widthIn(max = maxBubbleWidth) else Modifier)
                             .animateContentSize(com.aiassistant.ui.theme.EchoMotion.Spring.gentle())
                             .clip(capsuleShape)
                             .then(
@@ -918,11 +916,15 @@ internal fun MessageBubble(
                                         modifier = Modifier.size(16.dp)
                                     )
                                 } else if (generationState == GenerationUiState.Connecting ||
-                                    generationState == GenerationUiState.Thinking
+                                    generationState == GenerationUiState.Thinking ||
+                                    generationState == GenerationUiState.Streaming
                                 ) {
-                                    // P0-1①② 连接/思考：呼吸脉冲环，阶段切换时 primary 平滑过渡到思考档位色
+                                    // v2.7.2 需求 4：连接→思考→流式全程圆环动效（原先正文开始后回落为静态 Psychology 图标），
+                                    // 阶段切换时 primary 平滑过渡到思考档位色
                                     val ringColor by animateColorAsState(
-                                        targetValue = if (generationState == GenerationUiState.Thinking) {
+                                        targetValue = if (generationState == GenerationUiState.Thinking ||
+                                            generationState == GenerationUiState.Streaming
+                                        ) {
                                              generationAccentColor
                                         } else {
                                             MaterialTheme.colorScheme.primary
@@ -937,12 +939,12 @@ internal fun MessageBubble(
                                         modifier = Modifier.size(16.dp)
                                     )
                                 } else {
-                                    // 统一图标样式，删除机器人头像样式 (SmartToy)，全状态保持一致的 Psychology 图标
-                                    Icon(
-                                        Icons.Default.Psychology,
-                                        contentDescription = null,
+                                    // v2.7.2 需求 4：回复完毕后以静态圆环落定（替换原 Psychology 图标），
+                                    // 颜色与生成期圆环同源（思考模型取思考档位色，否则 primary），视觉连续
+                                    EchoPulseRing(
+                                        color = if (hasThinking) generationAccentColor else MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.size(16.dp),
-                                        tint = thinkingHeaderColor
+                                        animated = false
                                     )
                                 }
                             }
@@ -1018,6 +1020,17 @@ internal fun MessageBubble(
                     }
 
                 }
+
+                    // v2.7.2 需求 7：等待动画（呼吸光环点）统一渲染在胶囊行正下方——连接态与思考态
+                    // 距头像的距离一致（原先思考态被展开的思考面板推远）；思考面板在下行独立展开。
+                    // 正文开始流式后由呼吸光标承担指示（审核 A4），此处条件同原 MessageContent 内逻辑
+                    if (isGenerating && message.content.isBlank()) {
+                        Box(
+                            modifier = Modifier.padding(start = 4.dp, top = 10.dp, bottom = 4.dp)
+                        ) {
+                            TypingIndicator(accentColor = generationAccentColor)
+                        }
+                    }
 
                     // P0-1③ 连接等待计时：>30s 弱提示，>60s 升级 error 语义色（仅连接态；重连态由 reconnectStatus 文案承载）。
                     // 提示置于头像+胶囊行正下方：头像与胶囊对齐关系不受影响。

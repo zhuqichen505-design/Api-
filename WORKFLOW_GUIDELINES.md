@@ -41,6 +41,24 @@
 
 ## 二、最近一次执行记录
 
+### [2026-10-02] v2.7.2 编辑框跳转末尾按钮与滚动滑块、输入跳顶修复、胶囊圆环全程化与尺寸统一、流式光标持续与对齐修正（发版）
+- **需求**：① 编辑模型回复左下角加向下按钮，点击光标锁定文字末尾；② 编辑模型回复与输入系统提示词等大文本内容框右侧统一加滑块；③ 修复此类内容框中部输入时页面跳回文字顶端；④ 胶囊左侧从连接到回复结束显示圆环动效，回复完毕显示静态圆环；⑤ 连接/思考（结束）胶囊尺寸统一，右侧与用户输入气泡左侧对齐；⑥ 流式输出动画持续到回复完毕；⑦ 连接/思考时流式输出动画与头像距离统一为较近者；⑧ 流式光标远离文字一点并垂直对齐。构建 APK。
+- **版本**：versionCode 168 / versionName 2.7.2 / Room v32（无 DB 变更）。
+- **实现要点**：
+  ① 新建 `EchoScrollableTextEditor.kt`（`BasicTextField` + 自管 `verticalScroll` + 自绘 `EchoVerticalScrollSlider` 滑块，溢出淡入/拖动点按定位/隐藏占位不跳变）；编辑回复/仅修改内容对话框（`ChatScreen.kt`）与系统提示词对话框（`ChatPromptDialogs.kt`）统一迁移，编辑状态 `String` → `TextFieldValue`；
+  ② 编辑模型回复对话框按钮行最左新增 `ArrowDownward`：selection 置 `TextRange(text.length)` + `animateScrollTo(maxValue)`；"仅修改消息内容"同步；
+  ③ 跳顶根因 = `OutlinedTextField` 高度截断后内部滚动重置；新组件文本无高度约束整体布局、外层滚动经 bringIntoView 跟随光标，最小距离滚动；
+  ④ 胶囊图标槽扩至 Streaming 均显示 `EchoPulseRing` 动效；`EchoPulseRing` 新增 `animated` 参数，Idle 静态圆环（不建动画实例），颜色与生成期同源；
+  ⑤ 生成期胶囊 `weight(1f)` 占满头像行剩余宽度（右侧对齐用户气泡列内容边界），落库后恢复自适应；
+  ⑥ 光标穿透标题/列表/引用/参考资料末块（`isLastLine`），表格/数学/围栏/分割线/空尾补独立行光标 `StreamingTailCursor`（`tailNeedsStandaloneCursor`），围栏刚开启同样补；
+  ⑦ 呼吸光环点移至胶囊行正下方（start 4 / top 10 / bottom 4dp），复现连接态原始间距；
+  ⑧ 光标几何常量顶层化 + `echoCursorLineTransform`：`lineRight + 2dp` 外移、末行行盒内垂直居中，正文与围栏光标共用。
+- **文件**：新增 `EchoScrollableTextEditor.kt`；修改 `EchoConnectionIndicator.kt`、`MarkdownText.kt`、`ChatMessageComponents.kt`、`ChatScreen.kt`、`ChatPromptDialogs.kt`、`app/build.gradle.kts` 及文档。
+- **验证**：compile/test（74 文件 502 项全通、0 失败）/lint/diff --check 全部 Exit Code 0；assembleRelease Exit Code 0，`Echo-v2.7.2.apk`（16,700,269 字节，SHA256 `3EBE68CE1D57B5E78E6E1014C4954319C970FFA223D85CA7F9DD48E14EF0311C`，CN=Android Debug **非正式生产签名**，证书与历史版本一致）；历史包 100% 完整保留（构建前共 178 个）。
+- **未执行**：真机安装/启动验证（无设备），已给人工验收步骤（见 walkthrough.md v2.7.2 节）。
+- **风险与口径**：需求⑤"与用户输入气泡左侧对齐"按"消息列内容边界（用户气泡列右基准）"恒定宽度实现，若需按触发轮用户气泡左缘动态对齐可再迭代；详见 walkthrough v2.7.2 剩余风险。
+- **详情**：见 `UPDATE_LOG.md` 与 `walkthrough.md`。
+
 ### [2026-10-02] v2.7.1 时间线提示自动消失、流式动画防抖、消息仅编辑、时间线时间理解与过度推进治理、旧报错残留修复（发版）
 - **需求**：① 时间线变动提示弹窗显示几秒后自动消失；② 流式输出动画与思考胶囊有时突然变大/变小造成屏幕错误滑动一小段；③ 用户消息"仅编辑"（只改显示内容不重新提问）；④ 时间线优化（a 有完整时间线仍时间记忆错误；b 模型过度执着推进时间）；⑤（过程中追加）报错后重新生成/重发直接弹出过往报错。构建 APK。
 - **版本**：versionCode 167 / versionName 2.7.1 / Room v32（无 DB 变更）。

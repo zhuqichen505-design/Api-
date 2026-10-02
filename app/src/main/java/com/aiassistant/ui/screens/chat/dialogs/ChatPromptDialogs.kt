@@ -106,6 +106,7 @@ import com.aiassistant.ui.components.SideAnchorItem
 import com.aiassistant.ui.components.SideAnchorNavigator
 import com.aiassistant.ui.components.TransientLazyListScrollbar
 import com.aiassistant.ui.components.EchoPillSlider
+import com.aiassistant.ui.components.EchoScrollableTextEditor
 import androidx.compose.runtime.CompositionLocalProvider
 import com.aiassistant.ui.components.EchoGlassDialog
 import com.aiassistant.ui.components.EchoGlassDropdownMenu
@@ -157,7 +158,7 @@ fun SystemPromptDialog(
     onSaveAsTemplate: ((String, String) -> Unit)? = null,
     templates: List<PromptTemplate> = emptyList()
 ) {
-    var promptText by remember { mutableStateOf(currentPrompt ?: "") }
+    var promptText by remember { mutableStateOf(TextFieldValue(currentPrompt ?: "")) }
     var showTemplates by remember { mutableStateOf(false) }
     var showSaveDialog by remember { mutableStateOf(false) }
 
@@ -191,7 +192,7 @@ fun SystemPromptDialog(
                     }
 
                     // 保存为模板按钮
-                    if (onSaveAsTemplate != null && promptText.isNotBlank()) {
+                    if (onSaveAsTemplate != null && promptText.text.isNotBlank()) {
                         OutlinedButton(
                             onClick = { showSaveDialog = true },
                             modifier = Modifier.weight(1f)
@@ -205,21 +206,20 @@ fun SystemPromptDialog(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // 提示词输入框
-                OutlinedTextField(
+                // 提示词输入框（v2.7.2 需求 2/3：右侧滑块 + 修复中间输入时滚动跳顶）
+                EchoScrollableTextEditor(
                     value = promptText,
                     onValueChange = { promptText = it },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 120.dp),
-                    placeholder = { Text("例如：你是一个专业的编程助手...") },
-                    maxLines = 10
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = "例如：你是一个专业的编程助手...",
+                    minHeight = 120.dp,
+                    maxHeight = 280.dp
                 )
             }
         },
         confirmButton = {
             TextButton(
-                onClick = { onSave(promptText.ifBlank { null }) }
+                onClick = { onSave(promptText.text.ifBlank { null }) }
             ) {
                 Text("保存")
             }
@@ -238,7 +238,7 @@ fun SystemPromptDialog(
             templates = templates,
             onDismiss = { showTemplates = false },
             onSelect = { template ->
-                promptText = template.content
+                promptText = TextFieldValue(template.content)
                 showTemplates = false
             }
         )
@@ -248,7 +248,7 @@ fun SystemPromptDialog(
     if (showSaveDialog) {
         SaveTemplateDialog(
             hazeState = hazeState,
-            content = promptText,
+            content = promptText.text,
             onDismiss = { showSaveDialog = false },
             onSave = { name, content ->
                 onSaveAsTemplate?.invoke(name, content)

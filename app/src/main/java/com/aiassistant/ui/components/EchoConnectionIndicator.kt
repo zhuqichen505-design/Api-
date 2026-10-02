@@ -21,20 +21,26 @@ import kotlin.math.cos
  * Echo 连接脉冲环（方案 P0-1）
  * 一圈圆环以呼吸式缩放 + 透明度脉冲表达"连接中/思考中"的活动感。
  *
+ * v2.7.2 需求 4：新增 animated 参数——回复完毕后的落定态以「静态圆环」呈现（animated=false，
+ * 不创建 InfiniteTransition），生成全程（连接→思考→流式）保持 animated=true 的圆环动效。
+ *
  * 性能约束（R-3/R-7）：单个 InfiniteTransition 驱动，动画值仅在 Canvas（draw 阶段）读取，
- * 零重组、零每帧对象分配。reduced motion 时退化为静态圆环。
+ * 零重组、零每帧对象分配。reduced motion / animated=false 时退化为静态圆环。
  */
 @Composable
 fun EchoPulseRing(
     color: Color,
     modifier: Modifier = Modifier,
     ringSize: Dp = 16.dp,
-    strokeWidth: Dp = 1.8.dp
+    strokeWidth: Dp = 1.8.dp,
+    animated: Boolean = true
 ) {
     val reduced = rememberReducedMotion()
-    // 检查报告 P3-2：reduced motion 下条件创建 InfiniteTransition，避免帧回调空转（微功耗）
+    // 检查报告 P3-2：reduced motion / 静态圆环下条件创建 InfiniteTransition，避免帧回调空转（微功耗）
     val pulse: Float = if (reduced) {
         0.8f
+    } else if (!animated) {
+        1f
     } else {
         val transition = rememberInfiniteTransition(label = "echoPulseRing")
         val v by transition.animateFloat(
@@ -48,7 +54,7 @@ fun EchoPulseRing(
     Canvas(modifier) {
         val radius = ringSize.toPx() / 2f - strokeWidth.toPx() / 2f
         val scale = pulse
-        val alpha = if (reduced) 0.85f else pulse
+        val alpha = if (reduced || !animated) 0.85f else pulse
         drawCircle(
             color = color.copy(alpha = alpha),
             radius = radius * scale,

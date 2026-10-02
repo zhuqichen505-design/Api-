@@ -103,6 +103,7 @@ import com.aiassistant.ui.components.MarkdownText
 import com.aiassistant.ui.components.SideAnchorItem
 import com.aiassistant.ui.components.SideAnchorNavigator
 import com.aiassistant.ui.components.TransientLazyListScrollbar
+import com.aiassistant.ui.components.EchoScrollableTextEditor
 import com.aiassistant.ui.components.EchoPillSlider
 import androidx.compose.runtime.CompositionLocalProvider
 import com.aiassistant.ui.components.EchoGlassDialog
@@ -268,10 +269,11 @@ fun ChatScreen(
     val isQueuePaused by viewModel.isQueuePaused.collectAsState()
     var editingQueueItem by remember { mutableStateOf<QueuedMessage?>(null) }
     var editingAssistantMessage by remember { mutableStateOf<Message?>(null) }
-    var editingAssistantContent by remember { mutableStateOf("") }
+    // v2.7.2 需求 1：TextFieldValue 承载光标位置，「跳转末尾」按钮据此把光标锁定到文字末尾
+    var editingAssistantContent by remember { mutableStateOf(TextFieldValue("")) }
     // 用户消息“仅编辑”：只改显示内容，不重新发送、不重新生成
     var editingUserMessage by remember { mutableStateOf<Message?>(null) }
-    var editingUserContent by remember { mutableStateOf("") }
+    var editingUserContent by remember { mutableStateOf(TextFieldValue("")) }
 
     var lastStreamScrollAt by remember { mutableLongStateOf(0L) }
     val variantSelections = remember { mutableStateMapOf<String, Int>() }
@@ -1377,13 +1379,13 @@ fun ChatScreen(
                                             attachmentStatus = null
                                         } else {
                                             editingAssistantMessage = message
-                                            editingAssistantContent = message.content
+                                            editingAssistantContent = TextFieldValue(message.content)
                                         }
                                     },
                                     onEditInPlace = if (message.role == "user") {
                                         {
                                             editingUserMessage = message
-                                            editingUserContent = message.content
+                                            editingUserContent = TextFieldValue(message.content)
                                         }
                                     } else null,
                                     onDelete = {
@@ -2151,6 +2153,9 @@ fun ChatScreen(
     }
 
     if (editingAssistantMessage != null) {
+        // v2.7.2 需求 1/2：「跳转末尾」按钮与编辑器共用滚动状态，点击后光标锁定文字末尾并滚动到底
+        val editScrollState = androidx.compose.foundation.rememberScrollState()
+        val editScope = rememberCoroutineScope()
         EchoGlassDialog(
             onDismissRequest = { editingAssistantMessage = null },
             shape = EchoTokens.Radius.shapeXl,
@@ -2176,18 +2181,14 @@ fun ChatScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    OutlinedTextField(
+                    EchoScrollableTextEditor(
                         value = editingAssistantContent,
                         onValueChange = { editingAssistantContent = it },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 140.dp, max = 340.dp),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = glassTextFieldColors(
-                            contentColor = MaterialTheme.colorScheme.onSurface,
-                            secondaryColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f)
-                        )
+                        modifier = Modifier.fillMaxWidth(),
+                        scrollState = editScrollState,
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                        secondaryColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f)
                     )
                 }
             },
@@ -2197,6 +2198,26 @@ fun ChatScreen(
                     horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // 需求 1：左下角「向下」按钮——光标锁定到文字末尾并滚动到可视区底部
+                    IconButton(
+                        onClick = {
+                            editingAssistantContent = editingAssistantContent.copy(
+                                selection = TextRange(editingAssistantContent.text.length)
+                            )
+                            editScope.launch {
+                                editScrollState.animateScrollTo(editScrollState.maxValue)
+                            }
+                        },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.ArrowDownward,
+                            contentDescription = "光标跳转到文字末尾",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.weight(1f))
                     TextButton(onClick = { editingAssistantMessage = null }) {
                         Text("取消", maxLines = 1)
                     }
@@ -2204,7 +2225,7 @@ fun ChatScreen(
                     Button(
                         onClick = {
                             val msg = editingAssistantMessage ?: return@Button
-                            viewModel.updateMessageContent(msg.id, editingAssistantContent)
+                            viewModel.updateMessageContent(msg.id, editingAssistantContent.text)
                             editingAssistantMessage = null
                         },
                         shape = RoundedCornerShape(999.dp)
@@ -2243,18 +2264,13 @@ fun ChatScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    OutlinedTextField(
+                    EchoScrollableTextEditor(
                         value = editingUserContent,
                         onValueChange = { editingUserContent = it },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 140.dp, max = 340.dp),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = glassTextFieldColors(
-                            contentColor = MaterialTheme.colorScheme.onSurface,
-                            secondaryColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f)
-                        )
+                        modifier = Modifier.fillMaxWidth(),
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                        secondaryColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f)
                     )
                 }
             },
@@ -2271,7 +2287,7 @@ fun ChatScreen(
                     Button(
                         onClick = {
                             val msg = editingUserMessage ?: return@Button
-                            viewModel.updateMessageContent(msg.id, editingUserContent)
+                            viewModel.updateMessageContent(msg.id, editingUserContent.text)
                             editingUserMessage = null
                         },
                         shape = RoundedCornerShape(999.dp)

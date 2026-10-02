@@ -85,66 +85,101 @@ fun MarkdownText(
                 }
             }
             val split = MarkdownSegmentation(emptyList(), segmentation.tail, segmentation.tailInFence)
-            if (split.tail.isNotEmpty()) {
-                if (split.tailInFence) {
-                    // 方案 P0-2④：未闭合 ``` 围栏——围栏开启行之前的文本照常渲染，
-                    // 围栏内内容以等宽 plain 文本预显示，闭合后自然升级为高亮代码块
-                    val fenceStart = split.tail.lastIndexOf("```")
-                    val preFence = if (fenceStart > 0) split.tail.substring(0, fenceStart) else ""
-                    val fenceBody = if (fenceStart >= 0) {
-                        split.tail.substring(fenceStart).lineSequence().drop(1).joinToString("\n")
-                    } else {
-                        split.tail
-                    }
-                    if (preFence.isNotBlank()) {
-                        MarkdownContent(
-                            content = preFence,
+            if (split.tail.isEmpty()) {
+                // v2.7.2 需求 6：段落边界瞬间尾段为空，光标以独立行形式保持在场，动画不中断
+                if (cursor != null) {
+                    StreamingTailCursor(color = cursor, fading = cursorFading)
+                }
+            } else if (split.tailInFence) {
+                // 方案 P0-2④：未闭合 ``` 围栏——围栏开启行之前的文本照常渲染，
+                // 围栏内内容以等宽 plain 文本预显示，闭合后自然升级为高亮代码块
+                val fenceStart = split.tail.lastIndexOf("```")
+                val preFence = if (fenceStart > 0) split.tail.substring(0, fenceStart) else ""
+                val fenceBody = if (fenceStart >= 0) {
+                    split.tail.substring(fenceStart).lineSequence().drop(1).joinToString("\n")
+                } else {
+                    split.tail
+                }
+                if (preFence.isNotBlank()) {
+                    MarkdownContent(
+                        content = preFence,
+                        color = color,
+                        onCitationClick = onCitationClick
+                    )
+                }
+                if (fenceBody.isNotEmpty()) {
+                    // 检查报告 P3-4：代码围栏流式期间补静态光标（恒亮不呼吸），
+                    // 与正文光标同定位方案（onTextLayout 覆盖层，零测量干扰）
+                    val fenceLayoutState = remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
+                    Box {
+                        Text(
+                            text = fenceBody,
+                            style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                             color = color,
-                            onCitationClick = onCitationClick
+                            onTextLayout = { fenceLayoutState.value = it },
+                            modifier = Modifier.padding(vertical = 2.dp)
                         )
-                    }
-                    if (fenceBody.isNotEmpty()) {
-                        // 检查报告 P3-4：代码围栏流式期间补静态光标（恒亮不呼吸），
-                        // 与正文光标同定位方案（onTextLayout 覆盖层，零测量干扰）
-                        val fenceLayoutState = remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
-                        Box {
-                            Text(
-                                text = fenceBody,
-                                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                                color = color,
-                                onTextLayout = { fenceLayoutState.value = it },
-                                modifier = Modifier.padding(vertical = 2.dp)
+                        if (cursor != null) {
+                            EchoStreamingCursor(
+                                color = cursor,
+                                breathing = false,
+                                modifier = Modifier.echoCursorLineTransform(fenceLayoutState)
                             )
-                            if (cursor != null) {
-                                EchoStreamingCursor(
-                                    color = cursor,
-                                    breathing = false,
-                                    modifier = Modifier.graphicsLayer {
-                                        val layout: androidx.compose.ui.text.TextLayoutResult? = fenceLayoutState.value
-                                        if (layout != null && layout.lineCount > 0) {
-                                            val lastLine = layout.lineCount - 1
-                                            translationX = layout.getLineRight(lastLine) - 1.dp.toPx()
-                                            translationY = layout.getLineTop(lastLine)
-                                        } else {
-                                            alpha = 0f
-                                        }
-                                    }
-                                )
-                            }
                         }
                     }
-                } else {
-                    MarkdownContent(
-                        content = split.tail,
-                        color = color,
-                        onCitationClick = onCitationClick,
-                        endCursorColor = cursor,
-                        endCursorFading = cursorFading
-                    )
+                } else if (cursor != null) {
+                    // 围栏刚开启、尚无围栏内文本：光标以独立行保持在场
+                    StreamingTailCursor(color = cursor, fading = cursorFading)
+                }
+            } else {
+                MarkdownContent(
+                    content = split.tail,
+                    color = color,
+                    onCitationClick = onCitationClick,
+                    endCursorColor = cursor,
+                    endCursorFading = cursorFading
+                )
+                // v2.7.2 需求 6：表格/数学块/闭合代码块/分割线/空尾等无法内联承载光标的尾部，
+                // 追加独立行光标，保证流式动画一直持续到回复完毕
+                if (cursor != null && tailNeedsStandaloneCursor(split.tail)) {
+                    StreamingTailCursor(color = cursor, fading = cursorFading)
                 }
             }
         }
     }
+}
+
+/**
+ * 独立行流式光标（v2.7.2 需求 6）：尾部为表格/数学块/围栏开启瞬间等无法内联挂载光标的形态时，
+ * 光标以行首独立元素呈现，随下一片文本到来自然并入正文。
+ */
+@Composable
+private fun StreamingTailCursor(
+    color: Color,
+    fading: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Box(modifier = modifier.padding(top = 2.dp)) {
+        EchoStreamingCursor(color = color, fading = fading)
+    }
+}
+
+/**
+ * 判定流式尾部是否无法由末块内联承载光标（需求 6）。
+ * 末行尚为空（以换行收尾）或为表格/数学/围栏/分割线形态时返回 true。
+ */
+private fun tailNeedsStandaloneCursor(tail: String): Boolean {
+    if (tail.isBlank()) return true
+    val lastLine = tail.substringAfterLast("\n")
+    if (lastLine.isBlank()) return true
+    val t = lastLine.trim()
+    return t.startsWith("```") ||
+        t.startsWith("|") ||
+        t.startsWith("$$") ||
+        t.startsWith("\\[") ||
+        t.startsWith("\\begin{") ||
+        t == "---" ||
+        t == "***"
 }
 
 /**
@@ -249,6 +284,9 @@ private fun MarkdownContent(
         while (index < lines.size) {
             val line = lines[index]
             val trimmed = line.trim()
+            // v2.7.2 需求 6：单行块（标题/列表/引用/参考资料）是否为内容末块——末块承载流式光标，
+            // 保证光标在任意分块类型的尾部都持续显示到回复完毕
+            val isLastLine = index == lines.size - 1
 
             when {
                 // 代码块开始 ```lang
@@ -329,32 +367,80 @@ private fun MarkdownContent(
                 // 标题 1-6 级（含特定关键词加粗、加大字号、斜体强化）
                 line.startsWith("# ") -> {
                     val text = line.removePrefix("# ")
-                    renderHeadingText(text = text, defaultStyle = MaterialTheme.typography.titleLarge.copy(fontSize = 22.sp), color = color, topPad = 8.dp, bottomPad = 4.dp)
+                    renderHeadingText(
+                        text = text,
+                        defaultStyle = MaterialTheme.typography.titleLarge.copy(fontSize = 22.sp),
+                        color = color,
+                        topPad = 8.dp,
+                        bottomPad = 4.dp,
+                        endCursorColor = if (isLastLine) endCursorColor else null,
+                        endCursorFading = endCursorFading
+                    )
                     index++
                 }
                 line.startsWith("## ") -> {
                     val text = line.removePrefix("## ")
-                    renderHeadingText(text = text, defaultStyle = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp), color = color, topPad = 6.dp, bottomPad = 3.dp)
+                    renderHeadingText(
+                        text = text,
+                        defaultStyle = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp),
+                        color = color,
+                        topPad = 6.dp,
+                        bottomPad = 3.dp,
+                        endCursorColor = if (isLastLine) endCursorColor else null,
+                        endCursorFading = endCursorFading
+                    )
                     index++
                 }
                 line.startsWith("### ") -> {
                     val text = line.removePrefix("### ")
-                    renderHeadingText(text = text, defaultStyle = MaterialTheme.typography.titleMedium.copy(fontSize = 18.5.sp), color = color, topPad = 5.dp, bottomPad = 3.dp)
+                    renderHeadingText(
+                        text = text,
+                        defaultStyle = MaterialTheme.typography.titleMedium.copy(fontSize = 18.5.sp),
+                        color = color,
+                        topPad = 5.dp,
+                        bottomPad = 3.dp,
+                        endCursorColor = if (isLastLine) endCursorColor else null,
+                        endCursorFading = endCursorFading
+                    )
                     index++
                 }
                 line.startsWith("#### ") -> {
                     val text = line.removePrefix("#### ")
-                    renderHeadingText(text = text, defaultStyle = MaterialTheme.typography.titleMedium.copy(fontSize = 17.sp), color = color, topPad = 4.dp, bottomPad = 2.dp)
+                    renderHeadingText(
+                        text = text,
+                        defaultStyle = MaterialTheme.typography.titleMedium.copy(fontSize = 17.sp),
+                        color = color,
+                        topPad = 4.dp,
+                        bottomPad = 2.dp,
+                        endCursorColor = if (isLastLine) endCursorColor else null,
+                        endCursorFading = endCursorFading
+                    )
                     index++
                 }
                 line.startsWith("##### ") -> {
                     val text = line.removePrefix("##### ")
-                    renderHeadingText(text = text, defaultStyle = MaterialTheme.typography.bodyLarge.copy(fontSize = 16.sp, fontWeight = FontWeight.Bold), color = color, topPad = 3.dp, bottomPad = 2.dp)
+                    renderHeadingText(
+                        text = text,
+                        defaultStyle = MaterialTheme.typography.bodyLarge.copy(fontSize = 16.sp, fontWeight = FontWeight.Bold),
+                        color = color,
+                        topPad = 3.dp,
+                        bottomPad = 2.dp,
+                        endCursorColor = if (isLastLine) endCursorColor else null,
+                        endCursorFading = endCursorFading
+                    )
                     index++
                 }
                 line.startsWith("###### ") -> {
                     val text = line.removePrefix("###### ")
-                    renderHeadingText(text = text, defaultStyle = MaterialTheme.typography.bodyLarge.copy(fontSize = 16.sp, fontWeight = FontWeight.Bold), color = color, topPad = 2.dp, bottomPad = 2.dp)
+                    renderHeadingText(
+                        text = text,
+                        defaultStyle = MaterialTheme.typography.bodyLarge.copy(fontSize = 16.sp, fontWeight = FontWeight.Bold),
+                        color = color,
+                        topPad = 2.dp,
+                        bottomPad = 2.dp,
+                        endCursorColor = if (isLastLine) endCursorColor else null,
+                        endCursorFading = endCursorFading
+                    )
                     index++
                 }
 
@@ -379,7 +465,9 @@ private fun MarkdownContent(
                             text = parseInlineMarkdown(cleanRefLine, isReferenceItem = true),
                             style = MaterialTheme.typography.bodyMedium,
                             color = color,
-                            onCitationClick = onCitationClick
+                            onCitationClick = onCitationClick,
+                            endCursorColor = if (isLastLine) endCursorColor else null,
+                            endCursorFading = endCursorFading
                         )
                     }
                     index++
@@ -393,7 +481,9 @@ private fun MarkdownContent(
                         InlineMarkdownText(
                             text = parseInlineMarkdown(itemContent),
                             style = MaterialTheme.typography.bodyLarge,
-                            color = color
+                            color = color,
+                            endCursorColor = if (isLastLine) endCursorColor else null,
+                            endCursorFading = endCursorFading
                         )
                     }
                     index++
@@ -413,7 +503,9 @@ private fun MarkdownContent(
                             InlineMarkdownText(
                                 text = parseInlineMarkdown(itemContent),
                                 style = MaterialTheme.typography.bodyLarge,
-                                color = color
+                                color = color,
+                                endCursorColor = if (isLastLine) endCursorColor else null,
+                                endCursorFading = endCursorFading
                             )
                         }
                         index++
@@ -439,7 +531,9 @@ private fun MarkdownContent(
                             InlineMarkdownText(
                                 text = parseInlineMarkdown(line.removePrefix("> ")),
                                 style = MaterialTheme.typography.bodyLarge.copy(fontStyle = FontStyle.Italic),
-                                color = color.copy(alpha = 0.8f)
+                                color = color.copy(alpha = 0.8f),
+                                endCursorColor = if (isLastLine) endCursorColor else null,
+                                endCursorFading = endCursorFading
                             )
                         }
                         index++
@@ -469,7 +563,9 @@ private fun MarkdownContent(
                                 defaultStyle = MaterialTheme.typography.titleMedium,
                                 color = color,
                                 topPad = 6.dp,
-                                bottomPad = 3.dp
+                                bottomPad = 3.dp,
+                                endCursorColor = if (isLastLine) endCursorColor else null,
+                                endCursorFading = endCursorFading
                             )
                             index++
                         } else {
@@ -562,7 +658,9 @@ private fun renderHeadingText(
     defaultStyle: TextStyle,
     color: Color,
     topPad: Dp,
-    bottomPad: Dp
+    bottomPad: Dp,
+    endCursorColor: Color? = null,
+    endCursorFading: Boolean = false
 ) {
     val isSpecial = isSpecialKeywordTitle(text)
     val finalStyle = if (isSpecial) {
@@ -580,7 +678,9 @@ private fun renderHeadingText(
         text = parseInlineMarkdown(text),
         style = finalStyle,
         color = finalColor,
-        modifier = Modifier.padding(top = topPad, bottom = bottomPad)
+        modifier = Modifier.padding(top = topPad, bottom = bottomPad),
+        endCursorColor = endCursorColor,
+        endCursorFading = endCursorFading
     )
 }
 
@@ -706,16 +806,7 @@ internal fun InlineMarkdownText(
                 EchoStreamingCursor(
                     color = endCursorColor,
                     fading = endCursorFading,
-                    modifier = Modifier.graphicsLayer {
-                        val layout: androidx.compose.ui.text.TextLayoutResult? = layoutState.value
-                        if (layout != null) {
-                            val lineIndex: Int = layout.lineCount - 1
-                            translationX = layout.getLineRight(lineIndex) - 1.dp.toPx()
-                            translationY = layout.getLineTop(lineIndex)
-                        } else {
-                            alpha = 0f
-                        }
-                    }
+                    modifier = Modifier.echoCursorLineTransform(layoutState)
                 )
             }
         }
@@ -772,7 +863,36 @@ fun CodeBlock(code: String, language: String = "", modifier: Modifier = Modifier
  * Echo 流式打字光标（P0-2②/P0-3①）
  * 2dp 宽、字高约 70% 的竖线，530ms 周期透明度呼吸；落定时以 300ms 淡出（fading=true）。
  * reduced motion：光标保持静态可见（保留状态指示），淡出路径不变。
+ *
+ * v2.7.2 需求 8：几何常量提升为顶层值，定位逻辑（echoCursorLineTransform）与其共用，
+ * 保证绘制尺寸与定位计算一致。
  */
+internal val EchoStreamingCursorWidth = 2.dp
+internal val EchoStreamingCursorHeight = 18.dp
+/** 需求 8：光标与文字末尾的间距（原定位与文字重叠 1dp，现外移留出间隙） */
+internal val EchoStreamingCursorGap = 2.dp
+
+/**
+ * 需求 8：光标贴行定位——水平贴文字末尾并外移一个固定间隙；垂直在末行行盒内居中
+ * （原先 translationY = lineTop 顶对齐，视觉偏上、与文字不齐）。
+ * 布局结果尚未产出时隐藏，产出后恢复可见。
+ */
+private fun Modifier.echoCursorLineTransform(
+    layoutState: androidx.compose.runtime.State<androidx.compose.ui.text.TextLayoutResult?>
+): Modifier = graphicsLayer {
+    val layout = layoutState.value
+    if (layout == null || layout.lineCount == 0) {
+        alpha = 0f
+        return@graphicsLayer
+    }
+    alpha = 1f
+    val lastLine = layout.lineCount - 1
+    translationX = layout.getLineRight(lastLine) + EchoStreamingCursorGap.toPx()
+    val lineTop = layout.getLineTop(lastLine)
+    val lineHeight = layout.getLineBottom(lastLine) - lineTop
+    translationY = lineTop + (lineHeight - EchoStreamingCursorHeight.toPx()) / 2f
+}
+
 @Composable
 internal fun EchoStreamingCursor(
     color: Color,
@@ -800,7 +920,7 @@ internal fun EchoStreamingCursor(
         animationSpec = EchoMotion.tweenSpec<Float>(EchoMotion.Typewriter.cursorFadeMs),
         label = "cursorFade"
     )
-    Canvas(modifier.size(width = 2.dp, height = 18.dp)) {
+    Canvas(modifier.size(width = EchoStreamingCursorWidth, height = EchoStreamingCursorHeight)) {
         // fading（落定）：停止呼吸、只做静态淡出；正常流式：呼吸；breathing=false：恒亮静态；reduced：静态
         val alpha = when {
             reduced -> fade

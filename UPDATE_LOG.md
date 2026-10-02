@@ -2,6 +2,61 @@
 
 本文档按照工作流规范记录每次版本更新、需求变更与复核结果。
 
+## [2026-10-02] - v2.7.2 编辑框跳转末尾按钮与滚动滑块、输入跳顶修复、胶囊圆环动效全程化与尺寸统一、流式光标持续与对齐修正、等待动画位置统一
+
+### 1. 用户需求
+1. 在编辑模型回复时，在左下角添加一个向下按钮，点击后光标自动锁定在文字末尾；
+2. 在编辑模型回复以及输入系统提示词时，在这类包含大量文本的内容框右侧统一加入滑块方便翻阅定位；
+3. 在编辑模型回复以及输入系统提示词这类包含大量文本的内容框中，选中某个位置输入时页面都会自动滑动到文字顶端，很不方便；
+4. 优化连接和思考胶囊：在模型连接直到模型回复结束后，胶囊内左侧都显示圆环动效；回复完毕后显示为（静态）圆环；
+5. 优化模型的连接和思考胶囊：目前模型连接和思考（结束）时胶囊的大小不一样，请统一；胶囊的右侧和用户输入气泡的左侧对齐；
+6. 优化流式输出的动画，动画要一直持续到回复完毕；
+7. 优化流式输出的动画：目前模型连接时和模型思考时流式输出动画和模型头像之间的距离不同，统一为较近的那个距离；
+8. 优化模型流式输出时右侧的光标动效：目前的光标离文字太近了需要远离一点点；同时光标位置有些偏上没有和文字对齐。
+构建 APK。
+
+### 2. 临时实施方案与根因修复
+
+**需求 1（编辑模型回复左下角「跳转末尾」按钮）**
+- **需求理解**：编辑长回复时希望一键把光标送回文字末尾继续续写。
+- **实现**（`ChatScreen.kt`）：编辑模型回复对话框底部按钮行最左侧新增 `ArrowDownward` 图标按钮（左下角）；点击将 `editingAssistantContent`（已从 `String` 迁移为 `TextFieldValue`）的 selection 置为 `TextRange(text.length)` 锁定末尾，并经共享 `ScrollState` `animateScrollTo(maxValue)` 滚动到可视区底部。「仅修改消息内容」对话框为同类编辑框，同步获得该按钮。
+
+**需求 2（大文本框右侧统一滑块）**
+- **实现**：新建共用组件 `ui/components/EchoScrollableTextEditor.kt`——`BasicTextField` 置于自管 `verticalScroll` 容器内整体布局，右缘固定 16dp 槽位内放置自绘 `EchoVerticalScrollSlider`（内容溢出时淡入的细轨道 + 圆角拇指，拇指长度/位置按滚动比例实时绘制，支持拖动与点按定位；隐藏时槽位占位不变避免布局跳动）。应用于三个对话框：编辑模型回复、仅修改消息内容（`ChatScreen.kt`）与系统提示词（`ChatPromptDialogs.kt`，`promptText` 同步迁移为 `TextFieldValue`，模板选择/保存模板取 `.text`）。
+
+**需求 3（中间输入时页面跳回文字顶端）**
+- **根因**：三个对话框原用 Material3 `OutlinedTextField`，其高度被 `heightIn`/`maxLines` 截断后由组件内部滚动接管；文本变化触发重新测量时内部滚动位置被重置（Material3 TextField 内部滚动不受外部控制的已知行为类别），表现为光标在中间输入时视区跳回文字顶端；且其内部 scrollState 不对外暴露，无法外接滑块。
+- **修复**：`EchoScrollableTextEditor` 中文本以无高度约束整体布局、滚动由外层 `verticalScroll` 承担；光标可见性经 bringIntoView 沿外层滚动解析——仅当光标移出可视区时做最小距离滚动，不再跳顶。
+
+**需求 4（胶囊左侧圆环动效全程化，回复完毕静态圆环）**
+- **根因**：胶囊左侧图标槽仅在 Connecting/Thinking 显示呼吸脉冲环，正文开始流式与回复完毕后回落为静态 `Psychology` 图标，动效不连贯。
+- **修复**（`ChatMessageComponents.kt` + `EchoConnectionIndicator.kt`）：图标槽条件扩展为 Connecting/Thinking/**Streaming** 均显示 `EchoPulseRing` 动效（流式期用思考档位色/primary）；`EchoPulseRing` 新增 `animated` 参数——回复完毕（Idle）传 `animated=false` 渲染为静态圆环（不创建 InfiniteTransition），颜色与生成期同源（思考模型思考档位色、否则 primary），视觉连续；报错态 WarningAmber、重连态双弧环保持不变。
+
+**需求 5（生成期胶囊尺寸统一，右侧与用户气泡列对齐）**
+- **根因**：胶囊宽度随状态文案（"正在连接 X…"/"X 正在思考中…"/流式提示）自适应，状态切换时宽度跳动。
+- **修复**（`ChatMessageComponents.kt`）：生成期间（isGenerating）胶囊在头像行内 `weight(1f)` 占满剩余宽度——各状态尺寸恒定、右侧对齐到消息列内容边缘（用户气泡所在列的内容边界，本应用用户消息普遍较长、其气泡列边界即视觉右基准线）；回复完毕落库后恢复自适应宽度，历史消息保持紧凑观感。
+
+**需求 6（流式动画持续到回复完毕）**
+- **根因**：流式呼吸光标只挂在「普通文本块」末尾——尾部为列表项/标题/引用/参考资料、段落边界瞬间尾段为空、或尾部是表格/数学块/闭合代码块/分割线时光标消失，动画中断。
+- **修复**（`MarkdownText.kt`）：① 光标穿透全部内联承载块——6 级标题、关键词标题、有序/无序列表、引用、参考资料项均新增末块光标挂载（`isLastLine` 判定）；② 尾段为空或末行无法内联承载光标（表格/数学/围栏/分割线/换行收尾）时追加独立行光标 `StreamingTailCursor`（`tailNeedsStandaloneCursor` 判定），随下一片文本到来自然并入正文；③ 围栏刚开启、围栏内尚无文本时同样补独立光标。
+
+**需求 7（等待动画与头像距离统一为较近者）**
+- **根因**：等待呼吸光环点渲染在 `MessageContent` 内部，思考态时被展开的思考详情面板推远，与连接态（紧贴胶囊行下方）距离不一致。
+- **修复**（`ChatMessageComponents.kt`）：呼吸光环点移至头像+胶囊行正下方（header Column 内、连接等待提示槽之前），`padding(start 4dp, top 10dp, bottom 4dp)` 精确复现连接态的原始间距；连接态与思考态距头像距离一致，思考面板在其下独立展开；正文开始流式后由呼吸光标承担指示（审核 A4 双重指示规避不变）。
+
+**需求 8（光标远离文字一点并垂直对齐）**
+- **根因**：光标定位 `translationX = lineRight - 1dp`（与末字重叠 1dp，视觉过近）、`translationY = lineTop`（行盒顶对齐，视觉偏上）。
+- **修复**（`MarkdownText.kt`）：光标几何常量提升为顶层值（`EchoStreamingCursorWidth/Height`）并新增 `echoCursorLineTransform` 定位器——水平 `lineRight + 2dp` 外移留出间隙，垂直在末行行盒内居中（`lineTop + (lineHeight - cursorHeight)/2`）；正文光标与代码围栏静态光标共用同一定位器。
+
+### 3. 涉及文件
+- 新增：`app/src/main/java/com/aiassistant/ui/components/EchoScrollableTextEditor.kt`（大文本编辑器 + 竖向滑块）
+- 修改：`ui/components/EchoConnectionIndicator.kt`（EchoPulseRing animated 参数）、`ui/components/MarkdownText.kt`（光标穿透/独立行光标/定位修正）、`ui/screens/chat/ChatMessageComponents.kt`（胶囊圆环全程化、宽度统一、等待点移位）、`ui/screens/chat/ChatScreen.kt`（两个编辑对话框 + 跳转末尾按钮）、`ui/screens/chat/dialogs/ChatPromptDialogs.kt`（系统提示词对话框迁移）、`app/build.gradle.kts`（版本 168 / 2.7.2）及文档。
+- 数据层无改动；Room 仍为 v32。
+
+### 4. 影响面与验证
+- 影响面：聊天流式 UI（胶囊/光标/等待点）、三个大文本对话框；不涉及网络、数据库、后台任务。
+- 验证：`compileDebugKotlin` Exit 0；`testDebugUnitTest` Exit 0（74 个测试文件 502 项全通、0 失败）；`lintDebug` Exit 0；`git diff --check` Exit 0。
+
 ## [2026-10-02] - v2.7.1 时间线变动提示自动消失、流式动画与思考胶囊尺寸突变修复、用户消息「仅修改内容」、时间线时间记忆与过度推进治理、报错后重新生成弹出旧报错修复
 
 ### 1. 用户需求

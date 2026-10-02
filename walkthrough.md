@@ -1,3 +1,52 @@
+# Echo v2.7.2 构建走查与验收报告 (Walkthrough)
+
+## 一、本次构建与需求概述
+- **发布版本**：v2.7.2 (`versionCode: 168`)
+- **构建类型**：Release APK
+- **交付目标文件**：`D:\Agent\APP-Echo\app\releases\Echo-v2.7.2.apk`
+- **核心内容**：编辑模型回复左下角「跳转末尾」按钮；编辑回复/仅修改内容/系统提示词三类大文本框右侧统一滚动滑块；修复长文本中间输入时视区跳回文字顶端；胶囊圆环动效全程化（回复完毕落定静态圆环）；生成期间胶囊尺寸统一（右侧对齐用户气泡列）；流式光标持续显示到回复完毕；等待动画与头像距离统一；流式光标间距与垂直对齐修正。
+
+## 二、根因走查与修复要点
+| 项 | 根因 | 修复 |
+| :--- | :--- | :--- |
+| **编辑框无「跳转末尾」能力** | 编辑对话框用 `String` 状态的 `OutlinedTextField`，无光标控制通路 | `editingAssistantContent`/`editingUserContent` 迁移为 `TextFieldValue`；编辑模型回复对话框按钮行最左新增 `ArrowDownward` 按钮：selection 置 `TextRange(text.length)` + 共享 `ScrollState` `animateScrollTo(maxValue)` 滚动到底；"仅修改消息内容"对话框同步 |
+| **大文本框无滚动滑块** | Material3 `OutlinedTextField` 内部 scrollState 不对外暴露，无法外接滑块 | 新建 `EchoScrollableTextEditor.kt`：`BasicTextField` 置于自管 `verticalScroll` 容器整体布局，右缘 16dp 固定槽位放自绘 `EchoVerticalScrollSlider`（溢出淡入、拖动/点按定位、拇指长度按视口/内容比、隐藏时槽位占位不跳变）；应用于编辑回复/仅修改内容/系统提示词三对话框（系统提示词 `promptText` 同步迁移 `TextFieldValue`） |
+| **中间输入时跳回文字顶端** | `OutlinedTextField` 高度被 `heightIn`/`maxLines` 截断后由内部滚动接管，文本变化重新测量时内部滚动位置被重置，视区跳回文字顶端 | 同一组件内文本以无高度约束整体布局、滚动由外层 `verticalScroll` 承担，光标可见性经 bringIntoView 沿外层滚动解析——仅光标移出可视区时最小距离滚动，不再跳顶 |
+| **胶囊动效在正文开始后中断** | 图标槽仅在 Connecting/Thinking 显示呼吸脉冲环，Streaming/Idle 回落为静态 `Psychology` 图标 | 图标槽条件扩展至 Streaming（流式期思考档位色/primary）；`EchoPulseRing` 新增 `animated` 参数，Idle 传 `false` 渲染静态圆环（不创建 InfiniteTransition），颜色与生成期同源；报错/重连图标不变 |
+| **连接/思考（结束）胶囊尺寸不一** | 胶囊宽度随状态文案自适应（"正在连接 X…" / "X 正在思考中…" / 流式提示），切换时宽度跳动 | 生成期间胶囊 `weight(1f)` 占满头像行剩余宽度，各状态尺寸恒定，右侧对齐消息列内容边缘（用户气泡列）；落库后恢复自适应宽度，历史消息观感不变 |
+| **流式动画中途消失** | 呼吸光标仅挂「普通文本块」末尾：列表项/标题/引用/参考资料尾部、段落边界瞬间尾段为空、表格/数学/闭合代码块/分割线尾部均无光标 | ① 光标穿透全部内联块（6 级标题、关键词标题、有序/无序列表、引用、参考资料，`isLastLine` 判定）；② 无法内联承载的尾部与空尾追加独立行光标 `StreamingTailCursor`（`tailNeedsStandaloneCursor` 判定）；③ 围栏刚开启无内容时同样补独立光标 |
+| **等待动画连接态/思考态距头像不等** | 呼吸光环点渲染在 `MessageContent` 内，思考态被展开的思考面板推远 | 光环点移至头像+胶囊行正下方（header Column 内、等待提示槽前），`padding(start 4, top 10, bottom 4)` 复现连接态原始间距；正文开始后仍由光标接管（审核 A4 不变） |
+| **光标贴字过近且偏上** | `translationX = lineRight - 1dp`（与末字重叠 1dp）、`translationY = lineTop`（行盒顶对齐） | 光标几何常量提升顶层值，新增 `echoCursorLineTransform` 定位器：`lineRight + 2dp` 外移留间隙、末行行盒内垂直居中；正文与围栏光标共用 |
+
+## 三、构建与验证复核清单
+- [x] `compileDebugKotlin --no-daemon`：Exit Code 0
+- [x] `testDebugUnitTest --no-daemon`：Exit Code 0（74 个测试文件，**502 项全通、0 失败**；本次为纯 UI 层改动，未新增/删除测试）
+- [x] `lintDebug --no-daemon`：Exit Code 0
+- [x] `git diff --check`：Exit Code 0
+- [x] `assembleRelease --no-daemon`：Exit Code 0（versionCode 168 / versionName 2.7.2）
+- [x] APK：`Echo-v2.7.2.apk`，16,700,269 字节 (~15.93 MB)，SHA256 `3EBE68CE1D57B5E78E6E1014C4954319C970FFA223D85CA7F9DD48E14EF0311C`
+- [x] 签名校验：`apksigner verify --print-certs` 通过，证书 CN=Android Debug（**非正式生产签名**），证书 SHA-256 `939638f6d3e9af7f8a980e62af52d275fee73381f2130cc4e20a0d349f98e21f`，与历史版本完全一致，支持直接平滑覆盖升级
+- [x] 历史版本完整性：`D:\Agent\APP-Echo\app\releases` 历史安装包 100% 完整保留（构建前 178 个安装包），本次为唯一定名增量输出（复制而非移动，全程未执行任何删除）
+
+## 四、人工验收步骤（无真机，未执行安装/启动验证）
+1. 安装 `Echo-v2.7.2.apk` 覆盖升级，打开任意会话；
+2. **编辑模型回复**：消息菜单 → 编辑回复 → 对话框左下角应有向下箭头按钮；点击后光标应跳到文字末尾且编辑区滚到底部；
+3. **滑块**：在编辑回复/仅修改内容/系统提示词对话框中粘贴超长文本，右侧应出现滑块；拖动/点按可快速定位；删至不溢出后滑块自动隐藏且编辑区宽度不跳动；
+4. **跳顶修复**：长文本中部任意位置定位输入，视区应保持光标附近，不再跳回文字顶端；
+5. **胶囊圆环**：发送消息，连接→思考→正文流式期间胶囊左侧应始终是圆环动效；回复结束后变为静态圆环（思考模型颜色为思考档位色）；
+6. **胶囊尺寸**：生成期间连接/思考/流式三状态胶囊宽度应恒定（占满头像行至用户气泡列边界），切换不跳动；回复完毕恢复自适应；
+7. **流式光标**：让模型输出含列表/标题/表格/代码块的长回复，光标（或独立行光标）应持续显示到回复完毕后淡出；
+8. **等待动画**：连接与思考两阶段，呼吸点与头像的垂直距离应一致（紧贴胶囊行下方）；
+9. **光标对齐**：流式输出时光标与文字末尾应有小间距、行内垂直居中不偏上。
+
+## 五、剩余风险
+1. 胶囊宽度统一的参照为「消息列内容边缘（用户气泡列右基准）」：需求原文"胶囊的右侧和用户输入气泡的左侧对齐"存在按"触发本轮的那条用户消息气泡左缘"动态对齐的另一种理解；按该理解胶囊宽度需逐轮跟随用户气泡测量宽度，实现复杂且随消息长度剧烈变化，故采用恒定列边界方案。若观感与预期不符，可再按用户气泡左缘动态对齐迭代。
+2. `EchoScrollableTextEditor` 为自绘大纲样式（边框/底色/光标/占位符与原 glass 配色一致），与 Material3 `OutlinedTextField` 的涟漪等微交互存在细微差异。
+3. 流式光标在表格/数学块尾部以「独立行光标」呈现（下一片文本到来即并入正文），与贴字光标形态略有差异，属预期设计。
+4. 已知环境缺陷延续：`lintDebug` 中 Compose Lint 内嵌 kotlinx-metadata 与 Kotlin 2.2 的兼容问题仍靠 `app/lint.xml` 隔离崩溃探测器，根治需升级 AGP/Compose Lint。
+
+---
+
 # Echo v2.7.1 构建走查与验收报告 (Walkthrough)
 
 ## 一、本次构建与需求概述
