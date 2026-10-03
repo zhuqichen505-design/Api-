@@ -269,6 +269,11 @@ fun ModelFeaturesTab(
             contentPadding = contentPadding,
             verticalArrangement = Arrangement.spacedBy(EchoTokens.Spacing.cardGap)
         ) {
+            item {
+                SettingsGlassCard(hazeState = hazeState) {
+                    SettingsRetryControls(manager)
+                }
+            }
             // 1. 对话智能自动命名模型 (自由选择所有模型)
             item {
                 SettingsGlassCard(hazeState = hazeState) {

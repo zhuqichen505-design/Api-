@@ -13,16 +13,16 @@ class V1924FeaturesTest {
 
     @Test
     fun testDisplayModelShortName() {
-        // Test vendor prefix stripping
-        assertEquals("glm-5.2", "z-ai/glm-5.2".displayModelShortName())
-        assertEquals("gpt-4o", "openai/gpt-4o".displayModelShortName())
-        assertEquals("claude-3-5-sonnet", "anthropic/claude-3-5-sonnet".displayModelShortName())
-        assertEquals("deepseek-r1", "deepseek-ai/deepseek-r1".displayModelShortName())
-        assertEquals("final-model", "a/b/c/final-model".displayModelShortName())
+        // Display-only casing follows prefix stripping; request IDs remain untouched.
+        assertEquals("GLM-5.2", "z-ai/glm-5.2".displayModelShortName())
+        assertEquals("GPT-4O", "openai/gpt-4o".displayModelShortName())
+        assertEquals("Claude-3-5-Sonnet", "anthropic/claude-3-5-sonnet".displayModelShortName())
+        assertEquals("DeepSeek-R1", "deepseek-ai/deepseek-r1".displayModelShortName())
+        assertEquals("Final-Model", "a/b/c/final-model".displayModelShortName())
         
         // Test without slash
-        assertEquals("gpt-4o-mini", "gpt-4o-mini".displayModelShortName())
-        assertEquals("custom-local-model", "custom-local-model".displayModelShortName())
+        assertEquals("GPT-4O-Mini", "gpt-4o-mini".displayModelShortName())
+        assertEquals("Custom-Local-Model", "custom-local-model".displayModelShortName())
         assertEquals("", "".displayModelShortName())
     }
 

@@ -125,6 +125,7 @@ fun WebSearchTab(
 
     var searchEngine by remember { mutableStateOf(toolHub.getSearchEngine()) }
     var searchResultCount by remember { mutableIntStateOf(toolHub.getSearchResultCount()) }
+    var searxngUrl by remember { mutableStateOf(toolHub.getSearxngUrl()) }
     var exaApiKey by remember { mutableStateOf(toolHub.getExaApiKey()) }
     var jinaApiKey by remember { mutableStateOf(toolHub.getJinaApiKey()) }
     var deviceToolsEnabled by remember { mutableStateOf(toolHub.isDeviceToolsEnabled()) }
@@ -184,25 +185,27 @@ fun WebSearchTab(
                     Text("联网搜索引擎", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 }
                 Text(
-                    "为对话中的智能联网选择搜索底层提供商。Exa 采用官方云端托管，支持免 Key 直接调用。",
+                    "Exa 托管通道与 Mwmbl 无需 Key；Tavily 需要 Key；SearXNG 需要允许 JSON 搜索的实例地址。免费通道可能限流，不保证长期可用。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     SearchEngineType.entries.forEach { engine ->
-                        val selected = searchEngine == engine
-                        FilterChip(
-                            selected = selected,
-                            onClick = {
-                                searchEngine = engine
-                                toolHub.setSearchEngine(engine)
-                            },
-                            colors = echoFilterChipColors(),
-                            border = echoFilterChipBorder(selected),
-                            elevation = echoFilterChipElevation(),
-                            label = { Text(engine.displayName) }
-                        )
+                        item(key = engine.name) {
+                            val selected = searchEngine == engine
+                            FilterChip(
+                                selected = selected,
+                                onClick = {
+                                    searchEngine = engine
+                                    toolHub.setSearchEngine(engine)
+                                },
+                                colors = echoFilterChipColors(),
+                                border = echoFilterChipBorder(selected),
+                                elevation = echoFilterChipElevation(),
+                                label = { Text(engine.displayName) }
+                            )
+                        }
                     }
                 }
 
@@ -219,7 +222,7 @@ fun WebSearchTab(
                             Icon(Icons.Default.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                "免 Key 体验模式生效中：日常对话联网开箱即用，无需申请与配置 API 密钥。",
+                                "免 Key 托管通道：无需申请密钥，可能受服务端配额与限流影响。",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
@@ -235,6 +238,16 @@ fun WebSearchTab(
                         },
                         placeholder = "留空则使用官方免Key通道"
                     )
+                } else if (searchEngine == SearchEngineType.MWMBL) {
+                    Text("Mwmbl 是独立开源搜索引擎，无需账号或 Key。索引规模较小，结果可能不足设定条数；不以无关结果凑数。", style = MaterialTheme.typography.bodySmall)
+                } else if (searchEngine == SearchEngineType.SEARXNG) {
+                    SettingsInputField(
+                        title = "SearXNG 实例地址（HTTPS）",
+                        value = searxngUrl,
+                        onValueChange = { searxngUrl = it; toolHub.setSearxngUrl(it) },
+                        placeholder = "https://你的实例地址"
+                    )
+                    Text("无需 Key，但不是配置前即可用。公共实例可能禁止 JSON 或限流；查询会发送到你填写的实例。最多读取 10 页并去重。", style = MaterialTheme.typography.bodySmall)
                 } else {
                     EchoSettingRow(
                         title = "启用 Tavily 搜索",
@@ -312,7 +325,7 @@ fun WebSearchTab(
                     }
                 }
 
-                // 搜索结果返回条数选择 (支持 3 / 5 / 8 / 10 条及自定义 1~20)
+                // Requested count is shared; provider quotas are shown separately.
                 var showCustomCountDialog by remember { mutableStateOf(false) }
                 Column(
                     modifier = Modifier
@@ -325,44 +338,49 @@ fun WebSearchTab(
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold
                     )
-                    Row(
+                    androidx.compose.foundation.lazy.LazyRow(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         listOf(3, 5, 8, 10).forEach { count ->
-                            val selected = searchResultCount == count
+                            item(key = count) {
+                                val selected = searchResultCount == count
+                                FilterChip(
+                                    selected = selected,
+                                    onClick = {
+                                        searchResultCount = count
+                                        toolHub.setSearchResultCount(count)
+                                    },
+                                    colors = echoFilterChipColors(),
+                                    border = echoFilterChipBorder(selected),
+                                    elevation = echoFilterChipElevation(),
+                                    label = { Text(if (count == 5) "5条 (推荐)" else "${count}条") }
+                                )
+                            }
+                        }
+                        item(key = "custom") {
+                            val isCustom = searchResultCount !in listOf(3, 5, 8, 10)
                             FilterChip(
-                                selected = selected,
-                                onClick = {
-                                    searchResultCount = count
-                                    toolHub.setSearchResultCount(count)
-                                },
+                                selected = isCustom,
+                                onClick = { showCustomCountDialog = true },
                                 colors = echoFilterChipColors(),
-                                border = echoFilterChipBorder(selected),
+                                border = echoFilterChipBorder(isCustom),
                                 elevation = echoFilterChipElevation(),
-                                label = { Text(if (count == 5) "5条 (推荐)" else "${count}条") }
+                                label = { Text(if (isCustom) "自定义: ${searchResultCount}条" else "自定义...") }
                             )
                         }
-                        val isCustom = searchResultCount !in listOf(3, 5, 8, 10)
-                        FilterChip(
-                            selected = isCustom,
-                            onClick = { showCustomCountDialog = true },
-                            colors = echoFilterChipColors(),
-                            border = echoFilterChipBorder(isCustom),
-                            elevation = echoFilterChipElevation(),
-                            label = { Text(if (isCustom) "自定义: ${searchResultCount}条" else "自定义...") }
-                        )
                     }
+                    Text("可请求 1–100 条；Tavily 单次最多 20 条，Exa / Mwmbl 受服务端与索引限制，SearXNG 受实例分页限制。实际返回可能更少；条数越大，耗时和上下文占用越高。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
                     if (showCustomCountDialog) {
                         var customInput by remember { mutableStateOf(searchResultCount.toString()) }
                         AlertDialog(
                             onDismissRequest = { showCustomCountDialog = false },
-                            title = { Text("自定义搜索结果数 (1-20)") },
+                            title = { Text("自定义搜索结果数 (1-100)") },
                             text = {
                                 BasicTextField(
                                     value = customInput,
-                                    onValueChange = { customInput = it.filter { char -> char.isDigit() }.take(2) },
+                                    onValueChange = { customInput = it.filter { char -> char.isDigit() }.take(3) },
                                     singleLine = true,
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                     textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
@@ -382,7 +400,7 @@ fun WebSearchTab(
                                         ) {
                                             if (customInput.isEmpty()) {
                                                 Text(
-                                                    text = "请输入条数 (1~20)...",
+                                                    text = "请输入条数 (1~100)...",
                                                     style = MaterialTheme.typography.bodyMedium,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
                                                 )
@@ -394,8 +412,8 @@ fun WebSearchTab(
                                 )
                             },
                             confirmButton = {
-                                Button(onClick = {
-                                    val count = customInput.toIntOrNull()?.coerceIn(1, 20) ?: 5
+                                Button(enabled = customInput.toIntOrNull() in 1..100, onClick = {
+                                    val count = customInput.toIntOrNull() ?: return@Button
                                     searchResultCount = count
                                     toolHub.setSearchResultCount(count)
                                     showCustomCountDialog = false
@@ -962,4 +980,3 @@ data class FullModelChoice(
     val modelName: String,
     val isDefault: Boolean = false
 )
-

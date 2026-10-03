@@ -2,6 +2,38 @@
 
 本文档按照工作流规范记录每次版本更新、需求变更与复核结果。
 
+## [2026-10-04] - 模型显示名、分类重试、搜索配置与连接滚动修正（未发版，10-03 开始）
+
+### 需求、根因与临时实施方案
+- 基线 main/460a457；原有 `审核报告+20261003-133335.md` 保持未跟踪，不纳入本次提交。版本保持 2.7.12/178、Room v33；用户未要求构建 APK。
+- 模型名原先直接显示原始 ID；仅在显示层统一大小写，GPT/GLM 等缩写大写、品牌与紧连型号分词，保留原始 ID 用于配置存储、请求、列表匹配与能力缓存。
+- 普通聊天的跨会话记忆/世界书从主要设置移入更多高级选项，排在 Top P 下方；角色设置在 Top P 下方增加更多高级选项折叠区，复用相同开关组件，不改变记忆注入逻辑。
+- 原重试仅按网络异常硬编码，且底层 OkHttp 可隐藏重发；增加分类规则、持久化与备用 Key 开关，统一普通/角色生成、摘要、记忆提取、时间线和快捷辅助调用。关闭底层隐藏重发；保留必要的非流式→流式协议兼容回退（400/405/415/501），不把协议兼容转换等同于额外同通道重试。
+- 连接布局存在普通等待气泡从底部转入用户项的重建路径，以及超大偏移钉底/布局监听反馈循环。普通生成固定在底部流式项，分支生成保留原位置；自动跟随按实际底部溢出距离滚动，连接阶段仅测量后跟随一次。上述是代码层确认的风险路径，未取得设备录像，不能宣称已确认用户设备上唯一根因。
+
+### 实现、涉及文件与影响面
+- `ModelDisplayName.kt` 与聊天/首页/历史/统计/模型选择器等显示入口：如 `gemini3.8flash` → `Gemini3.8Flash`、`gpt-6.1-sol` → `GPT-6.1-Sol`。手动 ID 编辑、网络请求、导出中的原始身份信息不改。
+- `RetryPolicy.kt`、`PersonalizationManager.kt`、`SettingsRetryControls.kt`、`SettingsModelFeaturesTab.kt`、`AiRepository.kt`、`RetrofitClient.kt`：19 类错误各自启用开关、0–20 次额外重试，默认网络/超时 3 次，鉴权/参数/限流/一般服务错误关闭；每 Key 共用一个已消耗重试计数。退避 1/2/5 秒；收到正文/思考或用户取消不自动重发。备用 Key 切换另有独立开关，默认保留原有开启行为。
+- `ChatSettingsDialogs.kt`、`StoryUnifiedSettingsDialog.kt`：设置布局调整；不改数据库或已保存开关默认值。
+- `WebSearchProvider.kt`、`EchoToolHub.kt`、`SettingsWebSearchTab.kt`、搜索引擎实现：选项只显示 Exa / Tavily / Mwmbl / SearXNG；请求条数范围 1–100。Tavily 仍按服务上限限制到 20；各引擎可能不足设定条数，不编造结果。修复 Exa 官方工具参数 `num_results` → `numResults`，新增请求序列化断言。
+- Mwmbl 无 Key，可直接调用独立公共索引；已实际取得公开 Kotlin 搜索 JSON 结果，但索引覆盖较小、可用性/配额不作无限承诺。SearXNG 无 Key但需要用户填写 HTTPS、允许 JSON 的实例，不宣称配置前即用，不自动发送到随机公共实例；最多 10 页，去重并按请求数量截断。
+- `ChatScreen.kt`、`ChatScrollPolicy.kt`、`GenerationUiState.kt`、`ChatMessageComponents.kt`：减少连接挂载/滚动竞争；重连原因含“错误/HTTP”时仍标为重连而非失败。流式点状动画的图形与速度实现未改。
+- 独立动画预览位于临时目录 `C:\Users\19376\AppData\Local\Temp\opencode\echo-streaming-animation-options.html`，已通过 Review 展示 A–F 六版、深浅色/暂停/速度选择；用户明确回复“先不修改”，保留现有动画，预览不进入仓库或 APK。
+
+### 验证与边界
+- 新增/扩展模型显示名、错误分类、开关/次数/取消/部分输出保护、设置持久化、底部滚动距离、生成状态与搜索解析/参数序列化测试。
+- 首轮完整验证：`compileDebugKotlin --no-daemon` 退出 0；`testDebugUnitTest --no-daemon` 退出 1（541 项仅旧小写显示名预期失败），已按新需求更新具体断言，未删除测试。实现期编译失败已修复（新增枚举分支/组件导入/实际包名）。
+- 最终验证：`./gradlew.bat compileDebugKotlin --no-daemon` 退出 0；`./gradlew.bat testDebugUnitTest --no-daemon` 退出 0（81 套件、541 项全部通过）；`./gradlew.bat lintDebug --no-daemon` 退出 0（0 Error / 89 Warning，保持基线）；`git diff --check` 与 `git diff --cached --check` 均退出 0。新增 SharedPreferences KTX 提示已修复，未 suppress、关闭规则或扩大现有 Lint 隔离。
+- 公开 Exa 托管 MCP 无 Key 真实查询返回 HTTP 200/SSE 搜索结果，已验证 `numResults` 请求；这不等同于所有网络/设备永久可用。没有用户 Key、真实推理请求或设备，不声称重试、连接视觉、安装启动、后台生成及双设备备份往返已完成实测。
+- 官方核实来源：[Exa MCP](https://exa.ai/docs/reference/exa-mcp)、[Exa 工具源码](https://cdn.jsdelivr.net/gh/exa-labs/exa-mcp-server@main/src/tools/webSearch.ts)、[Tavily Search API（max_results ≤ 20）](https://docs.tavily.com/documentation/api-reference/endpoint/search)、[SearXNG Search API](https://docs.searxng.org/dev/search_api.html)、[Mwmbl](https://mwmbl.org/)、[Mwmbl 条款（免费/禁止过量自动查询，不保证服务可用性）](https://mwmbl.org/terms) 与公开 API `https://api.mwmbl.org/search/?s=Kotlin`。DuckDuckGo Instant Answer 不是完整搜索 API，非官方 HTML 抓取稳定性不足，未接入。
+
+### 人工验收
+1. 获取模型列表，检查上述两个示例与厂商前缀/自定义大小写；抓取请求确认 model 原始 ID 未变化。
+2. 普通与角色设置中展开 Top P 下方高级区域，切换记忆/世界书并重新打开验证保存。
+3. 单 Key 可控测试接口分别返回超时/401/429/500：验证各类开关、0/2 次计数、取消、部分输出不重发；多 Key 分别测试备用 Key 开关。
+4. Exa/Mwmbl 查询，设置 1/17/60/100 条，核对实际结果不超过请求、不足数量如实返回；Tavily 核对 20 上限；SearXNG 使用自己认可的 JSON 实例测试分页与限流错误。
+5. 短/长对话等待连接、首次回复、分支重生成、手动向上滚动及键盘显隐，录屏检查连接跳动和流式跟随；与旧包比较，不把单测当作视觉验证。
+
 ## [2026-10-03] - 思考模式、真实档位与左下角胶囊七项修正（未发版）
 
 ### 需求、根因与临时实施方案

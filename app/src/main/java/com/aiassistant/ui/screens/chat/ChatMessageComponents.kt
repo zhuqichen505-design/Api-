@@ -775,13 +775,7 @@ internal fun MessageBubble(
                     val isThinkingActive = isGenerating && hasThinking && message.content.isBlank()
                     // 失败信号仅在连接阶段（尚无正文）生效：Key 重试失败后恢复成功时，
                     // 残留的 reconnectStatus 不得让已开始流式输出的气泡继续显示失败态
-                    val isConnectionFailed = isMessageContentError || (!reconnectStatus.isNullOrBlank() && message.content.isBlank() && (
-                        reconnectStatus.contains("异常") ||
-                        reconnectStatus.contains("报错") ||
-                        reconnectStatus.contains("失败") ||
-                        reconnectStatus.contains("错误") ||
-                        reconnectStatus.contains("Error", ignoreCase = true)
-                    ))
+                    val isConnectionFailed = isMessageContentError || generationState == GenerationUiState.Failed
                     val capsuleText = remember(
                         assistantModelName,
                         hasThinking,

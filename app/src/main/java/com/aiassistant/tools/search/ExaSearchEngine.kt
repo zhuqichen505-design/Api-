@@ -36,19 +36,8 @@ class ExaSearchEngine(
             return Result.failure(IllegalArgumentException("搜索关键词为空"))
         }
 
-        val limit = maxResults.coerceIn(1, 20)
-        val requestPayload = JsonObject().apply {
-            addProperty("jsonrpc", "2.0")
-            addProperty("method", "tools/call")
-            add("params", JsonObject().apply {
-                addProperty("name", "web_search_exa")
-                add("arguments", JsonObject().apply {
-                    addProperty("query", cleanQuery)
-                    addProperty("num_results", limit)
-                })
-            })
-            addProperty("id", 1)
-        }
+        val limit = maxResults.coerceIn(1, SearchLimits.MAX_REQUESTED)
+        val requestPayload = buildSearchPayload(cleanQuery, limit)
 
         val requestBuilder = Request.Builder()
             .url(EXA_MCP_URL)
@@ -56,29 +45,15 @@ class ExaSearchEngine(
             .addHeader("Accept", "application/json, text/event-stream")
             .post(requestPayload.toString().toRequestBody("application/json".toMediaType()))
 
-        if (customApiKey.isNotBlank()) {
-            requestBuilder.addHeader("x-api-key", customApiKey)
-        }
+        if (customApiKey.isNotBlank()) requestBuilder.addHeader("x-api-key", customApiKey)
 
         return try {
             httpClient.newCall(requestBuilder.build()).execute().use { response ->
                 val body = response.body?.string().orEmpty()
-                if (!response.isSuccessful) {
-                    return Result.failure(Exception("Exa 搜索请求失败 (${response.code}): $body"))
-                }
-
+                if (!response.isSuccessful) return Result.failure(Exception("Exa HTTP ${response.code}: $body"))
                 val documents = parseExaResponse(body).take(limit)
-                if (documents.isEmpty()) {
-                    return Result.failure(Exception("Exa 未检索到相关结果"))
-                }
-
-                Result.success(
-                    WebSearchBundle(
-                        query = cleanQuery,
-                        answer = null,
-                        results = documents
-                    )
-                )
+                if (documents.isEmpty()) return Result.failure(Exception("Exa 未检索到相关结果"))
+                Result.success(WebSearchBundle(cleanQuery, null, documents))
             }
         } catch (e: Exception) {
             Result.failure(Exception("Exa 网络连接异常: ${e.message}", e))
@@ -87,6 +62,19 @@ class ExaSearchEngine(
 
     companion object {
         const val EXA_MCP_URL = "https://mcp.exa.ai/mcp"
+
+        fun buildSearchPayload(query: String, maxResults: Int): JsonObject = JsonObject().apply {
+            addProperty("jsonrpc", "2.0")
+            addProperty("method", "tools/call")
+            add("params", JsonObject().apply {
+                addProperty("name", "web_search_exa")
+                add("arguments", JsonObject().apply {
+                    addProperty("query", query.trim())
+                    addProperty("numResults", maxResults.coerceIn(1, SearchLimits.MAX_REQUESTED))
+                })
+            })
+            addProperty("id", 1)
+        }
 
         fun parseExaResponse(rawBody: String): List<WebSearchDocument> {
             val trimmed = rawBody.trim()

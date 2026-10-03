@@ -1291,7 +1291,7 @@ fun ApiConfigCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
-                    text = config.modelName,
+                    text = com.aiassistant.domain.model.ModelDisplayName.format(config.modelName),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,

@@ -435,7 +435,7 @@ fun StatsScreen(
                         )
                         availableModels.forEach { model ->
                             DropdownOptionRow(
-                                text = model,
+                                text = com.aiassistant.domain.model.ModelDisplayName.format(model),
                                 selected = model !in deselectedModels,
                                 contentColor = toolbarContentColor,
                                 onClick = {
@@ -1267,7 +1267,7 @@ private fun ModelTokenTrendChart(
             ) {
                 series.forEachIndexed { index, s ->
                     val color = if (s.modelName == "其他") otherColor else palette[index % palette.size]
-                    LegendDot(s.modelName, color, labelColor)
+                    LegendDot(com.aiassistant.domain.model.ModelDisplayName.format(s.modelName), color, labelColor)
                 }
             }
             Spacer(modifier = Modifier.height(10.dp))
@@ -2296,7 +2296,7 @@ private fun ModernModelStatsTable(
                                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
                                         Text(
-                                            text = row.modelName,
+                                            text = com.aiassistant.domain.model.ModelDisplayName.format(row.modelName),
                                             style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.SansSerif,
                                                 fontWeight = FontWeight.Bold),
                                             color = content,

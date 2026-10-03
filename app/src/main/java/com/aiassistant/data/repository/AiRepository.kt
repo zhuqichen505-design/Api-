@@ -1420,13 +1420,16 @@ class AiRepository(
             throw Exception("当前 API 配置已关闭，请在设置中开启后重试")
         }
         val historyMessages = getMessagesList(conversationId)
-        val allKeys = parseApiKeys(config.apiKey)
+        val allKeys = parseApiKeys(config.apiKey).let {
+            if (personalizationManager.isBackupKeyFallbackEnabled()) it else it.take(1)
+        }
         if (allKeys.isEmpty()) {
             throw Exception("当前 API 未配置已启用的 Key，请在 API 配置中开启至少一个 Key")
         }
         var lastException: Exception? = null
         var hasEmittedTokens = false
         val keyFailures = mutableListOf<KeyAttemptFailure>()
+        val retryPolicy = personalizationManager.getRetryPolicy()
 
         val wrappedOnToken: (String) -> Unit = { token ->
             hasEmittedTokens = true
@@ -1441,10 +1444,7 @@ class AiRepository(
             val keyConfig = config.copy(apiKey = currentKey)
             val keyMasked = maskApiKeyForDisplay(currentKey)
             var attempt = 0
-            val maxTimeoutAttempts = 3 // 遇网络波动/超时在未收到任何内容时最多重试3次
-            val retryDelays = longArrayOf(1000L, 2000L, 5000L) // 退避 1s / 2s / 5s
-
-            while (attempt <= maxTimeoutAttempts) {
+            while (true) {
                 try {
                     when (keyConfig.apiType) {
                         "anthropic" -> sendAnthropicMessage(
@@ -1472,40 +1472,21 @@ class AiRepository(
                     }
 
                     // 只有在完全没有收到任何内容时才自动重试
-                    if (isNetworkFluctuationException(e)) {
+                    val errorType = com.aiassistant.domain.model.RetryErrorType.classify(e)
+                    val maxTimeoutAttempts = retryPolicy.rule(errorType).maxRetries
+                    if (retryPolicy.canRetry(e, attempt)) {
                         attempt++
                         val exMsg = e.message?.trim()?.take(180)?.ifBlank { null }
-                        if (attempt <= maxTimeoutAttempts) {
-                            val delayMs = retryDelays.getOrElse(attempt - 1) { 5000L }
-                            val retryText = if (!exMsg.isNullOrBlank()) {
-                                "网络波动 ($exMsg)，正在尝试重新连接 ($attempt/$maxTimeoutAttempts)..."
-                            } else {
-                                "网络波动，正在尝试重新连接 ($attempt/$maxTimeoutAttempts)..."
-                            }
-                            Log.w(tag, "Key[$keyIndex] $retryText (退避等待 ${delayMs}ms) - 异常: ${e.javaClass.simpleName}: ${e.message}")
-                            onStatusUpdate?.invoke(retryText)
-                            kotlinx.coroutines.delay(delayMs)
-                            continue
+                        val delayMs = retryPolicy.delayMillis(attempt - 1)
+                        val retryText = if (!exMsg.isNullOrBlank()) {
+                            "${errorType.label} ($exMsg)，正在尝试重新连接 ($attempt/$maxTimeoutAttempts)..."
                         } else {
-                            val cleanMsg = exMsg ?: "网络超时重试已达 $maxTimeoutAttempts 次"
-                            val failure = KeyAttemptFailure(
-                                keyIndex = keyIndex + 1,
-                                keyMasked = keyMasked,
-                                errorMessage = "网络连接超时 ($cleanMsg)",
-                                isTimeout = true
-                            )
-                            keyFailures.add(failure)
-                            onKeyAttemptError?.invoke(keyIndex + 1, keyMasked, failure.errorMessage)
-
-                            val failText = if (keyIndex + 1 < allKeys.size) {
-                                "网络重试已达 $maxTimeoutAttempts 次 ($cleanMsg)，自动尝试下一个 Key (${keyIndex + 2}/${allKeys.size})..."
-                            } else {
-                                "网络波动 ($cleanMsg)，重连重试已达 $maxTimeoutAttempts 次"
-                            }
-                            Log.w(tag, failText)
-                            onStatusUpdate?.invoke(failText)
-                            break
+                            "${errorType.label}，正在尝试重新连接 ($attempt/$maxTimeoutAttempts)..."
                         }
+                        Log.w(tag, "Key[$keyIndex] $retryText (退避等待 ${delayMs}ms) - 异常: ${e.javaClass.simpleName}: ${e.message}")
+                        onStatusUpdate?.invoke(retryText)
+                        kotlinx.coroutines.delay(delayMs)
+                        continue
                     } else {
                         // 客户端参数/模型错误(400, 404, 422)或服务端错误(401, 403, 429, 500)
                         val cleanErrMsg = e.message?.trim()?.ifBlank { "未知异常" } ?: "未知异常"
@@ -1513,7 +1494,7 @@ class AiRepository(
                             keyIndex = keyIndex + 1,
                             keyMasked = keyMasked,
                             errorMessage = cleanErrMsg,
-                            isTimeout = false
+                            isTimeout = com.aiassistant.data.repository.helpers.NetworkExceptionClassifier.isTimeoutException(e)
                         )
                         keyFailures.add(failure)
                         onKeyAttemptError?.invoke(keyIndex + 1, keyMasked, cleanErrMsg)
@@ -1704,6 +1685,8 @@ class AiRepository(
             when (it.getSearchEngine()) {
                 com.aiassistant.tools.search.SearchEngineType.EXA -> true
                 com.aiassistant.tools.search.SearchEngineType.TAVILY -> tavilySearchManager.isReady()
+                com.aiassistant.tools.search.SearchEngineType.MWMBL -> it.mwmblSearchEngine.isReady()
+                com.aiassistant.tools.search.SearchEngineType.SEARXNG -> it.searxngSearchEngine.isReady()
             }
         } ?: tavilySearchManager.isReady()
 
@@ -2976,7 +2959,9 @@ class AiRepository(
         }
 
         val normalizedUrl = normalizeApiBaseUrl(config.baseUrl, config.apiType)
-        val allKeys = parseApiKeys(config.apiKey).ifEmpty { listOf(config.apiKey) }
+        val allKeys = parseApiKeys(config.apiKey).ifEmpty { listOf(config.apiKey) }.let {
+            if (personalizationManager.isBackupKeyFallbackEnabled()) it else it.take(1)
+        }
         var lastException: Exception? = null
         val isModernOpenAiStyle = com.aiassistant.domain.model.ModelCapabilityEngine
             .isModernOpenAiReasoningStyle(modelName) ||
@@ -2989,7 +2974,8 @@ class AiRepository(
 
         for (key in allKeys) {
             val cleanKey = key.removePrefix("Bearer ").trim()
-            for (attempt in 1..2) {
+            val retryPolicy = personalizationManager.getRetryPolicy()
+            for (attempt in 1..(com.aiassistant.domain.model.RetryPolicy.MAX_RETRIES + 1)) {
                 try {
                     if (config.apiType == "anthropic") {
                         val request = AnthropicRequest(
@@ -3034,6 +3020,7 @@ class AiRepository(
                             if (!sanitized.isNullOrBlank() && isSummarySubstantiallyComplete(sanitized)) return sanitized
                         } else {
                             val errBody = response.errorBody()?.string()?.take(300).orEmpty()
+                            if (response.code() !in setOf(400, 405, 415, 501)) throw Exception("HTTP ${response.code()}: $errBody")
                             Log.w(tag, "generateRollingSummary 非流式 HTTP ${response.code()}: $errBody，尝试流式通道备用")
                         }
 
@@ -3049,11 +3036,13 @@ class AiRepository(
                             return sanitized
                         }
                     }
+                    throw Exception("模型未返回有效的完整摘要")
                 } catch (e: Exception) {
                     lastException = e
                     Log.w(tag, "generateRollingSummary Key报错或请求异常 (attempt $attempt): ${e.message}")
-                    if (attempt < 2 && isNetworkFluctuationException(e)) {
-                        kotlinx.coroutines.delay(1500L)
+                    if (isRequestCancellation(e)) throw e
+                    if (retryPolicy.canRetry(e, attempt - 1)) {
+                        kotlinx.coroutines.delay(retryPolicy.delayMillis(attempt - 1))
                         continue
                     }
                     break
@@ -3425,32 +3414,43 @@ class AiRepository(
     }
 
     private suspend fun generateOpenAIMemoryExtraction(config: ApiConfig, prompt: String): String? {
-        val allKeys = parseApiKeys(config.apiKey).ifEmpty { listOf(config.apiKey) }
+        val allKeys = parseApiKeys(config.apiKey).ifEmpty { listOf(config.apiKey) }.let {
+            if (personalizationManager.isBackupKeyFallbackEnabled()) it else it.take(1)
+        }
         var lastException: Exception? = null
+        val retryPolicy = personalizationManager.getRetryPolicy()
         for (key in allKeys) {
-            try {
-                val request = ChatCompletionRequest(
-                    model = config.modelName,
-                    messages = listOf(ChatMessage(role = "user", content = prompt)),
-                    temperature = null,
-                    max_tokens = 4096,
-                    max_completion_tokens = 4096,
-                    stream = false
-                )
-                val response = RetrofitClient.getService(config.baseUrl)
-                    .chatCompletion(RetrofitClient.formatApiKey(key), request)
-                    .execute()
-                if (!response.isSuccessful) {
-                    val err = response.errorBody()?.string()?.take(200).orEmpty()
-                    throw Exception("HTTP ${response.code()}: $err")
+            for (attempt in 0..com.aiassistant.domain.model.RetryPolicy.MAX_RETRIES) {
+                try {
+                    val request = ChatCompletionRequest(
+                        model = config.modelName,
+                        messages = listOf(ChatMessage(role = "user", content = prompt)),
+                        temperature = null,
+                        max_tokens = 4096,
+                        max_completion_tokens = 4096,
+                        stream = false
+                    )
+                    val response = RetrofitClient.getService(config.baseUrl)
+                        .chatCompletion(RetrofitClient.formatApiKey(key), request).execute()
+                    if (!response.isSuccessful) {
+                        val err = response.errorBody()?.string()?.take(200).orEmpty()
+                        throw Exception("HTTP ${response.code()}: $err")
+                    }
+                    val choice = response.body()?.choices?.firstOrNull()
+                    val text = choice?.message?.content?.ifBlank { null }
+                        ?: choice?.message?.reasoning_content?.ifBlank { null }
+                    if (!text.isNullOrBlank()) return text
+                    throw Exception("模型未返回有效内容")
+                } catch (e: Exception) {
+                    if (isRequestCancellation(e)) throw e
+                    lastException = e
+                    Log.w(tag, "辅助模型提取(OpenAI) Key报错: ${e.message}")
+                    if (retryPolicy.canRetry(e, attempt)) {
+                        kotlinx.coroutines.delay(retryPolicy.delayMillis(attempt))
+                        continue
+                    }
+                    break
                 }
-                val choice = response.body()?.choices?.firstOrNull()
-                val text = choice?.message?.content?.ifBlank { null }
-                    ?: choice?.message?.reasoning_content?.ifBlank { null }
-                if (!text.isNullOrBlank()) return text
-            } catch (e: Exception) {
-                lastException = e
-                Log.w(tag, "辅助模型提取(OpenAI) Key报错: ${e.message}，尝试下一Key")
             }
         }
         if (lastException != null) throw lastException
@@ -3458,32 +3458,39 @@ class AiRepository(
     }
 
     private suspend fun generateAnthropicMemoryExtraction(config: ApiConfig, prompt: String): String? {
-        val allKeys = parseApiKeys(config.apiKey).ifEmpty { listOf(config.apiKey) }
+        val allKeys = parseApiKeys(config.apiKey).ifEmpty { listOf(config.apiKey) }.let {
+            if (personalizationManager.isBackupKeyFallbackEnabled()) it else it.take(1)
+        }
         var lastException: Exception? = null
+        val retryPolicy = personalizationManager.getRetryPolicy()
         for (key in allKeys) {
-            try {
-                val request = AnthropicRequest(
-                    model = config.modelName,
-                    messages = listOf(AnthropicMessage(role = "user", content = prompt)),
-                    max_tokens = 4096,
-                    temperature = null
-                )
-                val response = RetrofitClient.getService(config.baseUrl)
-                    .anthropicMessages(
-                        apiKey = key.removePrefix("Bearer ").trim(),
-                        request = request
+            for (attempt in 0..com.aiassistant.domain.model.RetryPolicy.MAX_RETRIES) {
+                try {
+                    val request = AnthropicRequest(
+                        model = config.modelName,
+                        messages = listOf(AnthropicMessage(role = "user", content = prompt)),
+                        max_tokens = 4096,
+                        temperature = null
                     )
-                    .execute()
-                if (!response.isSuccessful) {
-                    val err = response.errorBody()?.string()?.take(200).orEmpty()
-                    throw Exception("HTTP ${response.code()}: $err")
+                    val response = RetrofitClient.getService(config.baseUrl)
+                        .anthropicMessages(apiKey = key.removePrefix("Bearer ").trim(), request = request).execute()
+                    if (!response.isSuccessful) {
+                        val err = response.errorBody()?.string()?.take(200).orEmpty()
+                        throw Exception("HTTP ${response.code()}: $err")
+                    }
+                    val text = response.body()?.content?.firstOrNull { it.type == "text" }?.text
+                    if (!text.isNullOrBlank()) return text
+                    throw Exception("模型未返回有效内容")
+                } catch (e: Exception) {
+                    if (isRequestCancellation(e)) throw e
+                    lastException = e
+                    Log.w(tag, "辅助模型提取(Anthropic) Key报错: ${e.message}")
+                    if (retryPolicy.canRetry(e, attempt)) {
+                        kotlinx.coroutines.delay(retryPolicy.delayMillis(attempt))
+                        continue
+                    }
+                    break
                 }
-                val contents = response.body()?.content
-                val text = contents?.firstOrNull { it.type == "text" }?.text
-                if (!text.isNullOrBlank()) return text
-            } catch (e: Exception) {
-                lastException = e
-                Log.w(tag, "辅助模型提取(Anthropic) Key报错: ${e.message}，尝试下一Key")
             }
         }
         if (lastException != null) throw lastException
@@ -4344,11 +4351,14 @@ class AiRepository(
             max_completion_tokens = 8192,
             stream = false
         )
-        val allKeys = parseApiKeys(config.apiKey).ifEmpty { listOf(config.apiKey) }
+        val allKeys = parseApiKeys(config.apiKey).ifEmpty { listOf(config.apiKey) }.let {
+            if (personalizationManager.isBackupKeyFallbackEnabled()) it else it.take(1)
+        }
         var lastException: Exception? = null
 
         for (key in allKeys) {
-            for (attempt in 1..2) {
+            val retryPolicy = personalizationManager.getRetryPolicy()
+            for (attempt in 1..(com.aiassistant.domain.model.RetryPolicy.MAX_RETRIES + 1)) {
                 try {
                     val response = RetrofitClient.getAnalysisService(normalizedUrl)
                         .chatCompletion(RetrofitClient.formatApiKey(key), request)
@@ -4365,11 +4375,13 @@ class AiRepository(
                     val content = choice?.message?.content?.ifBlank { null }
                         ?: choice?.message?.reasoning_content?.ifBlank { null }
                     if (!content.isNullOrBlank()) return content
+                    throw Exception("模型未返回有效内容")
                 } catch (e: Exception) {
                     lastException = e
                     Log.w(tag, "时间线分析 (OpenAI) Key报错或请求异常 (attempt $attempt): ${e.message}")
-                    if (attempt < 2 && isNetworkFluctuationException(e)) {
-                        kotlinx.coroutines.delay(2000L)
+                    if (isRequestCancellation(e)) throw e
+                    if (retryPolicy.canRetry(e, attempt - 1)) {
+                        kotlinx.coroutines.delay(retryPolicy.delayMillis(attempt - 1))
                         continue
                     }
                     break // 尝试下一个 Key
@@ -4387,11 +4399,14 @@ class AiRepository(
             max_tokens = 8192,
             temperature = null
         )
-        val allKeys = parseApiKeys(config.apiKey).ifEmpty { listOf(config.apiKey) }
+        val allKeys = parseApiKeys(config.apiKey).ifEmpty { listOf(config.apiKey) }.let {
+            if (personalizationManager.isBackupKeyFallbackEnabled()) it else it.take(1)
+        }
         var lastException: Exception? = null
 
         for (key in allKeys) {
-            for (attempt in 1..2) {
+            val retryPolicy = personalizationManager.getRetryPolicy()
+            for (attempt in 1..(com.aiassistant.domain.model.RetryPolicy.MAX_RETRIES + 1)) {
                 try {
                     val response = RetrofitClient.getAnalysisService(normalizedUrl)
                         .anthropicMessages(
@@ -4405,11 +4420,13 @@ class AiRepository(
                     }
                     val content = response.body()?.content?.firstOrNull { it.type == "text" }?.text
                     if (!content.isNullOrBlank()) return content
+                    throw Exception("模型未返回有效内容")
                 } catch (e: Exception) {
                     lastException = e
                     Log.w(tag, "时间线分析 (Anthropic) Key报错或请求异常 (attempt $attempt): ${e.message}")
-                    if (attempt < 2 && isNetworkFluctuationException(e)) {
-                        kotlinx.coroutines.delay(2000L)
+                    if (isRequestCancellation(e)) throw e
+                    if (retryPolicy.canRetry(e, attempt - 1)) {
+                        kotlinx.coroutines.delay(retryPolicy.delayMillis(attempt - 1))
                         continue
                     }
                     break // 尝试下一个 Key
@@ -5076,7 +5093,9 @@ class AiRepository(
             return@withContext Result.failure(Exception("当前 API 配置已关闭，请在设置中开启后重试"))
         }
         val normalizedUrl = normalizeApiBaseUrl(config.baseUrl, config.apiType)
-        val allKeys = parseApiKeys(config.apiKey)
+        val allKeys = parseApiKeys(config.apiKey).let {
+            if (personalizationManager.isBackupKeyFallbackEnabled()) it else it.take(1)
+        }
         if (allKeys.isEmpty()) {
             return@withContext Result.failure(Exception("当前 API 未配置已启用的 Key，请在 API 配置中开启至少一个 Key"))
         }
@@ -5084,7 +5103,8 @@ class AiRepository(
 
         for (key in allKeys) {
             val cleanKey = key.removePrefix("Bearer ").trim()
-            for (attempt in 1..2) {
+            val retryPolicy = personalizationManager.getRetryPolicy()
+            for (attempt in 1..(com.aiassistant.domain.model.RetryPolicy.MAX_RETRIES + 1)) {
                 try {
                     if (config.apiType == "anthropic") {
                         val request = AnthropicRequest(
@@ -5130,6 +5150,7 @@ class AiRepository(
                             }
                         } else {
                             val errBody = response.errorBody()?.string()?.take(300).orEmpty()
+                            if (response.code() !in setOf(400, 405, 415, 501)) throw Exception("HTTP ${response.code()}: $errBody")
                             Log.w(tag, "executeQuickCompletion 非流式 HTTP ${response.code()}: $errBody，尝试流式通道备用")
                         }
 
@@ -5144,11 +5165,13 @@ class AiRepository(
                             return@withContext Result.success(streamResult.trim())
                         }
                     }
+                    throw Exception("模型未返回有效内容")
                 } catch (e: Exception) {
                     lastException = e
                     Log.w(tag, "executeQuickCompletion Key报错 (attempt $attempt): ${e.message}")
-                    if (attempt < 2 && isNetworkFluctuationException(e)) {
-                        kotlinx.coroutines.delay(1500L)
+                    if (isRequestCancellation(e)) throw e
+                    if (retryPolicy.canRetry(e, attempt - 1)) {
+                        kotlinx.coroutines.delay(retryPolicy.delayMillis(attempt - 1))
                         continue
                     }
                     break // 尝试下一个 Key

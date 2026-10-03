@@ -141,9 +141,9 @@ fun UniversalModelPickerCard(
         if (selectedConfigId == 0L && selectedModel.isBlank()) {
             "跟随当前会话模型（自动继承）"
         } else if (selectedModel.isNotBlank()) {
-            selectedModel
+            com.aiassistant.domain.model.ModelDisplayName.format(selectedModel)
         } else {
-            currentConfig?.modelName?.ifBlank { "默认模型" } ?: "未指定模型"
+            currentConfig?.modelName?.let(com.aiassistant.domain.model.ModelDisplayName::format)?.ifBlank { "默认模型" } ?: "未指定模型"
         }
     }
 
@@ -506,7 +506,7 @@ fun UniversalModelPickerCard(
                                                 Column(modifier = Modifier.weight(1f)) {
                                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                                         Text(
-                                                            text = choice.modelName,
+                                                            text = com.aiassistant.domain.model.ModelDisplayName.format(choice.modelName),
                                                             style = MaterialTheme.typography.bodySmall,
                                                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                                                             color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface

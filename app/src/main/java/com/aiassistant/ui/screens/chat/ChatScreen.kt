@@ -386,15 +386,10 @@ fun ChatScreen(
     LaunchedEffect(conversationId, displayMessages.size) {
         if (!hasInitialScrolledToBottom && displayMessages.isNotEmpty()) {
             hasInitialScrolledToBottom = true
-            kotlinx.coroutines.yield()
-            val lastIdx = displayMessages.size - 1
+            androidx.compose.runtime.withFrameNanos { }
             try {
-                listState.scrollToItem(lastIdx, scrollOffset = 100000)
-            } catch (_: Exception) {}
-            kotlinx.coroutines.delay(80)
-            try {
-                listState.scrollToItem(lastIdx, scrollOffset = 100000)
-            } catch (_: Exception) {}
+                listState.followMeasuredBottom()
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
         }
     }
 
@@ -405,11 +400,12 @@ fun ChatScreen(
             return@LaunchedEffect
         }
         if (autoFollowOutput && !preserveScrollForBranchGeneration && !listState.isScrollInProgress) {
+            androidx.compose.runtime.withFrameNanos { }
             val totalCount = listState.layoutInfo.totalItemsCount
             if (totalCount > 0) {
                 try {
-                    listState.scrollToItem((totalCount - 1).coerceAtLeast(0), scrollOffset = 100000)
-                } catch (_: Exception) {}
+                    listState.followMeasuredBottom()
+                } catch (e: kotlinx.coroutines.CancellationException) { throw e }
             }
         }
     }
@@ -434,10 +430,10 @@ fun ChatScreen(
                 lastStreamScrollTime = now
                 val totalCount = listState.layoutInfo.totalItemsCount
                 if (totalCount > 0) {
-                    val targetIndex = (totalCount - 1).coerceAtLeast(0)
+                    androidx.compose.runtime.withFrameNanos { }
                     try {
-                        listState.scrollToItem(targetIndex, scrollOffset = 100000)
-                    } catch (_: Exception) {}
+                        listState.followMeasuredBottom()
+                    } catch (e: kotlinx.coroutines.CancellationException) { throw e }
                 }
             }
         }
@@ -450,39 +446,21 @@ fun ChatScreen(
                 kotlinx.coroutines.delay(40)
                 val totalCount = listState.layoutInfo.totalItemsCount
                 if (totalCount > 0) {
-                    val targetIndex = (totalCount - 1).coerceAtLeast(0)
                     try {
-                        listState.scrollToItem(targetIndex, scrollOffset = 100000)
-                    } catch (_: Exception) {}
+                        listState.followMeasuredBottom()
+                    } catch (e: kotlinx.coroutines.CancellationException) { throw e }
                 }
             }
         }
     }
 
-    // 连接/生成期间末条消息项高度反复变化（胶囊文案与等待提示增减、实时报错明细出入场），
-    // 滚动锚点固定在项首会把视口顶得上下位移，表现为"屏幕无故上下滑动"。
-    // v2.6.8 需求 1：仅在末项已被顶出视口下沿（必须跟随才能看到新内容）时才重新钉底；
-    // 末项仍完整可见时其高度变化不再触发滚动——连接等待提示出现/消失、120s 慢响应提示撑高胶囊
-    // 之类的小幅增高都不会再让屏幕整体上下滑动。流式正文增长由上方 70ms 节流的跟随逻辑负责。
+    // Connect once after the waiting item is measured. Do not observe our own scrolling/layout
+    // and feed it back into another scrollToItem: that loop caused transient overshoot/rebound.
     LaunchedEffect(isGenerating) {
         if (!isGenerating) return@LaunchedEffect
-        snapshotFlow {
-            val layoutInfo = listState.layoutInfo
-            val lastItem = layoutInfo.visibleItemsInfo.lastOrNull()
-            Triple(lastItem?.index, lastItem?.size, layoutInfo.totalItemsCount)
-        }.collect { (_, _, totalCount) ->
-            if (!autoFollowOutput || preserveScrollForBranchGeneration || listState.isScrollInProgress) {
-                return@collect
-            }
-            if (totalCount <= 0) return@collect
-            val layoutInfo = listState.layoutInfo
-            val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull() ?: return@collect
-            val isLastItemFullyVisible = lastVisible.index == totalCount - 1 &&
-                lastVisible.offset + lastVisible.size <= layoutInfo.viewportEndOffset
-            if (isLastItemFullyVisible) return@collect
-            try {
-                listState.scrollToItem(totalCount - 1, scrollOffset = 100000)
-            } catch (_: Exception) {}
+        androidx.compose.runtime.withFrameNanos { }
+        if (autoFollowOutput && !preserveScrollForBranchGeneration && !listState.isScrollInProgress) {
+            listState.followMeasuredBottom()
         }
     }
 
@@ -1422,7 +1400,7 @@ fun ChatScreen(
                                 anchorUserGroupId = generatingAnchor?.userGroupId
                             )
                             if (
-                                !hasAssistantItemForThisTurn &&
+                                streamingBranchGroupId != null && !hasAssistantItemForThisTurn &&
                                 (isAnchorHostHere ||
                                     (streamingBranchGroupId != null &&
                                         isStreamingBranchHostItem(displayItem.groupId, streamingBranchGroupId!!, displayItem.message.id))) &&
@@ -1463,7 +1441,7 @@ fun ChatScreen(
                     // 检查当前流式分支是否在消息列表中成功挂载
                     // v2.6.5：生成锚点命中同样视为已挂载——锚点（触发本轮的用户消息）存在时，
                     // 内联挂载已承接流式气泡，禁用底部兜底，避免同一回复出现两份
-                    val isAnchorHostMounted = generatingAnchor != null && displayMessages.any { item ->
+                    val isAnchorHostMounted = streamingBranchGroupId != null && generatingAnchor != null && displayMessages.any { item ->
                         isGeneratingAnchorHostItem(
                             itemGroupId = item.groupId,
                             itemMessageId = item.message.id,

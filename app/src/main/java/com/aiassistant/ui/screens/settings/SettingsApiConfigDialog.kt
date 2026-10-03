@@ -1385,7 +1385,7 @@ private fun ModelCustomSettingCard(
                         .clickable { onCheckedChange(!checked) }
                 ) {
                     Text(
-                        text = model,
+                        text = com.aiassistant.domain.model.ModelDisplayName.format(model),
                         style = MaterialTheme.typography.bodyMedium.copy(
                             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
                         ),

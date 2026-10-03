@@ -12,15 +12,45 @@ import java.net.SocketTimeoutException
 import java.io.InterruptedIOException
 
 class NetworkAndKeyStabilityTest {
+    @Test
+    fun retryClassifiesActualApiExceptionsBeforeBodyText() {
+        val types = mapOf(400 to "BAD_REQUEST", 401 to "AUTHENTICATION", 403 to "PERMISSION", 404 to "NOT_FOUND", 408 to "REQUEST_TIMEOUT", 409 to "CONFLICT", 413 to "TOO_LARGE", 422 to "INVALID_PARAMETERS", 429 to "RATE_LIMIT", 500 to "SERVER", 502 to "BAD_GATEWAY", 503 to "UNAVAILABLE", 504 to "GATEWAY_TIMEOUT", 418 to "OTHER_HTTP")
+        types.forEach { (code, name) ->
+            assertEquals(name, com.aiassistant.domain.model.RetryErrorType.classify(com.aiassistant.data.repository.ApiException(code, "API错误 ($code): timeout in provider" )).name)
+            assertEquals(name, com.aiassistant.domain.model.RetryErrorType.classify(Exception("HTTP $code: error")).name)
+        }
+        assertEquals(com.aiassistant.domain.model.RetryErrorType.EMPTY_RESPONSE, com.aiassistant.domain.model.RetryErrorType.classify(com.aiassistant.data.repository.ApiException(500, "empty response detected")))
+        assertEquals(com.aiassistant.domain.model.RetryErrorType.TLS, com.aiassistant.domain.model.RetryErrorType.classify(javax.net.ssl.SSLException("certificate invalid")))
+    }
+
+    @Test
+    fun retryRulesRespectCountDisabledCancellationAndPartialOutput() {
+        val timeout = SocketTimeoutException("timeout")
+        val policy = com.aiassistant.domain.model.RetryPolicy()
+        assertTrue(policy.canRetry(timeout, 0))
+        assertTrue(policy.canRetry(timeout, 2))
+        assertFalse(policy.canRetry(timeout, 3))
+        assertFalse(policy.canRetry(timeout, 0, hasOutput = true))
+        assertFalse(policy.canRetry(kotlinx.coroutines.CancellationException("stop"), 0))
+        assertFalse(policy.canRetry(Exception("HTTP 401: invalid"), 0))
+        val custom = com.aiassistant.domain.model.RetryPolicy(mapOf(com.aiassistant.domain.model.RetryErrorType.AUTHENTICATION to com.aiassistant.domain.model.RetryRule(true, 2), com.aiassistant.domain.model.RetryErrorType.TIMEOUT to com.aiassistant.domain.model.RetryRule(false, 20)))
+        assertTrue(custom.canRetry(Exception("HTTP 401: invalid"), 1))
+        assertFalse(custom.canRetry(Exception("HTTP 401: invalid"), 2))
+        assertFalse(custom.canRetry(timeout, 0))
+        assertEquals(5_000L, custom.delayMillis(19))
+    }
 
     // 1. 网络稳定性测试：验证 OkHttpClient 的 fastFallback、pingInterval、连接池配置及合规 User-Agent
     @Test
     fun testNetworkStabilityConfiguration() {
         val streamClient = RetrofitClient.streamHttpClient
+        assertFalse("底层不得隐藏重发模型 POST 请求", streamClient.retryOnConnectionFailure)
+        assertFalse(RetrofitClient.longAnalysisHttpClient.retryOnConnectionFailure)
         assertEquals("streamHttpClient 应配置 15s 的 HTTP/2 pingInterval 保活心跳", 15_000, streamClient.pingIntervalMillis)
         assertNotNull("streamHttpClient 应配置专用连接池", streamClient.connectionPool)
 
         val restClient = RetrofitClient.restHttpClient
+        assertFalse(restClient.retryOnConnectionFailure)
         assertNotNull("restClient 应配置专用连接池", restClient.connectionPool)
 
         assertEquals("默认 User-Agent 必须为合规标识而非默认 okhttp", "Echo-Assistant/2.2.5 (Android; Mobile)", RetrofitClient.DEFAULT_USER_AGENT)

@@ -8,6 +8,21 @@ import org.junit.Test
 import java.util.Locale
 
 class ChatEnhancementsTest {
+    @Test
+    fun bottomFollowOnlyConsumesPositiveMeasuredOverflow() {
+        assertEquals(0, com.aiassistant.ui.screens.chat.bottomFollowDistance(100, 80, 500))
+        assertEquals(0, com.aiassistant.ui.screens.chat.bottomFollowDistance(100, 400, 500))
+        assertEquals(20, com.aiassistant.ui.screens.chat.bottomFollowDistance(100, 420, 500))
+        assertEquals(300, com.aiassistant.ui.screens.chat.bottomFollowDistance(-200, 1000, 500))
+    }
+
+    @Test
+    fun retriesRemainReconnectingEvenWhenCauseContainsErrorWords() {
+        assertEquals(com.aiassistant.ui.screens.chat.GenerationUiState.Reconnecting,
+            com.aiassistant.ui.screens.chat.GenerationUiStateRules.derive(true, "", false, "500 服务端错误 (HTTP 500)，正在尝试重新连接 (1/3)..."))
+        assertEquals(com.aiassistant.ui.screens.chat.GenerationUiState.Failed,
+            com.aiassistant.ui.screens.chat.GenerationUiStateRules.derive(true, "", false, "Key 请求报错: HTTP 500"))
+    }
 
     @Test
     fun testDefaultMaxTokensIs4096() {

@@ -144,6 +144,7 @@ class V1915FeaturesTest {
         assertEquals(SearchEngineType.EXA, SearchEngineType.fromValue("EXA"))
         assertEquals(SearchEngineType.TAVILY, SearchEngineType.fromValue("TAVILY"))
         assertEquals(SearchEngineType.EXA, SearchEngineType.fromValue("unknown"))
-        assertTrue(SearchEngineType.EXA.displayName.contains("免Key"))
+        assertEquals("Exa", SearchEngineType.EXA.displayName)
+        assertEquals("Tavily", SearchEngineType.TAVILY.displayName)
     }
 }

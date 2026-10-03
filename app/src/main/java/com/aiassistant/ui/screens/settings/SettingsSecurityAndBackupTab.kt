@@ -546,7 +546,7 @@ private fun HiddenConversationCard(
             }
         }
         Text(
-            text = "${conversation.modelName} · ${conversation.messageCount} 条 · ${dateFormat.format(Date(conversation.updatedAt))}",
+            text = "${com.aiassistant.domain.model.ModelDisplayName.format(conversation.modelName)} · ${conversation.messageCount} 条 · ${dateFormat.format(Date(conversation.updatedAt))}",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

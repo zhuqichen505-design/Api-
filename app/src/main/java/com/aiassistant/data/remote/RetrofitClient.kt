@@ -35,7 +35,7 @@ object RetrofitClient {
     // 专用于长文本与深度思考 SSE 流式输出（开启专用连接池与 15s 心跳保活）
     val streamHttpClient = OkHttpClient.Builder()
         .addInterceptor(loggingInterceptor)
-        .retryOnConnectionFailure(true)
+        .retryOnConnectionFailure(false) // Explicit retry policy owns extra attempts; no hidden POST replay.
         .connectionPool(sharedConnectionPool)
         .pingInterval(15, TimeUnit.SECONDS) // HTTP/2 长连接保活心跳，防止深度推理/思考长挂时被中间 NAT 掐断
         .connectTimeout(30, TimeUnit.SECONDS)
@@ -46,7 +46,7 @@ object RetrofitClient {
     // 专用于普通 REST 请求、模型拉取与摘要生成（设置明确超时与专用连接池，防止永久挂死）
     val restHttpClient = OkHttpClient.Builder()
         .addInterceptor(loggingInterceptor)
-        .retryOnConnectionFailure(true)
+        .retryOnConnectionFailure(false)
         .connectionPool(sharedConnectionPool)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
@@ -56,7 +56,7 @@ object RetrofitClient {
     // 专用于全量时间线提炼、长文本深度分析与设定提炼（设置 600s 充足超时与弹性连接，支持超长篇上下文深度推理）
     val longAnalysisHttpClient = OkHttpClient.Builder()
         .addInterceptor(loggingInterceptor)
-        .retryOnConnectionFailure(true)
+        .retryOnConnectionFailure(false)
         .connectionPool(sharedConnectionPool)
         .pingInterval(15, TimeUnit.SECONDS)
         .connectTimeout(60, TimeUnit.SECONDS)

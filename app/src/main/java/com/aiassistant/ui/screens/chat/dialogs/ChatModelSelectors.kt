@@ -177,7 +177,7 @@ fun ModelSelector(
                 )
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(
-                    text = currentModel.ifBlank { "未选择模型" },
+                    text = com.aiassistant.domain.model.ModelDisplayName.format(currentModel).ifBlank { "未选择模型" },
                     style = MaterialTheme.typography.labelSmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -197,7 +197,7 @@ fun ModelSelector(
         ) {
             if (availableModels.isEmpty()) {
                 DropdownMenuItem(
-                    text = { Text(currentModel) },
+                    text = { Text(com.aiassistant.domain.model.ModelDisplayName.format(currentModel)) },
                     onClick = { expanded = false },
                     leadingIcon = {
                         Icon(Icons.Default.Check, contentDescription = null)
@@ -208,7 +208,7 @@ fun ModelSelector(
                     DropdownMenuItem(
                         text = {
                             Text(
-                                text = model,
+                                text = com.aiassistant.domain.model.ModelDisplayName.format(model),
                                 style = MaterialTheme.typography.bodyMedium
                             )
                         },

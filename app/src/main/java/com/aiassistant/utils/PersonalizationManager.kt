@@ -1,6 +1,7 @@
 package com.aiassistant.utils
 
 import android.content.Context
+import androidx.core.content.edit
 
 data class PersonalizationSettings(
     val globalSystemPrompt: String = "",
@@ -45,6 +46,28 @@ class PersonalizationManager(private val context: Context) {
         "app_settings",
         Context.MODE_PRIVATE
     )
+
+    fun getRetryPolicy(): com.aiassistant.domain.model.RetryPolicy = com.aiassistant.domain.model.RetryPolicy(
+        com.aiassistant.domain.model.RetryErrorType.entries.associateWith { type ->
+            com.aiassistant.domain.model.RetryRule(
+                prefs.getBoolean("retry_${type.name}_enabled", type.defaultEnabled),
+                prefs.getInt("retry_${type.name}_count", 3).coerceIn(0, com.aiassistant.domain.model.RetryPolicy.MAX_RETRIES)
+            )
+        }
+    )
+
+    fun saveRetryRule(type: com.aiassistant.domain.model.RetryErrorType, rule: com.aiassistant.domain.model.RetryRule) {
+        prefs.edit(commit = true) {
+            putBoolean("retry_${type.name}_enabled", rule.enabled)
+            putInt("retry_${type.name}_count", rule.maxRetries.coerceIn(0, com.aiassistant.domain.model.RetryPolicy.MAX_RETRIES))
+        }
+    }
+
+    fun isBackupKeyFallbackEnabled(): Boolean = prefs.getBoolean("retry_backup_key_enabled", true)
+
+    fun setBackupKeyFallbackEnabled(enabled: Boolean) {
+        prefs.edit(commit = true) { putBoolean("retry_backup_key_enabled", enabled) }
+    }
 
     fun getSettings(): PersonalizationSettings {
         val legacyGlobalPrompt = legacyPrefs.getString("global_system_prompt", "").orEmpty()

@@ -1359,7 +1359,7 @@ fun ConfigSelector(
                             Text(config.name)
                             Row {
                                 Text(
-                                    text = config.modelName,
+                                    text = com.aiassistant.domain.model.ModelDisplayName.format(config.modelName),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -1559,7 +1559,7 @@ fun ConversationCard(
                         contentColor = MaterialTheme.colorScheme.onSurfaceVariant
                     ) {
                         Text(
-                            text = conversation.modelName,
+                            text = com.aiassistant.domain.model.ModelDisplayName.format(conversation.modelName),
                             style = MaterialTheme.typography.labelSmall,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                             maxLines = 1,
@@ -2088,7 +2088,7 @@ fun NewChatDialog(
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                text = selectedModelName.ifBlank { selectedApiConfig?.modelName.orEmpty() },
+                                text = com.aiassistant.domain.model.ModelDisplayName.format(selectedModelName.ifBlank { selectedApiConfig?.modelName.orEmpty() }),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.primary,
                                 maxLines = 1,
@@ -2342,7 +2342,7 @@ fun NewChatDialog(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        text = model,
+                                        text = com.aiassistant.domain.model.ModelDisplayName.format(model),
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else glass.textPrimary,
                                         modifier = Modifier.weight(1f)

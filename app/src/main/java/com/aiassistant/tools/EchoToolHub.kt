@@ -1,6 +1,7 @@
 package com.aiassistant.tools
 
 import android.content.Context
+import androidx.core.content.edit
 import com.aiassistant.domain.model.ChatRequestOptions
 import com.aiassistant.domain.model.ToolCallRecord
 import com.aiassistant.tools.cloud.JinaReaderEngine
@@ -37,6 +38,14 @@ class EchoToolHub(
     val openMeteoWeatherEngine = OpenMeteoWeatherEngine()
     val jinaReaderEngine = JinaReaderEngine(getJinaApiKey())
     val exaSearchEngine = ExaSearchEngine(getExaApiKey())
+    val mwmblSearchEngine = com.aiassistant.tools.search.MwmblSearchEngine()
+    val searxngSearchEngine = com.aiassistant.tools.search.SearxngSearchEngine(::getSearxngUrl)
+
+    fun getSearxngUrl(): String = prefs.getString("searxng_instance_url", "").orEmpty()
+
+    fun setSearxngUrl(url: String) {
+        prefs.edit { putString("searxng_instance_url", url.trim()) }
+    }
 
     fun getSearchEngine(): SearchEngineType {
         val name = prefs.getString(KEY_SEARCH_ENGINE, SearchEngineType.EXA.name) ?: SearchEngineType.EXA.name
@@ -48,11 +57,11 @@ class EchoToolHub(
     }
 
     fun getSearchResultCount(): Int {
-        return prefs.getInt(KEY_SEARCH_RESULT_COUNT, 5).coerceIn(1, 20)
+        return prefs.getInt(KEY_SEARCH_RESULT_COUNT, 5).coerceIn(1, com.aiassistant.tools.search.SearchLimits.MAX_REQUESTED)
     }
 
     fun setSearchResultCount(count: Int) {
-        prefs.edit().putInt(KEY_SEARCH_RESULT_COUNT, count.coerceIn(1, 20)).apply()
+        prefs.edit().putInt(KEY_SEARCH_RESULT_COUNT, count.coerceIn(1, com.aiassistant.tools.search.SearchLimits.MAX_REQUESTED)).apply()
     }
 
     fun getExaApiKey(): String {
@@ -87,6 +96,8 @@ class EchoToolHub(
         when (getSearchEngine()) {
             SearchEngineType.EXA -> exaSearchEngine.search(query, maxResults)
             SearchEngineType.TAVILY -> tavilySearchManager.search(query, maxResults)
+            SearchEngineType.MWMBL -> mwmblSearchEngine.search(query, maxResults)
+            SearchEngineType.SEARXNG -> searxngSearchEngine.search(query, maxResults)
         }
     }
 
@@ -116,9 +127,9 @@ class EchoToolHub(
                         toolRecords.add(
                             ToolCallRecord(
                                 toolType = "WEB_SEARCH",
-                                toolName = if (engine == SearchEngineType.EXA) "Exa 联网搜索 (免Key)" else "Tavily 联网搜索",
+                                toolName = "${engine.displayName} 联网搜索",
                                 iconName = "Search",
-                                summary = "已检索到 ${bundle.results.size} 条高质量实时参考网页",
+                                 summary = "已检索到 ${bundle.results.size} 条参考网页",
                                 detailContent = bundle.toPromptBlock(),
                                 isSuccess = true
                             )

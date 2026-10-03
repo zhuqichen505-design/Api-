@@ -462,7 +462,7 @@ private fun SmartReadCharacterDialog(
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = selectedConfig?.let { "${it.name} (${selectedModelName.ifBlank { it.modelName }})" } ?: "选择分析模型",
+                                        text = selectedConfig?.let { "${it.name} (${com.aiassistant.domain.model.ModelDisplayName.format(selectedModelName.ifBlank { it.modelName })})" } ?: "选择分析模型",
                                         style = MaterialTheme.typography.bodySmall
                                     )
                                 }

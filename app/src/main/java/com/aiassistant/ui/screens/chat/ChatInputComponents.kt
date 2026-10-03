@@ -1683,7 +1683,7 @@ internal fun InputPillButton(
 
 fun String.displayModelShortName(): String {
     val trimmed = this.trim()
-    return if (trimmed.contains("/")) trimmed.substringAfterLast("/") else trimmed
+    return com.aiassistant.domain.model.ModelDisplayName.format(trimmed.substringAfterLast("/"))
 }
 
 internal fun String.shortModelLabel(): String {

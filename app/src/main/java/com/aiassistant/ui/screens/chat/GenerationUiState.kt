@@ -56,7 +56,9 @@ object GenerationUiStateRules {
         contentIsError -> GenerationUiState.Failed
         isGenerating && content.isBlank() && !hasThinking -> {
             if (reconnectStatus != null) {
-                if (isErrorText(reconnectStatus)) GenerationUiState.Failed else GenerationUiState.Reconnecting
+                if (reconnectStatus.contains("正在尝试重新连接") || reconnectStatus.contains("正在自动尝试备用 Key")) {
+                    GenerationUiState.Reconnecting
+                } else if (isErrorText(reconnectStatus)) GenerationUiState.Failed else GenerationUiState.Reconnecting
             } else {
                 GenerationUiState.Connecting
             }

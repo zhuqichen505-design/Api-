@@ -12,6 +12,20 @@ import org.junit.Test
  * 也不得只对 deepseek-r1 / o1 做过时特殊优化。
  */
 class ModernModelAdaptation2026Test {
+    @Test
+    fun displayNamesDoNotChangeRequestIdentity() {
+        val names = mapOf(
+            "gemini3.8flash" to "Gemini3.8Flash", "gpt-6.1-sol" to "GPT-6.1-Sol",
+            "deepseek-v4-pro" to "DeepSeek-V4-Pro", "glm-5.2" to "GLM-5.2",
+            "vendor/gpt-6.1-sol" to "Vendor/GPT-6.1-Sol", "customModel-alpha" to "CustomModel-Alpha"
+        )
+        names.forEach { (id, expected) ->
+            assertEquals(expected, com.aiassistant.domain.model.ModelDisplayName.format(id))
+            val config = com.aiassistant.domain.model.ApiConfig(name = "test", provider = "test", baseUrl = "https://example.org", apiKey = "test", modelName = id)
+            assertEquals(id, config.modelName)
+            assertEquals(id, com.aiassistant.domain.model.ChatCompletionRequest(model = config.modelName, messages = emptyList()).model)
+        }
+    }
 
     @Test
     fun testDeepSeekV4FamilyIs1MContext() {

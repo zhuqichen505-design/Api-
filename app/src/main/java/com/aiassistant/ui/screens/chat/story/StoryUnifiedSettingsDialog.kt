@@ -214,6 +214,7 @@ fun StoryUnifiedSettingsDialog(
         mutableStateOf(currentMax.toString())
     }
     var topP by remember { mutableFloatStateOf(tempSettings.topP) }
+    var showAdvancedMemory by remember { mutableStateOf(false) }
     var enableThinking by remember { mutableStateOf(tempSettings.enableThinking) }
     var thinkingEffort by remember { mutableStateOf(tempSettings.thinkingEffort) }
     var enableWebSearch by remember { mutableStateOf(tempSettings.enableWebSearch) }
@@ -975,6 +976,25 @@ fun StoryUnifiedSettingsDialog(
                             }
 
                             item {
+                                TextButton(onClick = { showAdvancedMemory = !showAdvancedMemory }) {
+                                    Text(if (showAdvancedMemory) "收起更多高级选项" else "更多高级选项")
+                                }
+                            }
+                            if (showAdvancedMemory) {
+                                item {
+                                    com.aiassistant.ui.screens.chat.ChatSettingsWorldBookAndExternalMemorySection(
+                                        enableExternalMemory = enableExternalMemory,
+                                        onEnableExternalMemoryChange = { enableExternalMemory = it },
+                                        enableWorldBook = enableWorldBook,
+                                        onEnableWorldBookChange = { enableWorldBook = it },
+                                        contentColor = dialogContentColor,
+                                        secondaryColor = dialogSecondaryColor,
+                                        hazeState = hazeState
+                                    )
+                                }
+                            }
+
+                            item {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     verticalAlignment = Alignment.CenterVertically,
@@ -1036,42 +1056,6 @@ fun StoryUnifiedSettingsDialog(
                                     Switch(
                                         checked = enableWebSearch,
                                         onCheckedChange = { enableWebSearch = it },
-                                        colors = echoSwitchColors()
-                                    )
-                                }
-                            }
-
-                            item {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-                                        Text("外置记忆库", style = MaterialTheme.typography.titleSmall, color = dialogContentColor)
-                                        Text("结合角色长期事实库，意图匹配自动注入", style = MaterialTheme.typography.bodySmall, color = dialogSecondaryColor)
-                                    }
-                                    Switch(
-                                        checked = enableExternalMemory,
-                                        onCheckedChange = { enableExternalMemory = it },
-                                        colors = echoSwitchColors()
-                                    )
-                                }
-                            }
-
-                            item {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-                                        Text("世界书设定 (Lorebook)", style = MaterialTheme.typography.titleSmall, color = dialogContentColor)
-                                        Text("根据关键词动态唤醒世界观词条或常驻条目", style = MaterialTheme.typography.bodySmall, color = dialogSecondaryColor)
-                                    }
-                                    Switch(
-                                        checked = enableWorldBook,
-                                        onCheckedChange = { enableWorldBook = it },
                                         colors = echoSwitchColors()
                                     )
                                 }

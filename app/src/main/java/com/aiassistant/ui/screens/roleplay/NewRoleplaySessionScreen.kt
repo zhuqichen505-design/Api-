@@ -508,7 +508,7 @@ fun NewRoleplaySessionScreen(
                                             )
                                             Spacer(modifier = Modifier.width(8.dp))
                                             Column(modifier = Modifier.weight(1f)) {
-                                                Text(option.modelName, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                                                Text(com.aiassistant.domain.model.ModelDisplayName.format(option.modelName), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
                                                 Text("${option.configName} · ${option.provider}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                                             }
                                         }

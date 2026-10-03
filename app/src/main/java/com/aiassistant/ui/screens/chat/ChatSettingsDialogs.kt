@@ -523,24 +523,6 @@ fun ChatSettingsDialog(
                 }
 
                 item {
-                    ChatSettingsWorldBookAndExternalMemorySection(
-                        enableExternalMemory = enableExternalMemory,
-                        onEnableExternalMemoryChange = {
-                            enableExternalMemory = it
-                            notifyTempSettingsChange()
-                        },
-                        enableWorldBook = enableWorldBook,
-                        onEnableWorldBookChange = {
-                            enableWorldBook = it
-                            notifyTempSettingsChange()
-                        },
-                        contentColor = dialogContentColor,
-                        secondaryColor = dialogSecondaryColor,
-                        hazeState = hazeState
-                    )
-                }
-
-                item {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("模型头像", style = MaterialTheme.typography.titleSmall, color = dialogContentColor)
                         Row(
@@ -897,6 +879,24 @@ fun ChatSettingsDialog(
                     }
 
                     // 转为角色扮演
+                    item {
+                        ChatSettingsWorldBookAndExternalMemorySection(
+                            enableExternalMemory = enableExternalMemory,
+                            onEnableExternalMemoryChange = {
+                                enableExternalMemory = it
+                                notifyTempSettingsChange()
+                            },
+                            enableWorldBook = enableWorldBook,
+                            onEnableWorldBookChange = {
+                                enableWorldBook = it
+                                notifyTempSettingsChange()
+                            },
+                            contentColor = dialogContentColor,
+                            secondaryColor = dialogSecondaryColor,
+                            hazeState = hazeState
+                        )
+                    }
+
                     item {
                         EchoGlassCard(
                             onClick = onConvertToRoleplay,

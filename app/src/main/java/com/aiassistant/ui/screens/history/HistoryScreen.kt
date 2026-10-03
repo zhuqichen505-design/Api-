@@ -396,7 +396,7 @@ fun HistoryConversationCard(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        text = conversation.modelName,
+                        text = com.aiassistant.domain.model.ModelDisplayName.format(conversation.modelName),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.weight(1f, fill = false),
