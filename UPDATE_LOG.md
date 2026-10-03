@@ -2,6 +2,33 @@
 
 本文档按照工作流规范记录每次版本更新、需求变更与复核结果。
 
+## [2026-10-03] - 首页启动加载缓慢/闪退风险修复（未发版）
+
+### 需求、证据与临时实施方案
+- 用户反馈更新后首页加载缓慢，出现对话后闪退，要求修复。本轮未要求构建 APK，版本仍为 2.7.11/177，未打包。
+- 基线 main/144cc06，仅原有未跟踪审计报告。ADB 无连接设备，未取得实际崩溃栈。
+- 静态确认上一版启动自动备份立即扫描全库，BackupGraphStore.export 构造全部消息/附件 JsonObject，再经 snapshot.toString().toByteArray 复制整份数据；其内存峰值随全部记录增长，IO 调度不能避免 GC/内存压力与数据库争用。它是与现象相符的明确回归风险，尚不能断言就是设备此次崩溃的唯一根因。
+- 方案：全量自动/手动备份逐行流式写 ZIP，保持事务快照和 formatVersion=2；首页查询首次成功后等待 15 秒再调度一次自动备份。
+
+### 文件与影响面
+- BackupGraphStore.kt：writeFullSnapshot 使用 JsonWriter 和游标逐行输出，先为缺失身份的行分配 UUID，联表读取身份；保留 null、数值、文本、API Key 转换和事务一致性，失败回滚。
+- BackupManager.kt：全量 ZIP 入口改用有缓冲的 Writer，移除全库 JSON 树、整串 JSON 与整份字节数组。
+- StartupBackupScheduler.kt / AiAssistantApp.kt / HomeViewModel.kt：首个首页数据发射后延时，进程内只安排一次，避免冷启动即争抢数据库资源。
+- BackupGraphStoreTest.kt / StartupBackupSchedulerTest.kt：新增四项回归；新增 coroutines-test 1.7.3，与项目协程版本一致。
+- Room v33、备份格式和版本号未变。
+
+### 验证记录
+- `./gradlew.bat compileDebugKotlin testDebugUnitTest lintDebug --no-daemon --console=plain`：退出 **0**，6m，三项任务均成功。
+- 79 套件，**521 测试 / 0 failure / 0 error**；Lint **0 Error / 89 Warning**。
+- `git diff --check`：退出 **0**。
+- 新测试：32 MiB 以上正文逐行输出（写块上界断言，非设备峰值内存测量）；与原导出格式/UUID 等价且重复恢复不重复；flush 失败后身份回滚、消息保留；首页未加载不备份，加载后 15 秒只触发一次。
+- 未运行 assembleRelease，未修改发布目录历史 APK；Git 推送核验结果见本轮交付回复。
+
+### 验收边界
+- 无设备复现和崩溃栈，不能声称用户设备闪退已实测消失。应在含大量历史消息的设备上验证冷启动及 15 秒后的自动备份、再次进入首页、备份 ZIP 恢复。
+- 本轮针对启动/全量备份路径；大文件导入及单会话旧树形导出仍需单独评估，其不在启动自动备份调用链。
+
+
 ## [2026-10-03] - v2.7.11 审计问题修复与 APK 交付
 
 ### 需求与临时实施方案

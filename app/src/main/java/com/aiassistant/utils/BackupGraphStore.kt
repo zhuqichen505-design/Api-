@@ -11,9 +11,67 @@ import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import java.util.UUID
+import com.google.gson.stream.JsonWriter
+import java.io.Writer
 
 /** A transactional logical snapshot; no live main/WAL/SHM file copying. */
 object BackupGraphStore {
+    /** Keep only the current cursor row in memory, never a whole-database JSON tree/string. */
+    suspend fun writeFullSnapshot(
+        database: AppDatabase,
+        output: Writer,
+        decryptKey: (String) -> String = { com.aiassistant.AiAssistantApp.instance.cryptoManager.decrypt(it) }
+    ) = database.withTransaction {
+        val db = database.openHelper.writableDatabase
+        val writer = JsonWriter(output).apply { serializeNulls = true }
+        writer.beginObject()
+        writer.name("formatVersion").value(2)
+        writer.name("type").value("full_snapshot")
+        writer.name("complete").value(true)
+        writer.name("exportedAt").value(System.currentTimeMillis())
+        writer.name("tables").beginObject()
+        db.compileStatement("INSERT INTO backup_identities(entityTable,entityId,uuid) VALUES(?,?,?)").use { insert ->
+            tables.forEach { table ->
+                if (table != "character_tag_cross_ref") {
+                    // Identity-only scan: no message bodies or attachments are loaded here.
+                    db.query("SELECT t.id FROM `$table` t LEFT JOIN backup_identities b ON b.entityTable=? AND b.entityId=t.id WHERE b.entityId IS NULL", arrayOf(table)).use { cursor ->
+                        while (cursor.moveToNext()) {
+                            insert.bindString(1, table)
+                            insert.bindLong(2, cursor.getLong(0))
+                            insert.bindString(3, UUID.randomUUID().toString())
+                            insert.executeInsert()
+                        }
+                    }
+                }
+                writer.name(table).beginArray()
+                val query = if (table == "character_tag_cross_ref") "SELECT * FROM `$table`"
+                    else "SELECT t.*, b.uuid AS _uuid FROM `$table` t JOIN backup_identities b ON b.entityTable='$table' AND b.entityId=t.id"
+                db.query(query).use { cursor ->
+                    val columns = cursor.columnNames
+                    while (cursor.moveToNext()) {
+                        writer.beginObject()
+                        columns.forEachIndexed { index, name ->
+                            writer.name(name)
+                            when (cursor.getType(index)) {
+                                Cursor.FIELD_TYPE_NULL -> writer.nullValue()
+                                Cursor.FIELD_TYPE_INTEGER -> writer.value(cursor.getLong(index))
+                                Cursor.FIELD_TYPE_FLOAT -> writer.value(cursor.getDouble(index))
+                                Cursor.FIELD_TYPE_STRING -> writer.value(
+                                    if (table == "api_configs" && name == "apiKey") decryptKey(cursor.getString(index)) else cursor.getString(index)
+                                )
+                                else -> error("不支持的备份字段：$name")
+                            }
+                        }
+                        writer.endObject()
+                    }
+                }
+                writer.endArray()
+            }
+        }
+        writer.endObject().endObject()
+        writer.flush() // Do not close the caller's ZIP stream; a failed flush rolls back identities.
+    }
+
     val tables = listOf("folders", "api_configs", "character_profiles", "roleplay_scenarios", "character_tags",
         "world_books", "world_book_entries", "conversations", "messages", "roleplay_sessions", "roleplay_memories",
         "memory_items", "timeline_nodes", "conversation_branches", "selected_models", "environment_variables",

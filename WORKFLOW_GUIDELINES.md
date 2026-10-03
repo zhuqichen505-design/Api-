@@ -41,6 +41,14 @@
 
 ## 二、最近一次执行记录
 
+### [2026-10-03] 首页启动加载与闪退风险修复（未发版）
+- [x] main/144cc06，原有审计报告保持未跟踪；版本 177/2.7.11、Room v33。
+- [x] 临时实施方案已在对话输出；全量备份流式写出，首页加载后延时单次调度。
+- [x] compileDebugKotlin + testDebugUnitTest + lintDebug 联合命令退出 0；521 测试通过；Lint 0 Error/89 Warning；diff --check 退出 0。
+- [x] 更新 UPDATE_LOG、PROJECT、README、walkthrough 与根事实卡；未要求 APK，未打包。
+- [x] 无设备/崩溃日志，区分明确风险修复与实际设备根因确认；Git 结果以交付回复为准。
+
+
 ### [2026-10-03] v2.7.11 审计修复发版
 - [x] 基线 main/2bcc79b；原有未跟踪审计报告保留。
 - [x] A01–A19 按 UPDATE_LOG.md 逐项实现/限定范围；临时实施方案已在对话提供。

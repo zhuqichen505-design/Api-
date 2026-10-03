@@ -31,7 +31,8 @@ class HomeViewModel : ViewModel() {
             UNFILED_FOLDER_ID -> repository.getUnfiledConversations()
             else -> repository.getConversationsByFolder(folderId)
         }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }.onEach { AiAssistantApp.instance.onHomeDataLoaded() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _apiConfigs = MutableStateFlow<List<ApiConfig>>(emptyList())
     val apiConfigs: StateFlow<List<ApiConfig>> = _apiConfigs.asStateFlow()

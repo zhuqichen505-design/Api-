@@ -19,6 +19,61 @@ import org.robolectric.annotation.SQLiteMode
 @Config(sdk = [34], application = Application::class, manifest = Config.NONE)
 @SQLiteMode(SQLiteMode.Mode.NATIVE)
 class BackupGraphStoreTest {
+    @Test fun streamingSnapshotPreservesFormatIdentitiesAndRestores() = runBlocking {
+        database().use { source -> database().use { target ->
+            val id = seed(source, "streamed")
+            source.messageDao().insertMessage(Message(conversationId = id, role = "user", content = "引号\"换行\n与emoji😀"))
+            val output = java.io.StringWriter()
+            BackupGraphStore.writeFullSnapshot(source, output) { "decoded:$it" }
+            val streamed = com.google.gson.JsonParser.parseString(output.toString()).asJsonObject
+            val previous = BackupGraphStore.export(source, decryptKey = { "decoded:$it" })
+            streamed.remove("exportedAt")
+            previous.remove("exportedAt")
+            assertEquals(previous, streamed)
+            repeat(2) { BackupGraphStore.restore(target, streamed, { it }, {}) }
+            assertEquals("引号\"换行\n与emoji😀", target.messageDao().getMessagesList(id).single().content)
+            assertEquals("decoded:test", target.apiConfigDao().getConfigById(1)!!.apiKey)
+        } }
+    }
+
+    @Test fun largeSnapshotUsesBoundedWritesInsteadOfOneWholeDatabaseString() = runBlocking {
+        database().use { db ->
+            val id = seed(db, "large history")
+            val body = "x".repeat(128 * 1024)
+            repeat(256) { db.messageDao().insertMessage(Message(conversationId = id, role = "user", content = body)) }
+            var written = 0L
+            val sink = object : java.io.Writer() {
+                override fun write(buffer: CharArray, offset: Int, length: Int) {
+                    assertTrue("whole snapshot was materialized", length <= 256 * 1024)
+                    written += length
+                }
+                override fun flush() = Unit
+                override fun close() = Unit
+            }
+            BackupGraphStore.writeFullSnapshot(db, sink, { it })
+            assertTrue(written > 32L * 1024 * 1024)
+            db.openHelper.readableDatabase.query("SELECT COUNT(*) FROM backup_identities WHERE entityTable='messages'").use {
+                it.moveToFirst(); assertEquals(256, it.getInt(0))
+            }
+        }
+    }
+
+    @Test fun failedStreamingFlushRollsBackNewIdentitiesAndKeepsMessages() = runBlocking {
+        database().use { db ->
+            val id = seed(db, "retained")
+            db.messageDao().insertMessage(Message(conversationId = id, role = "user", content = "retained"))
+            val sink = object : java.io.StringWriter() {
+                override fun flush() { throw java.io.IOException("disk full") }
+            }
+            try { BackupGraphStore.writeFullSnapshot(db, sink, { it }); fail("write must fail") }
+            catch (_: java.io.IOException) { }
+            db.openHelper.readableDatabase.query("SELECT COUNT(*) FROM backup_identities").use {
+                it.moveToFirst(); assertEquals(0, it.getInt(0))
+            }
+            assertEquals("retained", db.messageDao().getMessagesList(id).single().content)
+        }
+    }
+
     private inline fun <T> AppDatabase.use(block: (AppDatabase) -> T): T = try { block(this) } finally { close() }
     private fun database() = Room.inMemoryDatabaseBuilder(RuntimeEnvironment.getApplication(), AppDatabase::class.java)
         .allowMainThreadQueries().build()

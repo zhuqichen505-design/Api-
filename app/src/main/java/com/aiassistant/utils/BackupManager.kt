@@ -34,13 +34,12 @@ object BackupManager {
 
     fun createBackup(context: Context): String? = try {
         runBlocking(Dispatchers.IO) {
-            val snapshot = BackupGraphStore.export(AppDatabase.getDatabase(context))
             val file = File(getBackupDir(context), "Echo_Backup_${timestamp()}.zip")
             val pending = File(file.path + ".pending")
             try {
                 ZipOutputStream(pending.outputStream()).use { zip ->
                     zip.putNextEntry(ZipEntry("snapshot.json"))
-                    zip.write(snapshot.toString().toByteArray(Charsets.UTF_8))
+                    BackupGraphStore.writeFullSnapshot(AppDatabase.getDatabase(context), zip.writer(Charsets.UTF_8).buffered())
                     zip.closeEntry()
                     context.filesDir.listFiles()?.filter {
                         it.isFile && (it.name in setOf("user_avatar.dat", "model_avatar.dat") ||

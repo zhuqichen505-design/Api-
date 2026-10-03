@@ -1,5 +1,13 @@
 # Echo 构建走查与验收报告 (Walkthrough)
 
+## v2.7.11 后首页启动修复（未打包，2026-10-03）
+- 启动自动备份不再立即把全库物化成 JSON 树/字符串/字节数组；全量备份事务内逐行写 ZIP；首页首次查询成功后延时 15 秒只安排一次。
+- `./gradlew.bat compileDebugKotlin testDebugUnitTest lintDebug --no-daemon --console=plain` 退出 0；521 测试通过，Lint 0 Error/89 Warning；`git diff --check` 退出 0。
+- 新增 32 MiB 以上正文流式输出、格式/身份/恢复等价、失败回滚和启动调度回归。
+- 本轮没有 APK；下方 v2.7.11 APK 是历史发布产物，**不包含此修复**。
+- 未取得用户设备崩溃栈，未执行安装/启动复现；需用大量历史数据验证首页首次加载、延时自动备份完成和备份恢复。若仍闪退，应提供系统日志中 AndroidRuntime/FATAL EXCEPTION 或内存不足记录以继续定位。
+
+
 ## v2.7.11（2026-10-03）
 
 ### 修复与验证
