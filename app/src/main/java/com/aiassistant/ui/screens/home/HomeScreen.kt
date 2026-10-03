@@ -297,7 +297,10 @@ fun HomeScreen(
                         modifier = Modifier
                             .fillMaxSize(),
                         state = conversationListState,
-                        contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 28.dp, bottom = 16.dp),
+                        // v2.7.10 需求 2：左右间距对称（end 28dp→16dp）——原先右侧多出的 12dp 是为
+                        // 右缘字母锚点条（24dp+4dp 边距，仅滚动时短暂显示）预留的恒定空距；
+                        // 收窄后锚点条显示时恰好只覆盖卡片右侧留白条，不遮挡任何交互元素
+                        contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 16.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         // 置顶对话

@@ -41,6 +41,18 @@
 
 ## 二、最近一次执行记录
 
+### [2026-10-03] v2.7.10 胶囊单行恢复垂直居中、首页对话气泡左右间距对称（发版）
+- **需求**：① v2.7.9 修复后胶囊只有一行时图案和内容错误偏上；② 首页对话气泡左右间距不同、右侧明显更大。构建 APK。
+- **版本**：versionCode 176 / versionName 2.7.10 / Room v32（无 DB 变更）。
+- **实现要点**：
+  ① 胶囊内层对齐改条件式：多行展开（isStatusExpanded && maxLinesCount>1）→ Top（图案贴第一行左上，v2.7.9 需求保持）；单行收起态 → CenterVertically（修正 v2.7.9 恒定 Top 导致的偏上）；不恢复 v2.7.6 引起跳动的图标 1dp 条件 padding；
+  ② 首页对话列表 contentPadding end 28dp→16dp 与左侧对称——原 12dp 为右缘字母锚点条恒定预留；核验收窄后锚点条内缘与更多按钮右缘精确相接，不遮挡交互元素。
+- **文件**：`ChatMessageComponents.kt`、`HomeScreen.kt`、`app/build.gradle.kts` 及文档。
+- **验证**：compile/test（74 文件 503 项全通）/lint/diff --check 全部 Exit Code 0；assembleRelease Exit Code 0，`Echo-v2.7.10.apk`（16,716,661 字节，SHA256 `F8D703AD364FBEC9E17CB9D54DE1B4B1D19D21EC7482CA7CD272985B7D9B643B`，CN=Android Debug **非正式生产签名**，证书与历史版本一致）；历史包 100% 完整保留（共 186 个）。
+- **未执行**：真机安装/启动验证（无设备），已给人工验收步骤（见 walkthrough.md v2.7.10 节）。
+- **风险**：胶囊"展开但文字不足一行"时按 Top 对齐略高于几何居中约 2dp；首页滚动期间锚点条覆盖卡片右侧 12dp 留白条（半透明、自动隐藏、无交互遮挡）。
+- **详情**：见 `UPDATE_LOG.md` 与 `walkthrough.md`。
+
 ### [2026-10-03] v2.7.9 点击输入框变长真正根因修复、胶囊图案恒定左上角、并入正弦行波动画重构（发版）
 - **需求**：①（截图定案）点击输入框后输入框自动变大，v2.7.7/v2.7.8 修复依旧无效；②（截图）胶囊展开后左侧图案垂直居中，应恒定左上角。构建 APK。
 - **版本**：versionCode 175 / versionName 2.7.9 / Room v32（无 DB 变更）。

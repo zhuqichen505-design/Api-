@@ -912,12 +912,13 @@ internal fun MessageBubble(
                             if (isStatusError) MaterialTheme.colorScheme.error.copy(alpha = 0.5f) else glass.outlineSelected.copy(alpha = 0.72f)
                         )
                     ) {
-                        // v2.7.9 需求：内层对齐恒定**左上角**——多行展开时左侧图案仍贴第一行左上，
-                        // 不因展开/收起而移动（v2.7.6 的恒定居中在多行展开态会把图案带到垂直中部）；
-                        // 收起单行态下顶对齐与居中观感一致，展开/收起前后图案相对胶囊左上角位置恒定
+                        // v2.7.10 需求 1：单行态恢复垂直居中（v2.7.9 的恒定 Top 使单行内容整体偏上）；
+                        // 多行展开态保持顶对齐——图案贴第一行左上（v2.7.9 需求）。
+                        // 两态切换不引入额外语素位移（v2.7.6 的图标 1dp 条件 padding 不再恢复）
+                        val isMultiLineLayout = isStatusExpanded && maxLinesCount > 1
                         Row(
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-                            verticalAlignment = Alignment.Top,
+                            verticalAlignment = if (isMultiLineLayout) Alignment.Top else Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Box(

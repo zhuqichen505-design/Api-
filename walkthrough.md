@@ -1,3 +1,40 @@
+# Echo v2.7.10 构建走查与验收报告 (Walkthrough)
+
+## 一、本次构建与需求概述
+- **发布版本**：v2.7.10 (`versionCode: 176`)
+- **构建类型**：Release APK
+- **交付目标文件**：`D:\Agent\APP-Echo\app\releases\Echo-v2.7.10.apk`
+- **核心内容**：① 胶囊单行恢复垂直居中（v2.7.9 恒定 Top 导致单行内容偏上），多行展开仍贴左上；② 首页对话气泡左右间距对称（end 28dp→16dp）。
+
+## 二、根因走查与修复要点
+| 项 | 根因 | 修复 |
+| :--- | :--- | :--- |
+| **胶囊单行内容偏上（需求 1）** | v2.7.9 为满足"多行展开图案贴左上"将内层 Row 恒定 Top——单行态内容（图标 16dp/单行文字 ≈30dp）在 34dp 最小高度胶囊中顶对齐，偏上 2~4dp | 内层对齐改条件式：`isStatusExpanded && maxLinesCount > 1` → Top（多行展开图案贴第一行左上，v2.7.9 需求保持）；单行收起态恢复 CenterVertically。不恢复 v2.7.6 引起跳动的图标 1dp 条件 padding |
+| **首页气泡右侧间距大（需求 2）** | 首页对话列表 contentPadding `start=16dp / end=28dp`——右侧多出的 12dp 为右缘字母锚点条（SideAnchorNavigator，宽 24dp+4dp 边距、仅滚动时短暂显示）恒定预留 | end 收窄为 16dp 与左侧对称。几何核验：卡片右缘=屏右 16dp，更多按钮右缘=屏右 28dp 与锚点条内缘精确相接——锚点显示时仅覆盖卡片右侧留白条，不遮挡交互元素 |
+
+## 三、构建与验证复核清单
+- [x] `compileDebugKotlin --no-daemon`：Exit Code 0
+- [x] `testDebugUnitTest --no-daemon`：Exit Code 0（74 个测试文件，**503 项全通、0 失败**）
+- [x] `lintDebug --no-daemon`：Exit Code 0
+- [x] `git diff --check`：Exit Code 0
+- [x] `assembleRelease --no-daemon`：Exit Code 0（versionCode 176 / versionName 2.7.10）
+- [x] APK：`Echo-v2.7.10.apk`，16,716,661 字节 (~15.95 MB)，SHA256 `F8D703AD364FBEC9E17CB9D54DE1B4B1D19D21EC7482CA7CD272985B7D9B643B`
+- [x] 签名校验：`apksigner verify --print-certs` 通过，证书 CN=Android Debug（**非正式生产签名**），证书 SHA-256 `939638f6d3e9af7f8a980e62af52d275fee73381f2130cc4e20a0d349f98e21f`，与历史版本完全一致，支持直接平滑覆盖升级
+- [x] 历史版本完整性：`D:\Agent\APP-Echo\app\releases` 历史安装包 100% 完整保留，本次为唯一定名增量输出（复制而非移动，全程未执行任何删除）
+
+## 四、人工验收步骤（无真机，未执行安装/启动验证）
+1. 安装 `Echo-v2.7.10.apk` 覆盖升级；
+2. **胶囊（需求 1）**：收起单行态的连接/思考/完成胶囊——图案与文字垂直居中、不再偏上；展开多行（长等待文案/报错）——图案贴第一行左上；反复展开/收起确认两态各自稳定；
+3. **首页间距（需求 2）**：首页对话列表的气泡左右与屏幕边缘间距对称（各 16dp）；滚动列表唤出右缘字母锚点条，确认锚点条不遮挡气泡上的任何按钮；点击锚点字母跳转正常；
+4. **回归**：胶囊宽度随内容自适应正常；输入框点击不变长、光标闪烁正常；流式动画正弦行波正常。
+
+## 五、剩余风险
+1. 胶囊"展开但文字不足一行"时内容按 Top 对齐、略高于几何居中约 2dp（两态规则的边界情形），观感影响轻微。
+2. 首页列表滚动期间字母锚点条会覆盖卡片右侧 12dp 留白条（半透明玻璃条），停止滚动后自动隐藏；锚点条内缘与更多按钮右缘精确相接，无交互遮挡。
+3. 已知环境缺陷延续：`lintDebug` 的 Compose Lint 兼容问题仍靠 `app/lint.xml` 隔离崩溃探测器，根治需升级 AGP/Compose Lint。
+
+---
+
 # Echo v2.7.9 构建走查与验收报告 (Walkthrough)
 
 ## 一、本次构建与需求概述
