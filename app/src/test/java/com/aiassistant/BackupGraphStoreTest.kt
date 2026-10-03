@@ -19,6 +19,32 @@ import org.robolectric.annotation.SQLiteMode
 @Config(sdk = [34], application = Application::class, manifest = Config.NONE)
 @SQLiteMode(SQLiteMode.Mode.NATIVE)
 class BackupGraphStoreTest {
+    @Test fun streamingZipFlushesSnapshotAndLeavesStreamOpenForFollowingEntries() = runBlocking {
+        database().use { source -> database().use { target ->
+            val id = seed(source, "ZIP round trip")
+            val text = "小说正文😀\n".repeat(4096)
+            source.messageDao().insertMessage(Message(conversationId = id, role = "assistant", content = text))
+            val bytes = java.io.ByteArrayOutputStream()
+            java.util.zip.ZipOutputStream(bytes).use { zip ->
+                zip.putNextEntry(java.util.zip.ZipEntry("snapshot.json"))
+                BackupGraphStore.writeFullSnapshot(source, zip.writer(Charsets.UTF_8).buffered(), { it })
+                zip.closeEntry()
+                zip.putNextEntry(java.util.zip.ZipEntry("backup_info.json"))
+                zip.write("{\"version\":2}".toByteArray(Charsets.UTF_8))
+                zip.closeEntry()
+            }
+            java.util.zip.ZipInputStream(bytes.toByteArray().inputStream()).use { zip ->
+                assertEquals("snapshot.json", zip.nextEntry.name)
+                val snapshot = com.google.gson.JsonParser.parseString(zip.readBytes().toString(Charsets.UTF_8)).asJsonObject
+                BackupGraphStore.restore(target, snapshot, { it }, {})
+                assertEquals(text, target.messageDao().getMessagesList(id).single().content)
+                assertEquals("backup_info.json", zip.nextEntry.name)
+                assertEquals("{\"version\":2}", zip.readBytes().toString(Charsets.UTF_8))
+                assertNull(zip.nextEntry)
+            }
+        } }
+    }
+
     @Test fun streamingSnapshotPreservesFormatIdentitiesAndRestores() = runBlocking {
         database().use { source -> database().use { target ->
             val id = seed(source, "streamed")

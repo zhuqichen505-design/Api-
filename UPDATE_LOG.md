@@ -2,6 +2,39 @@
 
 本文档按照工作流规范记录每次版本更新、需求变更与复核结果。
 
+## [2026-10-03] - v2.7.12 首页启动修复复核与 APK 发布
+
+### 需求与临时实施方案
+- 用户要求确认修复后构建新 APK。基线 main/663e464，版本 177/2.7.11，Room v33；工作区只有原有未跟踪审计报告，保持原样。
+- 再次核对自动备份唯一调用入口、首页首次查询信号、延时单次调度和 BackupManager 全量 ZIP 写出，确认已走 writeFullSnapshot，未走整库树形导出。
+- 启动全量物化消息造成内存放大与数据库争用是已修复的确定机制；没有设备崩溃栈，尚不能认定用户设备闪退的唯一根因已证实。
+- 本轮增加 ZIP 完整写出/后续条目/解包恢复集成回归，复跑全部门禁，版本递增为 178/2.7.12，再构建与校验。数据库保持 v33。
+
+### 涉及文件与影响面
+- app/build.gradle.kts：版本 2.7.12/178。
+- BackupGraphStoreTest.kt：新增含中文/emoji 的真实 ZIP 写入、flush、后续条目可写、解包和恢复精确比对。
+- 此包首次包含上次 663e464 的流式全量备份与首页加载后 15 秒单次调度修复；无额外生产逻辑改动。
+
+### 本轮验证（均实际执行）
+- `./gradlew.bat compileDebugKotlin testDebugUnitTest lintDebug --no-daemon --console=plain`：退出 **0**（5m 59s），三任务成功；79 套件、**522 测试 / 0 failure / 0 error**。
+- Lint XML：**0 Error / 89 Warning**；未增加 suppress 或规则隔离。
+- `./gradlew.bat assembleRelease --no-daemon --console=plain`：退出 **0**（4m 16s）。
+- `git diff --check`：退出 **0**。
+- `apksigner verify --print-certs`、`aapt dump badging`：退出 **0**；包名 com.aiassistant、178/2.7.12、minSdk 26/targetSdk 34、arm64-v8a。
+- ADB devices：退出 0，无连接设备；未执行安装、启动和设备崩溃复测。
+
+### APK 元数据
+- 路径：`D:\Agent\APP-Echo\app\releases\Echo-v2.7.12.apk`，16,716,657 字节。
+- SHA256：`FA109AE693BD8130CC43DD7F4045D436693359624FE734AC93305E392F60081D`。
+- 签名证书 SHA256：`939638f6d3e9af7f8a980e62af52d275fee73381f2130cc4e20a0d349f98e21f`。
+- DN Android Debug，**非正式生产签名**；与上一版核验证书一致。使用禁止覆盖的文件复制，未删除/覆盖任何历史 APK。
+- Git 提交、标签 v2.7.12 和远端核验以交付回复实际结果为准。
+
+### 剩余验证
+- 使用用户真实历史数据升级安装后，检查首页加载、至少等待 30 秒覆盖自动备份阶段，再退出重开；继续聊天并检查备份恢复。
+- 本轮确认代码路径和自动化回归通过，未声称用户设备闪退已实测消失；若仍闪退需要 AndroidRuntime/系统内存日志继续定位。
+
+
 ## [2026-10-03] - 首页启动加载缓慢/闪退风险修复（未发版）
 
 ### 需求、证据与临时实施方案

@@ -1,5 +1,18 @@
 # Echo 构建走查与验收报告 (Walkthrough)
 
+## v2.7.12 首页启动修复发布（2026-10-03）
+
+- 版本 178/2.7.12，Room v33；包含流式全量备份和首页查询完成后延时 15 秒单次调度修复。
+- 编译/单测/Lint 联合命令退出 0；**522 测试通过，Lint 0 Error / 89 Warning**。Release 构建、diff --check、apksigner、aapt 均退出 0。
+- 新增 ZIP 集成回归证明 buffered Writer 完整 flush、后续 ZIP 条目正常写入、解包后的中文/emoji 正文可恢复。
+- APK：`D:\Agent\APP-Echo\app\releases\Echo-v2.7.12.apk`，16,716,657 字节，arm64-v8a。
+- SHA256：`FA109AE693BD8130CC43DD7F4045D436693359624FE734AC93305E392F60081D`。
+- 签名证书 SHA256：`939638f6d3e9af7f8a980e62af52d275fee73381f2130cc4e20a0d349f98e21f`；Android Debug DN，**非正式生产签名**。
+- ADB 无设备，未执行安装/启动：工程确认不等同于用户设备闪退已实测消失。
+
+人工验收：升级安装保留旧数据→检查首页加载→停留至少 30 秒覆盖自动备份阶段→退出重开→继续聊天→检查新增备份及恢复。若仍闪退，收集 AndroidRuntime/FATAL EXCEPTION 或系统内存日志。
+
+
 ## v2.7.11 后首页启动修复（未打包，2026-10-03）
 - 启动自动备份不再立即把全库物化成 JSON 树/字符串/字节数组；全量备份事务内逐行写 ZIP；首页首次查询成功后延时 15 秒只安排一次。
 - `./gradlew.bat compileDebugKotlin testDebugUnitTest lintDebug --no-daemon --console=plain` 退出 0；521 测试通过，Lint 0 Error/89 Warning；`git diff --check` 退出 0。
