@@ -163,9 +163,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
     val liveReconcileDraft: StateFlow<TimelineReconcileDraft?> = _liveReconcileDraft.asStateFlow()
 
     // 时间线梳理断点检查点（需求 1：记录上次梳理到的对话节点）
-    private val _timelineCheckpoint = MutableStateFlow<TimelineReconcileCheckpoint?>(
-        TimelineDraftManager.getCheckpoint(AiAssistantApp.instance, conversationId)
-    )
+    private val _timelineCheckpoint = MutableStateFlow<TimelineReconcileCheckpoint?>(null)
     val timelineCheckpoint: StateFlow<TimelineReconcileCheckpoint?> = _timelineCheckpoint.asStateFlow()
 
     private val _showDraftDialog = MutableStateFlow(false)
@@ -230,22 +228,6 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
         val group = userGroupId ?: _messages.value.firstOrNull { it.id == userMessageId }
             ?.variantGroupId?.takeIf { it.endsWith("_user") }
         _generatingAnchor.value = GeneratingAnchor(userMessageId = userMessageId, userGroupId = group)
-    }
-
-    init {
-        loadConversation()
-        loadPromptTemplates()
-        observeUsageStatsForModels()
-        attachToActiveGenerationSession()
-        // v2.7.3 流畅度：草稿/检查点文件读取迁到 IO 协程回填（构造期不再阻塞主线程）
-        viewModelScope.launch(Dispatchers.IO) {
-            val draft = TimelineDraftManager.getDraft(AiAssistantApp.instance, conversationId)
-            val checkpoint = TimelineDraftManager.getCheckpoint(AiAssistantApp.instance, conversationId)
-            _liveReconcileDraft.value = draft
-            if (_timelineCheckpoint.value == null) {
-                _timelineCheckpoint.value = checkpoint
-            }
-        }
     }
 
     private fun attachToActiveGenerationSession() {
@@ -1463,6 +1445,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
             ?: conversation?.modelName
         activeAssistantVariantGroupId = null
         activeAssistantVariantIndex = 1
+        val expectedMutationEpoch = ChatGenerationManager.mutationEpoch(conversationId)
         AiAssistantApp.instance.applicationScope.launch {
             val content = when {
                 partialResponse.isNotBlank() -> {
@@ -1496,7 +1479,7 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                 variantIndex = variantIndex,
                 modelName = savedModelName
             )
-            repository.saveMessage(message)
+            repository.saveMessage(message, expectedMutationEpoch)
             withContext(Dispatchers.Main) {
                 loadConversation()
             }
@@ -3092,6 +3075,18 @@ class ChatViewModel(private val conversationId: Long) : ViewModel() {
                     }
                 }
             }
+        }
+    }
+
+    init {
+        // Keep after every field: Main.immediate collectors may execute during construction.
+        loadConversation()
+        loadPromptTemplates()
+        observeUsageStatsForModels()
+        attachToActiveGenerationSession()
+        viewModelScope.launch(Dispatchers.IO) {
+            _liveReconcileDraft.value = TimelineDraftManager.getDraft(AiAssistantApp.instance, conversationId)
+            _timelineCheckpoint.value = TimelineDraftManager.getCheckpoint(AiAssistantApp.instance, conversationId)
         }
     }
 

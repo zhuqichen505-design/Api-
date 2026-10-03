@@ -2,6 +2,47 @@
 
 本文档按照工作流规范记录每次版本更新、需求变更与复核结果。
 
+## [2026-10-03] - v2.7.11 审计问题修复与 APK 交付
+
+### 需求与临时实施方案
+- 用户授权复核 A01–A19、修复并构建 APK；不能以静态审阅承诺零回归。
+- 根因集中于构造期副作用顺序、数字 ID 跨设备混用、恢复非原子、固定厂商档位和 UI/请求多处映射。
+- 方案：优先生成生命周期与备份数据完整性，再统一模型参数和 UI，补有意义回归，执行工程门禁与 Release 构建。
+- 开始时 main/2bcc79b，176/2.7.10、Room v32；仅审计报告未跟踪，保留原稿且不混入实现提交。
+
+### 实现与影响范围
+| 审计项 | 处理与关键文件 |
+|---|---|
+| A01/A04 | ChatViewModel 初始化末置、检查点异步；ChatGenerationManager 取消与变更代次；AiRepository 保存/删除事务与父记录检查，隔离记忆提取失败 |
+| A02/A03/A06/A14 | BackupGraphStore 事务快照、预分配全图映射、UUID 幂等、目标会话完整覆盖；BackupManager 单会话/ZIP/旧库统一入口；新增身份表及 v33 迁移 |
+| A05/A08 | BoundedInput/FileUtils 读取预算、图片采样、PDF 渲染上限、JPEG payloadMimeType；8 附件、单文件 16MB、内容预算 32MB |
+| A07/A12/A13 | HistoryExchange 全量解析后事务导入、时间保留，IO 导出；DAO 搜索/防抖、SQL 聚合统计 |
+| A09/A10/A11 | EditorDraftState 在配置重建保留草稿且关闭后清理；EchoPillSlider 48dp/语义/键盘与水平拖动；流式消费延时合帧保留尾帧 |
+| A15/A16 | Lint abortOnError=true、修复动画 targetState 与状态生产写法、JDK 路径；Room schema、Robolectric 数据库/迁移回归 |
+| A17/A18 | 提取备份图、历史解析、输入边界、模型选项等独立职责；选项 FlowRow。大型类整体拆分、全局设计令牌迁移未扩展实施 |
+| A19 | ModelVendorProfiles/ReasoningControls 具体模型选项、两入口与规范值统一；Anthropic output_config.effort 和旧版 budget_tokens 分开；未知网关保留服务端默认 |
+
+### 验证与退出码
+- 最终命令：`./gradlew.bat compileDebugKotlin testDebugUnitTest lintDebug assembleRelease --no-daemon --console=plain`，退出码 **0**（8m 1s）。四项任务均成功。
+- 78 套件 / **517 测试 / 0 failure / 0 error**；Lint **0 Error / 89 Warning**。未新增 suppress 或扩大已有崩溃探测器隔离。
+- `git diff --check`：退出码 0；`apksigner verify --print-certs`：退出码 0。
+- 中间编译/测试/Lint 曾退出 1（DAO/测试调用编译错误、旧档位预期、测试分支列名、Lint 状态生产识别）；逐项修复后复跑成功，不能将中间失败写作通过。
+- 新数据库测试覆盖 A→B→A 编辑/删除/重复覆盖、无关同名会话隔离、全量关联映射、失败回滚、旧 JSON 幂等与 Room v32→v33 打开验证。
+- 生成测试验证状态管理器缓冲重挂接/取消/旧轮次清理，不等同于 Activity 或真实网络全链路验证。
+
+### 产物
+- `D:\Agent\APP-Echo\app\releases\Echo-v2.7.11.apk`；版本 2.7.11 / 177；arm64-v8a；16,716,657 字节。
+- SHA256：`4CADE139D29E2E9ED0FF8488491A4A4BF64284351137C90FEE8614ED7DBDC599`。
+- 证书 SHA256：`939638f6d3e9af7f8a980e62af52d275fee73381f2130cc4e20a0d349f98e21f`；DN Android Debug，**非正式生产签名**。
+- 增量复制，未覆盖/删除历史 APK。Git 提交与远端状态以交付回复核验值为准。
+
+### 已知边界
+- 未连接设备、无模拟器：安装/启动、后台切页、旋转、TalkBack、小屏大字体、双实体设备续聊尚待验收；未发送真实模型 API 请求。
+- 旧备份没有稳定身份，首次作为独立会话导入；不同内容的旧快照不自动认定同一会话。新格式起支持往返覆盖。
+- Application scope 不保证进程被回收后继续联网生成；未知/第三方模型路由能力仍需按实际端点验收。
+- 数据库快照回归已执行，个人化文件/旧 ZIP 的端到端设备恢复、跨设备附件本地 URI 可访问性未验证。
+
+
 ## [2026-10-03] - v2.7.10 胶囊单行恢复垂直居中（多行展开仍左上）、首页对话列表左右间距对称
 
 ### 1. 用户需求

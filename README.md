@@ -4,16 +4,19 @@ Echo 是一个 Android 原生 AI API 客户端，用于统一调用 OpenAI 兼�
 
 ## 当前状态
 
-- 当前版本：`v2.7.10`
-- `versionCode`：`176`
-- 版本码说明：本次为正式发布包，已递增版本码，使用标准 release 签名（证书 SHA-256 与历史版本 100% 一致），支持直接覆盖旧版本平滑升级。
+- 当前版本：`v2.7.11`
+- `versionCode`：`177`
+- 签名说明：Release 构建，证书 DN 为 Android Debug，**非正式生产签名**；升级安装仍需设备验收。
 - 应用包名：`com.aiassistant`
-- Room 数据库版本：`32`
-- 构建链：Kotlin `2.0.21`，AGP `8.10.1`，Gradle `8.11.1`，Compose BOM `2024.06.00`
+- Room 数据库版本：`33`（20 实体，新增跨设备备份身份）
+- 构建链：Kotlin `2.2.21`，AGP `8.10.1`，Gradle `8.11.1`，Compose BOM `2024.06.00`
 - 当前 release ABI：`arm64-v8a`
 - GitHub 仓库：`https://github.com/zhuqichen505-design/Api-.git`
 
 ## 核心功能
+
+- v2.7.11：修复离开对话后返回的生成重挂接；新格式备份支持 A→B→A 同一会话完整覆盖续聊；思考选项按具体模型/协议展示真实参数值。
+- 本轮检查：517 项单测通过，Lint 0 Error / 89 Warning。旧格式首次导入独立会话，真实 API、安装和设备交互尚待验收。
 
 - 多 API 配置管理：支持 OpenAI 兼容格式、Anthropic 格式和常见第三方模型服务。
 - 模型管理：支持模型列表、启用模型筛选、默认 API 与默认模型选择。

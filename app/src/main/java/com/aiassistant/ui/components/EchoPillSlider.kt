@@ -4,6 +4,13 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.setProgress
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.input.key.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -100,7 +107,29 @@ fun EchoPillSlider(
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .height(thumbSize.coerceAtLeast(trackHeight)),
+            .height(48.dp.coerceAtLeast(thumbSize).coerceAtLeast(trackHeight))
+            .semantics {
+                progressBarRangeInfo = ProgressBarRangeInfo(value.coerceIn(valueRange), valueRange, steps)
+                setProgress { requested ->
+                    val step = valSpan / (totalDiscreteStops - 1)
+                    val target = (minVal + ((requested - minVal) / step).roundToInt() * step).coerceIn(valueRange)
+                    if (target == value) false else {
+                        currentOnValueChange(target)
+                        currentOnValueChangeFinished?.invoke()
+                        true
+                    }
+                }
+            }
+            .onKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown || event.key !in listOf(Key.DirectionLeft, Key.DirectionRight, Key.DirectionUp, Key.DirectionDown)) false
+                else {
+                    val direction = if (event.key == Key.DirectionRight || event.key == Key.DirectionUp) 1 else -1
+                    currentOnValueChange((value + direction * valSpan / (totalDiscreteStops - 1)).coerceIn(valueRange))
+                    currentOnValueChangeFinished?.invoke()
+                    true
+                }
+            }
+            .focusable(),
         contentAlignment = Alignment.CenterStart
     ) {
         val widthPx = with(density) { maxWidth.toPx() }
@@ -132,7 +161,7 @@ fun EchoPillSlider(
             val targetVal = currentMinVal + (stepIndex.toFloat() / (currentTotalStops - 1)) * currentValSpan
             val currentTouchVal = currentMinVal + progress * currentValSpan
             lastReportedStep = stepIndex
-            currentOnValueChange(targetVal)
+            if (targetVal != value) currentOnValueChange(targetVal)
             currentOnValueChangeFinished?.invoke()
             scope.launch {
                 animatedValue.snapTo(currentTouchVal)
@@ -158,27 +187,16 @@ fun EchoPillSlider(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(thumbSize.coerceAtLeast(trackHeight))
+                .height(48.dp.coerceAtLeast(thumbSize).coerceAtLeast(trackHeight))
                 .pointerInput(Unit) {
-                    awaitEachGesture {
-                        val down = awaitFirstDown(requireUnconsumed = false)
-                        isDragging = true
-                        var pointerId = down.id
-                        updateContinuous(down.position.x)
-
-                        while (true) {
-                            val event = awaitPointerEvent()
-                            val change = event.changes.firstOrNull { it.id == pointerId } ?: event.changes.firstOrNull()
-                            if (change == null || !change.pressed) {
-                                change?.consume()
-                                snapToNearest(lastTouchX)
-                                break
-                            }
-                            change.consume()
-                            pointerId = change.id
-                            updateContinuous(change.position.x)
-                        }
-                    }
+                    detectTapGestures { snapToNearest(it.x) }
+                }
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onDragStart = { isDragging = true; lastReportedStep = -1 },
+                        onDragCancel = { isDragging = false },
+                        onDragEnd = { snapToNearest(lastTouchX) }
+                    ) { change, _ -> updateContinuous(change.position.x) }
                 }
         ) {
             // 1. 绘制药丸圆角背景轨道与离散点

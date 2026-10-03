@@ -27,7 +27,7 @@ class V234FeaturesTest {
         val thinkingCustom = ModelCapabilityEngine.resolveCapabilities("my-agent-model-thinking")
         assertTrue("通用思考模型具备深度思考能力支持", thinkingCustom.supportsThinking)
         assertTrue("通用思考模型支持 reasoning", thinkingCustom.supportsReasoning)
-        assertTrue("支持思考档位切换", thinkingCustom.supportedThinkingGears.isNotEmpty())
+        assertEquals("未知模型不伪造独立 effort 档位", emptyList<String>(), thinkingCustom.supportedThinkingGears)
 
         val claudeCustom = ModelCapabilityEngine.resolveCapabilities("claude-3-7-sonnet-20250219")
         assertTrue("Claude 思考模型支持思考", claudeCustom.supportsThinking)

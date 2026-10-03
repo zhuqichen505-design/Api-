@@ -4,8 +4,9 @@
 
 Echo 是一个 Android 原生 AI API 客户端应用，用于调用 mimo、deepseek、OpenAI、Anthropic 等 AI 模型的 API。
 
-**当前版本**: v2.7.10
-**数据库版本**: 32
+**当前版本**: v2.7.11（versionCode 177）
+**数据库版本**: 33（20 个实体）
+**本轮验证**: 78 个测试套件，517 项通过；Lint 0 Error / 89 Warning。
 **技术栈**: Kotlin 2.2.21 + Jetpack Compose (BOM 2024.06.00) + Room 2.8.4 + Retrofit 2.9.0
 
 > 工作流、最高准则与 APK 发布铁律的唯一权威版本在工作区根目录 `D:\Agent\APP-Echo\AGENTS.md`；本文件是项目事实卡，与其冲突时以 AGENTS.md 与代码为准。
@@ -34,7 +35,7 @@ Echo 是一个 Android 原生 AI API 客户端应用，用于调用 mimo、deeps
 
 ---
 
-## 数据库结构（v32，实体清单以 `data/local/AppDatabase.kt` 为准）
+## 数据库结构（v33，实体清单以 `data/local/AppDatabase.kt` 为准）
 
 | 实体（表） | 说明 |
 |------|------|
@@ -50,8 +51,9 @@ Echo 是一个 Android 原生 AI API 客户端应用，用于调用 mimo、deeps
 | RoleplayScenario / RoleplaySession / RoleplayMemory | 角色扮演场景 / 会话 / 记忆 |
 | WorldBook / WorldBookEntry | 世界书 |
 | TimelineNode | 剧情时间线 |
+| BackupIdentity | 跨设备实体稳定身份（backup_identities） |
 
-迁移链至 `MIGRATION_31_32`（`data/local/migrations/AppDatabaseMigrations.kt`）；修改实体必须 version+1 并新增 Migration，禁止 destructive migration。
+迁移链至 `MIGRATION_32_33`（`data/local/migrations/AppDatabaseMigrations.kt`）；已开启 Room schema 导出并验证 v32→v33 打开迁移。修改实体必须 version+1 并新增 Migration，禁止 destructive migration。
 
 ---
 
@@ -62,7 +64,7 @@ Echo 是一个 Android 原生 AI API 客户端应用，用于调用 mimo、deeps
 3. **会话分支** - 从任意消息点创建分支对话
 4. **模型列表选择** - 可选择显示哪些模型
 5. **使用统计** - Token使用量、缓存命中率
-6. **数据备份** - 自动备份、手动备份、恢复备份
+6. **数据备份** - 自动备份、手动备份、事务逻辑快照；新格式稳定身份支持单会话往返覆盖（编辑、删除同步），旧格式首次独立导入。
 7. **提示词系统** - 预设模板、全局提示词
 8. **环境变量** - 加密存储、变量引用
 

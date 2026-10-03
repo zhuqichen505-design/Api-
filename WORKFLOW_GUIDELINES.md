@@ -41,6 +41,16 @@
 
 ## 二、最近一次执行记录
 
+### [2026-10-03] v2.7.11 审计修复发版
+- [x] 基线 main/2bcc79b；原有未跟踪审计报告保留。
+- [x] A01–A19 按 UPDATE_LOG.md 逐项实现/限定范围；临时实施方案已在对话提供。
+- [x] 版本 177/2.7.11；Room v33/20 实体；schema 与迁移回归。
+- [x] compileDebugKotlin + testDebugUnitTest + lintDebug + assembleRelease 最终联合命令退出 0；517 测试通过，Lint 0 Error/89 Warning。
+- [x] git diff --check 退出 0；APK 唯一路径增量复制，签名核验退出 0。
+- [x] 发布文档、事实卡更新；设备未验证边界及人工验收见 walkthrough.md。
+- Git 提交、标签与远端核验：以本轮交付回复中的实际命令结果为准。
+
+
 ### [2026-10-03] v2.7.10 胶囊单行恢复垂直居中、首页对话气泡左右间距对称（发版）
 - **需求**：① v2.7.9 修复后胶囊只有一行时图案和内容错误偏上；② 首页对话气泡左右间距不同、右侧明显更大。构建 APK。
 - **版本**：versionCode 176 / versionName 2.7.10 / Room v32（无 DB 变更）。

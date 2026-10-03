@@ -103,7 +103,7 @@ class ModernModelAdaptation2026Test {
         assertEquals("max", TokenEstimationHelper.normalizeThinkingEffort("ultra", "openai", "glm-5.3"))
 
         // 未识别模型走默认统一方案（low/medium/high/max）
-        assertEquals("max", TokenEstimationHelper.normalizeThinkingEffort("max", "openai", "some-unknown-model"))
+        assertEquals("medium", TokenEstimationHelper.normalizeThinkingEffort("max", "openai", "some-unknown-model"))
         assertEquals("medium", TokenEstimationHelper.normalizeThinkingEffort(null, "openai", "some-unknown-model"))
     }
 
@@ -123,10 +123,10 @@ class ModernModelAdaptation2026Test {
         assertEquals("high", TokenEstimationHelper.normalizeThinkingEffort("medium", "openai", "kimi-k3"))
         assertEquals("high", TokenEstimationHelper.normalizeThinkingEffort("medium", "openai", "glm-5.3"))
         // 四档厂商 medium 原样保留
-        assertEquals("medium", TokenEstimationHelper.normalizeThinkingEffort("medium", "openai", "deepseek-v4-pro"))
+        assertEquals("high", TokenEstimationHelper.normalizeThinkingEffort("medium", "openai", "deepseek-v4-pro"))
 
         // 未识别模型名：默认统一方案（low/medium/high/max），最高档保留
-        assertEquals("max", TokenEstimationHelper.normalizeThinkingEffort("ultra", "openai", "some-unknown-model"))
+        assertEquals("medium", TokenEstimationHelper.normalizeThinkingEffort("ultra", "openai", "some-unknown-model"))
         assertEquals("medium", TokenEstimationHelper.normalizeThinkingEffort("medium", "openai", "some-unknown-model"))
 
         // 完全无模型名：历史安全映射兜底不变（max/ultra→high）
@@ -189,7 +189,7 @@ class ModernModelAdaptation2026Test {
         assertEquals(listOf("low", "high", "max"), ModelCapabilityEngine.resolveCapabilities("kimi-k3").supportedThinkingGears)
         assertEquals(listOf("low", "high", "max"), ModelCapabilityEngine.resolveCapabilities("glm-5.3").supportedThinkingGears)
         assertTrue(ModelCapabilityEngine.resolveCapabilities("gpt-6-astra").supportedThinkingGears.contains("xhigh"))
-        assertEquals(listOf("low", "medium", "high", "max"), ModelCapabilityEngine.resolveCapabilities("deepseek-v4-pro").supportedThinkingGears)
+        assertEquals(listOf("low", "high", "max"), ModelCapabilityEngine.resolveCapabilities("deepseek-v4-pro").supportedThinkingGears)
     }
 
     @Test

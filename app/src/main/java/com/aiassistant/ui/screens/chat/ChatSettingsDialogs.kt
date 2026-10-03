@@ -274,18 +274,12 @@ fun ChatSettingsDialog(
         temperature = temperature.coerceIn(0f, tuningProfile.temperatureMax)
     }
     LaunchedEffect(enableThinking, tuningProfile.thinkingEfforts) {
+        if (com.aiassistant.domain.model.ModelVendorProfiles.policyFor(currentOption?.modelName ?: fallbackModel).alwaysThinking) enableThinking = true
         val options = tuningProfile.thinkingEfforts
         if (enableThinking && options.isNotEmpty() && options.none { it.value.equals(thinkingEffort, ignoreCase = true) }) {
-            // 历史档位不在当前厂商档位列表内时，就近收敛到最接近档位（同距取更高档），而非粗暴回落最低档
-            val gearRank = listOf("low", "medium", "high", "xhigh", "ultra", "max")
-            val currentRank = gearRank.indexOfFirst { it.equals(thinkingEffort, ignoreCase = true) }.takeIf { it >= 0 } ?: 1
-            thinkingEffort = options
-                .minWithOrNull(
-                    compareBy(
-                        { option -> kotlin.math.abs(gearRank.indexOfFirst { it.equals(option.value, ignoreCase = true) } - currentRank) },
-                        { option -> -gearRank.indexOfFirst { it.equals(option.value, ignoreCase = true) } }
-                    )
-                )?.value ?: options.first().value
+            thinkingEffort = com.aiassistant.domain.model.ReasoningControls.selected(
+                currentOption?.modelName ?: fallbackModel, currentOption?.apiType ?: "openai", enableThinking, thinkingEffort
+            ).value
         }
     }
     var pendingCropUri by remember { mutableStateOf<Uri?>(null) }
@@ -407,6 +401,7 @@ fun ChatSettingsDialog(
                         }
                         Switch(
                             checked = enableThinking,
+                            enabled = com.aiassistant.domain.model.ReasoningControls.options(currentOption?.modelName ?: fallbackModel, currentOption?.apiType ?: "openai").any { !it.enabled },
                             onCheckedChange = {
                                 enableThinking = it
                                 notifyTempSettingsChange()

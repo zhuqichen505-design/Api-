@@ -59,13 +59,13 @@ class V1918FeaturesTest {
         val claude37 = ModelCapabilityEngine.resolveCapabilities("claude-3-7-sonnet")
         assertTrue(claude37.supportsThinking)
         assertEquals("anthropic", claude37.reasoningProviderType)
-        assertTrue(claude37.supportedThinkingGears.contains("high"))
+        assertEquals(emptyList<String>(), claude37.supportedThinkingGears) // Uses numeric budget, not effort.
 
         // DeepSeek-R1: full reasoning with dynamic thinking gears support (v1.9.20 upgrade)
         val dsR1 = ModelCapabilityEngine.resolveCapabilities("deepseek-reasoner")
         assertTrue(dsR1.supportsThinking)
         assertEquals("deepseek_fixed", dsR1.reasoningProviderType)
-        assertTrue(dsR1.supportedThinkingGears.isNotEmpty())
+        assertEquals(emptyList<String>(), dsR1.supportedThinkingGears)
 
         // Non-thinking model
         val gpt4o = ModelCapabilityEngine.resolveCapabilities("gpt-4o")

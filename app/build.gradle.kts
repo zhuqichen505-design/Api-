@@ -13,8 +13,8 @@ android {
         applicationId = "com.aiassistant"
         minSdk = 26
         targetSdk = 34
-        versionCode = 176
-        versionName = "2.7.10"
+        versionCode = 177
+        versionName = "2.7.11"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -86,7 +86,7 @@ android {
         }
     }
     lint {
-        abortOnError = false
+        abortOnError = true
         checkReleaseBuilds = false
     }
 }
@@ -111,6 +111,7 @@ kotlin {
 
 ksp {
     arg("room.generateKotlin", "true")
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 dependencies {
@@ -161,6 +162,7 @@ dependencies {
 
     // Testing
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.14.1")
     testImplementation("org.hamcrest:hamcrest:2.2")
     testImplementation("org.jetbrains.kotlin:kotlin-test")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")

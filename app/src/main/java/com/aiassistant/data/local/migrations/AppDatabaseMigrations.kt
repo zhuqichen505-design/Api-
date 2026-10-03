@@ -500,6 +500,13 @@ object AppDatabaseMigrations {
             }
         }
 
+        val MIGRATION_32_33 = object : Migration(32, 33) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("CREATE TABLE IF NOT EXISTS `backup_identities` (`entityTable` TEXT NOT NULL, `entityId` INTEGER NOT NULL, `uuid` TEXT NOT NULL, PRIMARY KEY(`entityTable`, `entityId`))")
+                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_backup_identities_uuid` ON `backup_identities` (`uuid`)")
+            }
+        }
+
         val LEGACY_REPAIR_MIGRATIONS: Array<Migration> = ((1..22)
             .map { startVersion ->
                 object : Migration(startVersion, 23) {
@@ -507,7 +514,7 @@ object AppDatabaseMigrations {
                         repairSchema(database)
                     }
                 }
-            } + MIGRATION_17_18 + MIGRATION_18_19 + MIGRATION_19_20 + MIGRATION_20_21 + MIGRATION_21_22 + MIGRATION_22_23 + MIGRATION_23_24 + MIGRATION_24_25 + MIGRATION_25_26 + MIGRATION_26_27 + MIGRATION_27_28 + MIGRATION_28_29 + MIGRATION_29_30 + MIGRATION_30_31 + MIGRATION_31_32)
+            } + MIGRATION_17_18 + MIGRATION_18_19 + MIGRATION_19_20 + MIGRATION_20_21 + MIGRATION_21_22 + MIGRATION_22_23 + MIGRATION_23_24 + MIGRATION_24_25 + MIGRATION_25_26 + MIGRATION_26_27 + MIGRATION_27_28 + MIGRATION_28_29 + MIGRATION_29_30 + MIGRATION_30_31 + MIGRATION_31_32 + MIGRATION_32_33)
             .toTypedArray()
 
         private fun repairSchema(database: SupportSQLiteDatabase) {

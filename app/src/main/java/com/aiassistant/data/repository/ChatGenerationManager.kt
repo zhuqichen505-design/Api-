@@ -117,6 +117,8 @@ object ChatGenerationManager {
     }
 
     private val sessions = ConcurrentHashMap<Long, ActiveSession>()
+    private val mutationEpochs = ConcurrentHashMap<Long, Long>()
+    fun mutationEpoch(conversationId: Long): Long = mutationEpochs[conversationId] ?: 0L
 
     fun getSession(conversationId: Long): ActiveSession? {
         return sessions[conversationId]
@@ -148,6 +150,15 @@ object ChatGenerationManager {
 
     fun removeSession(conversationId: Long) {
         sessions.remove(conversationId)
+    }
+
+    fun cancelSession(conversationId: Long) {
+        mutationEpochs.merge(conversationId, 1L) { old, increment -> old + increment }
+        sessions.remove(conversationId)?.let { session ->
+            session.isMessageSaved.set(true)
+            session.markFinished()
+            session.generationJob?.cancel()
+        }
     }
 
     /**

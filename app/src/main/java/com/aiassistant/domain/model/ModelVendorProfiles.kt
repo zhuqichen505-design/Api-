@@ -216,7 +216,8 @@ object ModelVendorProfiles {
     }
 
     fun policyFor(modelName: String, provider: String = "", baseUrl: String = ""): VendorParameterPolicy {
-        return when (detectVendor(modelName, provider, baseUrl)) {
+        val name = modelName.lowercase(Locale.ROOT)
+        val base = when (detectVendor(modelName, provider, baseUrl)) {
             ModelVendor.GPT -> GPT
             ModelVendor.MINIMAX -> MINIMAX
             ModelVendor.KIMI -> KIMI
@@ -227,6 +228,40 @@ object ModelVendorProfiles {
             ModelVendor.CLAUDE -> CLAUDE
             ModelVendor.OTHER -> DEFAULT
         }
+        return when (base.vendor) {
+            ModelVendor.GPT -> when {
+                "astra" in name || "gpt-6" in name -> base.copy(alwaysThinking = true)
+                "gpt-5.2-pro" in name -> base.copy(thinkingGears = listOf("medium", "high", "xhigh"), alwaysThinking = true)
+                "gpt-5.6" in name -> base.copy(thinkingGears = listOf("none", "low", "medium", "high", "xhigh", "max"))
+                "gpt-5.2" in name || "gpt-5.4" in name -> base.copy(thinkingGears = listOf("none", "low", "medium", "high", "xhigh"))
+                "gpt-5.1" in name -> base.copy(thinkingGears = listOf("none", "low", "medium", "high"))
+                "gpt-5" in name -> base.copy(thinkingGears = listOf("minimal", "low", "medium", "high"), alwaysThinking = true)
+                else -> base.copy(thinkingGears = emptyList(), usesReasoningEffort = false)
+            }
+            ModelVendor.KIMI -> if ("k3" in name) base else base.copy(thinkingGears = emptyList(), usesReasoningEffort = false, alwaysThinking = "thinking" in name)
+            ModelVendor.GLM -> when {
+                "5.3" in name -> base
+                "5.2" in name -> base.copy(thinkingGears = listOf("high", "max"))
+                else -> base.copy(thinkingGears = emptyList(), usesReasoningEffort = false, alwaysThinking = false)
+            }
+            ModelVendor.MINIMAX -> if ("m3.1" in name) base.copy(thinkingGears = listOf("low", "medium", "high", "xhigh", "max"), defaultThinkingGear = "max", alwaysThinking = true)
+                else base.copy(thinkingGears = emptyList(), usesReasoningEffort = false, alwaysThinking = true)
+            ModelVendor.DEEPSEEK -> if ("v4" in name || "flash" in name || "pro" in name) base.copy(thinkingGears = listOf("low", "high", "max"), defaultThinkingGear = "high")
+                else base.copy(thinkingGears = emptyList(), usesReasoningEffort = false, alwaysThinking = "reasoner" in name || "r1" in name)
+            ModelVendor.GEMINI -> when {
+                "3.1-pro" in name -> base.copy(thinkingGears = listOf("low", "medium", "high"), defaultThinkingGear = "high", alwaysThinking = true)
+                "3-pro" in name -> base.copy(thinkingGears = listOf("low", "high"), defaultThinkingGear = "high", alwaysThinking = true)
+                "3-flash" in name -> base.copy(thinkingGears = listOf("minimal", "low", "medium", "high"), defaultThinkingGear = "high", alwaysThinking = true)
+                else -> base.copy(thinkingGears = emptyList(), usesReasoningEffort = false)
+            }
+            ModelVendor.CLAUDE -> when {
+                "opus-5" in name || "opus-4-7" in name || "opus-4-8" in name -> base.copy(thinkingGears = listOf("low", "medium", "high", "xhigh", "max"), alwaysThinking = "opus-5-5" in name || "opus-5.5" in name)
+                "opus-4-6" in name || "opus-4.6" in name -> base
+                "sonnet-4-6" in name || "sonnet-4.6" in name -> base.copy(thinkingGears = listOf("low", "medium", "high"))
+                else -> base.copy(thinkingGears = emptyList())
+            }
+            ModelVendor.MIMO, ModelVendor.OTHER -> base.copy(thinkingGears = emptyList(), usesReasoningEffort = false)
+        }
     }
 
     /**
@@ -236,6 +271,8 @@ object ModelVendorProfiles {
     fun mapThinkingGear(raw: String?, policy: VendorParameterPolicy): String {
         val gears = policy.thinkingGears
         if (gears.isEmpty()) return policy.defaultThinkingGear
+        val exact = raw?.lowercase(Locale.ROOT)?.trim()
+        if (exact in gears) return exact!!
         val normalized = when (raw?.lowercase(Locale.ROOT)?.trim()) {
             null, "", "none", "off", "disabled" -> policy.defaultThinkingGear
             "fast", "minimal", "light", "low" -> "low"

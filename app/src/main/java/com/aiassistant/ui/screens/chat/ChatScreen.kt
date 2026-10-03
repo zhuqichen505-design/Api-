@@ -179,33 +179,19 @@ fun ChatScreen(
     // P0-2① 合帧消费（R-1 红线）：流式 token 经 33ms 窗口合并（≈30fps 上限），
     // 杜绝逐 token 全屏重组；长度收缩（重置/重发清空）时立即发射，避免旧文本滞留。
     // StateFlow conflate 特性天然丢弃中间态，无积压风险。
-    val currentResponse by produceState("", viewModel) {
-        var lastFrame = 0L
-        var prevLength = -1
+    var currentResponse by remember(viewModel) { mutableStateOf("") }
+    LaunchedEffect(viewModel) {
         viewModel.currentResponse.collect { full ->
-            val now = android.os.SystemClock.uptimeMillis()
-            if (full.length < prevLength || full.isEmpty() ||
-                now - lastFrame >= com.aiassistant.ui.theme.EchoMotion.Typewriter.frameBudgetMs
-            ) {
-                value = full
-                prevLength = full.length
-                lastFrame = now
-            }
+            currentResponse = full
+            kotlinx.coroutines.delay(com.aiassistant.ui.theme.EchoMotion.Typewriter.frameBudgetMs)
         }
     }
     // 与 currentResponse 同一合帧策略，思考块流式同样 30fps 上限
-    val currentThinking by produceState("", viewModel) {
-        var lastFrame = 0L
-        var prevLength = -1
+    var currentThinking by remember(viewModel) { mutableStateOf("") }
+    LaunchedEffect(viewModel) {
         viewModel.currentThinking.collect { full ->
-            val now = android.os.SystemClock.uptimeMillis()
-            if (full.length < prevLength || full.isEmpty() ||
-                now - lastFrame >= com.aiassistant.ui.theme.EchoMotion.Typewriter.frameBudgetMs
-            ) {
-                value = full
-                prevLength = full.length
-                lastFrame = now
-            }
+            currentThinking = full
+            kotlinx.coroutines.delay(com.aiassistant.ui.theme.EchoMotion.Typewriter.frameBudgetMs)
         }
     }
     val error by viewModel.error.collectAsState()
@@ -315,20 +301,27 @@ fun ChatScreen(
     }
 
     fun addAttachments(uris: List<Uri>, forceOcr: Boolean = false) {
-        if (uris.isEmpty()) return
+        if (uris.isEmpty() || isProcessingAttachments) return
         scope.launch {
             isProcessingAttachments = true
             attachmentStatus = "正在处理附件..."
             val modelName = currentModel ?: uiState.modelName
             val supportsImageOverride = currentModelOption?.capability?.imageSupportOverride()
-            val newAttachments = uris.mapNotNull { uri ->
-                FileUtils.prepareAttachment(
+            val newAttachments = mutableListOf<Attachment>()
+            var totalChars = selectedAttachments.sumOf { (it.base64Data?.length ?: 0).toLong() + (it.textContent?.length ?: 0) }
+            try {
+            require(selectedAttachments.size + uris.size <= 8) { "每次最多添加 8 个附件" }
+            uris.forEach { uri ->
+                val prepared = FileUtils.prepareAttachment(
                     context = context,
                     uri = uri,
                     modelName = modelName,
                     forceOcr = forceOcr,
                     supportsImageInputOverride = supportsImageOverride
-                )
+                ) ?: error("附件读取失败或超过 16 MB 限制")
+                totalChars += (prepared.base64Data?.length ?: 0) + (prepared.textContent?.length ?: 0)
+                require(totalChars <= com.aiassistant.utils.BoundedInput.MAX_TOTAL_CHARS) { "附件总内容超过限制，请减少附件数量" }
+                newAttachments.add(prepared)
             }
             selectedAttachments = selectedAttachments + newAttachments
             attachmentStatus = when {
@@ -336,7 +329,13 @@ fun ChatScreen(
                 newAttachments.any { it.processingNote?.contains("OCR") == true } -> "已添加 ${newAttachments.size} 个附件，图片已OCR"
                 else -> "已添加 ${newAttachments.size} 个附件"
             }
-            isProcessingAttachments = false
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                attachmentStatus = e.message ?: "附件处理失败"
+            } finally {
+                isProcessingAttachments = false
+            }
         }
     }
 
@@ -1168,6 +1167,7 @@ fun ChatScreen(
                     onPlotActionClick = { showPlotActionDialog = true },
                     readableBackdrop = readableBackdrops.bottom,
                     modelName = currentModelOption?.modelName ?: currentModel ?: uiState.modelName,
+                    apiType = currentModelOption?.apiType ?: "openai",
                     isBarsHidden = isBarsHidden,
                     onBarsHiddenChange = { isBarsHidden = it }
                 )

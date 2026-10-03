@@ -28,10 +28,11 @@ import com.aiassistant.domain.model.*
         CharacterTagCrossRef::class,
         WorldBook::class,
         WorldBookEntry::class,
-        TimelineNode::class
+        TimelineNode::class,
+        BackupIdentity::class
     ],
-    version = 32,
-    exportSchema = false
+    version = 33,
+    exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun folderDao(): FolderDao

@@ -32,8 +32,9 @@ fun NewRoleplaySessionScreen(
     val repository = remember { com.aiassistant.AiAssistantApp.instance.repository }
     val characters by viewModel.characters.collectAsState()
     val scenarios by viewModel.scenarios.collectAsState()
-    val visibleModelOptions by produceState<List<ChatModelOption>>(initialValue = emptyList(), apiConfigs) {
-        value = repository.getAllVisibleChatModelOptions()
+    var visibleModelOptions by remember { mutableStateOf<List<ChatModelOption>>(emptyList()) }
+    LaunchedEffect(apiConfigs) {
+        visibleModelOptions = repository.getAllVisibleChatModelOptions()
     }
 
     var selectedCharacterIds by remember { mutableStateOf(setOf<Long>()) }

@@ -50,27 +50,29 @@ fun CharacterEditorScreen(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
-    var avatarUri by remember { mutableStateOf(character?.avatarUri) }
-    var name by remember { mutableStateOf(character?.name ?: "") }
-    var identity by remember { mutableStateOf(character?.identity ?: "") }
-    var personality by remember { mutableStateOf(character?.personality ?: "") }
-    var background by remember { mutableStateOf(character?.background ?: "") }
-    var speakingStyle by remember { mutableStateOf(character?.speakingStyle ?: "") }
-    var goals by remember { mutableStateOf(character?.goals ?: "") }
-    var relationships by remember { mutableStateOf(character?.relationships ?: "") }
-    var knowledge by remember { mutableStateOf(character?.knowledge ?: "") }
-    var constraints by remember { mutableStateOf(character?.constraints ?: "") }
-    var behaviorRules by remember { mutableStateOf(character?.behaviorRules ?: "") }
-    var greeting by remember { mutableStateOf(character?.greeting ?: "") }
-    var exampleDialogue by remember { mutableStateOf(character?.exampleDialogue ?: "") }
-    var tags by remember { mutableStateOf(character?.tags ?: "") }
-    var isFavorite by remember { mutableStateOf(character?.isFavorite ?: false) }
-    var isDefault by remember { mutableStateOf(character?.isDefault ?: false) }
+    val draftKey = "character:${character?.id ?: "new"}"
+    retainEditorDraft(draftKey)
+    var avatarUri by editorField(draftKey, "avatarUri", character?.avatarUri)
+    var name by editorField(draftKey, "name", character?.name ?: "")
+    var identity by editorField(draftKey, "identity", character?.identity ?: "")
+    var personality by editorField(draftKey, "personality", character?.personality ?: "")
+    var background by editorField(draftKey, "background", character?.background ?: "")
+    var speakingStyle by editorField(draftKey, "speakingStyle", character?.speakingStyle ?: "")
+    var goals by editorField(draftKey, "goals", character?.goals ?: "")
+    var relationships by editorField(draftKey, "relationships", character?.relationships ?: "")
+    var knowledge by editorField(draftKey, "knowledge", character?.knowledge ?: "")
+    var constraints by editorField(draftKey, "constraints", character?.constraints ?: "")
+    var behaviorRules by editorField(draftKey, "behaviorRules", character?.behaviorRules ?: "")
+    var greeting by editorField(draftKey, "greeting", character?.greeting ?: "")
+    var exampleDialogue by editorField(draftKey, "exampleDialogue", character?.exampleDialogue ?: "")
+    var tags by editorField(draftKey, "tags", character?.tags ?: "")
+    var isFavorite by editorField(draftKey, "isFavorite", character?.isFavorite ?: false)
+    var isDefault by editorField(draftKey, "isDefault", character?.isDefault ?: false)
 
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showPreview by remember { mutableStateOf(false) }
     var showSmartReadDialog by remember { mutableStateOf(false) }
-    var currentSection by remember { mutableStateOf(0) }
+    var currentSection by editorField(draftKey, "section", 0)
 
     val scrollState = rememberScrollState()
 

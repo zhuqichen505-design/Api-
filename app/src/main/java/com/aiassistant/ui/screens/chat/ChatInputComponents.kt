@@ -185,6 +185,7 @@ fun ChatInputBar(
     onPlotActionClick: () -> Unit = {},
     readableBackdrop: Color = Color.Unspecified,
     modelName: String = "",
+    apiType: String = "openai",
     isBarsHidden: Boolean = false,
     onBarsHiddenChange: (Boolean) -> Unit = {}
 ) {
@@ -268,6 +269,7 @@ fun ChatInputBar(
                 enableThinking = enableThinking,
                 thinkingEffort = thinkingEffort,
                 modelName = modelName,
+                apiType = apiType,
                 onEffortSelected = { enabled, effort ->
                     onThinkingChange(enabled, effort)
                 },
@@ -488,14 +490,7 @@ fun ChatInputBar(
                         ) {
                             // 1. 深度思考 按钮（排在第1位，点击向上展开档位弹窗）
                             item {
-                                val effortText = when {
-                                    !enableThinking -> "深度思考"
-                                    thinkingEffort.equals("low", true) || thinkingEffort.equals("fast", true) -> "快速思考"
-                                    thinkingEffort.equals("medium", true) || thinkingEffort.equals("balanced", true) -> "平衡思考"
-                                    thinkingEffort.equals("high", true) || thinkingEffort.equals("deep", true) -> "深入思考"
-                                    thinkingEffort.equals("ultra", true) || thinkingEffort.equals("max", true) -> "极高思考"
-                                    else -> "平衡思考"
-                                }
+                                val effortText = com.aiassistant.domain.model.ReasoningControls.selected(modelName, apiType, enableThinking, thinkingEffort).label
                                 val effortAccentColor = when {
                                     !enableThinking -> glass.outline
                                     thinkingEffort.equals("low", true) || thinkingEffort.equals("fast", true) -> EchoThinkingColors.low // 柔和纯正天蓝
@@ -1009,12 +1004,13 @@ internal fun ReasoningEffortPopupCard(
     enableThinking: Boolean,
     thinkingEffort: String,
     modelName: String = "",
+    apiType: String = "openai",
     onEffortSelected: (Boolean, String) -> Unit,
     onClose: () -> Unit
 ) {
     var showParamsExplanationDialog by remember { mutableStateOf(false) }
 
-    val levels = remember {
+    val levels = remember(modelName, apiType) {
         listOf(
             ThinkingEffortLevel(
                 step = 0,
@@ -1066,20 +1062,18 @@ internal fun ReasoningEffortPopupCard(
                 primaryColor = EchoThinkingColors.max,
                 gradientColors = EchoThinkingColors.maxGradient
             )
-        )
+        ).let { templates ->
+            com.aiassistant.domain.model.ReasoningControls.options(modelName, apiType).mapIndexed { index, option ->
+                val template = templates.firstOrNull { it.key == option.value } ?: templates[if (option.enabled) 3 else 0]
+                template.copy(step = index, key = option.value, enabled = option.enabled, name = option.label,
+                    subtitle = option.label, detail = "当前模型与接口的实际参数")
+            }
+        }
     }
 
     val maxStep = levels.lastIndex
-    val currentStep = remember(enableThinking, thinkingEffort, maxStep) {
-        if (!enableThinking) 0
-        else when (thinkingEffort.lowercase()) {
-            "low", "fast" -> 1
-            "medium", "balanced" -> 2
-            "high", "deep" -> 3
-            "ultra", "max" -> 4
-            else -> 2
-        }.coerceIn(0, maxStep)
-    }
+    val selected = com.aiassistant.domain.model.ReasoningControls.selected(modelName, apiType, enableThinking, thinkingEffort)
+    val currentStep = levels.indexOfFirst { it.key == selected.value }.coerceAtLeast(0)
 
     var sliderIndex by remember { mutableFloatStateOf(currentStep.toFloat()) }
     LaunchedEffect(currentStep) {
@@ -1196,10 +1190,10 @@ internal fun ReasoningEffortPopupCard(
                 )
 
                 // 快捷点选 Chips 行
-                Row(
+                FlowRow(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     levels.forEach { lvl ->
                         val isSelected = currentLevel.step == lvl.step
@@ -1291,9 +1285,9 @@ internal fun ThinkingParamsExplanationDialog(
                     badgeColor = EchoThinkingColors.none,
                     desc = "跳过思维链推演，以模型原生最高速度直接生成最终回复内容（强制思考模型保持原生工作）。",
                     params = listOf(
-                        "OpenAI GPT-5.6/6" to "不传 reasoning_effort",
-                        "Claude / Anthropic" to "不启用 thinking 模块",
-                        "DeepSeek V4" to "不传 reasoning_effort，原生极速直出"
+                        "支持关闭的 GPT" to "reasoning_effort = none",
+                        "可关闭的 Claude / Anthropic" to "thinking.type = disabled",
+                        "DeepSeek V4" to "thinking.type = disabled（省略 effort 不代表关闭）"
                     )
                 )
 
@@ -1304,8 +1298,8 @@ internal fun ThinkingParamsExplanationDialog(
                     desc = "分配精简思考预算进行关键逻辑检查，低延迟极速响应。",
                     params = listOf(
                         "OpenAI GPT-5.6/6" to "reasoning_effort = \"low\"",
-                        "Claude / Anthropic" to "thinking.budget_tokens = 2048",
-                        "通用兼容 API" to "thinking_effort = \"low\""
+                        "支持 effort 的 Claude / Anthropic" to "output_config.effort = low",
+                        "未知兼容 API" to "保持服务端默认，不推定支持 low"
                     )
                 )
 
@@ -1316,8 +1310,8 @@ internal fun ThinkingParamsExplanationDialog(
                     desc = "投入适度思考预算，严密推演逻辑与代码设计（日常最佳平衡点）。",
                     params = listOf(
                         "OpenAI GPT-5.6/6" to "reasoning_effort = \"medium\"",
-                        "Claude / Anthropic" to "thinking.budget_tokens = 4096 / 8192",
-                        "通用兼容 API" to "thinking_effort = \"medium\""
+                        "支持 effort 的 Claude / Anthropic" to "output_config.effort = medium",
+                        "DeepSeek V4 / Kimi K3 / GLM-5.3" to "无独立 medium 档位"
                     )
                 )
 
@@ -1328,8 +1322,8 @@ internal fun ThinkingParamsExplanationDialog(
                     desc = "投入大量思考预算进行多步论证、边界检查与复杂代码推演。",
                     params = listOf(
                         "OpenAI GPT-5.6/6" to "reasoning_effort = \"high\"",
-                        "Claude / Anthropic" to "thinking.budget_tokens = 8192 / 16384",
-                        "通用兼容 API" to "thinking_effort = \"high\""
+                        "支持 effort 的 Claude / Anthropic" to "output_config.effort = high",
+                        "旧版 Claude" to "显示并发送数值 budget_tokens"
                     )
                 )
 
@@ -1340,8 +1334,8 @@ internal fun ThinkingParamsExplanationDialog(
                     desc = "释放最大思考预算上限，全力攻坚高难算法、数学定理与复杂多维哲学推理。",
                     params = listOf(
                         "OpenAI GPT-6" to "reasoning_effort = \"max\"（原生支持 xhigh/max）",
-                        "Claude / Anthropic" to "thinking.budget_tokens = 32768 / 64000 (满额)",
-                        "通用兼容 API" to "thinking_effort = \"max\""
+                        "支持 max 的 Claude / Anthropic" to "output_config.effort = max",
+                        "xhigh" to "独立参数值；仅模型明确支持时提供"
                     )
                 )
             }

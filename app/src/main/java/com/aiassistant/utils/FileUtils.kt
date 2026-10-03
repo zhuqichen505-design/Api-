@@ -15,6 +15,7 @@ import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
@@ -119,6 +120,7 @@ object FileUtils {
             val name = getFileName(context, uri)
             val mimeType = getMimeType(context, uri, name)
             val size = getFileSize(context, uri)
+            require(size <= BoundedInput.MAX_FILE_BYTES) { "单个附件不能超过 16 MB" }
             val image = isImage(mimeType, name)
             val modelSupportsImages = supportsImageInputOverride ?: supportsImageInput(modelName)
 
@@ -148,7 +150,8 @@ object FileUtils {
                             mimeType = mimeType,
                             size = size,
                             base64Data = base64,
-                            processingNote = "图片已压缩"
+                            processingNote = "图片已压缩",
+                            payloadMimeType = "image/jpeg"
                         )
                     } else {
                         val ocrText = recognizeImageText(context, uri).orEmpty().trim()
@@ -207,6 +210,8 @@ object FileUtils {
                     )
                 }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             e.printStackTrace()
             null
@@ -250,8 +255,12 @@ object FileUtils {
 
     suspend fun recognizeImageText(context: Context, uri: Uri): String? {
         return try {
-            val image = InputImage.fromFilePath(context, uri)
-            recognizeInputImage(image)
+            val bitmap = decodeSampled(context, uri, 2048, 2048) ?: return null
+            try {
+                recognizeInputImage(InputImage.fromBitmap(bitmap, 0))
+            } finally {
+                bitmap.recycle()
+            }
         } catch (e: Exception) {
             e.printStackTrace()
             null
@@ -299,8 +308,9 @@ object FileUtils {
 
                 for (index in 0 until pageCount) {
                     renderer.openPage(index).use { page ->
-                        val width = (page.width * 2).coerceAtLeast(800)
-                        val height = (page.height * 2).coerceAtLeast(1000)
+                        val scale = minOf(2.0, 2048.0 / maxOf(page.width, page.height).coerceAtLeast(1))
+                        val width = (page.width * scale).toInt().coerceAtLeast(1)
+                        val height = (page.height * scale).toInt().coerceAtLeast(1)
                         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
                         bitmap.eraseColor(Color.WHITE)
                         page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
@@ -328,11 +338,7 @@ object FileUtils {
     // 将图片转换为Base64
     fun imageToBase64(context: Context, uri: Uri, maxWidth: Int = 1024, maxHeight: Int = 1024): String? {
         return try {
-            val inputStream: InputStream? = context.contentResolver.openInputStream(uri)
-            val bitmap = BitmapFactory.decodeStream(inputStream)
-            inputStream?.close()
-
-            if (bitmap == null) return null
+            val bitmap = decodeSampled(context, uri, maxWidth, maxHeight) ?: return null
 
             // 压缩图片
             val scaledBitmap = scaleBitmap(bitmap, maxWidth, maxHeight)
@@ -364,8 +370,8 @@ object FileUtils {
         }
 
         val ratio = minOf(maxWidth.toFloat() / width, maxHeight.toFloat() / height)
-        val newWidth = (width * ratio).toInt()
-        val newHeight = (height * ratio).toInt()
+        val newWidth = (width * ratio).toInt().coerceAtLeast(1)
+        val newHeight = (height * ratio).toInt().coerceAtLeast(1)
 
         return Bitmap.createScaledBitmap(bitmap, newWidth, newHeight, true)
     }
@@ -375,18 +381,7 @@ object FileUtils {
         return try {
             val inputStream: InputStream? = context.contentResolver.openInputStream(uri)
             val content = inputStream?.bufferedReader()?.use { reader ->
-                val sb = StringBuilder()
-                var charCount = 0
-                var line: String?
-                while (reader.readLine().also { line = it } != null) {
-                    if (charCount + (line?.length ?: 0) + 1 > maxChars) {
-                        sb.appendLine("[内容已截断，完整内容过长]")
-                        break
-                    }
-                    sb.appendLine(line)
-                    charCount += (line?.length ?: 0) + 1
-                }
-                sb.toString()
+                BoundedInput.text(reader, maxChars)
             }
             content
         } catch (e: Exception) {
@@ -399,7 +394,7 @@ object FileUtils {
     fun readFileAsBase64(context: Context, uri: Uri): String? {
         return try {
             val inputStream: InputStream? = context.contentResolver.openInputStream(uri)
-            val byteArray = inputStream?.use { it.readBytes() }
+            val byteArray = inputStream?.use { BoundedInput.bytes(it) }
             if (byteArray != null) {
                 Base64.encodeToString(byteArray, Base64.NO_WRAP)
             } else null
@@ -407,6 +402,16 @@ object FileUtils {
             e.printStackTrace()
             null
         }
+    }
+
+    private fun decodeSampled(context: Context, uri: Uri, maxWidth: Int, maxHeight: Int): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = BoundedInput.sampleSize(bounds.outWidth, bounds.outHeight, maxWidth, maxHeight)
+        }
+        return context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
     }
 
     // 格式化文件大小

@@ -1,5 +1,7 @@
 package com.aiassistant.ui.screens.history
 
+import androidx.room.withTransaction
+
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
@@ -91,23 +93,12 @@ fun HistoryScreen(
         }
 
         if (searchInMessages) {
-            // 搜索消息内容
-            val results = mutableListOf<SearchResult>()
-            conversations.forEach { conv ->
-                val messages = repository.getMessagesList(conv.id)
-                messages.forEach { msg ->
-                    if (msg.content.contains(searchQuery, ignoreCase = true)) {
-                        results.add(
-                            SearchResult(
-                                conversation = conv,
-                                message = msg,
-                                matchText = msg.content
-                            )
-                        )
-                    }
-                }
+            searchResults = emptyList()
+            kotlinx.coroutines.delay(250)
+            val byId = conversations.associateBy { it.id }
+            searchResults = repository.searchMessages(searchQuery).mapNotNull { msg ->
+                byId[msg.conversationId]?.let { SearchResult(it, msg, msg.content) }
             }
-            searchResults = results
         }
     }
 
@@ -646,14 +637,6 @@ suspend fun exportConversation(
     format: String = "json"
 ) {
     val repository = AiAssistantApp.instance.repository
-    val messages = repository.getMessagesList(conversation.id)
-
-    val content = when (format) {
-        "json" -> buildJsonExport(conversation, messages)
-        "markdown" -> buildMarkdownExport(conversation, messages)
-        else -> ""
-    }
-
     try {
         val extension = if (format == "markdown") "md" else "json"
         val mimeType = if (format == "markdown") "text/markdown" else "application/json"
@@ -661,9 +644,12 @@ suspend fun exportConversation(
             .ifBlank { "conversation_${conversation.id}" }
             .replace(Regex("""[\\/:*?"<>|]"""), "_")
             .take(48)
-        val exportDir = File(context.cacheDir, "exports").apply { mkdirs() }
-        val exportFile = File(exportDir, "$safeTitle.$extension")
-        exportFile.writeText(content, Charsets.UTF_8)
+        val exportFile = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val messages = repository.getMessagesList(conversation.id)
+            val content = if (format == "markdown") buildMarkdownExport(conversation, messages) else buildJsonExport(conversation, messages)
+            val exportDir = File(context.cacheDir, "exports").apply { mkdirs() }
+            File(exportDir, "$safeTitle.$extension").apply { writeText(content, Charsets.UTF_8) }
+        }
 
         val uri = FileProvider.getUriForFile(
             context,
@@ -686,49 +672,31 @@ suspend fun importConversation(
     context: android.content.Context,
     uri: Uri
 ): Boolean {
-    return try {
+    return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { try {
         val repository = AiAssistantApp.instance.repository
         val defaultConfig = repository.getDefaultApiConfig()
             ?: repository.getAllApiConfigs().first().firstOrNull()
-            ?: return false
+            ?: return@withContext false
         val json = context.contentResolver.openInputStream(uri)
-            ?.bufferedReader(Charsets.UTF_8)
-            ?.use { it.readText() }
-            ?: return false
-        val root = com.google.gson.JsonParser.parseString(json).asJsonObject
-        val title = root.get("title")?.asString?.takeIf { it.isNotBlank() } ?: "导入对话"
-        val model = root.get("model")?.asString?.takeIf { it.isNotBlank() } ?: defaultConfig.modelName
-        val conversationId = repository.createConversation(
-            title = title,
-            apiConfigId = defaultConfig.id,
-            modelName = model
-        )
-        val messages = root.getAsJsonArray("messages") ?: return true
-        messages.forEachIndexed { index, item ->
-            val obj = item.asJsonObject
-            val role = obj.get("role")?.asString ?: "user"
-            val content = obj.get("content")?.asString ?: ""
-            val thinking = obj.get("thinkingContent")?.takeIf { !it.isJsonNull }?.asString
-            val attachments = obj.get("attachments")?.takeIf { !it.isJsonNull }?.asString
-            repository.saveMessage(
-                Message(
-                    conversationId = conversationId,
-                    role = role,
-                    content = content,
-                    thinkingContent = thinking,
-                    attachments = attachments,
-                    createdAt = System.currentTimeMillis() + index
-                )
-            )
+            ?.use { com.aiassistant.utils.BoundedInput.bytes(it).toString(Charsets.UTF_8) }
+            ?: return@withContext false
+        val parsed = com.aiassistant.utils.HistoryExchange.parse(json, defaultConfig.modelName)
+        val db = AiAssistantApp.instance.database
+        db.withTransaction {
+            val id = db.conversationDao().insertConversation(Conversation(title = parsed.title, apiConfigId = defaultConfig.id, modelName = parsed.model))
+            db.messageDao().insertMessages(parsed.messages.map { it.copy(conversationId = id) })
+            db.conversationDao().refreshStats(id)
         }
         true
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
     } catch (e: Exception) {
         false
-    }
+    } }
 }
 
 fun buildJsonExport(conversation: Conversation, messages: List<Message>): String {
-    val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.getDefault())
+    val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.ROOT).apply { timeZone = TimeZone.getTimeZone("UTC") }
     val export = mapOf(
         "title" to conversation.title,
         "model" to conversation.modelName,

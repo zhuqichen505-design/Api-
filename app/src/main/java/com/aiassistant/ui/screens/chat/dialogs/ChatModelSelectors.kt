@@ -351,26 +351,8 @@ internal fun chatTuningProfile(
         else -> if (provider.isNotBlank()) provider else "当前模型"
     }
 
-    val efforts = if (enableThinking) {
-        val gears = if (cap.supportedThinkingGears.isNotEmpty()) {
-            cap.supportedThinkingGears
-        } else {
-            listOf("low", "medium", "high", "ultra")
-        }
-        gears.map { gear ->
-            val mappedGear = if (gear == "max") "ultra" else gear
-            val gearLabel = when (mappedGear) {
-                "low" -> "快速"
-                "medium" -> "平衡"
-                "high" -> "深入"
-                "ultra", "max" -> "极高"
-                else -> gear
-            }
-            ThinkingEffortOption(mappedGear, gearLabel)
-        }
-    } else {
-        emptyList()
-    }
+    val efforts = com.aiassistant.domain.model.ReasoningControls.options(modelName, currentOption?.apiType ?: "openai")
+        .filter { it.enabled }.map { ThinkingEffortOption(it.value, it.label) }
 
     val reason: String? = null
 

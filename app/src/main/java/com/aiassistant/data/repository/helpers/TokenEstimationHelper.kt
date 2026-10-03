@@ -26,6 +26,7 @@ object TokenEstimationHelper {
     }
 
     fun normalizeThinkingEffort(effort: String?, providerType: String = "openai", modelName: String? = null): String {
+        if (effort?.startsWith("budget:") == true) return effort
         // 未指定模型名时保持历史安全映射（max/ultra→high），避免向未知网关发送过高档位
         if (modelName.isNullOrBlank()) {
             return when (effort?.lowercase()?.trim()) {
@@ -42,6 +43,7 @@ object TokenEstimationHelper {
     }
 
     fun thinkingBudgetForEffort(effort: String?, configuredBudget: Int): Int {
+        effort?.removePrefix("budget:")?.toIntOrNull()?.let { return it.coerceIn(1024, 60000) }
         val base = configuredBudget.coerceIn(1024, 128_000)
         return when (effort?.lowercase()?.trim()) {
             "low", "fast" -> (base / 2).coerceIn(1024, 128_000)

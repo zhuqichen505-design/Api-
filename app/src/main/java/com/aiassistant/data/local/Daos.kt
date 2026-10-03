@@ -128,6 +128,9 @@ interface ConversationDao {
     @Query("UPDATE conversations SET messageCount = :count, totalTokens = :tokens WHERE id = :id")
     suspend fun updateStats(id: Long, count: Int, tokens: Int)
 
+    @Query("UPDATE conversations SET messageCount = (SELECT COUNT(*) FROM messages WHERE conversationId = :id), totalTokens = (SELECT COALESCE(SUM(tokenCount), 0) FROM messages WHERE conversationId = :id), updatedAt = :timestamp WHERE id = :id")
+    suspend fun refreshStats(id: Long, timestamp: Long = System.currentTimeMillis())
+
     @Query("UPDATE conversations SET folderId = :folderId WHERE id = :conversationId")
     suspend fun moveToFolder(conversationId: Long, folderId: Long?)
 
@@ -188,6 +191,11 @@ interface ConversationDao {
 // ============ 消息 DAO ============
 @Dao
 interface MessageDao {
+    @Query("SELECT * FROM messages WHERE id = :id")
+    suspend fun getMessageById(id: Long): Message?
+    @Query("SELECT m.* FROM messages m INNER JOIN conversations c ON c.id = m.conversationId WHERE (c.tags IS NULL OR (c.tags NOT LIKE '%hidden%' AND c.tags NOT LIKE '%private%')) AND instr(lower(m.content), lower(:query)) > 0 ORDER BY c.updatedAt DESC, m.createdAt ASC LIMIT 200")
+    suspend fun searchMessages(query: String): List<Message>
+
     @Query("SELECT * FROM messages WHERE conversationId = :conversationId ORDER BY createdAt ASC, id ASC")
     fun getMessagesByConversation(conversationId: Long): Flow<List<Message>>
 

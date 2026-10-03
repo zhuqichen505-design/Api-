@@ -95,8 +95,7 @@ class V1920FeaturesTest {
         // 2026-09：过时 o 系列走默认统一方案；Kimi 官方三档
         val defaultCap = ModelCapabilityEngine.resolveCapabilities("some-future-model")
         assertTrue(defaultCap.supportsThinking)
-        assertTrue(defaultCap.supportedThinkingGears.contains("low"))
-        assertTrue(defaultCap.supportedThinkingGears.contains("high"))
+        assertEquals(emptyList<String>(), defaultCap.supportedThinkingGears)
 
         val kimiCap = ModelCapabilityEngine.resolveCapabilities("kimi-k3")
         assertEquals(listOf("low", "high", "max"), kimiCap.supportedThinkingGears)
@@ -104,16 +103,16 @@ class V1920FeaturesTest {
         // Claude 3.7：4 档
         val claudeCap = ModelCapabilityEngine.resolveCapabilities("claude-3-7-sonnet")
         assertTrue(claudeCap.supportsThinking)
-        assertEquals(listOf("low", "medium", "high", "max"), claudeCap.supportedThinkingGears)
+        assertEquals(emptyList<String>(), claudeCap.supportedThinkingGears)
 
         // DeepSeek 推理模型：支持档位调节
         val dsCap = ModelCapabilityEngine.resolveCapabilities("deepseek-reasoner")
         assertTrue(dsCap.supportsThinking)
-        assertTrue(dsCap.supportedThinkingGears.isNotEmpty())
+        assertEquals(emptyList<String>(), dsCap.supportedThinkingGears)
 
         // QwQ 推理模型：支持档位调节
         val qwqCap = ModelCapabilityEngine.resolveCapabilities("qwq-32b-preview")
         assertTrue(qwqCap.supportsThinking)
-        assertTrue(qwqCap.supportedThinkingGears.isNotEmpty())
+        assertEquals(emptyList<String>(), qwqCap.supportedThinkingGears)
     }
 }

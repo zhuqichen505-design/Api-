@@ -731,15 +731,21 @@ class AiRepository(
     }
 
     suspend fun deleteConversation(id: Long) {
-        messageDao.deleteMessagesByConversation(id)
-        memoryDao.deleteConversationMemories(id)
-        conversationDao.deleteConversationById(id)
+        ChatGenerationManager.cancelSession(id)
+        cancelActiveRequest(id)
+        val db = com.aiassistant.AiAssistantApp.instance.database
+        db.withTransaction {
+            db.openHelper.writableDatabase.execSQL("UPDATE memory_items SET sourceMessageId=NULL WHERE sourceMessageId IN (SELECT id FROM messages WHERE conversationId=?)", arrayOf(id))
+            db.openHelper.writableDatabase.execSQL("UPDATE roleplay_memories SET sourceMessageId=NULL WHERE sourceMessageId IN (SELECT id FROM messages WHERE conversationId=?)", arrayOf(id))
+            messageDao.deleteMessagesByConversation(id)
+            memoryDao.deleteConversationMemories(id)
+            db.openHelper.writableDatabase.execSQL("DELETE FROM conversation_branches WHERE parentConversationId = ? OR childConversationId = ?", arrayOf(id, id))
+            conversationDao.deleteConversationById(id)
+        }
     }
 
     suspend fun destroyPrivateConversation(id: Long) {
-        messageDao.deleteMessagesByConversation(id)
-        memoryDao.deleteConversationMemories(id)
-        conversationDao.deleteConversationById(id)
+        deleteConversation(id)
     }
 
     suspend fun setConversationHidden(conversationId: Long, hidden: Boolean) {
@@ -1197,15 +1203,30 @@ class AiRepository(
         )
     }
 
-    suspend fun saveMessage(message: Message): Long {
-        val id = messageDao.insertMessage(message)
-        updateConversationStats(message.conversationId)
-        captureMemoryCandidate(message.copy(id = id))
+    suspend fun saveMessage(message: Message, expectedMutationEpoch: Long? = null): Long {
+        currentCoroutineContext().ensureActive()
+        val id = com.aiassistant.AiAssistantApp.instance.database.withTransaction {
+            if (expectedMutationEpoch != null && expectedMutationEpoch != ChatGenerationManager.mutationEpoch(message.conversationId)) throw CancellationException("对话已删除或恢复，丢弃旧轮次回复")
+            check(conversationDao.getConversationById(message.conversationId) != null) { "对话已删除，停止保存回复" }
+            val inserted = messageDao.insertMessage(message)
+            updateConversationStats(message.conversationId)
+            inserted
+        }
+        try {
+            captureMemoryCandidate(message.copy(id = id))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(tag, "Message saved; memory candidate extraction failed", e)
+        }
         return id
     }
 
     suspend fun updateMessage(message: Message) {
-        messageDao.updateMessage(message)
+        com.aiassistant.AiAssistantApp.instance.database.withTransaction {
+            messageDao.updateMessage(message)
+            updateConversationStats(message.conversationId)
+        }
     }
 
     suspend fun updateTranslatedThinking(messageId: Long, translatedThinking: String?) {
@@ -1227,11 +1248,10 @@ class AiRepository(
     }
 
     private suspend fun updateConversationStats(conversationId: Long) {
-        val messages = messageDao.getMessagesList(conversationId)
-        val totalTokens = messages.sumOf { it.tokenCount }
-        conversationDao.updateStats(conversationId, messages.size, totalTokens)
-        conversationDao.updateTimestamp(conversationId)
+        conversationDao.refreshStats(conversationId)
     }
+
+    suspend fun searchMessages(query: String): List<Message> = messageDao.searchMessages(query)
 
     // ============ AI API调用 ============
 
@@ -1716,6 +1736,7 @@ class AiRepository(
         val omitSamplingExtras = vendorPolicy.omitsTopPAndPenalties || omitTemperature
         val mappedEffort = com.aiassistant.domain.model.ModelVendorProfiles
             .mapThinkingGear(effectiveOptions.thinkingEffort, vendorPolicy)
+        val reasoningSelection = ReasoningControls.selected(requestModel, "openai", effectiveOptions.enableThinking ?: config.enableThinking, effectiveOptions.thinkingEffort)
 
         val request = ChatCompletionRequest(
             model = requestModel,
@@ -1741,9 +1762,9 @@ class AiRepository(
             enable_thinking = if (providerToggles.includeEnableThinking) true else null,
             thinking_budget = if (providerToggles.includeThinkingBudget) thinkingBudgetForEffort(effectiveOptions.thinkingEffort, config.thinkingBudget) else null,
             thinking_effort = if (providerToggles.includeThinkingEffort) mappedEffort else null,
-            reasoning_effort = if (vendorPolicy.usesReasoningEffort && (effectiveOptions.enableThinking == true || config.enableThinking || vendorPolicy.alwaysThinking || providerToggles.includeReasoningEffort)) {
-                mappedEffort
-            } else null
+            reasoning_effort = if (vendorPolicy.usesReasoningEffort && (reasoningSelection.enabled || reasoningSelection.value == "none")) reasoningSelection.value else null,
+            thinking = if (vendorPolicy.vendor in setOf(ModelVendor.DEEPSEEK, ModelVendor.GLM) && !vendorPolicy.alwaysThinking)
+                AnthropicThinking(type = if (reasoningSelection.enabled) "enabled" else "disabled") else null
         )
 
         val auth = RetrofitClient.formatApiKey(config.apiKey)
@@ -2112,8 +2133,12 @@ class AiRepository(
             anthropicMessages.add(AnthropicMessage(role = "user", content = userContent))
         }
 
-        val thinkingBudget = if (effectiveOptions.enableThinking == true) {
-            thinkingBudgetForEffort(effectiveOptions.thinkingEffort, config.thinkingBudget)
+        val reasoningPolicy = ModelVendorProfiles.policyFor(requestModel)
+        val thinkingEnabled = effectiveOptions.enableThinking ?: config.enableThinking
+        val adaptive = reasoningPolicy.thinkingGears.isNotEmpty()
+        val reasoningSelection = ReasoningControls.selected(requestModel, "anthropic", thinkingEnabled, effectiveOptions.thinkingEffort)
+        val thinkingBudget = if (thinkingEnabled && !adaptive) {
+            thinkingBudgetForEffort(reasoningSelection.value, config.thinkingBudget).coerceAtMost(60000)
         } else null
         val rawConfiguredMaxTokens = effectiveOptions.maxTokens ?: config.maxTokens
         val configuredMaxTokens = if (rawConfiguredMaxTokens == 50000) 4096 else rawConfiguredMaxTokens
@@ -2126,12 +2151,15 @@ class AiRepository(
             messages = anthropicMessages,
             max_tokens = safeRequestMaxTokens,
             system = systemPrompt,
-            temperature = requestTemperature(config, effectiveOptions),
-            top_p = effectiveOptions.topP,
-            top_k = if (config.topK != 50) config.topK else null,
+            temperature = if (adaptive || thinkingEnabled) null else requestTemperature(config, effectiveOptions),
+            top_p = if (adaptive || thinkingEnabled) null else effectiveOptions.topP,
+            top_k = if (!adaptive && !thinkingEnabled && config.topK != 50) config.topK else null,
             stream = true,
             stop_sequences = parseStopSequences(config.stopSequences),
-            thinking = if (thinkingBudget != null) {
+            output_config = if (adaptive && reasoningSelection.enabled) AnthropicOutputConfig(reasoningSelection.value) else null,
+            thinking = if (adaptive) {
+                AnthropicThinking(type = if (!reasoningSelection.enabled) "disabled" else if (reasoningPolicy.vendor == ModelVendor.CLAUDE) "adaptive" else "enabled")
+            } else if (thinkingBudget != null) {
                 AnthropicThinking(budget_tokens = thinkingBudget)
             } else null
         )
@@ -2424,6 +2452,7 @@ class AiRepository(
     }
 
     private fun normalizeThinkingEffort(effort: String?, config: ApiConfig): String {
+        if (config.apiType == "anthropic") return ReasoningControls.selected(config.modelName, config.apiType, true, effort).value
         // 必须携带模型名走厂商档位映射（config.modelName 已在调用方合并会话级模型），
         // 否则 ultra/max/xhigh 会在进入 mapThinkingGear 之前被历史安全映射降级为 high
         return normalizeThinkingEffort(
@@ -2434,6 +2463,7 @@ class AiRepository(
     }
 
     private fun thinkingBudgetForEffort(effort: String?, configuredBudget: Int): Int {
+        effort?.takeIf { it.startsWith("budget:") }?.removePrefix("budget:")?.toIntOrNull()?.let { return it.coerceIn(1024, 60000) }
         val base = configuredBudget.coerceIn(1024, 32768)
         return when (effort?.lowercase()) {
             "low" -> (base / 2).coerceIn(1024, 32768)
@@ -3238,6 +3268,8 @@ class AiRepository(
 
         val scopedConversationId = if (scope == "conversation") message.conversationId else null
         val keywords = tokenizeForMemory(memoryContent).take(18).joinToString(",")
+        com.aiassistant.AiAssistantApp.instance.database.withTransaction {
+        if (conversationDao.getConversationById(message.conversationId) == null || messageDao.getMessageById(message.id) == null) return@withTransaction
         val existing = memoryDao.getByScopeAndContent(scope, memoryContent)
         val now = System.currentTimeMillis()
 
@@ -3250,7 +3282,7 @@ class AiRepository(
                     updatedAt = now
                 )
             )
-            return
+            return@withTransaction
         }
 
         // 冲突检测与版本更替：检测是否有与当前事实发生排他性属性冲突的旧记忆
@@ -3267,7 +3299,7 @@ class AiRepository(
                     updatedAt = now
                 )
             )
-            return
+            return@withTransaction
         }
 
         memoryDao.insertMemory(
@@ -3282,6 +3314,7 @@ class AiRepository(
                 updatedAt = now
             )
         )
+        }
     }
 
     suspend fun extractMemoryCandidate(
@@ -4770,7 +4803,7 @@ class AiRepository(
             contentParts.add(
                 ContentPart(
                     type = "image_url",
-                    image_url = ImageUrl(url = "data:${attachment.mimeType};base64,${attachment.base64Data}")
+                    image_url = ImageUrl(url = "data:${attachment.payloadMimeType ?: if (attachment.base64Data?.startsWith("/9j/") == true) "image/jpeg" else attachment.mimeType};base64,${attachment.base64Data}")
                 )
             )
         }
@@ -4822,7 +4855,7 @@ class AiRepository(
                     type = "image",
                     source = AnthropicImageSource(
                         type = "base64",
-                        media_type = attachment.mimeType,
+                        media_type = attachment.payloadMimeType ?: if (attachment.base64Data?.startsWith("/9j/") == true) "image/jpeg" else attachment.mimeType,
                         data = attachment.base64Data!!
                     )
                 )

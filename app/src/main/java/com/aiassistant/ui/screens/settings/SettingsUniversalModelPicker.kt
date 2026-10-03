@@ -127,8 +127,9 @@ fun UniversalModelPickerCard(
     val glass = echoGlassPalette()
 
     // 读取与聊天对话页完全一致的全部已启用模型列表 (跨服务商)
-    val visibleChatOptions by produceState<List<ChatModelOption>>(initialValue = emptyList(), allConfigs) {
-        value = repository.getAllVisibleChatModelOptions()
+    var visibleChatOptions by remember { mutableStateOf<List<ChatModelOption>>(emptyList()) }
+    LaunchedEffect(allConfigs) {
+        visibleChatOptions = repository.getAllVisibleChatModelOptions()
     }
 
     val currentConfig = remember(selectedConfigId, allConfigs) {
@@ -577,4 +578,3 @@ fun UniversalModelPickerCard(
         }
     }
 }
-

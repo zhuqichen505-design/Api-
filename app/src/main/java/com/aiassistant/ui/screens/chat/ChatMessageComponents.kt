@@ -993,7 +993,7 @@ internal fun MessageBubble(
                                     com.aiassistant.ui.theme.EchoMotion.tweenSpec<Float>(com.aiassistant.ui.theme.EchoMotion.Duration.fast)
                                 }
                                 AnimatedContent(
-                                    targetState = generationState,
+                                    targetState = capsuleText to isStatusError,
                                     transitionSpec = {
                                         // 尺寸过渡只由外层 Surface.animateContentSize 单一驱动：
                                         // 内层若用默认 SizeTransform 会与外层弹簧叠加，状态切换时
@@ -1003,9 +1003,9 @@ internal fun MessageBubble(
                                     },
                                     contentAlignment = Alignment.CenterStart,
                                     label = "capsulePhase"
-                                ) { _ ->
+                                ) { (phaseText, phaseError) ->
                                     Text(
-                                        text = capsuleText,
+                                        text = phaseText,
                                         style = MaterialTheme.typography.labelMedium.copy(
                                             fontFamily = FontFamily.SansSerif,
                                             fontWeight = FontWeight.SemiBold,
@@ -1014,7 +1014,7 @@ internal fun MessageBubble(
                                                 trim = LineHeightStyle.Trim.Both
                                             )
                                         ),
-                                        color = if (isStatusError) MaterialTheme.colorScheme.error else thinkingHeaderColor,
+                                        color = if (phaseError) MaterialTheme.colorScheme.error else thinkingHeaderColor,
                                         maxLines = maxLinesCount,
                                         softWrap = enableSoftWrap,
                                         overflow = TextOverflow.Clip

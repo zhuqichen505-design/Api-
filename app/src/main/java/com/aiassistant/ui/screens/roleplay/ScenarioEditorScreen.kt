@@ -35,28 +35,30 @@ fun ScenarioEditorScreen(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
-    var name by remember { mutableStateOf(scenario?.name ?: "") }
-    var worldview by remember { mutableStateOf(scenario?.worldview ?: "") }
-    var time by remember { mutableStateOf(scenario?.time ?: "") }
-    var location by remember { mutableStateOf(scenario?.location ?: "") }
-    var environment by remember { mutableStateOf(scenario?.environment ?: "") }
-    var premise by remember { mutableStateOf(scenario?.premise ?: "") }
-    var rules by remember { mutableStateOf(scenario?.rules ?: "") }
-    var relationshipState by remember { mutableStateOf(scenario?.relationshipState ?: "") }
-    var conflict by remember { mutableStateOf(scenario?.conflict ?: "") }
-    var plotGoal by remember { mutableStateOf(scenario?.plotGoal ?: "") }
-    var atmosphere by remember { mutableStateOf(scenario?.atmosphere ?: "") }
-    var narrativePerspective by remember { mutableStateOf(scenario?.narrativePerspective ?: "") }
-    var outputFormat by remember { mutableStateOf(scenario?.outputFormat ?: "") }
-    var contentRestrictions by remember { mutableStateOf(scenario?.contentRestrictions ?: "") }
-    var openingPrompt by remember { mutableStateOf(scenario?.openingPrompt ?: "") }
-    var tags by remember { mutableStateOf(scenario?.tags ?: "") }
-    var isFavorite by remember { mutableStateOf(scenario?.isFavorite ?: false) }
+    val draftKey = "scenario:${scenario?.id ?: "new"}"
+    retainEditorDraft(draftKey)
+    var name by editorField(draftKey, "name", scenario?.name ?: "")
+    var worldview by editorField(draftKey, "worldview", scenario?.worldview ?: "")
+    var time by editorField(draftKey, "time", scenario?.time ?: "")
+    var location by editorField(draftKey, "location", scenario?.location ?: "")
+    var environment by editorField(draftKey, "environment", scenario?.environment ?: "")
+    var premise by editorField(draftKey, "premise", scenario?.premise ?: "")
+    var rules by editorField(draftKey, "rules", scenario?.rules ?: "")
+    var relationshipState by editorField(draftKey, "relationshipState", scenario?.relationshipState ?: "")
+    var conflict by editorField(draftKey, "conflict", scenario?.conflict ?: "")
+    var plotGoal by editorField(draftKey, "plotGoal", scenario?.plotGoal ?: "")
+    var atmosphere by editorField(draftKey, "atmosphere", scenario?.atmosphere ?: "")
+    var narrativePerspective by editorField(draftKey, "narrativePerspective", scenario?.narrativePerspective ?: "")
+    var outputFormat by editorField(draftKey, "outputFormat", scenario?.outputFormat ?: "")
+    var contentRestrictions by editorField(draftKey, "contentRestrictions", scenario?.contentRestrictions ?: "")
+    var openingPrompt by editorField(draftKey, "openingPrompt", scenario?.openingPrompt ?: "")
+    var tags by editorField(draftKey, "tags", scenario?.tags ?: "")
+    var isFavorite by editorField(draftKey, "isFavorite", scenario?.isFavorite ?: false)
 
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showPreview by remember { mutableStateOf(false) }
     var showSmartReadDialog by remember { mutableStateOf(false) }
-    var currentSection by remember { mutableStateOf(0) }
+    var currentSection by editorField(draftKey, "section", 0)
 
     val scrollState = rememberScrollState()
 

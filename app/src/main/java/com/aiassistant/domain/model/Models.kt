@@ -151,7 +151,8 @@ data class Attachment(
     val base64Data: String? = null,
     val textContent: String? = null,
     val ocrText: String? = null,
-    val processingNote: String? = null
+    val processingNote: String? = null,
+    val payloadMimeType: String? = null
 )
 
 // 正在回复时的排队消息模型（需求 6）
@@ -428,7 +429,8 @@ data class ChatCompletionRequest(
     val enable_thinking: Boolean? = null,
     val thinking_budget: Int? = null,
     val thinking_effort: String? = null,
-    val reasoning_effort: String? = null
+    val reasoning_effort: String? = null,
+    val thinking: AnthropicThinking? = null
 )
 
 data class StreamOptions(
@@ -598,13 +600,16 @@ data class AnthropicRequest(
     val top_k: Int? = null,
     val stream: Boolean = false,
     val stop_sequences: List<String>? = null,
-    val thinking: AnthropicThinking? = null
+    val thinking: AnthropicThinking? = null,
+    val output_config: AnthropicOutputConfig? = null
 )
 
 data class AnthropicThinking(
     val type: String = "enabled",
-    val budget_tokens: Int
+    val budget_tokens: Int? = null
 )
+
+data class AnthropicOutputConfig(val effort: String)
 
 data class AnthropicMessage(
     val role: String,

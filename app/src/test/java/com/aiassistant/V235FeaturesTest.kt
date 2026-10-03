@@ -27,7 +27,7 @@ class V235FeaturesTest {
         assertTrue("任意模型默认全面支持思考能力", arbitraryModel.supportsThinking)
         assertTrue("任意模型默认全面支持 reasoning", arbitraryModel.supportsReasoning)
         assertEquals("通用模型思考默认预算应为 4096", 4096, arbitraryModel.defaultThinkingBudget)
-        assertEquals("通用模型提供 4 档思考强度档位", listOf("low", "medium", "high", "max"), arbitraryModel.supportedThinkingGears)
+        assertEquals("未知接口沿用服务端默认值", emptyList<String>(), arbitraryModel.supportedThinkingGears)
 
         val gpt4Custom = ModelCapabilityEngine.resolveCapabilities("gpt-4-copilot-relay")
         assertTrue("通用 gpt-4 别名模型具备思考能力支持", gpt4Custom.supportsThinking)

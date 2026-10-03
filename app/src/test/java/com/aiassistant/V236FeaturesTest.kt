@@ -110,9 +110,13 @@ class V236FeaturesTest {
             assertTrue("模型 $model 必须默认支持思考", cap.supportsThinking)
             assertTrue("模型 $model 必须默认支持 reasoning", cap.supportsReasoning)
             // 2026-09：不同厂商思考档位不同（Kimi/GLM 三档，GPT-6 五档），但至少要有 low/high 且不少于 3 档
-            assertTrue("模型 $model 思考档位需含 low", cap.supportedThinkingGears.contains("low"))
-            assertTrue("模型 $model 思考档位需含 high", cap.supportedThinkingGears.contains("high"))
-            assertTrue("模型 $model 思考档位不少于 3 档", cap.supportedThinkingGears.size >= 3)
+            val expected = when(model) {
+                "gpt-5", "gpt-5.5-omni" -> listOf("minimal", "low", "medium", "high")
+                "gpt-6-astra" -> listOf("low", "medium", "high", "xhigh", "max")
+                "deepseek-chat-v4" -> listOf("low", "high", "max")
+                else -> emptyList()
+            }
+            assertEquals("模型 $model 仅暴露已确认的档位", expected, cap.supportedThinkingGears)
             assertTrue("模型 $model 上下文额度充足 (>= 128K)", cap.contextWindowTokens >= 128_000)
         }
     }
