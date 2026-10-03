@@ -4,8 +4,8 @@ Echo 是一个 Android 原生 AI API 客户端，用于统一调用 OpenAI 兼�
 
 ## 当前状态
 
-- 当前版本：`v2.7.12`
-- `versionCode`：`178`
+- 当前版本：`v2.7.13`
+- `versionCode`：`179`
 - 签名说明：Release 构建，证书 DN 为 Android Debug，**非正式生产签名**；升级安装仍需设备验收。
 - 应用包名：`com.aiassistant`
 - Room 数据库版本：`33`（20 实体，新增跨设备备份身份）
@@ -16,10 +16,14 @@ Echo 是一个 Android 原生 AI API 客户端，用于统一调用 OpenAI 兼�
 ## 核心功能
 
 - v2.7.11：修复离开对话后返回的生成重挂接；新格式备份支持 A→B→A 同一会话完整覆盖续聊；思考选项按具体模型/协议展示真实参数值。
-- 本轮检查：522 项单测通过，Lint 0 Error / 89 Warning。v2.7.12 已包含启动全量备份的流式写出与首页加载后延时调度修复，Release APK 已构建；旧格式首次导入独立会话，真实 API、安装和设备交互尚待验收。
+- v2.7.13 包含思考模式七项修正、模型显示名格式化、分类重试、搜索提供商/数量与连接滚动修正；保留启动备份延时调度和流式写出。541 项单测通过，Lint 0 Error / 89 Warning，Release 构建与签名/哈希校验完成；安装包元数据见 walkthrough.md。真实模型 API、安装和设备交互仍待验收。
 
 - 多 API 配置管理：支持 OpenAI 兼容格式、Anthropic 格式和常见第三方模型服务。
 - 模型管理：支持模型列表、启用模型筛选、默认 API 与默认模型选择。
+- 模型显示名：GPT 等缩写大写、品牌/单词首字母大写，仅改变显示，保留原始模型 ID。
+- 思考设置：普通/角色设置和胶囊共用接口能力与实际档位，显示标签与发送参数分离；能力按接口/协议/模型隔离缓存。
+- 连接重试：19 类错误各自开关与 0–20 次额外尝试，备用 Key 独立开关；收到内容或用户停止时不自动重发。
+- 联网搜索：Exa / Tavily / Mwmbl / SearXNG，请求条数 1–100（Tavily 单次最多 20）；Mwmbl 无 Key，SearXNG 需配置允许 JSON 的 HTTPS 实例，免费通道覆盖及配额不保证。
 - 角色扮演工作室：支持完整角色卡、场景世界观、剧情提示、多角色群像模式、角色专属头像与专属剧情记忆。
 - 流式对话：实时显示模型输出，支持 Markdown 渲染、复制、编辑、删除、固定/排除与重新生成。
 - 对话设置：模型切换、系统提示词、温度、最大输出 token、top-p、思考模式、思考强度、联网搜索统一在对话设置中管理。
@@ -31,7 +35,15 @@ Echo 是一个 Android 原生 AI API 客户端，用于统一调用 OpenAI 兼�
 - 使用统计：记录模型调用、token 用量、耗时和模型维度统计，并区分输入、输出、思考与未分项 token。
 - 数据维护：支持 API Key 加密存储、环境变量管理、数据备份与恢复、单卡片与 Markdown 导出。
 
-## 本次用户可见更新 (v2.7.10)
+## 本次用户可见更新 (v2.7.13)
+- **思考模式与胶囊**：统一默认文案、恒宽按钮、有效档位箭头、标签/滑块对齐；能力优先采用接口显式信息，强制思考开关保持淡蓝色，设置与实际请求共享规则。
+- **模型显示名**：`gemini3.8flash` 显示为 `Gemini3.8Flash`、`gpt-6.1-sol` 显示为 `GPT-6.1-Sol`，原始请求 ID 不改。
+- **高级设置**：跨会话记忆/世界书位于 Top P 下方高级区域；普通与角色设置同步。
+- **分类重试与搜索**：独立错误开关/次数及备用 Key 开关；新增 Mwmbl/SearXNG、引擎选项仅显示名称，扩大请求条数并修正 Exa `numResults` 字段。
+- **连接滚动**：普通生成保持固定挂载位置，移除超大偏移及布局反馈滚动；实际设备闪烁仍需录屏验收。
+- **动画保持不变**：独立 A–F 预览未打入安装包，用户确认“先不修改”。
+
+## 历史更新 (v2.7.10)
 - **胶囊单行恢复垂直居中**：修正恒定顶对齐导致的单行内容偏上；多行展开时图案仍贴第一行左上。
 - **首页对话气泡左右间距对称**：移除列表右侧恒定多出的 12dp 锚点条预留空距，左右统一 16dp。
 
@@ -186,17 +198,17 @@ Echo 是一个 Android 原生 AI API 客户端，用于统一调用 OpenAI 兼�
 项目根目录：
 
 ```powershell
-D:\Agent\app\AiApiAssistant
+D:\Agent\APP-Echo\app\AiApiAssistant
 ```
 
-Windows PowerShell 推荐使用 JDK 17：
+JDK 17 已由 gradle.properties 固定，无需手动设置 JAVA_HOME。验证与发布使用以下命令（仅用户要求 APK 时执行 assembleRelease）：
 
 ```powershell
-$env:JAVA_HOME='D:\Java\jdk-17.0.2'
-$env:GRADLE_USER_HOME='D:\Agent\app\.gradle-home'
-$env:ECHO_RELEASE_KEYSTORE='C:\Users\19376\.android\debug.keystore'
-$env:Path="$env:JAVA_HOME\bin;$env:Path"
-.\gradlew.bat --no-daemon assembleRelease
+.\gradlew.bat compileDebugKotlin --no-daemon
+.\gradlew.bat testDebugUnitTest --no-daemon
+.\gradlew.bat lintDebug --no-daemon
+git diff --check
+.\gradlew.bat assembleRelease --no-daemon
 ```
 
 release 输出：
@@ -208,24 +220,24 @@ app\build\outputs\apk\release\app-arm64-v8a-release.apk
 交付给用户的 APK 复制到：
 
 ```text
-D:\Agent\app\releases\Echo-v1.7.18.apk
+D:\Agent\APP-Echo\app\releases\Echo-v2.7.13.apk
 ```
 
 ## 维护规则
 
-每次更新必须完成：
+常驻准则的唯一权威为 `D:\Agent\APP-Echo\AGENTS.md`。每次获授权修改必须完成：
 
 1. 更新代码和必要文档。
-2. 构建 release APK。
-3. 验证 APK 包名、版本号、ABI、签名和 SHA-256。
+2. 编译、单测、Lint 与 diff 检查；仅当用户要求 APK 时递增版本并构建 Release。
+3. 发版时验证 APK 包名、版本号、ABI、签名和 SHA-256；只复制到规定发布目录，不覆盖或删除历史安装包。
 4. 提交 Git commit。
-5. 推送到 GitHub：`git push origin main`。
+5. 推送到 GitHub 并核验远端；发版时打 `v<version>` 标签一并推送。
 6. 最终回复中说明 APK 路径、SHA-256、提交号和是否已完成网络备份。
 
 ## 相关文档
 
 - [CHANGELOG.md](CHANGELOG.md)：版本更新记录。
-- [PROJECT.md](PROJECT.md)：早期项目说明与维护记录，部分版本信息可能滞后。
+- [PROJECT.md](PROJECT.md)：项目事实卡与功能、构建指引。
 - `design/stats-icons-preview.png`：使用统计图标预览方案。
 
 ## 许可

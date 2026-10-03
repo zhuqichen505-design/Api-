@@ -1,5 +1,27 @@
 # Echo 构建走查与验收报告 (Walkthrough)
 
+## v2.7.13 思考设置、分类重试、搜索与连接滚动发布（2026-10-04）
+
+### 发布范围与工程检查
+- 基线 main/d4f4046；版本 179/2.7.13，Room v33/20 实体不变。
+- 首次包含此前 460a457 思考模式七项修正和 d4f4046 模型显示名/高级设置/分类重试/搜索/连接滚动修正；既有备份、后台生成逻辑保留，流式动画遵照用户要求不改。
+- `./gradlew.bat compileDebugKotlin --no-daemon --console=plain`、`./gradlew.bat testDebugUnitTest --no-daemon --console=plain`、`./gradlew.bat lintDebug --no-daemon --console=plain`、`./gradlew.bat assembleRelease --no-daemon --console=plain` 各退出 0；81 套件、541 项通过，Lint 0 Error / 89 Warning。
+- `git diff --check`、`apksigner verify --print-certs`、`aapt dump badging` 及复制/哈希/历史文件校验各退出 0。
+- APK：`D:\Agent\APP-Echo\app\releases\Echo-v2.7.13.apk`，16,733,041 字节；包名 com.aiassistant、179/2.7.13、arm64-v8a、minSdk 26 / targetSdk 34。
+- SHA256：`3003715D8665EECB5049ABB008A822C8AF89B68E1763B3866274BF7201F2FC9F`。
+- 签名 DN `C=US, O=Android, CN=Android Debug`；证书 SHA256 `939638f6d3e9af7f8a980e62af52d275fee73381f2130cc4e20a0d349f98e21f` 与上一版一致，**非正式生产签名**。
+- 禁止覆盖方式复制新包；发布前 189 个文件逐一长度/哈希核对无变化，发布后 190 个文件，历史包未删除或清理。
+- `adb devices -l` 无设备，未执行安装、启动、设备视觉或真实模型 API 验收。
+
+### 人工验收（尚未执行）
+1. 保留旧数据升级安装，核对版本 2.7.13、历史/角色/世界书可读取；首页停留至少 30 秒，确认延时备份完成，退出重开后继续聊天。
+2. 普通/角色聊天分别检查思考按钮居中/恒宽、箭头、默认项、标签滑块与强制开关；刷新接口模型列表，核对实际请求参数及原始 model ID。
+3. 检查模型名 `Gemini3.8Flash` / `GPT-6.1-Sol`；Top P 下方展开高级区域切换跨会话记忆/世界书，重开确认状态。
+4. 使用可控模型接口测试超时/401/429/500，各自开关及 0/2 次重试；单/多 Key 对比备用 Key 开关，手动停止及已有输出后不得重发。
+5. Exa/Mwmbl 查询，设置 1/17/60/100 条；实际结果可不足但不得超出请求。Tavily 单次最多 20；SearXNG 使用认可的 HTTPS JSON 实例检查分页/去重与限流反馈。
+6. 短/长对话连接等待、首次流式回复、分支重生成、向上滚动和键盘显隐，录屏对比连接闪烁；动画应保持旧效果。生成中返回首页再进入检查累计输出与结束落库。
+7. 双设备新格式 A→B→A 往返完整备份续聊，核对消息、记忆、摘要、时间线、角色/世界书及重复导入无重复；缺乏真机条件，不以单测代替该验收。
+
 ## v2.7.12 首页启动修复发布（2026-10-03）
 
 - 版本 178/2.7.12，Room v33；包含流式全量备份和首页查询完成后延时 15 秒单次调度修复。

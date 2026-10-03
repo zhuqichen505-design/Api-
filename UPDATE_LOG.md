@@ -2,6 +2,24 @@
 
 本文档按照工作流规范记录每次版本更新、需求变更与复核结果。
 
+## [2026-10-04] - v2.7.13 复核构建与发布
+
+### 需求理解与临时实施方案
+- 用户明确要求现在构建 APK；基线 main/d4f4046，原有未跟踪 `审核报告+20261003-133335.md` 保留，不混入发布提交。
+- 仅修改 `app/build.gradle.kts` 的版本至 2.7.13/179，Room v33/20 实体不变；此前 460a457 思考修正与 d4f4046 显示名/重试/搜索/连接滚动修正首次随本包发布。用户确认动画先不修改，不加入独立预览。
+- 影响面为发布版本与元数据，应用功能沿用已提交代码；更新 CHANGELOG、README、PROJECT、walkthrough 与 WORKFLOW_GUIDELINES，并同步根 AGENTS 事实卡。README 旧构建目录/密钥环境指引按常驻准则更正。
+- 编译、全量单测、Lint 后执行 Release 构建；签名/包名/版本/ABI 校验后仅以禁止覆盖方式复制到 `D:\Agent\APP-Echo\app\releases\Echo-v2.7.13.apk`，核对 SHA256、保留历史包；提交与 v2.7.13 标签推送后核验远端。
+
+### 验证与 APK 元数据
+- `./gradlew.bat compileDebugKotlin --no-daemon --console=plain`、`./gradlew.bat testDebugUnitTest --no-daemon --console=plain`、`./gradlew.bat lintDebug --no-daemon --console=plain`、`./gradlew.bat assembleRelease --no-daemon --console=plain` 各退出 0；81 套件、541 项测试通过（0 失败/错误/跳过），Lint 0 Error / 89 Warning。
+- `git diff --check` 退出 0；`apksigner verify --print-certs`、`aapt dump badging` 各退出 0；复制/哈希/历史文件校验脚本退出 0。
+- APK：`D:\Agent\APP-Echo\app\releases\Echo-v2.7.13.apk`，16,733,041 字节；`com.aiassistant`、179/2.7.13、arm64-v8a、minSdk 26 / targetSdk 34。
+- SHA256：`3003715D8665EECB5049ABB008A822C8AF89B68E1763B3866274BF7201F2FC9F`，与构建产物一致；采用 File.Copy(overwrite=false)，189 个历史文件逐一长度/哈希核对无变化，发布目录现有 190 个文件。
+- 构建前发布目录 189 个文件，目标 Echo-v2.7.13.apk 不存在；v2.7.12 历史包 SHA256 `FA109AE693BD8130CC43DD7F4045D436693359624FE734AC93305E392F60081D`。
+- `adb devices -l` 退出 0，未连接设备；不执行安装/启动，不将工程构建成功等同于实际连接闪烁、重试、真实思考参数、后台生成及双设备备份验收通过。
+- 签名配置使用 `keystore/echo-release.jks`，实测 DN `C=US, O=Android, CN=Android Debug`，证书 SHA256 `939638f6d3e9af7f8a980e62af52d275fee73381f2130cc4e20a0d349f98e21f`，与 v2.7.12 一致，属于**非正式生产签名**。
+- 发布文档同步完成；提交、v2.7.13 标签、push 与 ls-remote 核验以交付回复中的实际结果为准。
+
 ## [2026-10-04] - 模型显示名、分类重试、搜索配置与连接滚动修正（未发版，10-03 开始）
 
 ### 需求、根因与临时实施方案

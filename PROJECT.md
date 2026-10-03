@@ -4,9 +4,9 @@
 
 Echo 是一个 Android 原生 AI API 客户端应用，用于调用 mimo、deepseek、OpenAI、Anthropic 等 AI 模型的 API。
 
-**当前版本**: v2.7.12（versionCode 178）
+**当前版本**: v2.7.13（versionCode 179）
 **数据库版本**: 33（20 个实体）
-**本轮验证**: 显示名、分类重试、搜索与连接滚动修正未发版，版本与数据库不变；81 个测试套件，541 项通过，Lint 0 Error / 89 Warning。最近发布包仍为 v2.7.12（包含首页启动备份修复），不含其后思考模式七项或本轮修正；本轮未构建 APK，用户确认动画先不修改。
+**本轮发布**: v2.7.13 包含此前思考模式七项、显示名、分类重试、搜索与连接滚动修正；Room v33 不变，用户确认动画先不修改。81 套件、541 项通过，Lint 0 Error / 89 Warning；Release 构建与签名/哈希校验完成，APK 元数据见 walkthrough.md。实际设备安装/连接视觉与真实模型请求仍待验收。
 **技术栈**: Kotlin 2.2.21 + Jetpack Compose (BOM 2024.06.00) + Room 2.8.4 + Retrofit 2.9.0
 
 > 工作流、最高准则与 APK 发布铁律的唯一权威版本在工作区根目录 `D:\Agent\APP-Echo\AGENTS.md`；本文件是项目事实卡，与其冲突时以 AGENTS.md 与代码为准。
