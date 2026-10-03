@@ -47,7 +47,7 @@ class ModernModelAdaptation2026Test {
 
     @Test
     fun testGpt6FamilyContextAndReasoningGears() {
-        for (model in listOf("gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-6")) {
+        for (model in listOf("gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-6.1-sol")) {
             val cap = ModelCapabilityEngine.resolveCapabilities(model)
             assertEquals("$model 上下文应为 1.05M", 1_050_000, cap.contextWindowTokens)
             assertTrue("$model 必须支持思考", cap.supportsThinking)

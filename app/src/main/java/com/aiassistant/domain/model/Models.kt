@@ -349,7 +349,9 @@ data class ChatModelOption(
     val supportsTools: Boolean = true,
     val supportsVision: Boolean = false,
     val supportsThinking: Boolean = true,
-    val supportsWebSearch: Boolean = true
+    val supportsWebSearch: Boolean = true,
+    val baseUrl: String = "",
+    val reasoningCapability: ReasoningCapabilityEvidence? = null
 )
 
 // 单次对话请求覆盖项。为null时不向API发送该参数，交给模型/服务端默认值处理。

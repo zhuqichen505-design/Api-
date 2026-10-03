@@ -230,34 +230,41 @@ object ModelVendorProfiles {
         }
         return when (base.vendor) {
             ModelVendor.GPT -> when {
-                "astra" in name || "gpt-6" in name -> base.copy(alwaysThinking = true)
+                "gpt-6.1-sol" in name || "astra" in name -> base.copy(alwaysThinking = true)
+                "gpt-6-sol" in name || "gpt-6-luna" in name -> base.copy(thinkingGears = listOf("none", "low", "medium", "high", "xhigh", "max"))
+                "gpt-6" in name -> base.copy(thinkingGears = emptyList(), usesReasoningEffort = false)
                 "gpt-5.2-pro" in name -> base.copy(thinkingGears = listOf("medium", "high", "xhigh"), alwaysThinking = true)
                 "gpt-5.6" in name -> base.copy(thinkingGears = listOf("none", "low", "medium", "high", "xhigh", "max"))
                 "gpt-5.2" in name || "gpt-5.4" in name -> base.copy(thinkingGears = listOf("none", "low", "medium", "high", "xhigh"))
                 "gpt-5.1" in name -> base.copy(thinkingGears = listOf("none", "low", "medium", "high"))
-                "gpt-5" in name -> base.copy(thinkingGears = listOf("minimal", "low", "medium", "high"), alwaysThinking = true)
+                Regex("gpt-5(?:-(?:mini|nano))?(?:-\\d{4}-\\d{2}-\\d{2})?$").containsMatchIn(name) -> base.copy(thinkingGears = listOf("minimal", "low", "medium", "high"), alwaysThinking = true)
                 else -> base.copy(thinkingGears = emptyList(), usesReasoningEffort = false)
             }
-            ModelVendor.KIMI -> if ("k3" in name) base else base.copy(thinkingGears = emptyList(), usesReasoningEffort = false, alwaysThinking = "thinking" in name)
+            ModelVendor.KIMI -> if ("k3" in name) base else base.copy(thinkingGears = emptyList(), usesReasoningEffort = false,
+                alwaysThinking = "thinking" in name || "k2.7-code" in name)
             ModelVendor.GLM -> when {
-                "5.3" in name -> base
-                "5.2" in name -> base.copy(thinkingGears = listOf("high", "max"))
+                "5.3" in name -> base.copy(alwaysThinking = "flashx" !in name)
+                "5.2" in name -> base.copy(thinkingGears = listOf("high", "max"), alwaysThinking = false)
                 else -> base.copy(thinkingGears = emptyList(), usesReasoningEffort = false, alwaysThinking = false)
             }
             ModelVendor.MINIMAX -> if ("m3.1" in name) base.copy(thinkingGears = listOf("low", "medium", "high", "xhigh", "max"), defaultThinkingGear = "max", alwaysThinking = true)
-                else base.copy(thinkingGears = emptyList(), usesReasoningEffort = false, alwaysThinking = true)
+                else base.copy(thinkingGears = emptyList(), usesReasoningEffort = false, alwaysThinking = Regex("minimax-m2([._-]|$)").containsMatchIn(name))
             ModelVendor.DEEPSEEK -> if ("v4" in name || "flash" in name || "pro" in name) base.copy(thinkingGears = listOf("low", "high", "max"), defaultThinkingGear = "high")
                 else base.copy(thinkingGears = emptyList(), usesReasoningEffort = false, alwaysThinking = "reasoner" in name || "r1" in name)
             ModelVendor.GEMINI -> when {
+                "3.8-flash" in name || "3.7-flash" in name -> base.copy(thinkingGears = listOf("low", "medium", "high"), alwaysThinking = true)
+                "3.6-flash" in name || "3.5-flash-lite" in name -> base.copy(thinkingGears = listOf("minimal", "low", "medium", "high"), defaultThinkingGear = if ("lite" in name) "minimal" else "medium", alwaysThinking = true)
                 "3.1-pro" in name -> base.copy(thinkingGears = listOf("low", "medium", "high"), defaultThinkingGear = "high", alwaysThinking = true)
                 "3-pro" in name -> base.copy(thinkingGears = listOf("low", "high"), defaultThinkingGear = "high", alwaysThinking = true)
                 "3-flash" in name -> base.copy(thinkingGears = listOf("minimal", "low", "medium", "high"), defaultThinkingGear = "high", alwaysThinking = true)
                 else -> base.copy(thinkingGears = emptyList(), usesReasoningEffort = false)
             }
             ModelVendor.CLAUDE -> when {
-                "opus-5" in name || "opus-4-7" in name || "opus-4-8" in name -> base.copy(thinkingGears = listOf("low", "medium", "high", "xhigh", "max"), alwaysThinking = "opus-5-5" in name || "opus-5.5" in name)
+                "fable-5" in name || "mythos" in name -> base.copy(thinkingGears = listOf("low", "medium", "high", "xhigh", "max"), defaultThinkingGear = "high", alwaysThinking = "5-1" in name || "5.1" in name)
+                "sonnet-5" in name -> base.copy(thinkingGears = listOf("low", "medium", "high", "xhigh", "max"), defaultThinkingGear = "high", alwaysThinking = "sonnet-5-5" in name || "sonnet-5.5" in name)
+                "opus-5" in name || "opus-4-7" in name || "opus-4.7" in name || "opus-4-8" in name || "opus-4.8" in name -> base.copy(thinkingGears = listOf("low", "medium", "high", "xhigh", "max"), alwaysThinking = "opus-5-5" in name || "opus-5.5" in name)
                 "opus-4-6" in name || "opus-4.6" in name -> base
-                "sonnet-4-6" in name || "sonnet-4.6" in name -> base.copy(thinkingGears = listOf("low", "medium", "high"))
+                "sonnet-4-6" in name || "sonnet-4.6" in name -> base.copy(defaultThinkingGear = "high")
                 else -> base.copy(thinkingGears = emptyList())
             }
             ModelVendor.MIMO, ModelVendor.OTHER -> base.copy(thinkingGears = emptyList(), usesReasoningEffort = false)

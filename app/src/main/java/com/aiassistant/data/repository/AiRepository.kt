@@ -490,7 +490,7 @@ class AiRepository(
                 throw Exception("获取模型列表失败 (${response.code}): $detail")
             }
 
-            val dynamicModels = parseModelNamesAndCacheContextWindows(bodyText)
+            val dynamicModels = parseModelNamesAndCacheContextWindows(bodyText, baseUrl, apiType)
             if (dynamicModels.isNotEmpty()) return dynamicModels
 
             val body = gson.fromJson(bodyText, ModelsResponse::class.java)
@@ -503,7 +503,7 @@ class AiRepository(
         }
     }
 
-    private fun parseModelNamesAndCacheContextWindows(bodyText: String): List<String> {
+    private fun parseModelNamesAndCacheContextWindows(bodyText: String, baseUrl: String, apiType: String): List<String> {
         return runCatching {
             val root = JsonParser.parseString(bodyText).asJsonObject
             val modelElements = when {
@@ -523,6 +523,9 @@ class AiRepository(
                     firstString(modelObject, "id")?.let(::sanitizeModelName),
                     firstString(modelObject, "name")?.let(::sanitizeModelName)
                 ).distinct()
+                aliases.forEach { alias ->
+                    ReasoningCapabilityCatalog.put(baseUrl, apiType, alias, ReasoningCapabilityEvidence.parse(modelObject))
+                }
                 extractContextWindowFromModelJson(modelObject)?.let { limit ->
                     aliases.forEach { alias ->
                         modelContextWindowCache[alias.lowercase()] = limit
@@ -1710,7 +1713,8 @@ class AiRepository(
             allowNativeWebSearch = !searchIsReady
         )
         // 2026-09 厂商适配：按模型名识别 GPT/MiniMax/Kimi/DeepSeek/Gemini/GLM/MiMo，不再为 o 系列做专项分支
-        val vendorPolicy = com.aiassistant.domain.model.ModelVendorProfiles.policyFor(requestModel)
+        val reasoningEvidence = ReasoningCapabilityCatalog.get(config.baseUrl, config.apiType, requestModel)
+        val vendorPolicy = ReasoningControls.policy(requestModel, reasoningEvidence)
         val capability = com.aiassistant.domain.model.ModelCapabilityEngine.evaluateModel(requestModel)
 
         val rawConfiguredMax = effectiveOptions.maxTokens ?: config.maxTokens
@@ -1730,13 +1734,13 @@ class AiRepository(
             else -> configuredMax.coerceIn(1024, minOf(32_768, providerMaxOutput))
         }
 
+        val reasoningSelection = ReasoningControls.selected(requestModel, "openai", effectiveOptions.enableThinking ?: config.enableThinking, effectiveOptions.thinkingEffort, reasoningEvidence)
         val omitTemperature = vendorPolicy.temperaturePolicy == com.aiassistant.domain.model.TemperaturePolicy.FIXED_ONE ||
             (vendorPolicy.temperaturePolicy == com.aiassistant.domain.model.TemperaturePolicy.OMIT_WHEN_THINKING &&
-                (effectiveOptions.enableThinking == true || config.enableThinking || vendorPolicy.alwaysThinking))
+                reasoningSelection.enabled)
         val omitSamplingExtras = vendorPolicy.omitsTopPAndPenalties || omitTemperature
         val mappedEffort = com.aiassistant.domain.model.ModelVendorProfiles
             .mapThinkingGear(effectiveOptions.thinkingEffort, vendorPolicy)
-        val reasoningSelection = ReasoningControls.selected(requestModel, "openai", effectiveOptions.enableThinking ?: config.enableThinking, effectiveOptions.thinkingEffort)
 
         val request = ChatCompletionRequest(
             model = requestModel,
@@ -1759,12 +1763,11 @@ class AiRepository(
             enable_search = if (providerToggles.includeGenericSearch) true else null,
             web_search = if (providerToggles.includeGenericSearch) true else null,
             search_context_size = if (providerToggles.includeGenericSearch) config.searchContextSize else null,
-            enable_thinking = if (providerToggles.includeEnableThinking) true else null,
+            enable_thinking = if (providerToggles.includeEnableThinking && reasoningEvidence?.supportsThinking != false) reasoningSelection.enabled else null,
             thinking_budget = if (providerToggles.includeThinkingBudget) thinkingBudgetForEffort(effectiveOptions.thinkingEffort, config.thinkingBudget) else null,
             thinking_effort = if (providerToggles.includeThinkingEffort) mappedEffort else null,
-            reasoning_effort = if (vendorPolicy.usesReasoningEffort && (reasoningSelection.enabled || reasoningSelection.value == "none")) reasoningSelection.value else null,
-            thinking = if (vendorPolicy.vendor in setOf(ModelVendor.DEEPSEEK, ModelVendor.GLM) && !vendorPolicy.alwaysThinking)
-                AnthropicThinking(type = if (reasoningSelection.enabled) "enabled" else "disabled") else null
+            reasoning_effort = if (vendorPolicy.usesReasoningEffort) ReasoningControls.wireEffort(requestModel, "openai", reasoningSelection.enabled, reasoningSelection.value, reasoningEvidence) else null,
+            thinking = ReasoningControls.thinkingType(requestModel, "openai", reasoningSelection.enabled, reasoningEvidence)?.let { AnthropicThinking(type = it) }
         )
 
         val auth = RetrofitClient.formatApiKey(config.apiKey)
@@ -2133,11 +2136,13 @@ class AiRepository(
             anthropicMessages.add(AnthropicMessage(role = "user", content = userContent))
         }
 
-        val reasoningPolicy = ModelVendorProfiles.policyFor(requestModel)
-        val thinkingEnabled = effectiveOptions.enableThinking ?: config.enableThinking
-        val adaptive = reasoningPolicy.thinkingGears.isNotEmpty()
-        val reasoningSelection = ReasoningControls.selected(requestModel, "anthropic", thinkingEnabled, effectiveOptions.thinkingEffort)
-        val thinkingBudget = if (thinkingEnabled && !adaptive) {
+        val reasoningEvidence = ReasoningCapabilityCatalog.get(config.baseUrl, config.apiType, requestModel)
+        val reasoningPolicy = ReasoningControls.policy(requestModel, reasoningEvidence)
+        val thinkingEnabled = reasoningPolicy.alwaysThinking || (effectiveOptions.enableThinking ?: config.enableThinking)
+        val reasoningSelection = ReasoningControls.selected(requestModel, "anthropic", thinkingEnabled, effectiveOptions.thinkingEffort, reasoningEvidence)
+        val thinkingType = ReasoningControls.thinkingType(requestModel, "anthropic", thinkingEnabled, reasoningEvidence)
+        val adaptive = thinkingType == "adaptive"
+        val thinkingBudget = if (thinkingEnabled && !adaptive && reasoningSelection.value.startsWith("budget:")) {
             thinkingBudgetForEffort(reasoningSelection.value, config.thinkingBudget).coerceAtMost(60000)
         } else null
         val rawConfiguredMaxTokens = effectiveOptions.maxTokens ?: config.maxTokens
@@ -2156,12 +2161,8 @@ class AiRepository(
             top_k = if (!adaptive && !thinkingEnabled && config.topK != 50) config.topK else null,
             stream = true,
             stop_sequences = parseStopSequences(config.stopSequences),
-            output_config = if (adaptive && reasoningSelection.enabled) AnthropicOutputConfig(reasoningSelection.value) else null,
-            thinking = if (adaptive) {
-                AnthropicThinking(type = if (!reasoningSelection.enabled) "disabled" else if (reasoningPolicy.vendor == ModelVendor.CLAUDE) "adaptive" else "enabled")
-            } else if (thinkingBudget != null) {
-                AnthropicThinking(budget_tokens = thinkingBudget)
-            } else null
+            output_config = ReasoningControls.wireEffort(requestModel, "anthropic", thinkingEnabled, effectiveOptions.thinkingEffort, reasoningEvidence)?.let { AnthropicOutputConfig(it) },
+            thinking = thinkingType?.let { AnthropicThinking(type = it, budget_tokens = thinkingBudget) }
         )
 
         // 发送流式请求
@@ -2452,14 +2453,8 @@ class AiRepository(
     }
 
     private fun normalizeThinkingEffort(effort: String?, config: ApiConfig): String {
-        if (config.apiType == "anthropic") return ReasoningControls.selected(config.modelName, config.apiType, true, effort).value
-        // 必须携带模型名走厂商档位映射（config.modelName 已在调用方合并会话级模型），
-        // 否则 ultra/max/xhigh 会在进入 mapThinkingGear 之前被历史安全映射降级为 high
-        return normalizeThinkingEffort(
-            effort,
-            if (isDeepSeekConfig(config)) "deepseek" else "openai",
-            config.modelName
-        )
+        val evidence = ReasoningCapabilityCatalog.get(config.baseUrl, config.apiType, config.modelName)
+        return ReasoningControls.selected(config.modelName, config.apiType, true, effort, evidence).value
     }
 
     private fun thinkingBudgetForEffort(effort: String?, configuredBudget: Int): Int {
@@ -2489,9 +2484,7 @@ class AiRepository(
 
     private fun requestTemperature(config: ApiConfig, options: ChatRequestOptions): Float? {
         val identity = listOf(config.provider, config.baseUrl, config.modelName).joinToString(" ").lowercase()
-        val policy = com.aiassistant.domain.model.ModelVendorProfiles.policyFor(
-            config.modelName, config.provider, config.baseUrl
-        )
+        val policy = ReasoningControls.policy(config.modelName, ReasoningCapabilityCatalog.get(config.baseUrl, config.apiType, config.modelName))
         val isAnthropic = config.apiType == "anthropic" || policy.vendor == com.aiassistant.domain.model.ModelVendor.CLAUDE ||
             config.provider.equals("anthropic", ignoreCase = true) || "anthropic" in identity || "claude" in identity
 
@@ -2560,7 +2553,6 @@ class AiRepository(
             .joinToString(" ")
             .lowercase()
         val wantsSearch = options?.enableWebSearch == true && allowNativeWebSearch
-        val wantsThinking = options?.enableThinking == true
         val isDeepSeek = "deepseek" in identity
         val isMiMo = "mimo" in identity || "xiaomi" in identity
         val isOpenAi = "openai" in identity || "api.openai.com" in identity
@@ -2571,11 +2563,11 @@ class AiRepository(
             includeGenericSearch = wantsSearch && !isDeepSeek && !isOpenAi,
             includeOpenAiSearchOptions = wantsSearch && isOpenAi,
             // 绝不盲目发送非标准属性 enable_thinking / thinking_budget，避免第三方中转网关解析异常与 1024 Token 截断导致的空回复 (empty response detected)
-            includeEnableThinking = wantsThinking && isSiliconFlow,
+            includeEnableThinking = options?.enableThinking != null && isSiliconFlow,
             includeThinkingBudget = false,
             includeThinkingEffort = false,
             // 标准 OpenAI 与主流中转网关协议统一使用 reasoning_effort 控制思考强度
-            includeReasoningEffort = wantsThinking
+            includeReasoningEffort = options?.enableThinking == true
         )
     }
 
@@ -5705,7 +5697,10 @@ class AiRepository(
                     }
                 }
             }
-            options
+            options.map { option -> option.copy(
+                baseUrl = config.baseUrl,
+                reasoningCapability = ReasoningCapabilityCatalog.get(config.baseUrl, config.apiType, option.modelName)
+            ) }
         }.distinctBy { "${it.apiConfigId}:${it.modelName}" }
     }
 

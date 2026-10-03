@@ -62,6 +62,7 @@ class AiAssistantApp : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        com.aiassistant.utils.ReasoningCapabilityPreferences.initialize(this)
 
         cryptoManager = CryptoManager(this)
         personalizationManager = PersonalizationManager(this)

@@ -80,6 +80,7 @@ fun EchoPillSlider(
     val resolvedInactiveColor = inactiveColor ?: if (isDark) Color(0xFF2C2C2E) else Color(0xFFE5E7EB)
 
     val currentOnValueChange by rememberUpdatedState(onValueChange)
+    val currentValue by rememberUpdatedState(value)
     val currentOnValueChangeFinished by rememberUpdatedState(onValueChangeFinished)
 
     val minVal = valueRange.start
@@ -95,7 +96,7 @@ fun EchoPillSlider(
     val animatedValue = remember { Animatable(value) }
     var isDragging by remember { mutableStateOf(false) }
 
-    LaunchedEffect(value) {
+    LaunchedEffect(value, valueRange, steps) {
         if (!isDragging) {
             animatedValue.animateTo(
                 targetValue = value.coerceIn(minVal, maxVal),
@@ -161,7 +162,7 @@ fun EchoPillSlider(
             val targetVal = currentMinVal + (stepIndex.toFloat() / (currentTotalStops - 1)) * currentValSpan
             val currentTouchVal = currentMinVal + progress * currentValSpan
             lastReportedStep = stepIndex
-            if (targetVal != value) currentOnValueChange(targetVal)
+            if (targetVal != currentValue) currentOnValueChange(targetVal)
             currentOnValueChangeFinished?.invoke()
             scope.launch {
                 animatedValue.snapTo(currentTouchVal)
@@ -188,10 +189,10 @@ fun EchoPillSlider(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(48.dp.coerceAtLeast(thumbSize).coerceAtLeast(trackHeight))
-                .pointerInput(Unit) {
+                .pointerInput(valueRange, steps) {
                     detectTapGestures { snapToNearest(it.x) }
                 }
-                .pointerInput(Unit) {
+                .pointerInput(valueRange, steps) {
                     detectHorizontalDragGestures(
                         onDragStart = { isDragging = true; lastReportedStep = -1 },
                         onDragCancel = { isDragging = false },

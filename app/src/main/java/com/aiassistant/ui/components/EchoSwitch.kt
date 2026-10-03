@@ -190,13 +190,13 @@ private fun EchoCompactSwitchTrack(
  * 统一全应用开关颜色，确保深浅色主题下均有良好对比度
  */
 @Composable
-fun echoSwitchColors(): SwitchColors {
+fun echoSwitchColors(forcedThinking: Boolean = false): SwitchColors {
     val colorScheme = MaterialTheme.colorScheme
 
     return SwitchDefaults.colors(
         // 开启状态
         checkedThumbColor = colorScheme.onPrimary,
-        checkedTrackColor = colorScheme.primary,
+        checkedTrackColor = if (forcedThinking) Color(0xFFB9DEFF) else colorScheme.primary,
         checkedBorderColor = Color.Transparent,
         checkedIconColor = colorScheme.primary,
 
@@ -208,7 +208,7 @@ fun echoSwitchColors(): SwitchColors {
 
         // 禁用状态
         disabledCheckedThumbColor = colorScheme.onSurface.copy(alpha = 0.38f),
-        disabledCheckedTrackColor = colorScheme.onSurface.copy(alpha = 0.12f),
+        disabledCheckedTrackColor = if (forcedThinking) Color(0xFFB9DEFF) else colorScheme.onSurface.copy(alpha = 0.12f),
         disabledCheckedBorderColor = Color.Transparent,
         disabledUncheckedThumbColor = colorScheme.onSurface.copy(alpha = 0.38f),
         disabledUncheckedTrackColor = colorScheme.surfaceContainerHighest.copy(alpha = 0.38f),

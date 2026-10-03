@@ -263,12 +263,12 @@ fun StoryUnifiedSettingsDialog(
     val tuningProfile = remember(currentOption, fallbackModel, enableThinking) {
         chatTuningProfile(currentOption, fallbackModel, enableThinking)
     }
-    LaunchedEffect(enableThinking, tuningProfile.thinkingEfforts) {
-        if (com.aiassistant.domain.model.ModelVendorProfiles.policyFor(currentOption?.modelName ?: fallbackModel).alwaysThinking) enableThinking = true
+    LaunchedEffect(enableThinking, tuningProfile) {
+        if (tuningProfile.forcedThinking) enableThinking = true
         val options = tuningProfile.thinkingEfforts
         if (enableThinking && options.isNotEmpty() && options.none { it.value.equals(thinkingEffort, ignoreCase = true) }) {
             thinkingEffort = com.aiassistant.domain.model.ReasoningControls.selected(
-                currentOption?.modelName ?: fallbackModel, currentOption?.apiType ?: "openai", enableThinking, thinkingEffort
+                currentOption?.modelName ?: fallbackModel, currentOption?.apiType ?: "openai", enableThinking, thinkingEffort, currentOption?.reasoningCapability
             ).value
         }
     }
@@ -993,10 +993,10 @@ fun StoryUnifiedSettingsDialog(
                                         )
                                     }
                                     Switch(
-                                        checked = enableThinking,
-                                        enabled = com.aiassistant.domain.model.ReasoningControls.options(currentOption?.modelName ?: fallbackModel, currentOption?.apiType ?: "openai").any { !it.enabled },
+                                        checked = currentOption?.reasoningCapability?.supportsThinking != false && (enableThinking || tuningProfile.forcedThinking),
+                                        enabled = tuningProfile.thinkingToggleEnabled,
                                         onCheckedChange = { enableThinking = it },
-                                        colors = echoSwitchColors()
+                                        colors = echoSwitchColors(forcedThinking = tuningProfile.forcedThinking)
                                     )
                                 }
                             }

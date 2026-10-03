@@ -1168,6 +1168,7 @@ fun ChatScreen(
                     readableBackdrop = readableBackdrops.bottom,
                     modelName = currentModelOption?.modelName ?: currentModel ?: uiState.modelName,
                     apiType = currentModelOption?.apiType ?: "openai",
+                    reasoningCapability = currentModelOption?.reasoningCapability,
                     isBarsHidden = isBarsHidden,
                     onBarsHiddenChange = { isBarsHidden = it }
                 )

@@ -2,6 +2,45 @@
 
 本文档按照工作流规范记录每次版本更新、需求变更与复核结果。
 
+## [2026-10-03] - 思考模式、真实档位与左下角胶囊七项修正（未发版）
+
+### 需求、根因与临时实施方案
+- 基线 main/047fada，原有 `审核报告+20261003-133335.md` 未跟踪且不纳入本次提交。版本保持 2.7.12/178、Room v33；用户未要求本轮构建 APK。
+- 根因：开关以档位列表是否存在关闭选项判断可关闭性，导致未知/仅默认模型错误禁用；模型列表只保留名称与上下文，丢弃真实思考能力；厂商通配规则将部分可关闭模型判为强制；胶囊标签 FlowRow 与滑块端点坐标不同，手势闭包还可能保留旧值/旧档位数量。
+- 方案：分离原始参数与显示文案，以接口显式能力覆盖具体型号补充规则；普通设置、角色扮演设置、胶囊和请求共享 ReasoningControls；新增按接口地址、协议、大小写敏感模型 ID 隔离的能力缓存，持久化至独立 SharedPreferences，不改数据库、不新增启动网络请求。
+
+### 七项实现与影响面
+1. 对话设置默认项改为“默认”；左下角 default 状态显示“深度思考”。
+2. 思考按钮按当前字体下四个汉字 + 箭头占位固定宽高，文字区域居中；箭头消失不改变尺寸，其余按钮不采用固定尺寸。
+3. 至少两项有效思考强度才显示向上箭头/展开弹窗；仅默认且可关闭时点按钮切换，不因无档位锁定开关。
+4. 档位标签和滑块共用端点 inset/等距中心，改为同一 SubcomposeLayout；手势以最新值及档位范围为准。
+5. 档位显示首字母大写；接口返回的原始档位字符串保留，显示大小写不写入请求。预算显示与数值发送分离。
+6. 真正强制思考的开关禁用且保持淡蓝底色；显式不支持思考时关闭并禁用；普通与角色扮演同步。
+7. 读取简单能力字段、参数 enum、supported_reasoning_levels，以及真实原生 Anthropic `capabilities.effort.<level>.supported` / `thinking.types`。支持思考不等于强制思考；缺失字段不等于 false；未知变体不自动继承整厂商档位。
+- 补充规则：GPT-6 Sol/Luna 可关闭，Astra/6.1 Sol 强制；GLM-5.2 可关闭；GLM-5.3/FLASH 强制，FLASHX 不凭该注释推断强制；MiniMax-M3 可关闭，M2.x/M3.1 强制；Kimi K2.6 可关闭，K2.7 Code/K3 强制；Gemini 3.7/3.8 Flash 补 Low/Medium/High。
+- 请求修正：关闭旧原生 Claude 明确发送 disabled；已知 adaptive 与 budget_tokens 区分；Kimi K2.7 Code 省略不完整 thinking 对象；默认不作为 effort 发送；SiliconFlow 关闭时发送 enable_thinking=false；温度省略依据实际思考选中状态，避免配置 true 覆盖会话关闭。
+- 核心文件：`ReasoningControls.kt`、`ReasoningCapabilities.kt`、`ReasoningCapabilityPreferences.kt`、`ReasoningStopLayout.kt`、`ModelVendorProfiles.kt`、`Models.kt`、`AiRepository.kt`、`AiAssistantApp.kt`、两类设置、胶囊/滑块/开关及模型选项传递。
+- 测试：既有 ReasoningControlsTest 新增九项（API 优先、真实 SDK 对象、大小写、端点隔离、强制/可选、未知、原始序列化及 2–8 档坐标）；ModernModelAdaptation2026Test / V236FeaturesTest 同步具体型号契约，不删除测试、不扩大断言、不创建版本临时测试套件。
+
+### 官方资料复核（2026-10-03）
+- OpenAI：https://developers.openai.com/api/docs/guides/latest-model 、https://developers.openai.com/api/docs/guides/reasoning （直连 403，使用官方页面搜索摘录交叉核对具体型号；不是实际请求验证）。
+- Gemini：https://ai.google.dev/gemini-api/docs/openai （官方搜索摘录；thinking 页面直连 transport error）。
+- DeepSeek：https://api-docs.deepseek.com/guides/thinking_mode
+- Kimi：https://platform.kimi.ai/docs/api/models-overview
+- GLM：https://docs.bigmodel.cn/cn/guide/capabilities/thinking
+- MiniMax：https://platform.minimax.io/docs/api-reference/text-openai-api
+- Claude：https://platform.claude.com/docs/en/build-with-claude/effort （正文跳转，使用官方搜索摘录）；官方 anthropic-sdk-python 的 model_info/model_capabilities/effort_capability/thinking_capability/thinking_types 已经 jsDelivr 读取真实字段结构。
+
+### 验证与边界
+- `./gradlew.bat compileDebugKotlin --no-daemon --console=plain`：最终退出 0。
+- `./gradlew.bat testDebugUnitTest --no-daemon --console=plain`：首次复核退出 1，定位到旧 V236 将未知 gpt-5.5-omni 推断为 GPT-5 档位的断言；改为准确空集合，随后联合 compile/test/lint 退出 0；最终独立测试命令退出 **0**，79 套件、**531 测试 / 0 failure / 0 error**。
+- `./gradlew.bat lintDebug --no-daemon --console=plain`：最终退出 **0**，**0 Error / 89 Warning**。首次 90 Warning 中新增 SharedPreferences UseKtx 提示已按 KTX edit 修复，未新增 suppress/隔离。
+- `git diff --check`：退出 **0**；验证日志位于 `C:\Users\19376\AppData\Local\Temp\opencode\echo-reasoning-{compile,tests,lint}.log`，联合日志为 `echo-reasoning-final-checks.log`。
+- 最后补充“关闭后重新开启不得继续发送 none”的回归断言及选中值修正后，再次联合 `compileDebugKotlin testDebugUnitTest lintDebug --no-daemon --console=plain` 退出 **0**（6m 6s），三任务均成功；测试数量仍为 531。
+- 未运行 assembleRelease；历史 APK 及备份/后台生成逻辑不改；未执行设备视觉/安装、真实用户端点请求或双设备备份测试。
+- 接口需要重新获取模型列表才能采集能力数据；缓存按地址/协议隔离，不是第三方路由实际通过能力的保证。无可靠档位仍显示默认，未知接口开关可编辑但不发送臆造参数，不保证服务端真正关闭。
+- 人工验收：重新获取列表→普通/角色设置比较档位与强制开关→切换 Default/Low/Medium/High/Xhigh/Max/关闭核对按钮恒宽→各档标签点击/拖动对应→重开应用确认能力缓存→检查实际请求 JSON 原值与服务端回包。Git 提交及远端结果见交付回复。
+
 ## [2026-10-03] - v2.7.12 首页启动修复复核与 APK 发布
 
 ### 需求与临时实施方案

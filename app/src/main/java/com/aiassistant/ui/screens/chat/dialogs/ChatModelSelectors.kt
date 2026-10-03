@@ -332,7 +332,9 @@ data class ChatTuningProfile(
     val temperatureMax: Float,
     val temperatureEnabled: Boolean,
     val thinkingEfforts: List<ThinkingEffortOption>,
-    val noThinkingEffortReason: String? = null
+    val noThinkingEffortReason: String? = null,
+    val forcedThinking: Boolean = false,
+    val thinkingToggleEnabled: Boolean = true
 )
 
 internal fun chatTuningProfile(
@@ -351,7 +353,10 @@ internal fun chatTuningProfile(
         else -> if (provider.isNotBlank()) provider else "当前模型"
     }
 
-    val efforts = com.aiassistant.domain.model.ReasoningControls.options(modelName, currentOption?.apiType ?: "openai")
+    val evidence = currentOption?.reasoningCapability
+    val apiType = currentOption?.apiType ?: "openai"
+    val reasoningPolicy = com.aiassistant.domain.model.ReasoningControls.policy(modelName, evidence)
+    val efforts = com.aiassistant.domain.model.ReasoningControls.options(modelName, apiType, evidence)
         .filter { it.enabled }.map { ThinkingEffortOption(it.value, it.label) }
 
     val reason: String? = null
@@ -365,7 +370,9 @@ internal fun chatTuningProfile(
         temperatureMax = tempMax,
         temperatureEnabled = tempEnabled,
         thinkingEfforts = efforts,
-        noThinkingEffortReason = reason
+        noThinkingEffortReason = reason,
+        forcedThinking = reasoningPolicy.alwaysThinking,
+        thinkingToggleEnabled = com.aiassistant.domain.model.ReasoningControls.canToggle(modelName, apiType, evidence)
     )
 }
 

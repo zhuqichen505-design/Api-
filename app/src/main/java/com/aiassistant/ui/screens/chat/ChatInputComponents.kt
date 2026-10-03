@@ -186,6 +186,7 @@ fun ChatInputBar(
     readableBackdrop: Color = Color.Unspecified,
     modelName: String = "",
     apiType: String = "openai",
+    reasoningCapability: com.aiassistant.domain.model.ReasoningCapabilityEvidence? = null,
     isBarsHidden: Boolean = false,
     onBarsHiddenChange: (Boolean) -> Unit = {}
 ) {
@@ -193,6 +194,9 @@ fun ChatInputBar(
     var isInputExpanded by remember { mutableStateOf(false) }
     var customInputHeightDp by remember { mutableStateOf<Float?>(null) }
     val density = LocalDensity.current
+    val reasoningPolicy = com.aiassistant.domain.model.ReasoningControls.policy(modelName, reasoningCapability)
+    val thinkingActive = reasoningCapability?.supportsThinking != false && (enableThinking || reasoningPolicy.alwaysThinking)
+    val hasIntensityChoice = com.aiassistant.domain.model.ReasoningControls.hasIntensityChoice(modelName, apiType, reasoningCapability)
     // v2.7.4 需求 4：发送后清除输入框焦点（软键盘随之收起）
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     // v2.7.4 需求 2：TextFieldValue 承载选区/焦点/布局以支持自绘光标；对外仍保持 String API，
@@ -260,7 +264,7 @@ fun ChatInputBar(
     ) {
         // 深度思考向上展开渐变滑块气泡弹窗
         AnimatedVisibility(
-            visible = showThinkingPopover && !isBarsHidden,
+            visible = showThinkingPopover && hasIntensityChoice && !isBarsHidden,
             enter = fadeIn() + expandVertically(expandFrom = Alignment.Bottom),
             exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Bottom),
             modifier = Modifier.clip(RoundedCornerShape(22.dp))
@@ -270,6 +274,7 @@ fun ChatInputBar(
                 thinkingEffort = thinkingEffort,
                 modelName = modelName,
                 apiType = apiType,
+                reasoningCapability = reasoningCapability,
                 onEffortSelected = { enabled, effort ->
                     onThinkingChange(enabled, effort)
                 },
@@ -490,9 +495,14 @@ fun ChatInputBar(
                         ) {
                             // 1. 深度思考 按钮（排在第1位，点击向上展开档位弹窗）
                             item {
-                                val effortText = com.aiassistant.domain.model.ReasoningControls.selected(modelName, apiType, enableThinking, thinkingEffort).label
+                                val selection = com.aiassistant.domain.model.ReasoningControls.selected(modelName, apiType, thinkingActive, thinkingEffort, reasoningCapability)
+                                val effortText = when {
+                                    selection.value == "default" -> "深度思考"
+                                    selection.value.startsWith("budget:") -> selection.value.removePrefix("budget:")
+                                    else -> selection.label
+                                }
                                 val effortAccentColor = when {
-                                    !enableThinking -> glass.outline
+                                    !thinkingActive -> glass.outline
                                     thinkingEffort.equals("low", true) || thinkingEffort.equals("fast", true) -> EchoThinkingColors.low // 柔和纯正天蓝
                                     thinkingEffort.equals("medium", true) || thinkingEffort.equals("balanced", true) -> EchoThinkingColors.medium // 蔚蓝
                                     thinkingEffort.equals("high", true) || thinkingEffort.equals("deep", true) -> EchoThinkingColors.high // 深海蓝
@@ -502,20 +512,24 @@ fun ChatInputBar(
                                 InputPillButton(
                                     text = effortText,
                                     icon = null,
-                                    trailingIcon = if (showThinkingPopover) Icons.Default.ExpandMore else Icons.Default.ExpandLess,
-                                    selected = enableThinking,
-                                    onClick = { onThinkingPopoverChange(!showThinkingPopover) },
-                                    containerColor = if (enableThinking) {
+                                    trailingIcon = if (hasIntensityChoice) Icons.Default.ExpandLess else null,
+                                    fixedThinkingSize = true,
+                                    selected = thinkingActive,
+                                    onClick = {
+                                        if (hasIntensityChoice) onThinkingPopoverChange(!showThinkingPopover)
+                                        else if (com.aiassistant.domain.model.ReasoningControls.canToggle(modelName, apiType, reasoningCapability)) onThinkingChange(!thinkingActive, thinkingEffort)
+                                    },
+                                    containerColor = if (thinkingActive) {
                                         effortAccentColor.copy(alpha = 0.16f)
                                     } else {
                                         glass.control
                                     },
-                                    contentColor = if (enableThinking) {
+                                    contentColor = if (thinkingActive) {
                                         effortAccentColor
                                     } else {
                                         inputTextColor
                                     },
-                                    borderColor = if (enableThinking) {
+                                    borderColor = if (thinkingActive) {
                                         effortAccentColor.copy(alpha = 0.65f)
                                     } else {
                                         glass.outline
@@ -1005,12 +1019,13 @@ internal fun ReasoningEffortPopupCard(
     thinkingEffort: String,
     modelName: String = "",
     apiType: String = "openai",
+    reasoningCapability: com.aiassistant.domain.model.ReasoningCapabilityEvidence? = null,
     onEffortSelected: (Boolean, String) -> Unit,
     onClose: () -> Unit
 ) {
     var showParamsExplanationDialog by remember { mutableStateOf(false) }
 
-    val levels = remember(modelName, apiType) {
+    val levels = remember(modelName, apiType, reasoningCapability) {
         listOf(
             ThinkingEffortLevel(
                 step = 0,
@@ -1063,7 +1078,7 @@ internal fun ReasoningEffortPopupCard(
                 gradientColors = EchoThinkingColors.maxGradient
             )
         ).let { templates ->
-            com.aiassistant.domain.model.ReasoningControls.options(modelName, apiType).mapIndexed { index, option ->
+            com.aiassistant.domain.model.ReasoningControls.options(modelName, apiType, reasoningCapability).mapIndexed { index, option ->
                 val template = templates.firstOrNull { it.key == option.value } ?: templates[if (option.enabled) 3 else 0]
                 template.copy(step = index, key = option.value, enabled = option.enabled, name = option.label,
                     subtitle = option.label, detail = "当前模型与接口的实际参数")
@@ -1072,10 +1087,10 @@ internal fun ReasoningEffortPopupCard(
     }
 
     val maxStep = levels.lastIndex
-    val selected = com.aiassistant.domain.model.ReasoningControls.selected(modelName, apiType, enableThinking, thinkingEffort)
+    val selected = com.aiassistant.domain.model.ReasoningControls.selected(modelName, apiType, enableThinking, thinkingEffort, reasoningCapability)
     val currentStep = levels.indexOfFirst { it.key == selected.value }.coerceAtLeast(0)
 
-    var sliderIndex by remember { mutableFloatStateOf(currentStep.toFloat()) }
+    var sliderIndex by remember(levels) { mutableFloatStateOf(currentStep.toFloat()) }
     LaunchedEffect(currentStep) {
         if (sliderIndex.roundToInt() != currentStep) {
             sliderIndex = currentStep.toFloat()
@@ -1173,28 +1188,10 @@ internal fun ReasoningEffortPopupCard(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                EchoPillSlider(
-                    value = sliderIndex,
-                    onValueChange = { newVal ->
-                        sliderIndex = newVal
-                        val stepInt = newVal.roundToInt().coerceIn(0, maxStep)
-                        val target = levels[stepInt]
-                        onEffortSelected(target.enabled, target.key)
-                    },
-                    valueRange = 0f..maxStep.toFloat(),
-                    steps = (levels.size - 2).coerceAtLeast(0),
-                    activeColor = currentLevel.primaryColor,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 4.dp, vertical = 2.dp)
-                )
-
-                // 快捷点选 Chips 行
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
+                // Labels and slider share the same endpoint inset and evenly spaced centers.
+                androidx.compose.ui.layout.SubcomposeLayout(modifier = Modifier.fillMaxWidth()) { constraints ->
+                    val cellWidth = constraints.maxWidth / levels.size
+                    val labels = subcompose("labels") {
                     levels.forEach { lvl ->
                         val isSelected = currentLevel.step == lvl.step
                         Surface(
@@ -1214,8 +1211,36 @@ internal fun ReasoningEffortPopupCard(
                                 text = lvl.name,
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                maxLines = 2,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                modifier = Modifier.padding(horizontal = 2.dp, vertical = 8.dp)
                             )
+                        }
+                    }
+                    }.map { it.measure(androidx.compose.ui.unit.Constraints.fixedWidth(cellWidth)) }
+                    val radius = 14.dp.roundToPx()
+                    val inset = maxOf(cellWidth / 2, radius)
+                    val sliderLeft = inset - radius
+                    val sliderWidth = (constraints.maxWidth - 2 * sliderLeft).coerceAtLeast(1)
+                    val slider = subcompose("slider") {
+                        EchoPillSlider(
+                            value = sliderIndex,
+                            onValueChange = { newVal ->
+                                sliderIndex = newVal
+                                val target = levels[newVal.roundToInt().coerceIn(0, maxStep)]
+                                onEffortSelected(target.enabled, target.key)
+                            },
+                            valueRange = 0f..maxStep.toFloat(),
+                            steps = (levels.size - 2).coerceAtLeast(0),
+                            activeColor = currentLevel.primaryColor
+                        )
+                    }.single().measure(androidx.compose.ui.unit.Constraints.fixedWidth(sliderWidth))
+                    val gap = 4.dp.roundToPx()
+                    layout(constraints.maxWidth, slider.height + gap + (labels.maxOfOrNull { it.height } ?: 0)) {
+                        slider.placeRelative(sliderLeft, 0)
+                        labels.forEachIndexed { index, label ->
+                            val center = com.aiassistant.domain.model.ReasoningStopLayout.center(index, levels.size, constraints.maxWidth.toFloat(), inset.toFloat())
+                            label.placeRelative((center - label.width / 2f).roundToInt(), slider.height + gap)
                         }
                     }
                 }
@@ -1280,7 +1305,7 @@ internal fun ThinkingParamsExplanationDialog(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 ThinkingParamCard(
-                    title = "关闭思考 (none)",
+                    title = "关闭思考 (None)",
                     badge = "无思考预算",
                     badgeColor = EchoThinkingColors.none,
                     desc = "跳过思维链推演，以模型原生最高速度直接生成最终回复内容（强制思考模型保持原生工作）。",
@@ -1292,7 +1317,7 @@ internal fun ThinkingParamsExplanationDialog(
                 )
 
                 ThinkingParamCard(
-                    title = "low",
+                    title = "Low",
                     badge = "精简推演",
                     badgeColor = EchoThinkingColors.low,
                     desc = "分配精简思考预算进行关键逻辑检查，低延迟极速响应。",
@@ -1304,7 +1329,7 @@ internal fun ThinkingParamsExplanationDialog(
                 )
 
                 ThinkingParamCard(
-                    title = "medium",
+                    title = "Medium",
                     badge = "推荐默认",
                     badgeColor = EchoThinkingColors.medium,
                     desc = "投入适度思考预算，严密推演逻辑与代码设计（日常最佳平衡点）。",
@@ -1316,7 +1341,7 @@ internal fun ThinkingParamsExplanationDialog(
                 )
 
                 ThinkingParamCard(
-                    title = "high",
+                    title = "High",
                     badge = "深度推理",
                     badgeColor = EchoThinkingColors.high,
                     desc = "投入大量思考预算进行多步论证、边界检查与复杂代码推演。",
@@ -1328,7 +1353,7 @@ internal fun ThinkingParamsExplanationDialog(
                 )
 
                 ThinkingParamCard(
-                    title = "max",
+                    title = "Max",
                     badge = "极限预算",
                     badgeColor = EchoThinkingColors.max,
                     desc = "释放最大思考预算上限，全力攻坚高难算法、数学定理与复杂多维哲学推理。",
@@ -1588,10 +1613,17 @@ internal fun InputPillButton(
     trailingIcon: androidx.compose.ui.graphics.vector.ImageVector? = null,
     containerColor: Color? = null,
     contentColor: Color? = null,
-    borderColor: Color? = null
+    borderColor: Color? = null,
+    fixedThinkingSize: Boolean = false
 ) {
     val pillShape = RoundedCornerShape(999.dp)
     val glass = echoGlassPalette()
+    val textMeasurer = androidx.compose.ui.text.rememberTextMeasurer()
+    val labelStyle = MaterialTheme.typography.labelLarge
+    val referenceSize = textMeasurer.measure("深度思考", labelStyle.copy(fontWeight = FontWeight.Medium)).size
+    val density = LocalDensity.current
+    val textWidth = with(density) { referenceSize.width.toDp() }
+    val fixedHeight = with(density) { referenceSize.height.toDp() } + 14.dp
     val resolvedContainerColor = containerColor ?: if (selected) {
         glass.controlSelected
     } else {
@@ -1607,7 +1639,7 @@ internal fun InputPillButton(
     }
     Surface(
         modifier = Modifier
-            .heightIn(min = 34.dp)
+            .then(if (fixedThinkingSize) Modifier.width(textWidth + 44.dp).height(fixedHeight.coerceAtLeast(34.dp)) else Modifier.heightIn(min = 34.dp))
             .echoShapeClick(pillShape, onClick = onClick),
         shape = pillShape,
         color = resolvedContainerColor,
@@ -1630,6 +1662,8 @@ internal fun InputPillButton(
             Text(
                 text = text,
                 style = MaterialTheme.typography.labelLarge,
+                modifier = if (fixedThinkingSize) Modifier.width(textWidth) else Modifier,
+                textAlign = if (fixedThinkingSize) androidx.compose.ui.text.style.TextAlign.Center else androidx.compose.ui.text.style.TextAlign.Start,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -1640,6 +1674,8 @@ internal fun InputPillButton(
                     modifier = Modifier.size(16.dp),
                     tint = resolvedContentColor
                 )
+            } else if (fixedThinkingSize) {
+                Spacer(Modifier.size(16.dp))
             }
         }
     }

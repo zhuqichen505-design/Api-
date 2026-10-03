@@ -109,9 +109,9 @@ class V236FeaturesTest {
             val cap = ModelCapabilityEngine.resolveCapabilities(model)
             assertTrue("模型 $model 必须默认支持思考", cap.supportsThinking)
             assertTrue("模型 $model 必须默认支持 reasoning", cap.supportsReasoning)
-            // 2026-09：不同厂商思考档位不同（Kimi/GLM 三档，GPT-6 五档），但至少要有 low/high 且不少于 3 档
+            // 只列具体型号已确认的档位；未知变体不得继承整个厂商的范围。
             val expected = when(model) {
-                "gpt-5", "gpt-5.5-omni" -> listOf("minimal", "low", "medium", "high")
+                "gpt-5" -> listOf("minimal", "low", "medium", "high")
                 "gpt-6-astra" -> listOf("low", "medium", "high", "xhigh", "max")
                 "deepseek-chat-v4" -> listOf("low", "high", "max")
                 else -> emptyList()
