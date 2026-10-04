@@ -4,6 +4,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Call
 import okhttp3.ConnectionPool
 import okhttp3.Request
+import okhttp3.RequestBody
+import okio.BufferedSink
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.logging.HttpLoggingInterceptor
 import okhttp3.MediaType.Companion.toMediaType
@@ -13,6 +15,25 @@ import java.util.concurrent.TimeUnit
 
 object RetrofitClient {
     const val DEFAULT_USER_AGENT = "Echo-Assistant/2.2.5 (Android; Mobile)"
+    const val RESPONSE_HEADER_TIMEOUT_SECONDS = 120L
+    const val STREAM_IDLE_TIMEOUT_SECONDS = 600L
+
+    // Route recovery must stay enabled: an unreachable first DNS address must not prevent
+    // trying the next address. One-shot POST bodies prevent replay AFTER sending starts,
+    // including OkHttp's HTTP 408/503 follow-ups; RetryPolicy owns new model attempts.
+    private val noPostReplayInterceptor = okhttp3.Interceptor { chain ->
+        val request = chain.request()
+        val body = request.body
+        val guarded = if (request.method == "POST" && body != null) {
+            request.newBuilder().method(request.method, object : RequestBody() {
+                override fun contentType() = body.contentType()
+                override fun contentLength() = body.contentLength()
+                override fun isOneShot() = true
+                override fun writeTo(sink: BufferedSink) = body.writeTo(sink)
+            }).build()
+        } else request
+        chain.proceed(guarded)
+    }
 
     @Volatile
     private var currentBaseUrl: String = ""
@@ -34,19 +55,27 @@ object RetrofitClient {
 
     // 专用于长文本与深度思考 SSE 流式输出（开启专用连接池与 15s 心跳保活）
     val streamHttpClient = OkHttpClient.Builder()
+        .addInterceptor(noPostReplayInterceptor)
         .addInterceptor(loggingInterceptor)
-        .retryOnConnectionFailure(false) // Explicit retry policy owns extra attempts; no hidden POST replay.
+        .retryOnConnectionFailure(true) // Safe pre-send address recovery; one-shot bodies forbid POST replay.
+        .addNetworkInterceptor { chain ->
+            val response = chain.proceed(chain.request())
+            // Bound response-header waiting separately from long-running stream idle reads.
+            response.body?.source()?.timeout()?.timeout(STREAM_IDLE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            response
+        }
         .connectionPool(sharedConnectionPool)
         .pingInterval(15, TimeUnit.SECONDS) // HTTP/2 长连接保活心跳，防止深度推理/思考长挂时被中间 NAT 掐断
         .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(0, TimeUnit.SECONDS)
+        .readTimeout(RESPONSE_HEADER_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
 
     // 专用于普通 REST 请求、模型拉取与摘要生成（设置明确超时与专用连接池，防止永久挂死）
     val restHttpClient = OkHttpClient.Builder()
+        .addInterceptor(noPostReplayInterceptor)
         .addInterceptor(loggingInterceptor)
-        .retryOnConnectionFailure(false)
+        .retryOnConnectionFailure(true)
         .connectionPool(sharedConnectionPool)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
@@ -55,8 +84,9 @@ object RetrofitClient {
 
     // 专用于全量时间线提炼、长文本深度分析与设定提炼（设置 600s 充足超时与弹性连接，支持超长篇上下文深度推理）
     val longAnalysisHttpClient = OkHttpClient.Builder()
+        .addInterceptor(noPostReplayInterceptor)
         .addInterceptor(loggingInterceptor)
-        .retryOnConnectionFailure(false)
+        .retryOnConnectionFailure(true)
         .connectionPool(sharedConnectionPool)
         .pingInterval(15, TimeUnit.SECONDS)
         .connectTimeout(60, TimeUnit.SECONDS)

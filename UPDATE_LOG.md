@@ -2,6 +2,28 @@
 
 本文档按照工作流规范记录每次版本更新、需求变更与复核结果。
 
+## [2026-10-04] - v2.7.14 模型连接回归修复与发布
+
+### 问题、根因与临时实施方案
+- 用户反馈 v2.7.13 所有模型持续显示连接中，而其他平台可快速回复，要求立即修复并出包。基线 main/56f9077；原未跟踪审核报告保留、不混入提交。优先恢复正常调用，不将增加超时重试等同于恢复可用。
+- 明确回归：d4f4046 将三个 AI OkHttp 客户端 retryOnConnectionFailure 改为 false，误把请求发送前的 DNS 多地址/连接路由回退与请求发送后的 POST 重放一并禁用。首地址不可达但后续地址可用时，原客户端连接失败，影响同网关下所有模型；它不受模型 ID 或思考档位影响。无用户设备日志/接口样本，不能声称这是设备上的唯一根因。
+- 同时发现流式 readTimeout=0 对响应头也无限等待；120s 慢响应文案不是超时，无法结束无响应调用。仅作为安全兜底修正，不把超时替代快速回复修复。
+- 实施：RetrofitClient 三客户端恢复连接失败路由恢复，应用拦截器包装所有 POST 为 one-shot，禁止开始发送后的隐藏重放及 408/503 跟随重发，显式 RetryPolicy 仍掌管新请求次数。流式响应头等待 120s，收到头后独立改为 600s 空闲读取，不限制正常持续输出总时长。
+- 涉及代码：`data/remote/RetrofitClient.kt`、领域套件 `NetworkAndKeyStabilityTest.kt`，版本仅在 app/build.gradle.kts 升至 180/2.7.14；Room v33、思考参数、显示名、动画、数据与备份不改。普通/角色/摘要/分析/快捷辅助调用共用网络修复。发版同步六份仓库文档及根 AGENTS 事实卡。
+
+### 复现与验证
+- 初次测试编译退出 1（Dns 是普通 Kotlin 接口而非 fun interface），改为显式 object 实现后重跑。
+- 修复前 `testDebugUnitTest --tests com.aiassistant.NetworkAndKeyStabilityTest.connectionFallsBackToSecondAddressBeforeSendingPost --no-daemon --console=plain` 退出 1：可控 DNS 首个 127.0.0.2 不可达，第二个 127.0.0.1 有正常模型流式服务，旧客户端 ConnectException、请求未到可用服务。
+- 修复后同领域测试退出 0；本地回退请求约 33–61ms 返回 HTTP 200，服务器只收到 1 次 POST。三个客户端均覆盖连接回退与已发送后断连不得重放；408/503（Retry-After:0）保持原响应、仅 1 次请求；响应头超时正确分类；取消阻塞读取立即退出，无重放。
+- 通过真实 `RetrofitClient.postJson` 对 OpenAI /v1/chat/completions 和 Anthropic /v1/messages 分别接收首个 delta：不等结束标志/连接关闭即返回首行，原始 model ID、路径、JSON 载荷未改变；响应头读取与 600s 流式空闲超时独立验证。
+- 一次前台验证超过工具 120s 上限被终止（未算通过），以 300s 上限重跑成功。
+- 最终 `./gradlew.bat compileDebugKotlin --no-daemon --console=plain`、`./gradlew.bat testDebugUnitTest --no-daemon --console=plain`、`./gradlew.bat lintDebug --no-daemon --console=plain`、`./gradlew.bat assembleRelease --no-daemon --console=plain` 各退出 0；81 套件、548 项测试通过（0 失败/错误/跳过），Lint 0 Error / 89 Warning。`git diff --check`、apksigner、aapt、复制/哈希/历史文件校验各退出 0。
+- APK：`D:\Agent\APP-Echo\app\releases\Echo-v2.7.14.apk`，16,733,041 字节，com.aiassistant、180/2.7.14、arm64-v8a、minSdk 26 / targetSdk 34；SHA256 `251618D9168F1B82B470532B698EB1737DFC584D1A5AFCFBCE0D6BA69DCFFA66` 与构建产物一致。
+- File.Copy(overwrite=false) 复制；190 个历史文件逐一长度/哈希校验均未变，发布目录现有 191 个文件。签名 DN `C=US, O=Android, CN=Android Debug`，证书 SHA256 `939638f6d3e9af7f8a980e62af52d275fee73381f2130cc4e20a0d349f98e21f` 与上一版一致，**非正式生产签名**。
+- 六份发布文档与根事实卡同步；本次提交、v2.7.14 标签、push 与 ls-remote 核验以交付回复实际结果为准。
+- 官方源码依据：OkHttp 4.12.0 RetryAndFollowUpInterceptor 的 recover 在 retryOnConnectionFailure=false 时直接拒绝路由恢复；true + one-shot 仅允许未开始发送的恢复，并拒绝请求体重放和 408/503 重发。https://github.com/square/okhttp/blob/parent-4.12.0/okhttp/src/main/kotlin/okhttp3/internal/http/RetryAndFollowUpInterceptor.kt
+- ADB 无设备，未调用用户真实端点，未做安装/启动/真机回复验收；优先人工覆盖升级后使用原可用接口发送短问题，若仍连接中需脱敏日志（不收集 Key）进一步定位。
+
 ## [2026-10-04] - v2.7.13 复核构建与发布
 
 ### 需求理解与临时实施方案

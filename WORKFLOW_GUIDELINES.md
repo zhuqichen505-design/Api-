@@ -41,6 +41,17 @@
 
 ## 二、最近一次执行记录
 
+### [2026-10-04] v2.7.14 模型连接回归修复发版
+- [x] 基线 main/56f9077，原审核报告保留、不纳入修改；用户明确要求修复后出 APK。
+- [x] 已输出临时实施方案，区分发送前路由恢复与发送后 POST 重放；用户强调优先恢复正常快速回复，未通过增加重试次数代替修复。
+- [x] 修复前多地址复现退出 1；修复后三个客户端本地连接/断连/408/503/取消、两协议 postJson 首 delta/原始模型载荷测试退出 0。测试编译适配和一次工具超时如实记录于 UPDATE_LOG。
+- [x] 最终 compileDebugKotlin / testDebugUnitTest / lintDebug / assembleRelease 各退出 0（均 --no-daemon --console=plain）；81 套件、548 项通过，Lint 0 Error / 89 Warning。
+- [x] diff --check、apksigner / aapt / 复制哈希校验各退出 0；APK 元数据见 walkthrough。只复制 Echo-v2.7.14.apk，190 个历史文件长度/哈希均未改变。
+- [x] 版本 180/2.7.14，Room v33 不变；动画/数据不改。190 个历史文件哈希留存，目标不存在。
+- [x] 无设备/真实接口验证，不声称用户设备唯一根因或实际回复已恢复；人工验收见 walkthrough。
+- [x] 六份发布文档与根 AGENTS 事实卡同步；不纳入 Key、keystore、local.properties、APK 或构建产物。
+- 提交、v2.7.14 标签、push 与 ls-remote 核验结果以实际交付为准。
+
 ### [2026-10-04] v2.7.13 复核发版
 - [x] 基线 main/d4f4046，原有未跟踪审核报告保留；用户明确要求构建 APK。
 - [x] 临时实施方案已在对话输出；仅版本递增为 179/2.7.13，Room v33 不变；思考/显示名/重试/搜索/滚动修正随包首发，动画不改。

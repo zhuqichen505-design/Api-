@@ -10,8 +10,206 @@ import org.junit.Test
 import java.net.ProtocolException
 import java.net.SocketTimeoutException
 import java.io.InterruptedIOException
+import java.net.InetAddress
+import java.net.ServerSocket
+import java.net.Socket
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.CopyOnWriteArrayList
+import okhttp3.Dns
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 
 class NetworkAndKeyStabilityTest {
+    private class LocalEndpoint(private val respond: (Socket) -> Unit) : AutoCloseable {
+        private val server = ServerSocket(0, 10, InetAddress.getByName("127.0.0.1"))
+        private val executor = Executors.newSingleThreadExecutor()
+        val requests = AtomicInteger()
+        val requestLines = CopyOnWriteArrayList<String>()
+        val payloads = CopyOnWriteArrayList<String>()
+        val port: Int get() = server.localPort
+        init {
+            executor.submit {
+                while (!server.isClosed) {
+                    try {
+                        server.accept().use { socket ->
+                            socket.soTimeout = 2_000
+                            val reader = socket.getInputStream().bufferedReader()
+                            requestLines.add(reader.readLine())
+                            var length = 0
+                            while (true) {
+                                val line = reader.readLine() ?: break
+                                if (line.isEmpty()) break
+                                if (line.startsWith("Content-Length:", true)) length = line.substringAfter(':').trim().toInt()
+                            }
+                            val payload = CharArray(length)
+                            var read = 0
+                            while (read < length) {
+                                val count = reader.read(payload, read, length - read)
+                                if (count < 0) break
+                                read += count
+                            }
+                            payloads.add(String(payload, 0, read))
+                            requests.incrementAndGet()
+                            respond(socket)
+                        }
+                    } catch (_: java.io.IOException) {
+                        if (server.isClosed) break
+                    }
+                }
+            }
+        }
+        override fun close() {
+            server.close()
+            executor.shutdownNow()
+            executor.awaitTermination(3, TimeUnit.SECONDS)
+        }
+    }
+
+    private fun Socket.reply(status: String = "200 OK", body: String = "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n", extraHeaders: String = "") {
+        val bytes = body.toByteArray(Charsets.UTF_8)
+        getOutputStream().apply {
+            write("HTTP/1.1 $status\r\nContent-Type: text/event-stream\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n$extraHeaders\r\n".toByteArray())
+            write(bytes)
+            flush()
+        }
+    }
+
+    private fun request(port: Int, host: String = "127.0.0.1") = Request.Builder()
+        .url("http://$host:$port/v1/chat/completions")
+        .post("{\"model\":\"gpt-6.1-sol\",\"stream\":true}".toRequestBody())
+        .build()
+
+    @Test fun connectionFallsBackToSecondAddressBeforeSendingPost() {
+        LocalEndpoint { it.reply() }.use { server ->
+            val client = RetrofitClient.streamHttpClient.newBuilder()
+                .dns(object : Dns {
+                    override fun lookup(hostname: String) = listOf(InetAddress.getByName("127.0.0.2"), InetAddress.getByName("127.0.0.1"))
+                })
+                .connectTimeout(300, TimeUnit.MILLISECONDS).readTimeout(2, TimeUnit.SECONDS).build()
+            client.newCall(request(server.port, "model.test")).execute().use { response ->
+                assertEquals(200, response.code)
+                assertTrue(response.body!!.string().contains("[DONE]"))
+            }
+            assertEquals("Only the reachable address receives the model POST", 1, server.requests.get())
+        }
+    }
+
+    @Test fun allAiClientsRecoverBeforeSendingButDoNotReplaySentPosts() {
+        for (base in listOf(RetrofitClient.restHttpClient, RetrofitClient.longAnalysisHttpClient)) {
+            LocalEndpoint { it.reply(body = "ok") }.use { server ->
+                val client = base.newBuilder().dns(object : Dns {
+                    override fun lookup(hostname: String) = listOf(InetAddress.getByName("127.0.0.2"), InetAddress.getByName("127.0.0.1"))
+                }).connectTimeout(300, TimeUnit.MILLISECONDS).build()
+                client.newCall(request(server.port, "model.test")).execute().use { response ->
+                    assertEquals("ok", response.body!!.string())
+                }
+                assertEquals(1, server.requests.get())
+            }
+            LocalEndpoint { }.use { server ->
+                try { base.newCall(request(server.port)).execute().close(); fail("Disconnect must fail") }
+                catch (_: java.io.IOException) { }
+                assertEquals(1, server.requests.get())
+            }
+        }
+    }
+
+    @Test fun actualPostJsonDeliversFirstDeltaBeforeStreamClosesForBothProtocols() {
+        val protocols = listOf(
+            "chat/completions" to "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n",
+            "messages" to "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"hello\"}}\n\n"
+        )
+        for ((path, firstChunk) in protocols) {
+            val release = CountDownLatch(1)
+            val tail = if (path == "messages") "data: {\"type\":\"message_stop\"}\n\n" else "data: [DONE]\n\n"
+            val worker = Executors.newSingleThreadExecutor()
+            LocalEndpoint { socket ->
+                val length = (firstChunk + tail).toByteArray().size
+                val output = socket.getOutputStream()
+                output.write("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: $length\r\nConnection: close\r\n\r\n$firstChunk".toByteArray())
+                output.flush()
+                if (release.await(3, TimeUnit.SECONDS)) { output.write(tail.toByteArray()); output.flush() }
+            }.use { server ->
+                try {
+                    val json = "{\"model\":\"gpt-6.1-sol\",\"stream\":true}"
+                    val result = worker.submit<String> {
+                        RetrofitClient.postJson("http://127.0.0.1:${server.port}/v1", path,
+                            mapOf("Accept" to "text/event-stream", "Authorization" to "Bearer test-only"), json).use { response ->
+                            assertEquals(200, response.code)
+                            assertEquals(TimeUnit.SECONDS.toNanos(600), response.body!!.source().timeout().timeoutNanos())
+                            response.body!!.byteStream().bufferedReader().readLine()
+                        }
+                    }
+                    val line = result.get(2, TimeUnit.SECONDS)
+                    if (path == "messages") {
+                        val event = com.google.gson.Gson().fromJson(line.removePrefix("data: "), com.aiassistant.domain.model.AnthropicStreamEvent::class.java)
+                        assertEquals("hello", event.delta!!.text)
+                    } else assertEquals("hello", AiRepository.parseOpenAiStreamLine(line)!!.contentDelta)
+                    assertEquals("POST /v1/$path HTTP/1.1", server.requestLines.single())
+                    assertEquals(json, server.payloads.single())
+                    assertEquals(1, server.requests.get())
+                } finally { release.countDown(); worker.shutdownNow() }
+            }
+        }
+    }
+
+    @Test fun receivedPostIsNeverSilentlyReplayedAfterDisconnect() {
+        LocalEndpoint { /* Close after reading the complete POST, without response headers. */ }.use { server ->
+            val client = RetrofitClient.streamHttpClient.newBuilder().readTimeout(1, TimeUnit.SECONDS).build()
+            try {
+                client.newCall(request(server.port)).execute().close()
+                fail("A disconnected response must fail")
+            } catch (_: java.io.IOException) { }
+            assertEquals(1, server.requests.get())
+        }
+    }
+
+    @Test fun httpRetryResponsesRemainVisibleToExplicitPolicy() {
+        for (status in listOf("408 Request Timeout", "503 Service Unavailable")) {
+            LocalEndpoint { it.reply(status, "error", "Retry-After: 0\r\n") }.use { server ->
+                RetrofitClient.streamHttpClient.newCall(request(server.port)).execute().use { response ->
+                    assertEquals(status.substringBefore(' ').toInt(), response.code)
+                    assertEquals("error", response.body!!.string())
+                }
+                assertEquals("HTTP retry must be owned by RetryPolicy", 1, server.requests.get())
+            }
+        }
+    }
+
+    @Test fun responseHeaderTimeoutIsFiniteAndClassifiedForRetry() {
+        LocalEndpoint { socket -> Thread.sleep(600); socket.reply() }.use { server ->
+            val client = RetrofitClient.streamHttpClient.newBuilder().readTimeout(100, TimeUnit.MILLISECONDS).build()
+            try {
+                client.newCall(request(server.port)).execute().close()
+                fail("A silent server must time out")
+            } catch (e: SocketTimeoutException) {
+                assertEquals(com.aiassistant.domain.model.RetryErrorType.TIMEOUT, com.aiassistant.domain.model.RetryErrorType.classify(e))
+            }
+            assertEquals(1, server.requests.get())
+        }
+    }
+
+    @Test fun cancellingBlockedHeaderReadUnblocksCallWithoutReplay() {
+        LocalEndpoint { Thread.sleep(700) }.use { server ->
+            val client = RetrofitClient.streamHttpClient.newBuilder().readTimeout(2, TimeUnit.SECONDS).build()
+            val call = client.newCall(request(server.port))
+            val worker = Executors.newSingleThreadExecutor()
+            try {
+                val result = worker.submit<Boolean> {
+                    try { call.execute().close(); false } catch (_: java.io.IOException) { call.isCanceled() }
+                }
+                val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+                while (server.requests.get() == 0 && System.nanoTime() < deadline) Thread.sleep(10)
+                assertEquals(1, server.requests.get())
+                call.cancel()
+                assertTrue(result.get(2, TimeUnit.SECONDS))
+                assertEquals(1, server.requests.get())
+            } finally { worker.shutdownNow() }
+        }
+    }
+
     @Test
     fun retryClassifiesActualApiExceptionsBeforeBodyText() {
         val types = mapOf(400 to "BAD_REQUEST", 401 to "AUTHENTICATION", 403 to "PERMISSION", 404 to "NOT_FOUND", 408 to "REQUEST_TIMEOUT", 409 to "CONFLICT", 413 to "TOO_LARGE", 422 to "INVALID_PARAMETERS", 429 to "RATE_LIMIT", 500 to "SERVER", 502 to "BAD_GATEWAY", 503 to "UNAVAILABLE", 504 to "GATEWAY_TIMEOUT", 418 to "OTHER_HTTP")
@@ -44,13 +242,15 @@ class NetworkAndKeyStabilityTest {
     @Test
     fun testNetworkStabilityConfiguration() {
         val streamClient = RetrofitClient.streamHttpClient
-        assertFalse("底层不得隐藏重发模型 POST 请求", streamClient.retryOnConnectionFailure)
-        assertFalse(RetrofitClient.longAnalysisHttpClient.retryOnConnectionFailure)
+        assertTrue("请求发送前必须允许连接地址回退", streamClient.retryOnConnectionFailure)
+        assertTrue(RetrofitClient.longAnalysisHttpClient.retryOnConnectionFailure)
+        assertEquals(120_000, streamClient.readTimeoutMillis)
+        assertEquals(600L, RetrofitClient.STREAM_IDLE_TIMEOUT_SECONDS)
         assertEquals("streamHttpClient 应配置 15s 的 HTTP/2 pingInterval 保活心跳", 15_000, streamClient.pingIntervalMillis)
         assertNotNull("streamHttpClient 应配置专用连接池", streamClient.connectionPool)
 
         val restClient = RetrofitClient.restHttpClient
-        assertFalse(restClient.retryOnConnectionFailure)
+        assertTrue(restClient.retryOnConnectionFailure)
         assertNotNull("restClient 应配置专用连接池", restClient.connectionPool)
 
         assertEquals("默认 User-Agent 必须为合规标识而非默认 okhttp", "Echo-Assistant/2.2.5 (Android; Mobile)", RetrofitClient.DEFAULT_USER_AGENT)

@@ -1,5 +1,28 @@
 # Echo 构建走查与验收报告 (Walkthrough)
 
+## v2.7.14 模型连接回归修复发布（2026-10-04）
+
+### 修复范围与实测
+- 基线 main/56f9077；版本 180/2.7.14，Room v33/20 实体、动画和数据不变。
+- 修复三个 AI OkHttp 客户端关闭 retryOnConnectionFailure 时连同请求发送前的多地址恢复一起关闭的回归；开启路由恢复，所有 POST body 标记 one-shot，发送后禁止隐藏重放，显式分类重试保留。
+- 流式响应头等待 120s；已收到头后空闲读取 600s；正常持续输出无总时长限制。优先恢复正常连接，超时仅作兜底。
+- 修复前本地 DNS 第一地址不可达/第二地址可用测试确实失败；修复后可用地址约 33–61ms 返回 200，仅 1 次模型 POST。实际 postJson 两种协议首 delta 在流未关闭时即可读取；路径/model ID/JSON 未被格式化或改写。
+- 已验证三个客户端断连不重放、408/503 原响应交给显式策略、无响应超时与取消。
+- `./gradlew.bat compileDebugKotlin --no-daemon --console=plain`、`./gradlew.bat testDebugUnitTest --no-daemon --console=plain`、`./gradlew.bat lintDebug --no-daemon --console=plain`、`./gradlew.bat assembleRelease --no-daemon --console=plain` 各退出 0；81 套件、548 项通过（0 失败/错误/跳过），Lint 0 Error / 89 Warning。
+- `git diff --check`、apksigner verify --print-certs、aapt dump badging、复制/哈希/历史文件校验各退出 0。
+- APK：`D:\Agent\APP-Echo\app\releases\Echo-v2.7.14.apk`，16,733,041 字节；包名 com.aiassistant、180/2.7.14、arm64-v8a、minSdk 26 / targetSdk 34。
+- SHA256：`251618D9168F1B82B470532B698EB1737DFC584D1A5AFCFBCE0D6BA69DCFFA66`。
+- 签名 DN `C=US, O=Android, CN=Android Debug`；证书 SHA256 `939638f6d3e9af7f8a980e62af52d275fee73381f2130cc4e20a0d349f98e21f` 与上一版一致，**非正式生产签名**。
+- 禁止覆盖方式复制；190 个历史文件逐一长度/哈希校验无变化，发布后 191 个文件，历史包未删除或清理。
+- ADB 无设备，未获得用户实际请求日志或真实接口，不将本地复现等同于设备唯一根因或所有真实模型已经恢复。
+
+### 优先人工验收（未执行）
+1. 备份数据后覆盖升级，版本 2.7.14；使用原可用接口/Key，关闭联网搜索发送“回复 OK”，观察是否快速出现首个正文/思考，不需重配或更改 Key。
+2. 同一接口切换此前可用的不同模型，普通与角色会话各测一次；对比其他平台实际请求地址、协议和原始模型 ID，勿发送 Key。
+3. 使用 Wi-Fi/移动网络及原代理设置各测一次；若仍连接中，提供脱敏 AiRepository / OkHttp 错误日志、持续时间、模型列表能否刷新和 API 协议，继续定位而非增加重试等待。
+4. 连接中停止再发送，首 token 后返回首页再进入，确认停止及时、后台累计回复可恢复；断流保留已有输出，不自动重复。
+5. 可控 401/408/429/503/超时验证分类规则与次数、备用 Key 开关；确认成功连接不需要先耗尽重试。
+
 ## v2.7.13 思考设置、分类重试、搜索与连接滚动发布（2026-10-04）
 
 ### 发布范围与工程检查
